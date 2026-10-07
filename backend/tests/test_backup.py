@@ -88,6 +88,7 @@ class _FakeDialect:
     """Just enough dialect for `_resync_sequences` to branch on."""
 
     def __init__(self, name: str) -> None:
+        """A dialect of this name that is its own identifier preparer."""
         self.name = name
         self.identifier_preparer = self
 
@@ -98,6 +99,7 @@ class _FakeDialect:
 
 class _FakeBind:
     def __init__(self, dialect_name: str) -> None:
+        """A bind whose dialect has this name."""
         self.dialect = _FakeDialect(dialect_name)
 
 
@@ -105,6 +107,7 @@ class _FakeSession:
     """Records what was executed and can be told to fail."""
 
     def __init__(self, dialect_name: str = "postgresql", fail: bool = False) -> None:
+        """A session on the named dialect, nothing yet executed or committed."""
         self._bind = _FakeBind(dialect_name)
         self.fail = fail
         self.executed: list[str] = []

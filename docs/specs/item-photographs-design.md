@@ -262,7 +262,8 @@ unless `--commit`.
 - `tests/test_image_move.py` (moving and `name_for_place`),
   `tests/test_image_order_and_names.py` (placement after the last photograph,
   names kept as stored), `tests/test_image_from_url.py` (the fetch guards,
-  with a stubbed resolver and client), `tests/test_images.py` (metadata
+  with a stubbed resolver and client), `tests/test_image_sources.py` (the
+  address recovery pass), `tests/test_images.py` (metadata
   stripping against a GPS-tagged fixture, hashing, derivatives, the upload,
   list and serving routes).
 - Each guard call site fails a named test when deleted.

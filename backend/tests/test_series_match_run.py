@@ -22,6 +22,7 @@ UNRECOGNISABLE = {"title": "Plain metal disc", "description": "No series here."}
 
 
 def _series_id(db: Session, code: str) -> int:
+    """The id of the series with this code."""
     return db.execute(select(Series.id).where(Series.code == code)).scalar_one()
 
 

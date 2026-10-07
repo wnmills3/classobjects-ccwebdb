@@ -87,6 +87,7 @@ def _note(
 
 
 def _row(result: ReportResult, kind_label: str, denom_label: str) -> dict[str, object]:
+    """The holdings row for one kind and denomination."""
     return next(
         r
         for r in result.rows
@@ -95,6 +96,7 @@ def _row(result: ReportResult, kind_label: str, denom_label: str) -> dict[str, o
 
 
 def _subtotal(result: ReportResult, kind_label: str) -> dict[str, object]:
+    """The holdings row that subtotals one kind."""
     return next(
         r
         for r in result.rows
@@ -329,6 +331,7 @@ def test_a_split_parent_is_excluded_its_live_children_are_counted(db: Session) -
 
 
 def _parsed(path: str) -> tuple[str, dict[str, str]]:
+    """A drill-down link as its path and its query parameters."""
     split = urlsplit(path)
     return split.path, {k: v[0] for k, v in parse_qs(split.query).items()}
 
@@ -478,6 +481,7 @@ def test_nothing_matching_returns_empty_rows_no_totals_and_a_note(db: Session) -
 
 
 def _designs_row(result: ReportResult, series_label: str) -> dict[str, object]:
+    """The designs report's row for one series."""
     return next(r for r in result.rows if r["series"] == series_label)
 
 
@@ -681,6 +685,7 @@ def _add_error(db: Session, item: InventoryItem, code: str) -> None:
 def _notes_row(
     result: ReportResult, note_type: str, series_designation: str
 ) -> dict[str, object]:
+    """The notes report's row for one class and series designation."""
     return next(
         r
         for r in result.rows
@@ -835,6 +840,7 @@ def _graded_coin(
     service: str | None = None,
     **overrides: object,
 ) -> InventoryItem:
+    """A coin of this cost with this grade, strike type and grading service."""
     fields: dict[str, object] = {
         "item_cost": cost,
         "tax_rate": Decimal("0"),
@@ -851,6 +857,7 @@ def _graded_coin(
 def _grades_row(
     result: ReportResult, view: str, band: str, strike: str, service: str
 ) -> dict[str, object]:
+    """The grades report's row for one view, band, strike type and service."""
     return next(
         r
         for r in result.rows
@@ -1034,6 +1041,7 @@ def test_grades_excludes_deleted_and_split_items(db: Session) -> None:
 
 
 def _metal_row(result: ReportResult, metal: str, form: str) -> dict[str, object]:
+    """The metal report's row for one metal and form."""
     return next(r for r in result.rows if r["metal"] == metal and r["form"] == form)
 
 
@@ -1451,6 +1459,7 @@ def test_metal_excludes_deleted_and_split_items(db: Session) -> None:
 def _attr_row(
     result: ReportResult, mark: str, label: str, view: str
 ) -> dict[str, object]:
+    """The attributes report's row for one mark, label and view."""
     return next(
         r
         for r in result.rows

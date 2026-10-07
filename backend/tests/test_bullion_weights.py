@@ -98,6 +98,7 @@ def _bullion(
     metal: str | None = "silver",
     **fields: object,
 ) -> InventoryItem:
+    """A bullion item of this form and metal, its words stating no weight."""
     fields.setdefault("title", "Round")
     fields.setdefault("description", "As shown on screen.")
     item = make_item(kind="bullion", year_start=None, **fields)
@@ -108,6 +109,7 @@ def _bullion(
 
 
 def _guesses(db: Session, item: InventoryItem) -> dict[str, tuple[Decimal, str]]:
+    """What the pass would guess for the item: value and rule, by column."""
     return {
         g.column: (g.value, g.rule) for g in plan(db).guesses if g.item_id == item.id
     }

@@ -76,6 +76,7 @@ def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
 def _seed(
     factory: sessionmaker[Session], *, stock: int, buyers: int
 ) -> tuple[int, list[int]]:
+    """Commit a listing with `stock` units and `buyers` customers; their ids."""
     with factory() as session:
         item = InventoryItem(
             source_title=RACE_TITLE,
@@ -119,6 +120,7 @@ def _race(
     payload = OrderCreate(items=[OrderLineIn(listing_id=listing_id, quantity=1)])
 
     def attempt(user_id: int) -> int | str:
+        """One buyer's order in its own session: "ok", or the refusal's status."""
         session = factory()
         try:
             user = session.get_one(User, user_id)
@@ -136,6 +138,7 @@ def _race(
 
 
 def _remaining(factory: sessionmaker[Session], listing_id: int) -> int:
+    """The units the listing still has, read in a session of its own."""
     with factory() as session:
         return session.get_one(Listing, listing_id).quantity_available
 

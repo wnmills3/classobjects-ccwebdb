@@ -203,19 +203,19 @@ Reported and never written:
   the class derived from it. It refreshes the design series too
   (`series_classify.refresh_series`).
 - **At entry.** Receiving's Identify section asks
-  `GET /api/defaults/note` (denomination, series year and letter, serial,
-  rating, plus any class, seal, signatures or Bank the person chose) or
+  `GET /api/defaults/note` (denomination, series year and letter, serial) or
   `GET /api/defaults/coin` (denomination, country, year; answers the metal).
   Both also answer the design series the facts decide
   (`series_classify.suggest_series`), and the note lookup returns a `warning`
   when no issue of that denomination has that series, naming the ones on
-  record. The lookup runs after a 250 ms pause. A form sends only
-  the person's own picks -- a value sent narrows the answer and is never
-  suggested back -- and marks what it filled as *suggested*. Picking a value,
-  even the
-  suggested one, makes it the person's; clearing the denomination withdraws
-  the suggestions. Suggestions the person kept are sent as `suggested` and
-  recorded as `suggestion`.
+  record. The lookup runs after a 250 ms pause, and nothing is asked while
+  the denomination is empty. The section shows the answer as *From these
+  facts* and sets no field: saving the item fills them. The note lookup also
+  takes a `rating` and any class, seal, signatures or Bank a person chose --
+  a value sent narrows the answer and is never suggested back. `POST
+  /api/inventory` takes `suggested`, the fields a client filled from a
+  lookup and the person left alone; each one that holds a value is recorded
+  as `suggestion`.
 - **In batch**, run from `backend`:
 
   ```

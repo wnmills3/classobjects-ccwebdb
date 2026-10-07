@@ -43,14 +43,15 @@ In order:
 | Python types | `mypy` | `pyproject.toml` `[tool.mypy]` |
 | Python tests | `pytest -q` (from `backend`) | `pyproject.toml` `[tool.pytest.ini_options]` |
 | Frontend linting | `eslint --max-warnings 0` | `frontend/eslint.config.js` |
-| Frontend formatting | `prettier --check` | `frontend/.prettierrc.json` |
+| Frontend formatting | `prettier --check` | `frontend/.prettierrc.json`, `frontend/.prettierignore` |
 | Frontend tests | `vitest run` | `frontend/vite.config.js` |
 | Frontend bundle isolation | `vite build`, then `frontend/scripts/check-bundle-isolation.mjs` | `frontend/vite.config.js` (`bundleGraph()`) |
 
 Python tools run from the `ccwebdb` conda environment and Node tools from
 `frontend\node_modules`, both invoked by path. If
 `frontend\node_modules\eslint` is missing, the frontend stages are reported as
-**not installed** and the run fails: an unrun check is not a passed one.
+**SKIPPED** and the run fails (`frontend-not-installed`): an unrun check is
+not a passed one.
 
 `eslint` fails on any warning as well as any error (`--max-warnings 0`, in the
 gate and in `npm run lint` alike), so a warning is never left to accumulate.
@@ -108,7 +109,8 @@ from `D`, `ANN` and `I`.
 
 `backend/app` carries no inline `# noqa` or `# type: ignore`. The tests carry
 a few `# type: ignore[<code>]`, each scoped to one error code, and mypy's
-`warn_unused_ignores` fails any that stops being needed.
+`warn_unused_ignores` fails any that stops being needed; `test_schema.py`
+carries the one `# noqa`, an `F401` on its import of the models.
 
 ---
 
@@ -212,7 +214,8 @@ rule is a warning, which `--max-warnings 0` makes fatal.
 
 Each context is therefore split in two: a `-context.js` module holds the
 context and its hook, and `.jsx` modules export only components, the
-provider among them -- `shared/auth-context.js` and `shared/auth.jsx`,
+provider among them (a constant beside them is allowed, by the rule's
+`allowConstantExport`) -- `shared/auth-context.js` and `shared/auth.jsx`,
 `shared/reference-context.js` and `shared/reference.jsx`,
 `store/cart-context.js` and `store/cart.jsx`, `management/help-context.js` and
 `management/HelpBar.jsx`. The `-context`

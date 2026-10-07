@@ -187,6 +187,7 @@ def _items_using(db: Session, friedberg_id: int) -> int:
 
 
 def _to_out(db: Session, row: FriedbergNumber) -> FriedbergNumberOut:
+    """A catalog row as the API returns it, its classifiers as codes."""
     return FriedbergNumberOut(
         id=row.id,
         fr_number=row.fr_number,
@@ -360,6 +361,7 @@ def signature_choices(
 
 
 def _choices(rows: Sequence[SignatureCombination], source: str) -> SignatureChoicesOut:
+    """The signature pairs to offer, with the rule (`source`) that chose them."""
     return SignatureChoicesOut(
         values=[SignatureChoice(code=row.code, label=row.label) for row in rows],
         source=source,

@@ -36,6 +36,7 @@ NOTE_1, NOTE_5 = "usd_note_1", "usd_note_5"
 
 
 def _series_code(db: Session, item: InventoryItem) -> str | None:
+    """The code of the series the item now holds, or None when it holds none."""
     db.refresh(item)
     if item.series_id is None:
         return None
@@ -45,6 +46,7 @@ def _series_code(db: Session, item: InventoryItem) -> str | None:
 def _coin(
     db: Session, make_item: ItemFactory, denomination: str, year: int, **extra: object
 ) -> InventoryItem:
+    """A coin of this denomination and year, its title naming no design."""
     extra.setdefault("title", "Plain coin")
     return make_item(
         denomination_id=code_id(db, Denomination, denomination),
@@ -63,6 +65,7 @@ def _note(
     seal: str | None = None,
     **extra: object,
 ) -> InventoryItem:
+    """A banknote of this series year, letter and seal, its title naming no design."""
     extra.setdefault("title", "Plain note")
     item = make_item(
         kind="currency",
@@ -83,6 +86,7 @@ def _note(
 
 
 def _case(db: Session, item: InventoryItem) -> tuple[str, tuple[str, ...]] | None:
+    """Why classifying left the item for review, and the designs it could be."""
     report = classify(db)
     for case in report.review:
         if case.item_code == item.item_code:
@@ -535,6 +539,7 @@ def test_series_match_leaves_notes_to_the_facts(
 
 
 def _ranges(db: Session, code: str) -> set[tuple[int, int | None]]:
+    """The year ranges recorded for the series with this code."""
     rows = db.execute(
         select(SeriesYearRange.year_start, SeriesYearRange.year_end)
         .join(Series, Series.id == SeriesYearRange.series_id)
@@ -578,6 +583,7 @@ def test_seeded_ranges_follow_the_file(db: Session, tmp_path: Path) -> None:
 
 
 def _class(db: Session, item: InventoryItem, code: str) -> None:
+    """Record the note's class as the note type with this code."""
     from app.models import NoteType
 
     detail = db.execute(
@@ -688,6 +694,7 @@ def test_brown_seal_finds_the_1929_nationals(
 
 
 def _source(db: Session, item: InventoryItem) -> str | None:
+    """What the item's series is recorded as derived by, or None for no record."""
     return db.execute(
         select(ItemFieldSource.derived_by).where(
             ItemFieldSource.inventory_item_id == item.id,

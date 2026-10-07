@@ -14,6 +14,7 @@ from app.allocation import AllocationError, allocate
 
 
 def D(value: str | int) -> Decimal:
+    """An exact decimal, written short so a test's amounts stay readable."""
     return Decimal(value)
 
 

@@ -163,6 +163,10 @@ function PhotoRow({ row, onLinked }) {
   )
 }
 
+/**
+ * The Photos page: the unattached photographs in the order the server gives
+ * them, a row each. A photograph linked to an item leaves the list at once.
+ */
 export default function Photos() {
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')

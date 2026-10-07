@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 
 def _labels(client: TestClient, query: str = "") -> list[str]:
+    """The labels of the signature combinations the route returns, in its order."""
     response = client.get(f"/api/reference/signature_combination{query}")
     assert response.status_code == 200, response.text
     return [row["label"] for row in response.json()["values"]]

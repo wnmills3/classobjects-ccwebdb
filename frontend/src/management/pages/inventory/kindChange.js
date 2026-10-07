@@ -60,6 +60,7 @@ const SIDED_VALUES = [
   ['grade_designation', 'grade_designation'],
 ]
 
+/** Whether a field holds anything to give up: not null, undefined or blank. */
 const isSet = (value) => value !== null && value !== undefined && value !== ''
 
 /**

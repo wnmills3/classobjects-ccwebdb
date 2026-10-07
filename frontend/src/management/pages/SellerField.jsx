@@ -4,6 +4,7 @@ import { api } from '../api'
 import { useRequest } from '../../shared/useRequest'
 import { orNull } from '../../shared/text'
 import { siteName } from '../site-name'
+import { useInlineAdd } from '../useInlineAdd'
 
 const BLANK_DRAFT = { name: '', store_url: '' }
 
@@ -20,36 +21,20 @@ const BLANK_DRAFT = { name: '', store_url: '' }
 export default function SellerField({ value, onChange }) {
   const loaded = useRequest('sellers', () => api.listSellers())
   const [added, setAdded] = useState([])
-  const [adding, setAdding] = useState(false)
-  const [draft, setDraft] = useState(BLANK_DRAFT)
-  const [error, setError] = useState('')
   const sellers = [...(loaded.data ?? []), ...added].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
   )
-
-  async function addSeller() {
-    try {
-      const created = await api.createSeller({
-        name: draft.name.trim(),
-        store_url: orNull(draft.store_url),
-      })
-      setAdded((list) => [...list, created])
-      onChange(String(created.id))
-      setAdding(false)
-      setDraft(BLANK_DRAFT)
-      setError('')
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
-  // Inside the purchase's own form: Enter in a box adds the seller rather
-  // than submitting the purchase. A button keeps its own Enter.
-  function onKeyDown(e) {
-    if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return
-    e.preventDefault()
-    if (draft.name.trim()) addSeller()
-  }
+  const { adding, setAdding, draft, setDraft, error, add, onKeyDown, ready } =
+    useInlineAdd({
+      blank: BLANK_DRAFT,
+      ready: (d) => Boolean(d.name.trim()),
+      create: (d) =>
+        api.createSeller({ name: d.name.trim(), store_url: orNull(d.store_url) }),
+      onCreated: (created) => {
+        setAdded((list) => [...list, created])
+        onChange(String(created.id))
+      },
+    })
 
   if (adding) {
     return (
@@ -77,7 +62,7 @@ export default function SellerField({ value, onChange }) {
           value={draft.name}
           onChange={(e) => setDraft({ ...draft, name: e.target.value })}
         />
-        <button type="button" onClick={addSeller} disabled={!draft.name.trim()}>
+        <button type="button" onClick={add} disabled={!ready}>
           Add seller
         </button>
         <button type="button" className="link" onClick={() => setAdding(false)}>

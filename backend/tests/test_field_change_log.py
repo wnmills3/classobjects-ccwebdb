@@ -19,6 +19,7 @@ from tests.builders import build_bare_item
 
 
 def _changes(db: Session, item_id: int) -> list[ItemFieldChange]:
+    """The item's logged field changes, in field-name order."""
     return list(
         db.scalars(
             select(ItemFieldChange)
@@ -31,6 +32,7 @@ def _changes(db: Session, item_id: int) -> list[ItemFieldChange]:
 def _detail(
     client: TestClient, headers: dict[str, str], item_id: int
 ) -> dict[str, Any]:
+    """The item as its detail route returns it."""
     body: dict[str, Any] = client.get(
         f"/api/inventory/{item_id}", headers=headers
     ).json()

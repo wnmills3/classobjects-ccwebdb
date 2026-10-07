@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { api } from '../../api'
 import EnlargeableImage from '../../EnlargeableImage'
@@ -6,6 +6,7 @@ import ItemPicker from '../ItemPicker'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { useRequest } from '../../../shared/useRequest'
+import { useImageDrop } from '../../useImageDrop'
 
 /**
  * Every photograph filed against this item, and the place a new one is
@@ -97,16 +98,6 @@ export default function PhotosPanel({
   // what the last file dropped or pasted there was refused for -- a chosen
   // file never fails this check (the file box already filters by
   // `accept="image/*"`), so this only ever fires from a drop or a paste.
-  const [dragActive, setDragActive] = useState(false)
-  const [pickError, setPickError] = useState('')
-  // A nesting count, not a flag: entering the drop target's own children
-  // (the label, the input, the help text) fires a dragenter on the child and
-  // a dragleave on the target itself, since only the topmost element under
-  // the pointer counts as "current" -- a flag would blink the hint off for
-  // every child crossed. Active while the count is above zero; a drop or a
-  // cancelled drag (see the window listener below) resets it to zero rather
-  // than trusting the count to unwind on its own.
-  const dragDepth = useRef(0)
   // A held photograph counts: two added at once are an obverse and a reverse.
   const held = new Set([
     ...shown.filter((row) => !leaving(row.edit)).map((row) => row.role),
@@ -126,28 +117,12 @@ export default function PhotosPanel({
   }
 
   /**
-   * What choosing a file, dropping one, and pasting one all funnel into --
-   * the input, `handleDrop` and `handlePaste` below call nothing else. Each
-   * file is held as the obverse, then the reverse, then unlabelled, counting
-   * whatever a batch has already claimed as it goes. A file that is not a
-   * photograph refuses the whole drop or paste with a message naming it,
-   * rather than silently skipping it -- the file box itself never reaches
-   * this branch, since `accept="image/*"` already keeps a non-image out of
-   * `e.target.files`.
+   * What choosing a file, dropping one, and pasting one all funnel into
+   * (`useImageDrop`). Each file is held as the obverse, then the reverse,
+   * then unlabelled, counting whatever a batch has already claimed as it
+   * goes.
    */
-  function addFiles(fileList) {
-    const files = Array.from(fileList ?? []).filter(Boolean)
-    if (files.length === 0) return
-    const notImages = files.filter((file) => !file.type.startsWith('image/'))
-    if (notImages.length > 0) {
-      const names = notImages.map((file) => file.name).join(', ')
-      setPickError(
-        `${names} ${notImages.length > 1 ? 'are not images' : 'is not an image'} -- ` +
-          'only a photograph can be added here.',
-      )
-      return
-    }
-    setPickError('')
+  function addImages(files) {
     const claimed = new Set(held)
     for (const file of files) {
       const role = ['obverse', 'reverse'].find((code) => !claimed.has(code)) ?? ''
@@ -157,68 +132,7 @@ export default function PhotosPanel({
     }
   }
 
-  function upload(e) {
-    addFiles(e.target.files)
-    e.target.value = ''
-  }
-
-  function handleDragOver(e) {
-    // Without this the browser's own default takes over: dropping an image
-    // on the page opens it in the tab instead of reaching this panel.
-    e.preventDefault()
-  }
-
-  function handleDragEnter(e) {
-    e.preventDefault()
-    dragDepth.current += 1
-    setDragActive(true)
-  }
-
-  function handleDragLeave(e) {
-    e.preventDefault()
-    dragDepth.current = Math.max(0, dragDepth.current - 1)
-    if (dragDepth.current === 0) setDragActive(false)
-  }
-
-  function handleDrop(e) {
-    e.preventDefault()
-    dragDepth.current = 0
-    setDragActive(false)
-    addFiles(e.dataTransfer?.files)
-  }
-
-  // A drag cancelled outright -- Escape, or a drop outside the browser
-  // window -- can leave this panel's own dragleave never firing, since the
-  // pointer never crosses the target's boundary again to trigger one. Both
-  // `dragend` (fired on the source once the operation ends) and `drop`
-  // (fired wherever it actually lands) are caught at the window regardless
-  // of where that is, as a backstop for the per-target handlers above.
-  useEffect(() => {
-    function reset() {
-      dragDepth.current = 0
-      setDragActive(false)
-    }
-    window.addEventListener('dragend', reset)
-    window.addEventListener('drop', reset)
-    return () => {
-      window.removeEventListener('dragend', reset)
-      window.removeEventListener('drop', reset)
-    }
-  }, [])
-
-  function handlePaste(e) {
-    const items = e.clipboardData?.items
-    if (!items) return
-    const imageFiles = Array.from(items)
-      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
-      .map((item) => item.getAsFile())
-      .filter(Boolean)
-    // Nothing to add: leave the event alone so plain text still pastes
-    // normally wherever this was actually aimed.
-    if (imageFiles.length === 0) return
-    e.preventDefault()
-    addFiles(imageFiles)
-  }
+  const drop = useImageDrop({ onImages: addImages })
 
   function addFromAddress() {
     onAdd({ kind: 'url', url: address.trim(), role: nextSide })
@@ -421,23 +335,19 @@ export default function PhotosPanel({
       {!loading && (
         <div className="photo-add">
           <div
-            className={`photo-drop${dragActive ? ' photo-drop-active' : ''}`}
+            className={`photo-drop${drop.dragActive ? ' photo-drop-active' : ''}`}
             tabIndex={0}
             aria-label="Add an image: drag one here, or paste one with Ctrl+V"
-            onDragEnter={handleDragEnter}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onPaste={handlePaste}
+            {...drop.target}
           >
             <label>
               Photo
-              <input type="file" accept="image/*" onChange={upload} />
+              <input type="file" accept="image/*" onChange={drop.onFileInput} />
             </label>
             <p className="muted">
               Choose a file, drag one here, or paste an image (Ctrl+V).
             </p>
-            {pickError && <p className="error">{pickError}</p>}
+            {drop.pickError && <p className="error">{drop.pickError}</p>}
           </div>
           <label>
             Photo web address{/* */}

@@ -182,11 +182,13 @@ _ORDER_DETAIL = (
 
 
 def _status_code(db: Session, order: SalesOrder) -> str:
+    """The code of the order's status."""
     # `get_one`: a status id naming no row is a broken database, not `pending`.
     return db.get_one(SalesOrderStatus, order.sales_order_status_id).code
 
 
 def _load(db: Session, order_id: int) -> SalesOrder | None:
+    """The order with everything its detail view shows loaded, or None."""
     return db.scalar(
         select(SalesOrder).where(SalesOrder.id == order_id).options(*_ORDER_DETAIL)
     )
@@ -246,6 +248,11 @@ def list_orders(db: DbSession, user: CurrentUser, mine: bool = False) -> list[Or
 
 
 def _visible_or_404(db: Session, order_id: int, user: User) -> SalesOrder:
+    """The order, if this user may see it: a manager any, a customer their own.
+
+    An order that is someone else's answers 404, the same as one that does
+    not exist.
+    """
     order = _load(db, order_id)
     order = found_or_404(order, _ORDER_NOT_FOUND)
     if user.role is not UserRole.manager:

@@ -80,6 +80,7 @@ def held_attributes(db: Session, item_id: int) -> list[Held]:
 
 
 def _allowed(db: Session, item: InventoryItem) -> set[AppliesTo]:
+    """The attribute scopes the item may take: its own kind's, and `any`."""
     kind = db.scalar(select(ItemKind.code).where(ItemKind.id == item.item_kind_id))
     own = AppliesTo.currency if kind == "currency" else AppliesTo.coin
     return {own, AppliesTo.any}

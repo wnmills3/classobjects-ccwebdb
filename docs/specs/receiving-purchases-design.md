@@ -103,7 +103,8 @@ All admin-only.
 | `GET /api/storage-locations`, `POST /api/storage-locations` | the *Storage location* choices, and adding one inline |
 | `GET /api/inventory/{id}` | the item being received (kind, sale state) |
 | `POST /api/inventory/{id}/reviewed`, `PATCH /api/inventory/{id}`, `PUT /api/inventory/{id}/errors` | save Identify, confirm or correct fields, record errors |
-| `GET /api/friedberg`, `POST /api/friedberg`, `PATCH /api/friedberg/{id}`, `POST /api/inventory/{id}/friedberg` | a banknote's catalog-number lookup |
+| `GET /api/defaults/note`, `GET /api/defaults/coin` | what the facts typed in Identify decide, shown beside them |
+| `GET /api/friedberg`, `GET /api/friedberg/signatures`, `POST /api/friedberg`, `PATCH /api/friedberg/{id}`, `POST /api/inventory/{id}/friedberg` | a banknote's catalog-number lookup |
 | `POST /api/images` | photographs of the item being received |
 
 The search filters Receiving uses: `order_number` (partial, case-insensitive

@@ -98,6 +98,7 @@ def test_checkout_records_the_buyer_as_placer_and_writes_placed(
 
 
 def _new_customer(db: Session, name: str = "Walk-in Buyer") -> Customer:
+    """A customer with no account and no email, committed."""
     customer = Customer(display_name=name, email=None)
     db.add(customer)
     db.commit()
@@ -220,6 +221,7 @@ def test_only_an_admin_may_create_a_customer_record_for_an_account(
 def _place(
     client: TestClient, headers: dict[str, str], listing_id: int, qty: int
 ) -> dict[str, Any]:
+    """Order `qty` of a listing as the signed-in user; the response's body."""
     return client.post(
         "/api/orders",
         json={"items": [{"listing_id": listing_id, "quantity": qty}]},
@@ -230,6 +232,7 @@ def _place(
 def _place_response(
     client: TestClient, headers: dict[str, str], listing_id: int, qty: int
 ) -> Response:
+    """Order `qty` of a listing as the signed-in user; the response itself."""
     return client.post(
         "/api/orders",
         json={"items": [{"listing_id": listing_id, "quantity": qty}]},
@@ -238,6 +241,7 @@ def _place_response(
 
 
 def _ebay(db: Session) -> int:
+    """The id of a marketplace venue named eBay, added for the test."""
     kind = db.scalar(
         select(SalesVenueKind.id).where(SalesVenueKind.code == "marketplace")
     )
@@ -410,6 +414,7 @@ def _revise(
     customer_id: int | None = None,
     notes: str | None = None,
 ) -> Response:
+    """Revise an order to these lines, from the version the caller last read."""
     return client.put(
         f"/api/orders/{order['id']}",
         json={
@@ -423,6 +428,7 @@ def _revise(
 
 
 def _changes(db: Session, order_id: int) -> list[tuple[str, str | None, str | None]]:
+    """The order's logged changes, oldest first: what changed, from and to."""
     db.expire_all()
     rows = db.scalars(
         select(SalesOrderChange)
@@ -914,6 +920,7 @@ def test_payment_adjustment_is_due_only_after_a_paid_total_changes(
     order = _place(client, customer_headers, listing.id, 1)
 
     def line(qty: int) -> list[dict[str, Any]]:
+        """The order's one line at this quantity, its price unchanged."""
         return [{"listing_id": listing.id, "quantity": qty, "unit_price": "189.00"}]
 
     order = _revise(client, admin_headers, order, line(2)).json()

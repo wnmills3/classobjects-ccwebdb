@@ -167,6 +167,16 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
   )
 }
 
+/**
+ * The bar shown while anything is selected; nothing when `ids` is empty.
+ *
+ * `ids` is the whole selection and `rows` the page on screen, so the offer
+ * dialog gets only the selected rows this page holds while a field change
+ * and a grouping take every id. `view` ('coins' or 'currency') decides
+ * which fields are offered. `onApplied` runs after a field change is saved,
+ * `onOffered` with the ids that were offered, and `onClear` drops the
+ * selection.
+ */
 export default function BulkEditBar({
   ids,
   rows = [],

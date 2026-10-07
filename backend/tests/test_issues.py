@@ -28,6 +28,7 @@ _KIND_CONSTRAINT = re.compile(r"k\.code\s*(=|<>)\s*'([^']+)'")
 
 
 def _kind_constraint(sql: str) -> tuple[bool, str] | None:
+    """The item kind a check's SQL is limited to, and whether by `=`; None if none."""
     match = _KIND_CONSTRAINT.search(sql)
     if match is None:
         return None
@@ -35,6 +36,7 @@ def _kind_constraint(sql: str) -> tuple[bool, str] | None:
 
 
 def search(client: TestClient, headers: dict[str, str], query: str) -> dict:
+    """What the coin search answers for a raw query string."""
     return client.get(f"/api/inventory/coins/search?{query}", headers=headers).json()
 
 

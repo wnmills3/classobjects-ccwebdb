@@ -33,6 +33,7 @@ const TABS = [
   { key: 'locations', label: 'Storage locations' },
 ]
 
+/** The label `options` gives `code`, or the code itself when it has none. */
 function labelIn(options, code) {
   return options.find((entry) => entry.code === code)?.label ?? code ?? ''
 }
@@ -53,6 +54,13 @@ function typeOf(row) {
     .join(', ')
 }
 
+/**
+ * The description of each list, by tab key, that `CatalogTable` is driven
+ * by: how it is read, changed and deleted, what a row is called, how many
+ * records use it, the text a search matches, and its columns -- a column
+ * with a `field` can be edited. The two kind vocabularies are passed in
+ * because their labels and pickers come from reference data loaded later.
+ */
 function lists(vendorKinds, locationKinds) {
   // Every kind names a row; only the ones made by hand are offered.
   const offeredKinds = locationKinds.filter((entry) => !MADE_ELSEWHERE.has(entry.code))
@@ -189,6 +197,10 @@ function lists(vendorKinds, locationKinds) {
   }
 }
 
+/**
+ * The Lists page: a tab per list and the table for the one chosen. A tab
+ * the address does not name, or names wrongly, is the Friedberg catalog.
+ */
 export default function Lists() {
   const [params, setParams] = useSearchParams()
   const wanted = params.get('tab')

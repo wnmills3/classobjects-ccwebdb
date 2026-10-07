@@ -370,6 +370,7 @@ def test_the_race_refusal_has_the_same_body_as_every_other(
     venue = _venue(db, "ebay-race")
 
     def _lost(db_: Session, **kwargs: object) -> Listing:
+        """Stand in for the offer, failing as the loser of a race for the claim."""
         raise IntegrityError(
             "INSERT INTO offer_claim ...", {}, Exception("duplicate key value")
         )
@@ -562,6 +563,7 @@ def test_an_edit_that_loses_a_race_at_commit_is_a_409(
     real_get = offers_router._get_listing
 
     def load_then_lose_the_race(session: Session, listing_id: int) -> Listing:
+        """Load the listing, then move its version on as another writer would."""
         loaded = real_get(session, listing_id)
         # Another writer's commit, behind this session's back.
         session.execute(
@@ -604,6 +606,7 @@ def test_ending_an_offer_maps_a_stale_write_to_409(
     ).json()["listings"][0]
 
     def stale(*_args: object, **_kwargs: object) -> None:
+        """Stand in for the write, failing as one that read a stale row."""
         raise StaleDataError("simulated")
 
     monkeypatch.setattr(offers_router.offering_writes, "end_offer", stale)

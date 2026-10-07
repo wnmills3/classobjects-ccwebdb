@@ -94,6 +94,11 @@ def _to_value(
     names: list[str] | None = None,
     retired: list[str] | None = None,
 ) -> ReferenceValueOut:
+    """A vocabulary row as the API returns it.
+
+    The columns every vocabulary has are named fields; a table's own columns
+    go in `extra`, a reference among them as the code of the row it names.
+    """
     extra: dict[str, Any] = {}
     for column in table_of(model).columns:
         if column.name in _COMMON:
@@ -232,6 +237,7 @@ def _limit_to_year(
 
 
 def _model_or_404(table: str) -> type[ReferenceMixin]:
+    """The vocabulary's model, or a 404 for a table that is not one."""
     return found_or_404(TABLES.get(table), f"Unknown reference table: {table!r}")
 
 
@@ -253,6 +259,31 @@ def _unique_columns(model: type[ReferenceMixin], exc: IntegrityError) -> list[st
                 for column in constraint.columns
             ]
     return []
+
+
+def _flush_or_refuse(
+    db: DbSession, table: str, model: type[ReferenceMixin], what: str
+) -> None:
+    """Flush a vocabulary write; a constraint's refusal is a 409 or a 422.
+
+    A broken uniqueness rule is a 409 naming the columns that must differ;
+    any other constraint is a 422 carrying the database's own words. `what`
+    names what was refused -- "the value" being added, "the change" to one.
+    """
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        same = _unique_columns(model, exc)
+        if same:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{table} already has a value with the same {', '.join(same)}.",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{table} rejected {what}: {exc.orig}",
+        ) from exc
 
 
 @router.post(
@@ -326,21 +357,7 @@ def create_value(
         **values,
     )
     db.add(row)
-    try:
-        db.flush()
-    except IntegrityError as exc:
-        db.rollback()
-        same = _unique_columns(model, exc)
-        if same:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"{table} already has a value with the same {', '.join(same)}.",
-            ) from exc
-        raise HTTPException(
-            status_code=422,
-            detail=f"{table} rejected the value: {exc.orig}",
-        ) from exc
-
+    _flush_or_refuse(db, table, model, "the value")
     db.commit()
     db.refresh(row)
     return _to_value(row, model)
@@ -413,19 +430,7 @@ def rename_value(
         # by the foreign keys anyway.
         row.is_active = payload.is_active
 
-    try:
-        db.flush()
-    except IntegrityError as exc:
-        db.rollback()
-        same = _unique_columns(model, exc)
-        if same:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"{table} already has a value with the same {', '.join(same)}.",
-            ) from exc
-        raise HTTPException(
-            status_code=422, detail=f"{table} rejected the change: {exc.orig}"
-        ) from exc
+    _flush_or_refuse(db, table, model, "the change")
     db.commit()
     db.refresh(row)
     return _value_with_aliases(db, row, model)
@@ -434,6 +439,7 @@ def rename_value(
 def _row_or_404(
     db: DbSession, table: str, code: str
 ) -> tuple[type[ReferenceMixin], ReferenceMixin]:
+    """The vocabulary's model and its value with this code, or a 404 for either."""
     model = _model_or_404(table)
     row = db.scalar(select(model).where(model.code == code))
     row = found_or_404(row, f"{table} has no value with code {code!r}")

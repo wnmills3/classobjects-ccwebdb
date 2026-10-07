@@ -10,7 +10,7 @@ import { isMoney } from '../../shared/cents'
 import { FORMATS, STATUSES, UNKNOWN, labelFor, subjectOf } from './listing-labels'
 import { marginPercent } from './platform-rates'
 import { date } from '../../shared/format'
-import { useMounted } from '../useMounted'
+import { useGuardedSave } from '../useGuardedSave'
 import { useSalesVenues } from '../useSalesVenues'
 import { orNull } from '../../shared/text'
 import { SaveButton } from '../SaveButton'
@@ -63,15 +63,8 @@ function ListingForm({ listing, onSaved, onClose }) {
     description: listing.description,
     external_id: listing.external_id ?? '',
   })
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { error, setError, saving, send } = useGuardedSave(onSaved)
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
-
-  // Guards save()'s continuation once the request settles: Cancel (and
-  // Escape, which ModalDialog routes to onClose) can unmount this form while
-  // a save is still in flight, and without the guard a save the user walked
-  // away from would still rewrite the row behind the closed dialog.
-  const mounted = useMounted()
 
   // `save` is a function declaration below, hoisted for the whole component
   // scope. Disabled while a save is in flight, so holding Ctrl+S cannot fire
@@ -87,9 +80,7 @@ function ListingForm({ listing, onSaved, onClose }) {
       setError('Price must be an amount like 189.00.')
       return
     }
-    setSaving(true)
-    setError('')
-    try {
+    await send(async () => {
       const saved = await api.updateListing(listing.id, {
         price,
         title: form.title.trim(),
@@ -102,14 +93,8 @@ function ListingForm({ listing, onSaved, onClose }) {
         // is an `int` and Pydantic v2 does not coerce "3".
         version: listing.version,
       })
-      if (!mounted.current) return
-      onSaved(saved)
-    } catch (err) {
-      if (!mounted.current) return
-      setError(err.message)
-    } finally {
-      if (mounted.current) setSaving(false)
-    }
+      return saved
+    })
   }
 
   // `subjectOf`, not `item_code`: a lot listing has none.

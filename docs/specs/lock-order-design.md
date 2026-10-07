@@ -158,8 +158,8 @@ Statements and `db.refresh(..., with_for_update=True)` calls alike:
 
 | Site | Row kind | Role |
 |---|---|---|
-| `offering_writes._lock_lots` | `sales_lot` | acquisition, step 1 |
-| `offering_writes._lock_items` | `inventory_item` | acquisition, step 2 |
+| `offering_writes._lock_rows`, called by `_lock_lots` | `sales_lot` | acquisition, step 1 |
+| `offering_writes._lock_rows`, called by `_lock_items` | `inventory_item` | acquisition, step 2 |
 | `offering_writes._lock_listing_rows` | `listing` | acquisition, step 3: named listings (any status) and derived ones (`ON_OFFER`) in one `or_` |
 | `offering_writes._locked_offers` | `listing` | re-lock of rows already held, once per member |
 | `offering_writes.end_offer` (`paused_by_it`) | `listing` | re-lock, to identify rows already held |

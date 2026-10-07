@@ -8,7 +8,7 @@ import { fractionToPercent, percentToFraction } from './platform-rates'
 import { useReference } from '../../shared/reference-context'
 import { orNull } from '../../shared/text'
 import { money } from '../../shared/format'
-import { useMounted } from '../useMounted'
+import { useGuardedSave } from '../useGuardedSave'
 import { SaveButton } from '../SaveButton'
 
 /**
@@ -58,6 +58,10 @@ const KEYS = {
 /** Whether a fee was given at all. A fee of zero was. */
 const given = (fee) => fee !== null && fee !== undefined && fee !== ''
 
+/**
+ * A platform's default fees on one line, as the table shows them: each fee
+ * that was given, joined with " + ", and empty when none was.
+ */
 function feeSummary(v) {
   // Presence, not truthiness. "This platform charges nothing" is a fact and
   // is not the same as "nobody has looked its fees up yet", which shows an
@@ -88,6 +92,10 @@ const BLANK = {
   is_active: true,
 }
 
+/**
+ * A stored platform as the form holds it: every missing value an empty
+ * string, and the two rates as percentages.
+ */
 function toForm(v) {
   return {
     code: v.code,
@@ -106,6 +114,11 @@ function toForm(v) {
   }
 }
 
+/**
+ * The form as the API takes it: blanks as null, the rates back as
+ * fractions, the linked purchase source as a number. The code is not
+ * included; only a new platform sends one.
+ */
 function toPayload(form) {
   return {
     name: form.name.trim(),
@@ -133,8 +146,7 @@ function toPayload(form) {
 function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
   const adding = venue === null
   const [form, setForm] = useState(adding ? BLANK : toForm(venue))
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { error, saving, send } = useGuardedSave(onSaved)
   const kinds = useReference('sales_venue_kind') ?? []
   const isStore = !adding && venue.is_own_store
   const set = (k) => (e) =>
@@ -150,23 +162,13 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
   )
   const sources = vendors.filter((v) => !taken.has(v.id))
 
-  // Guards save()'s continuation once the request settles. Cancel (and
-  // Escape, which ModalDialog also routes to onClose) can unmount this form
-  // while a save is still in flight; without this a request the user just
-  // cancelled would still land the instant it resolves -- onSaved would
-  // mutate the parent's list behind the closed dialog. Mirrors the
-  // `cancelled` flag Platforms' own effect uses for the same reason.
-  const mounted = useMounted()
-
   // `save` is a function declaration below, hoisted for the whole component
   // scope, so naming it here is safe. Disabled while a save is in flight, so
   // holding Ctrl+S cannot fire a second request behind the first.
   useSaveShortcut(save, !saving)
 
   async function save() {
-    setSaving(true)
-    setError('')
-    try {
+    await send(async () => {
       const payload = toPayload(form)
       let saved
       if (adding) {
@@ -184,14 +186,8 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
           version: venue.version,
         })
       }
-      if (!mounted.current) return
-      onSaved(saved)
-    } catch (err) {
-      if (!mounted.current) return
-      setError(err.message)
-    } finally {
-      if (mounted.current) setSaving(false)
-    }
+      return saved
+    })
   }
 
   const label = adding ? 'Add platform' : `Edit ${venue.name}`

@@ -235,16 +235,17 @@ class ItemFieldReview(Base):
 
 
 class ItemFieldChange(Base):
-    """One field of one item changed by a person's edit: who, when, from what.
+    """One field of one item changed under a person's name: who, when, from what.
 
-    Written by `PATCH /inventory/{id}` and the bulk edit, in the same
+    Written by `PATCH /inventory/{id}`, the bulk edit, the errors endpoint
+    and the passes run under a named person (`--by`), in the same
     transaction as the change, one row per field whose value actually moved
     (`app.field_changes.record`). It is what lets the item editor say *who*
     changed a field it is warning about, and it is an edit history besides.
     Values are stored as the item editor sees them -- codes for classifiers,
     strings for money -- in JSONB.
 
-    Not written by the machine passes (they mark their fields in
+    Not written by the passes that name no person (they mark their fields in
     `ItemFieldSource`) or by status moves outside the editor (receiving has
     `ItemStatusHistory`): a field changed that way has no row here, and a
     warning about it says only that it changed.

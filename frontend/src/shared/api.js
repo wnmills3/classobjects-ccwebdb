@@ -6,6 +6,10 @@
 
 const TOKEN_KEY = 'ccwebdb.tokens'
 
+/**
+ * The stored access and refresh tokens, or null when there are none or the
+ * browser's storage cannot be read.
+ */
 export function loadTokens() {
   try {
     const raw = localStorage.getItem(TOKEN_KEY)
@@ -15,6 +19,10 @@ export function loadTokens() {
   }
 }
 
+/**
+ * Keep the tokens so a reload stays signed in. Storage that refuses the
+ * write is not an error: the sign-in then lasts as long as the tab.
+ */
 export function saveTokens(tokens) {
   try {
     localStorage.setItem(TOKEN_KEY, JSON.stringify(tokens))
@@ -23,6 +31,7 @@ export function saveTokens(tokens) {
   }
 }
 
+/** Forget the stored tokens, which is what signing out is on this side. */
 export function clearTokens() {
   try {
     localStorage.removeItem(TOKEN_KEY)
@@ -60,6 +69,10 @@ function readDetail(body) {
   return 'Request failed'
 }
 
+/**
+ * Exchange the stored refresh token for a new pair, store it and return it;
+ * null when there is no refresh token or the server refuses it.
+ */
 async function refreshTokens() {
   const tokens = loadTokens()
   if (!tokens?.refresh_token) return null

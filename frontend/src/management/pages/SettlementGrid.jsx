@@ -62,6 +62,17 @@ function SettleConfirm({ auction, busy, canSettle, onConfirm, onCancel }) {
   )
 }
 
+/**
+ * The grid for a closed `auction`: a row per lot for its result, hammer
+ * price and buyer, a fee table per buyer of a sold lot, and the totals.
+ *
+ * `isAuctionHouse` lets a blank buyer stand for the house's undisclosed
+ * one, which then gets a fee table of its own, and adds the picker for
+ * where unsold and withdrawn items come back to, from the storage
+ * `locations`. Settle asks for confirmation and sends
+ * the whole grid; `onSettled` gets the result, and a refusal leaves the
+ * grid as typed with each refused lot marked on its row.
+ */
 export default function SettlementGrid({
   auction,
   isAuctionHouse,

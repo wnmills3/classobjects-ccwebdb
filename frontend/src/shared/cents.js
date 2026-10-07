@@ -11,8 +11,17 @@
  */
 const MONEY = /^\d+(\.\d{1,2})?$/
 
+/**
+ * Whether `text` is an amount that can be put into cents: digits with at
+ * most two decimal places, no sign, blanks around it ignored.
+ */
 export const isMoney = (text) => MONEY.test(String(text).trim())
 
+/**
+ * A money amount in whole cents: `'189.5'` is 18950. Read digit by digit,
+ * never through a float. Throws for anything `isMoney` refuses, so a bad
+ * amount cannot enter a total as zero unnoticed.
+ */
 export function toCents(text) {
   if (!isMoney(text)) {
     throw new RangeError(`not a money amount: ${JSON.stringify(text)}`)

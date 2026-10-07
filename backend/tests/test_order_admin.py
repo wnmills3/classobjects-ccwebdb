@@ -19,6 +19,7 @@ from tests.conftest import item_of
 def _set(
     client: TestClient, headers: dict[str, str], order_id: int, status: str
 ) -> Response:
+    """The response to moving an order to this status."""
     return client.patch(
         f"/api/orders/{order_id}", json={"status": status}, headers=headers
     )

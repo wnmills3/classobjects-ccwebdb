@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import AddItem from './entry/AddItem'
 import { siteName } from '../site-name'
+import { useInlineAdd } from '../useInlineAdd'
 import SellerField from './SellerField'
 import ItemEditDialog from './inventory/ItemEditDialog'
 import HelpScope from '../HelpScope'
@@ -43,39 +44,21 @@ const BLANK_VENDOR_DRAFT = { name: '', vendor_kind: '', url: '' }
  * small component rather than a reuse of that one.
  */
 function VendorField({ vendors, value, onChange, onVendorAdded }) {
-  const [adding, setAdding] = useState(false)
-  const [draft, setDraft] = useState(BLANK_VENDOR_DRAFT)
-  const [error, setError] = useState('')
-
-  async function addVendor() {
-    try {
-      const created = await api.createVendor({
-        name: draft.name.trim(),
-        vendor_kind: draft.vendor_kind || null,
-        url: orNull(draft.url),
-      })
-      onVendorAdded(created)
-      onChange(created.id)
-      setAdding(false)
-      setDraft(BLANK_VENDOR_DRAFT)
-      setError('')
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
-  // This block sits inside the purchase's own <form>: without this handler,
-  // Enter in a text input submits the nearest form -- the outer purchase,
-  // for whatever vendor was already picked -- instead of adding the vendor
-  // being typed here.
-  // A button already does the right thing with Enter -- swallowing its
-  // default here would cancel Cancel's own activation and add the vendor the
-  // user was trying to abandon.
-  function onKeyDown(e) {
-    if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return
-    e.preventDefault()
-    if (draft.name.trim()) addVendor()
-  }
+  const { adding, setAdding, draft, setDraft, error, add, onKeyDown, ready } =
+    useInlineAdd({
+      blank: BLANK_VENDOR_DRAFT,
+      ready: (d) => Boolean(d.name.trim()),
+      create: (d) =>
+        api.createVendor({
+          name: d.name.trim(),
+          vendor_kind: d.vendor_kind || null,
+          url: orNull(d.url),
+        }),
+      onCreated: (created) => {
+        onVendorAdded(created)
+        onChange(created.id)
+      },
+    })
 
   if (adding) {
     return (
@@ -105,7 +88,7 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
           onChange={(e) => setDraft({ ...draft, vendor_kind: e.target.value })}
           placeholder="vendor kind"
         />
-        <button type="button" onClick={addVendor} disabled={!draft.name.trim()}>
+        <button type="button" onClick={add} disabled={!ready}>
           Add
         </button>
         <button type="button" className="link" onClick={() => setAdding(false)}>
@@ -434,6 +417,16 @@ function PurchaseDetails({ purchase, onSaved }) {
   )
 }
 
+/**
+ * The Purchases page, in its two steps.
+ *
+ * With no purchase open it offers a choice: pick an existing purchase from
+ * a filtered list, or fill in a new one. With one open -- created, picked,
+ * or named by `?order=<id>` in the address -- it shows that purchase's
+ * details, the tax defaults for items entered on it, the items so far, each
+ * opening in the item editor, and the form that adds the next. "Start
+ * another purchase" clears all of it and returns to the choice.
+ */
 export default function NewPurchase() {
   const rateId = useId()
   const [mode, setMode] = useState('new')

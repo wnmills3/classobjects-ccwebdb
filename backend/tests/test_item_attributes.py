@@ -27,6 +27,7 @@ STAR_SERIAL = "A38164927*"
 
 
 def _attribute(db: Session, code: str) -> ItemAttribute:
+    """The attribute with this code."""
     return db.execute(
         select(ItemAttribute).where(ItemAttribute.code == code)
     ).scalar_one()
@@ -35,6 +36,7 @@ def _attribute(db: Session, code: str) -> ItemAttribute:
 def _note(
     db: Session, make_item: ItemFactory, serial: str | None = None
 ) -> InventoryItem:
+    """A banknote with this serial number, its words naming no attribute."""
     note = make_item(
         kind="currency", description="plain", grade_id=None, strike_type_id=None
     )
@@ -44,10 +46,12 @@ def _note(
 
 
 def _coin(make_item: ItemFactory) -> InventoryItem:
+    """A coin whose words name no attribute."""
     return make_item(description="plain")
 
 
 def _link(db: Session, item: InventoryItem, code: str) -> ItemAttributeLink | None:
+    """The row that gives the item this attribute, or None when it has none."""
     return db.scalar(
         select(ItemAttributeLink).where(
             ItemAttributeLink.inventory_item_id == item.id,
@@ -57,6 +61,7 @@ def _link(db: Session, item: InventoryItem, code: str) -> ItemAttributeLink | No
 
 
 def _detail(client: TestClient, headers: dict[str, str], item: InventoryItem) -> dict:
+    """The item as its detail route returns it."""
     return client.get(f"/api/inventory/{item.id}", headers=headers).json()
 
 
@@ -67,6 +72,7 @@ def _set(
     codes: list[str] | None,
     **extra: object,
 ) -> Response:
+    """The response to a person setting the item's attributes to these codes."""
     return client.patch(
         f"/api/inventory/{item.id}",
         json={"attributes": codes, **extra},
@@ -75,6 +81,7 @@ def _set(
 
 
 def _codes(body: dict) -> list[str]:
+    """The attribute codes in an item's detail, in the order returned."""
     return [a["code"] for a in body["attributes"]]
 
 
@@ -315,6 +322,7 @@ def test_search_finds_an_item_by_attribute_name_alias_or_filter(
     _set(client, admin_headers, note, ["no_motto"])
 
     def found(view: object, **kwargs: object) -> set[str]:
+        """The item codes a search of the view returns."""
         rows, _ = search(db, view, **kwargs)  # type: ignore[arg-type]
         return {r["item_code"] for r in rows}
 
@@ -333,6 +341,7 @@ def test_a_removed_star_no_longer_disagrees_with_a_plain_serial(
     note = _note(db, make_item, "A38164927B")
 
     def flagged() -> bool:
+        """Whether the star-mismatch check lists the note."""
         rows, _ = search(db, CURRENCY_VIEW, params={"issue": "star_mismatch"})
         return note.item_code in {r["item_code"] for r in rows}
 

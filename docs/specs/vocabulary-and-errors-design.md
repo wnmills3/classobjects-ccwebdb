@@ -105,7 +105,8 @@ convention is not a recorded fact.
   by one rule and offered by another, a new value would vanish from the
   picker that created it.
 - `COIN_ONLY_FIELDS` (strike type, metal, mint, bullion form, set form,
-  variety, and the years -- a note's year is its series year),
+  variety, fineness, the gross and fine weight and the weight as written,
+  and the years -- a note's year is its series year),
   `CURRENCY_ONLY_FIELDS` (face and back plate, printing location, note class,
   seal color, Fed district, signature combination) and
   `fieldFitsKind(field, itemKind)`, which answers true for a field in neither
@@ -206,6 +207,9 @@ For attributes and error types the add form asks for **a label only**
   no default, so the form has a group picker (Serial, Variety, Release,
   Qualifier, Verification) and Add stays disabled until one is chosen.
 
+A photograph's role picker (`PhotosPanel`) adds a role the same way, by its
+label alone; a role has no kind and no group.
+
 Attributes can be added wherever `AttributesField` appears: the item editor,
 and so a new item on a purchase and Receiving's "Confirm or correct fields", which
 opens the editor. Error types can be added wherever errors are recorded.
@@ -222,8 +226,10 @@ description text: a machine guess must not be indistinguishable from a
 curated fact. Errors feed the suggested description, right after the grade:
 they are what an error note sells on.
 
-**One component, `ErrorsPanel`, in three places:** the item editor, New item,
-and Receiving (where a note is inspected as it arrives). Each recorded error is
+**One component, `ErrorsPanel`, in two places:** the item editor -- which is
+also where a new item on a purchase is entered (`entry/AddItem.jsx` creates
+the item and opens the editor on it) -- and Receiving (where a note is
+inspected as it arrives). Each recorded error is
 a row: the type and a note ("miscut at 3 o'clock, 4mm"). A type already
 recorded is not offered again, and the type picker is filtered by `applies_to`.
 
@@ -231,14 +237,6 @@ recorded is not offered again, and the type picker is filtered by `applies_to`.
 |---|---|
 | Item editor | Held with the rest of the edit: adding, removing or re-noting an error enables Save, and Save `PUT`s the whole set (after the fields, under the form's own for-sale acknowledgement). A set that fails stays on screen with its reason. A set changed back to what was read is no change. If the set cannot be read, nothing is offered to edit, so Save can never replace a set nobody saw. |
 | Receiving | The panel `PUT`s the whole set on every change (a note's text when its box loses focus): there is no Save there to hold it for. For an item on offer, the acknowledgement is asked once and holds while the panel is open. |
-| New item | The item is created first, then its errors are saved. |
-
-**The two-step case is designed, not assumed.** If the create succeeds and the
-errors call fails, the form says so plainly -- the item was created, its errors
-were not -- keeps what was typed, shows the item code, and offers **Retry**.
-Save is disabled until the retry succeeds, so the same piece cannot be
-entered twice. It never drops the errors silently and never pretends the item
-failed.
 
 ## Not here
 

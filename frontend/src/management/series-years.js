@@ -6,6 +6,7 @@
  * fact about the design, and a pattern or restrike can fall outside them.
  */
 
+/** A year as a whole number, or null for a blank or anything that is not one. */
 function yearOf(value) {
   if (value === '' || value === null || value === undefined) return null
   const year = Number(value)

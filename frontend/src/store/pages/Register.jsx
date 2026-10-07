@@ -3,6 +3,11 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { useAuth } from '../../shared/auth-context'
 
+/**
+ * The shop's registration form: name, email and a password. A new account
+ * is a customer's, is signed in at once, and lands on the catalog; a
+ * refusal is shown with the form as typed.
+ */
 export default function Register() {
   const { register } = useAuth()
   const navigate = useNavigate()

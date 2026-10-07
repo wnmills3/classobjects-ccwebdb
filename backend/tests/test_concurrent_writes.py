@@ -83,6 +83,7 @@ def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
 def make_lot(
     factory: sessionmaker[Session], *, quantity: int = 4, price: str = "100.00"
 ) -> int:
+    """Commit a held lot of `quantity` pieces and return its id."""
     with factory() as session:
         item = InventoryItem(
             source_title="WRITE-RACE lot",
@@ -119,6 +120,7 @@ def test_a_second_writer_is_refused_rather_than_silently_winning(
     outcomes: list[str] = []
 
     def edit(new_title: str) -> str:
+        """Retitle the item from the version both writers read; say how it ended."""
         with committed() as session:
             row = session.get_one(InventoryItem, item_id)
             _ = row.version  # both read the same version
@@ -161,6 +163,7 @@ def test_reads_are_never_blocked_by_a_write(committed: sessionmaker[Session]) ->
     read_value: list[str] = []
 
     def slow_writer() -> None:
+        """Hold the row's lock, uncommitted, until the reader has finished."""
         with committed() as session:
             row = session.get_one(InventoryItem, item_id)
             row.source_title = "WRITE-RACE mid-flight"
@@ -170,6 +173,7 @@ def test_reads_are_never_blocked_by_a_write(committed: sessionmaker[Session]) ->
             session.commit()
 
     def reader() -> None:
+        """Read the title while the write is in flight, then release the writer."""
         writing.wait(timeout=10)
         with committed() as session:
             # Must return at once, with the pre-write value.
@@ -205,6 +209,7 @@ def test_two_people_cannot_split_the_same_lot_at_once(
     barrier = threading.Barrier(2)
 
     def attempt(tag: str) -> str:
+        """Split the lot into four in a session of its own: "split" or "refused"."""
         with committed() as session:
             parent = session.get_one(InventoryItem, item_id)
             barrier.wait(timeout=10)

@@ -12,6 +12,7 @@ from tests.builders import build_bare_item, build_purchase_order, code_id
 
 
 def _order_with_lines(db: Session, outstanding: int, done: int) -> PurchaseOrder:
+    """A purchase with `outstanding` items still ordered and `done` received."""
     order = build_purchase_order(
         db,
         vendor_name=f"Vendor {outstanding}{done}",
@@ -193,6 +194,7 @@ def test_a_split_parent_is_hidden_but_its_children_are_not(
 
 
 def _order_with_source_url(db: Session, source_url: str | None) -> PurchaseOrder:
+    """A purchase recorded with this web address, or with none."""
     return build_purchase_order(
         db,
         vendor_name="Source URL Vendor",

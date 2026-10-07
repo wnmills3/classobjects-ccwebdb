@@ -21,6 +21,7 @@ BEFORE = "b7d2f4a91c36"
 
 
 def _to(url: str, revision: str) -> None:
+    """Migrate the database at `url`, and no other, up to the revision."""
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     config.set_main_option("sqlalchemy.url", url)

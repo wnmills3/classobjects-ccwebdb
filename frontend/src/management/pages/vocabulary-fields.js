@@ -32,6 +32,7 @@ export function fieldHelp(name) {
   return FIELD_HELP[own] ? own : 'vocabulary_field'
 }
 
+/** Whether a field has been answered: a switch always, text when not blank. */
 export const filled = (field, value) =>
   field.kind === 'boolean' || String(value).trim() !== ''
 

@@ -33,6 +33,15 @@ const STATUSES = [
 //: as STATUSES above for reading, not because anything here depends on it.
 const NO_STOCK_RETURN_STATUSES = ['packed', 'shipped', 'delivered', 'refunded']
 
+/**
+ * The Sales page: every order in a table, filtered by status, each with a
+ * status picker, its history, and an editor while it is pending or paid.
+ *
+ * A status is saved as it is chosen. A change that would put stock back on
+ * sale -- a cancellation, or a refund before shipping -- is asked about
+ * first, and is not offered where there is no listing to return it to. The
+ * list is read again after every write.
+ */
 export default function Orders() {
   // Read again after every write; this is the only place the list is set.
   const list = useRequest('orders', () => api.listOrders())

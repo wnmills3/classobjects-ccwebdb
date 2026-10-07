@@ -13,23 +13,17 @@ only what the owner has entered by hand.
 
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 from typing import Literal, cast
 
 from pydantic import BaseModel, Field
-from sqlalchemy import FromClause, RowMapping, func, select
+from sqlalchemy import FromClause, func, select
 from sqlalchemy.orm import Session
 
-from ..models import Disposition, InventoryItem, ItemStatus, PurchaseOrder, Vendor
-from .base import Column, DateRange, Report, ReportResult, period_label, period_start
+from ..models import Disposition, InventoryItem, ItemStatus, PurchaseOrder
+from .base import Column, DateRange, Report, ReportResult
 from .live_params import NOTHING_MATCHES, LiveParams, kind_query_string, live_where
-from .live_purchases import (
-    LIVE_ITEM_PURCHASE_NOTE,
-    dated_purchase_where,
-    join_live_purchase_items,
-    undated_purchase_note,
-)
+from .live_purchases import period_by_vendor
 from .registry import register
 from .tables import ITEM as _I
 from .tables import KIND as _K
@@ -194,107 +188,12 @@ class TaxParams(DateRange):
 def _mn_tax(db: Session, params: TaxParams) -> ReportResult:
     """Period x vendor: purchases and sales tax paid, over purchases with a live item.
 
-    Reuses `pr_spend`'s own building blocks (`.live_purchases`) for what
-    counts as "a purchase", how it is dated, and how an undated one is
-    reported -- rather than restating any of the three -- so the two
-    reports can never drift apart on what a purchase is. Three queries at
-    three grouping levels, exactly as `pr_spend` uses: the overall total
-    (which also decides the empty case), each period's own subtotal, and
-    the period x vendor rows themselves.
+    The table `pr_spend` builds, with this report's own two measures
+    (`.live_purchases.period_by_vendor`) -- so the two reports can never
+    drift apart on what a purchase is, how it is dated, or how an undated
+    one is reported.
     """
-    period_col = period_start(params.period, PurchaseOrder.ordered_on)
-    where = dated_purchase_where(params)
-
-    overall = (
-        db.execute(join_live_purchase_items(select(*_TAX_AGGREGATES)).where(*where))
-        .mappings()
-        .one()
-    )
-    undated = db.execute(
-        join_live_purchase_items(
-            select(func.count(func.distinct(PurchaseOrder.id)))
-        ).where(PurchaseOrder.ordered_on.is_(None))
-    ).scalar_one()
-
-    if not overall["purchases"]:
-        notes = [undated_purchase_note(undated)] if undated else []
-        return ReportResult(
-            columns=_TAX_COLUMNS, rows=[], totals=None, drills=[], notes=notes
-        )
-
-    period_subtotals = {
-        row["period_start"]: row
-        for row in db.execute(
-            join_live_purchase_items(
-                select(period_col.label("period_start"), *_TAX_AGGREGATES)
-            )
-            .where(*where)
-            .group_by(period_col)
-        )
-        .mappings()
-        .all()
-    }
-
-    rows_data = (
-        db.execute(
-            join_live_purchase_items(
-                select(
-                    period_col.label("period_start"),
-                    Vendor.name.label("vendor_name"),
-                    *_TAX_AGGREGATES,
-                )
-            )
-            .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
-            .where(*where)
-            .group_by(period_col, Vendor.id, Vendor.name)
-            .order_by(period_col.asc(), Vendor.name.asc())
-        )
-        .mappings()
-        .all()
-    )
-
-    def _row(period_value: date, vendor: str, source: RowMapping) -> dict[str, object]:
-        return {
-            "period": period_label(params.period, period_value),
-            "vendor": vendor,
-            "purchases": source["purchases"],
-            "sales_tax": source["sales_tax"],
-        }
-
-    rows: list[dict[str, object]] = []
-    drills: list[str | None] = []
-    current_period: date | None = None
-
-    def _append_subtotal(period_value: date) -> None:
-        rows.append(_row(period_value, "All vendors", period_subtotals[period_value]))
-        drills.append(None)
-
-    for row in rows_data:
-        period_value = row["period_start"]
-        if current_period is not None and period_value != current_period:
-            _append_subtotal(current_period)
-        current_period = period_value
-
-        rows.append(_row(period_value, row["vendor_name"], row))
-        drills.append(None)
-
-    if current_period is not None:
-        _append_subtotal(current_period)
-
-    totals: dict[str, object] = {
-        "period": "All periods",
-        "vendor": None,
-        "purchases": overall["purchases"],
-        "sales_tax": overall["sales_tax"],
-    }
-
-    notes = [LIVE_ITEM_PURCHASE_NOTE]
-    if undated:
-        notes.append(undated_purchase_note(undated))
-
-    return ReportResult(
-        columns=_TAX_COLUMNS, rows=rows, totals=totals, drills=drills, notes=notes
-    )
+    return period_by_vendor(db, params, params.period, _TAX_COLUMNS, _TAX_AGGREGATES)
 
 
 MN_TAX = register(

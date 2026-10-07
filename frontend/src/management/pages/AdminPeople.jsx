@@ -21,6 +21,7 @@ function addressLine(a) {
   return `${a.line1}, ${a.city}${region} ${a.postal_code ?? ''}`
 }
 
+/** The two tab buttons; `active` is the key shown, `onChange` takes the other. */
 function Tabs({ active, onChange }) {
   return (
     <div className="tabs">
@@ -111,6 +112,15 @@ function NewAccountForm({ onCreated, onCancel }) {
   )
 }
 
+/**
+ * The accounts tab: every sign-in, with its role, whether it is active, and
+ * a way to set its password or open a new account.
+ *
+ * A change to a role or to the active flag is saved as it is made, and a
+ * new password signs that account out everywhere. `notify` takes the line
+ * that says what was done. A refused change -- the last administrator cannot
+ * be demoted or deactivated -- is shown above the table, which stays.
+ */
 function Accounts({ notify }) {
   const { user: me } = useAuth()
   const [rows, setRows] = useState(null)
@@ -268,6 +278,13 @@ function Accounts({ notify }) {
   )
 }
 
+/**
+ * The form for a customer's new shipping address, opened in their row.
+ *
+ * Saving adds the address rather than editing the one on file, which is
+ * retired and kept. `onSaved` runs after a successful save; a refusal goes
+ * to the customers tab through `setError` and the form stays open.
+ */
 function AddressForm({ customerId, onSaved, onCancel, notify, setError }) {
   const [form, setForm] = useState({
     line1: '',
@@ -330,6 +347,14 @@ function AddressForm({ customerId, onSaved, onCancel, notify, setError }) {
   )
 }
 
+/**
+ * The customers tab: each customer's name, email, phone and default
+ * shipping address, edited one row at a time.
+ *
+ * Only the fields typed into are sent on save. A refusal is shown above the
+ * table and the row stays in edit, so what was typed is not lost. `notify`
+ * takes the line that says what was done.
+ */
 function Customers({ notify }) {
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')
@@ -486,6 +511,7 @@ function Customers({ notify }) {
   )
 }
 
+/** The People page: the tab chosen, and the last action's message above it. */
 export default function AdminPeople() {
   const [tab, setTab] = useState('accounts')
   const [message, setMessage] = useState('')

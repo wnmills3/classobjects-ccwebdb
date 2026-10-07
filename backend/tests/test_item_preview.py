@@ -15,6 +15,7 @@ from tests.builders import build_purchase_order
 
 
 def _new(client: TestClient, headers: dict[str, str], db: Session, kind: str) -> int:
+    """The id of an item of this kind, entered through the API with nothing else."""
     order = build_purchase_order(db, vendor_name="Preview Vendor", order_number="P-1")
     made = client.post(
         "/api/inventory",

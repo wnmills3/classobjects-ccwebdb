@@ -8,7 +8,6 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 from ..deps import CurrentUser, DbSession
 from ..models import User, UserRole
@@ -21,6 +20,7 @@ from ..security import (
     needs_rehash,
     verify_password,
 )
+from ._tx import commit_unique
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -47,17 +47,10 @@ def register(payload: UserCreate, db: DbSession) -> User:
         role=UserRole.customer,
     )
     db.add(user)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        # Two registrations of one email at once both pass the check above;
-        # the unique index stops the second, and it should read as the same
-        # 409 rather than a 500 -- as `users.create_user` already does.
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An account with that email already exists",
-        ) from exc
+    # Two registrations of one email at once both pass the check above;
+    # the unique index stops the second, and it should read as the same
+    # 409 rather than a 500 -- as `users.create_user` already does.
+    commit_unique(db, "An account with that email already exists")
     db.refresh(user)
     return user
 

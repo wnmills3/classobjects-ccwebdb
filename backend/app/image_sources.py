@@ -124,6 +124,7 @@ def apply(db: Session, todo: Plan) -> int:
 
 
 def _print(todo: Plan) -> None:
+    """Print the plan's counts, and each image holding a different address."""
     print(f"addresses in the manifest: {todo.addresses}")
     print(f"images to take an address: {len(todo.to_set)}")
     print(f"already recorded: {todo.already}")

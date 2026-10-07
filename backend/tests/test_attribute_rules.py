@@ -50,6 +50,7 @@ def _note(
     denomination: str = "usd_note_1",
     **detail: object,
 ) -> InventoryItem:
+    """A banknote of this series year and letter, its title saying nothing more."""
     item = make_item(
         kind="currency",
         title="Plain note",
@@ -71,6 +72,7 @@ def _note(
 
 
 def _link(db: Session, item: InventoryItem) -> ItemAttributeLink | None:
+    """The item's No Motto attribute, or None when it does not carry it."""
     return db.scalar(
         select(ItemAttributeLink).where(
             ItemAttributeLink.inventory_item_id == item.id,

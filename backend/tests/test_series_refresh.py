@@ -21,6 +21,7 @@ DIME = "usd_coin_0_10"
 def _dime(
     db: Session, make_item: ItemFactory, year: int, **extra: object
 ) -> InventoryItem:
+    """A dime of this single year, its title naming no design."""
     return make_item(
         title="Plain dime",
         denomination_id=code_id(db, Denomination, DIME),
@@ -33,6 +34,7 @@ def _dime(
 def _series(
     client: TestClient, headers: dict[str, str], item: InventoryItem
 ) -> str | None:
+    """The series the item's detail route shows."""
     body = client.get(f"/api/inventory/{item.id}", headers=headers).json()
     series: str | None = body["series"]
     return series
@@ -41,6 +43,7 @@ def _series(
 def _patch(
     client: TestClient, headers: dict[str, str], item: InventoryItem, **changes: object
 ) -> None:
+    """Save these changes on the item, which must be accepted."""
     response = client.patch(f"/api/inventory/{item.id}", json=changes, headers=headers)
     assert response.status_code == 200, response.text
 
@@ -135,6 +138,7 @@ def test_a_refresh_reads_the_designs_once(
     calls: list[int] = []
 
     def counted(session: Session) -> list[series_classify.Design]:
+        """Read the designs as usual, counting the read."""
         calls.append(1)
         return real(session)
 

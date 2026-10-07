@@ -12,9 +12,9 @@ matches a term against each design's label and nicknames (`app.aliases`,
 rating text, which finds what classification cannot, such as a note left for
 review.
 
-Series are assigned in three places: suggested as an item is entered (the New
-item form and Receiving's Identify section), refreshed on every save, and by
-two batch passes that staff run and review:
+Series are assigned on every save and by two batch passes that staff run and
+review; Receiving's Identify section also shows, as the facts are typed, the
+design they decide:
 
 - `app.series_match` reads what a description says ("1883-O AU/UNC MORGAN
   SILVER DOLLAR"). It matches **coins only, against coin designs**; ambiguous
@@ -46,8 +46,8 @@ series a person emptied (`held`). Each records what it wrote in
 alone (`refresh_series`, from `classifier_defaults.refresh_items`), in the
 same transaction:
 
-1. A series recorded as `series_classify` or `suggestion` (an entry
-   suggestion the person accepted) that the facts now rule out, or that has
+1. A series recorded as `series_classify` or `suggestion` (a value a create
+   named in its `suggested` list) that the facts now rule out, or that has
    no facts left under it, is cleared with its record -- the machine takes
    back its own guess.
 2. An item with no series and no `held` record for it is decided as the batch
@@ -59,9 +59,11 @@ cleared on save; one the facts contradict appears in the batch report's
 *disagrees* list. Cases a save cannot decide are left unassigned without a
 message; the batch report lists them.
 
-**At entry.** The entry forms are told the design the facts alone decide
-(`suggest_series`, the `series` field of `GET /api/defaults/note` and
-`/coin`), with no text read: a title is the seller's words. For a note, a
+**In Receiving.** The Identify section (`receiving/IdentifySection.jsx`) is
+told the design the facts alone decide (`suggest_series`, the `series` field
+of `GET /api/defaults/note` and `/coin`) and shows it beside them ("From
+these facts: ..."), with no text read: a title is the seller's words. Nothing
+is written until the save, which decides the series as above. For a note, a
 seal or class the person chose, or else the one the facts gave, is evidence
 -- a brown seal makes a $5 1934A a Hawaii note.
 
@@ -192,6 +194,7 @@ Designs with more than one range:
 | Walking Liberty Half Dollar | 1916-1947, 2016 |
 | Susan B. Anthony Dollar | 1979-1981, 1999 |
 | Presidential Dollar | 2007-2016, 2020 |
+| First Spouse Gold | 2007-2016, 2020 (no denomination: matched by name, and the years checked against it) |
 | Washington Quarter | 1932-1998, 2021- (State and ATB quarters are their own designs) |
 
 **Evidence-only coin designs** share denomination and years with a far

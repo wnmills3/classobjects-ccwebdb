@@ -35,6 +35,7 @@ def _save(
     opened: dict[str, Any],
     changes: dict[str, Any],
 ) -> Response:
+    """Save changes as the editor does: with the version and values it opened."""
     return client.patch(
         f"/api/inventory/{opened['id']}",
         json={

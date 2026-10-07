@@ -28,10 +28,12 @@ from tests.builders import build_bare_item, code_id
 def _patch(
     client: TestClient, headers: dict[str, str], item_id: int, body: dict[str, Any]
 ) -> Response:
+    """The response to saving these fields on an item."""
     return client.patch(f"/api/inventory/{item_id}", json=body, headers=headers)
 
 
 def _certs(db: Session, item_id: int) -> list[ItemCertification]:
+    """The item's certifications as stored, oldest first."""
     db.expire_all()
     return list(
         db.scalars(
@@ -43,6 +45,7 @@ def _certs(db: Session, item_id: int) -> list[ItemCertification]:
 
 
 def _note(db: Session) -> int:
+    """The id of a banknote with no country or year recorded."""
     item = build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "currency"),

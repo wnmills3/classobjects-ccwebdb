@@ -152,6 +152,7 @@ def ids_named(db: Session, model: type[ReferenceMixin], query: str | None) -> li
     whole = len(text) < SUBSTRING_FROM
 
     def named(column: SQLColumnExpression[str]) -> ColumnElement[bool]:
+        """The test that `column` matches: whole for short text, else within."""
         if whole:
             return func.lower(column) == text.lower()
         return column.ilike(f"%{text}%")
@@ -206,6 +207,7 @@ def resolve(db: Session, model: type[ReferenceMixin], word: str) -> Resolved | N
 def _existing(
     db: Session, model: type[ReferenceMixin], row_id: int, alias: str
 ) -> SeriesAlias | ReferenceAlias | None:
+    """The row's alias with this spelling, whatever its case, or None."""
     held = _alias_table(model)
     # `select` of a union of two entities types its row as their common base;
     # the entity is `held.model`, one of the two named here.

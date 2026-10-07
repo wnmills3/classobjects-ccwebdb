@@ -43,13 +43,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import field_changes
+from . import field_changes, pass_cli
 from .database import SessionLocal
 from .ebay_orders import ORDER_PAGE
-from .models import InventoryItem, PurchaseOrder, User, Vendor
+from .models import InventoryItem, PurchaseOrder, Vendor
 
 #: Where each site puts a listing's own id in its web address. An order page
 #: (Whatnot's `/order/`, eBay's order.ebay.com) names an order, not a listing.
@@ -85,6 +85,7 @@ def ebay_listing_url(item_id: str) -> str:
 
 
 def _vendor_key(vendor: Vendor) -> str:
+    """What a vendor is recognised by: its host, else its name, in lower case."""
     return (vendor.host or vendor.name or "").lower()
 
 
@@ -94,10 +95,12 @@ def is_marketplace(vendor: Vendor) -> bool:
 
 
 def _is_ebay(vendor: Vendor) -> bool:
+    """Whether the vendor is eBay, whose item numbers make a listing's address."""
     return "ebay" in _vendor_key(vendor)
 
 
 def _web_address(value: str | None) -> str | None:
+    """The value when it is a web address, otherwise None."""
     return value if value and _WEB_ADDRESS.match(value) else None
 
 
@@ -240,11 +243,8 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
 def main(argv: Sequence[str] | None = None) -> int:
     """Report, or with --commit fill, the listing addresses and ids."""
     parser = argparse.ArgumentParser(prog="listing_links", description=__doc__)
-    parser.add_argument("--commit", action="store_true", help="write the changes")
-    parser.add_argument("--by", help="the person the History rows name (email)")
-    args = parser.parse_args(argv)
-    if args.commit and not args.by:
-        parser.error("--commit needs --by: every change is logged under a person")
+    pass_cli.add_commit_arguments(parser, "write the changes")
+    args = pass_cli.parse_args(parser, argv)
 
     with SessionLocal() as db:
         todo = plan(db)
@@ -254,19 +254,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"eBay purchases to take their order page: {len(todo.order_pages)}")
         for order_id, url in todo.kept:
             print(f"  kept, purchase #{order_id}: {url}")
-        if not args.commit:
-            print("dry run: nothing written (--commit --by EMAIL to apply)")
-            return 0
-        user_id = db.scalar(
-            select(User.id).where(func.lower(User.email) == args.by.lower())
+        return pass_cli.commit_or_report(
+            db, args, lambda user_id: apply(db, todo, user_id)
         )
-        if user_id is None:
-            print(f"no user {args.by}", file=sys.stderr)
-            return 1
-        counts = apply(db, todo, user_id)
-        db.commit()
-        print(f"written: {counts}")
-    return 0
 
 
 if __name__ == "__main__":

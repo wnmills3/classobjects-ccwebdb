@@ -4,6 +4,7 @@ import { api } from './api'
 import { useRequest } from '../shared/useRequest'
 import { ReferenceSelect } from '../shared/reference'
 import { orNull } from '../shared/text'
+import { useInlineAdd } from './useInlineAdd'
 
 //: Location kinds other code makes -- a consignment by the auctions, a sold
 //: item's by the sale -- and the server refuses from a picker.
@@ -25,35 +26,22 @@ const BLANK_DRAFT = { kind: '', institution: '', identifier: '' }
 export default function LocationSelect({ value, onChange, disabled = false }) {
   const loaded = useRequest('locations', () => api.listStorageLocations())
   const [added, setAdded] = useState([])
-  const [adding, setAdding] = useState(false)
-  const [draft, setDraft] = useState(BLANK_DRAFT)
-  const [error, setError] = useState('')
   const locations = [...(loaded.data ?? []), ...added]
-
-  async function addLocation() {
-    try {
-      const created = await api.createStorageLocation({
-        kind: draft.kind,
-        institution: orNull(draft.institution),
-        identifier: orNull(draft.identifier),
-      })
-      setAdded((list) => [...list, created])
-      onChange(String(created.id))
-      setAdding(false)
-      setDraft(BLANK_DRAFT)
-      setError('')
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
-  // Inside an entry form: Enter in a box adds the location rather than
-  // submitting the form. A button keeps its own Enter.
-  function onKeyDown(e) {
-    if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return
-    e.preventDefault()
-    if (draft.kind) addLocation()
-  }
+  const { adding, setAdding, draft, setDraft, error, add, onKeyDown, ready } =
+    useInlineAdd({
+      blank: BLANK_DRAFT,
+      ready: (d) => Boolean(d.kind),
+      create: (d) =>
+        api.createStorageLocation({
+          kind: d.kind,
+          institution: orNull(d.institution),
+          identifier: orNull(d.identifier),
+        }),
+      onCreated: (created) => {
+        setAdded((list) => [...list, created])
+        onChange(String(created.id))
+      },
+    })
 
   if (adding) {
     return (
@@ -75,7 +63,7 @@ export default function LocationSelect({ value, onChange, disabled = false }) {
           value={draft.identifier}
           onChange={(e) => setDraft({ ...draft, identifier: e.target.value })}
         />
-        <button type="button" onClick={addLocation} disabled={!draft.kind}>
+        <button type="button" onClick={add} disabled={!ready}>
           Add location
         </button>
         <button type="button" className="link" onClick={() => setAdding(false)}>

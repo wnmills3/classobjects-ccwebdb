@@ -146,7 +146,7 @@ const DERIVED_FROM = {
   suggestion: 'Suggested when the item was entered',
   rating: 'Read from the rating',
   weight: 'Worked out as gross weight times fineness',
-  weight_text: 'A guess, read from the title or description',
+  weight_text: 'A guess, read from the title, description or weight as written',
   weight_peers: 'A guess, from what most items of this form and metal weigh',
 }
 
@@ -195,6 +195,17 @@ function errorsKey(rows) {
   )
 }
 
+/**
+ * The editor for item `itemId`: its fields, photographs, Friedberg number,
+ * errors, offers and history.
+ *
+ * Everything edited is held until Save, which sends only what changed and
+ * is refused while a field edited here has also been changed elsewhere, or
+ * while the item is for sale and that has not been acknowledged. `onSaved`
+ * runs when all of it was saved; `onChanged` when only part of it was, or
+ * when the item was split, so whoever opened the form reads its list again.
+ * `onClose`, when given, adds a button that leaves without saving.
+ */
 export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   const [item, setItem] = useState(null)
   const [draft, setDraft] = useState({})

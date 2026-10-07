@@ -54,6 +54,11 @@ function aliasCounts(values) {
   return counts
 }
 
+/**
+ * What merging `value` into `target` would do, in a sentence, from the
+ * preview `result`: the items that move, those that already hold the target
+ * and so only lose this value, and the names that become its aliases.
+ */
 function describe(result, value, target) {
   const items = `${result.items} item${result.items === 1 ? '' : 's'}`
   const dropped = result.dropped
@@ -68,6 +73,16 @@ function describe(result, value, target) {
   )
 }
 
+/**
+ * The panel that merges `value` into another of the table's `active`
+ * values.
+ *
+ * Choosing a target asks the server what the merge would move, writing
+ * nothing, and Merge is offered only once that answer is on screen; items
+ * for sale among them are named, and confirming acknowledges them.
+ * `onMerged` gets the result of the merge itself; a refusal is shown here
+ * and the panel stays open.
+ */
 function MergePanel({ table, value, active, onMerged, onCancel }) {
   // Worked out here, for the one row being merged, rather than for every
   // row of the table on every render.
@@ -151,6 +166,17 @@ function MergePanel({ table, value, active, onMerged, onCancel }) {
   )
 }
 
+/**
+ * One value's row: its label with the actions on it, its position when the
+ * table is `sequenced`, its code, and its aliases.
+ *
+ * `fields` are the vocabulary's own columns, and Edit details... is offered
+ * only when it has some. `active` are the values a merge may go into, and
+ * `shared(alias)` says whether another value has that alias too. Each
+ * action is saved as it is taken: `onChanged` gets the value as the server
+ * now holds it, `onMerged` the result of a merge. A refusal is shown in the
+ * row.
+ */
 function ValueRow({
   table,
   value,
@@ -422,6 +448,15 @@ function ValueRow({
   )
 }
 
+/**
+ * The Vocabularies page: a picker for the vocabulary, a box that narrows
+ * its values by label, code or alias, the form that adds a value where
+ * adding is allowed, and a row per value.
+ *
+ * A changed value is replaced in place; a merge or an addition reads the
+ * table again. Each also tells the shared reference data that its copy of
+ * the vocabulary is stale, so pickers elsewhere fetch it afresh.
+ */
 export default function Vocabularies() {
   const context = useContext(ReferenceContext)
   const [tables, setTables] = useState([])

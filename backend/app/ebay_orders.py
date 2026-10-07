@@ -51,7 +51,7 @@ from openpyxl import Workbook, load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import field_changes
+from . import field_changes, pass_cli
 from .database import SessionLocal
 from .models import InventoryItem, PurchaseOrder, User, Vendor
 
@@ -93,6 +93,7 @@ def item_id_of(url: str | None) -> str | None:
 
 
 def _price(value: object) -> Decimal | None:
+    """A price as eBay writes it, commas dropped; None when empty or not a number."""
     try:
         return Decimal(str(value).replace(",", "")) if value not in (None, "") else None
     except InvalidOperation:
@@ -227,6 +228,7 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
     logged = 0
 
     def log(item_id: int, field_name: str, old: object, new: object) -> None:
+        """Record one field's change in the item's history, and count it."""
         nonlocal logged
         logged += field_changes.record(
             db,
@@ -304,6 +306,7 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
         by_order[line.order_number].append(line)
 
     def purchase_row(purchase_id: int) -> list[object]:
+        """The review sheet's cells for one purchase: its date, address and items."""
         purchase = db.get(PurchaseOrder, purchase_id)
         items = db.scalars(
             select(InventoryItem)
@@ -374,12 +377,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "files", nargs="+", type=Path, help="purchase-history workbooks"
     )
-    parser.add_argument("--commit", action="store_true", help="write the changes")
-    parser.add_argument("--by", help="the person the History rows name (email)")
+    pass_cli.add_commit_arguments(parser, "write the changes")
     parser.add_argument("--review", type=Path, help="write a review workbook here")
-    args = parser.parse_args(argv)
-    if args.commit and not args.by:
-        parser.error("--commit needs --by: every change is logged under a person")
+    args = pass_cli.parse_args(parser, argv)
 
     lines = read_history(args.files)
     with SessionLocal() as db:
@@ -395,7 +395,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_review(db, todo, lines, args.review)
             print(f"review workbook: {args.review}")
         if not args.commit:
-            print("dry run: nothing written (--commit --by EMAIL to apply)")
+            print(pass_cli.DRY_RUN)
             return 0
         user_id = db.scalar(select(User.id).where(User.email == args.by))
         if user_id is None:

@@ -33,6 +33,7 @@ class CountingStorage(LocalStorage):
 
 @pytest.fixture
 def storage(tmp_path: Path) -> CountingStorage:
+    """Media storage in a temporary folder that counts how it is used."""
     return CountingStorage(tmp_path / "media")
 
 

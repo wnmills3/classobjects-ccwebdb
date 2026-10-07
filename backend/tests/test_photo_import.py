@@ -21,6 +21,7 @@ from tests.conftest import build_item
 
 
 def _jpeg(color: tuple[int, int, int] = (10, 20, 30)) -> bytes:
+    """A tiny JPEG of one colour; a different colour is a different photograph."""
     buffer = io.BytesIO()
     PILImage.new("RGB", (8, 8), color).save(buffer, format="JPEG")
     return buffer.getvalue()
@@ -45,6 +46,7 @@ def _stored_image(db: Session, sha: str) -> Image:
 
 
 def _library(root: Path, names: dict[str, bytes]) -> Path:
+    """Write each file under the folder, making subfolders, and return the folder."""
     for name, data in names.items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)

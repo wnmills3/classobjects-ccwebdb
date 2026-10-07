@@ -121,6 +121,10 @@ function Console() {
   )
 }
 
+/**
+ * The console's routes: sign-in on its own, and every other address inside
+ * the administrator guard, so a page added to the shell is guarded with it.
+ */
 export default function ManagementApp() {
   return (
     <Routes>

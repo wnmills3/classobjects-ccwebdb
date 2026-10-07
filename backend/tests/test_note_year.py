@@ -16,12 +16,14 @@ from tests.builders import build_purchase_order
 
 
 def _order(db: Session) -> PurchaseOrder:
+    """A purchase for the test's notes to be entered on."""
     return build_purchase_order(db, vendor_name="Note Year Vendor")
 
 
 def _create(
     client: TestClient, headers: dict[str, str], order: PurchaseOrder, **fields: object
 ) -> dict[str, object]:
+    """Enter an item on the purchase through the API; the created item's body."""
     body = {"purchase_order_id": order.id, "source_title": "t", **fields}
     response = client.post("/api/inventory", json=body, headers=headers)
     assert response.status_code == 201, response.text
@@ -30,6 +32,7 @@ def _create(
 
 
 def _years(db: Session, item_id: object) -> tuple[int | None, int | None]:
+    """The item's first and last year as the database now holds them."""
     db.expire_all()
     item = db.get(InventoryItem, item_id)
     assert item is not None

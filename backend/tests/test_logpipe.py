@@ -15,6 +15,7 @@ SCRIPT = Path(logpipe.__file__)
 
 
 def names(directory: Path) -> set[str]:
+    """The names of the files in a directory."""
     return {p.name for p in directory.iterdir()}
 
 

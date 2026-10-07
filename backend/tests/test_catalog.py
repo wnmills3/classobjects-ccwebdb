@@ -326,6 +326,7 @@ def test_catalogue_never_exposes_cost_basis_or_location(
 
 
 def _ebay(db: Session) -> int:
+    """The id of a marketplace venue named eBay, added for the test."""
     kind = db.scalar(
         select(SalesVenueKind.id).where(SalesVenueKind.code == "marketplace")
     )

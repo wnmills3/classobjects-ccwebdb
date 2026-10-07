@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 
 def _customer(db: Session) -> Customer:
+    """A customer record to correct, flushed."""
     customer = Customer(display_name="Pat Buyer", email="pat@example.com")
     db.add(customer)
     db.flush()

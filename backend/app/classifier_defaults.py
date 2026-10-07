@@ -585,6 +585,7 @@ def weight_outcome(item: InventoryItem, out: Outcome, recorded: dict[str, str]) 
         return
 
     def now(column: str) -> Decimal | None:
+        """The column's value as `out` leaves it: written, retracted or the item's."""
         if column in written:
             value = written[column]
             return value if isinstance(value, Decimal) else None
@@ -610,6 +611,7 @@ def weight_outcome(item: InventoryItem, out: Outcome, recorded: dict[str, str]) 
 def _note_facts(
     item: InventoryItem, detail: CurrencyDetail, face: Decimal | None
 ) -> NoteFacts:
+    """The recorded facts of a banknote that its classifiers are filled from."""
     return NoteFacts(
         denomination_id=item.denomination_id,
         face=face,

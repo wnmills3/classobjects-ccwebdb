@@ -105,6 +105,7 @@ INSERT INTO child (parent_id, note, finish_id, coinage_id) VALUES
 
 
 def _url(name: str) -> str:
+    """The test server's address for the database of this name, password included."""
     return TEST_URL.set(database=name).render_as_string(hide_password=False)
 
 

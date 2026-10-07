@@ -176,10 +176,12 @@ function InventoryView({ config }) {
   )
 }
 
+/** The Coins page: the inventory screen with the coin view's columns. */
 export function InventoryCoins() {
   return <InventoryView config={COIN_VIEW} />
 }
 
+/** The Currency page: the inventory screen with the banknote view's columns. */
 export function InventoryCurrency() {
   return <InventoryView config={CURRENCY_VIEW} />
 }

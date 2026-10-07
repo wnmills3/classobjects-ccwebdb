@@ -14,8 +14,8 @@ const FIELDS = [
  * What a piece weighs and how much of that is the metal: gross weight,
  * fineness, fine weight, and the weight as it is written.
  *
- * Shared by the item editor and New item, so both ask for a weight the same
- * way. Each weight is per piece, typed in troy ounces or grams
+ * The item editor's weight fields. Each weight is per piece, typed in troy
+ * ounces or grams
  * (`WeightInput`) and held in troy ounces. Fine weight may be left empty:
  * the server works it out as gross weight times fineness when it has both.
  *

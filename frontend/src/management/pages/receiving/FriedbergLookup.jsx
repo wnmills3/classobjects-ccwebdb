@@ -75,6 +75,7 @@ function filtersOf(fields) {
 /** How long typing must pause before the signature pairs are narrowed again. */
 const NARROW_DELAY_MS = 250
 
+/** Text in capitals, as a series letter and a plate number are printed. */
 const upper = (text) => text.toUpperCase()
 
 /** A vocabulary's values as a code -> label map; empty while it loads. */

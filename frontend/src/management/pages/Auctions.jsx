@@ -9,6 +9,7 @@ import { RESULT_LABEL } from './auction-labels'
 import { accel, useSaveShortcut } from '../shortcuts'
 import { subjectOf, UNKNOWN } from './listing-labels'
 import { date } from '../../shared/format'
+import { useGuardedSave } from '../useGuardedSave'
 import { useMounted } from '../useMounted'
 import { useSalesVenues } from '../useSalesVenues'
 import { useRequest } from '../../shared/useRequest'
@@ -76,12 +77,8 @@ function AuctionForm({ venues, onSaved, onClose }) {
     ends_at: '',
     notes: '',
   })
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { error, setError, saving, send } = useGuardedSave(onSaved)
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
-
-  // Guards save()'s continuation once the request settles.
-  const mounted = useMounted()
 
   useSaveShortcut(save, !saving)
 
@@ -95,9 +92,7 @@ function AuctionForm({ venues, onSaved, onClose }) {
       setError('An auction needs a title.')
       return
     }
-    setSaving(true)
-    setError('')
-    try {
+    await send(async () => {
       const saved = await api.createAuction({
         venue: form.venue,
         title,
@@ -106,14 +101,8 @@ function AuctionForm({ venues, onSaved, onClose }) {
         ends_at: orNull(form.ends_at),
         notes: orNull(form.notes),
       })
-      if (!mounted.current) return
-      onSaved(saved)
-    } catch (err) {
-      if (!mounted.current) return
-      setError(err.message)
-    } finally {
-      if (mounted.current) setSaving(false)
-    }
+      return saved
+    })
   }
 
   return (
@@ -228,11 +217,8 @@ function AddLotDialog({ auction, onSaved, onClose }) {
   const [price, setPrice] = useState('')
   const open = useRequest('assembling', () => api.listLots(ASSEMBLING_LOTS))
   const assemblingLots = open.data?.lots ?? []
-  const [saveError, setError] = useState('')
+  const { error: saveError, setError, saving, send, mounted } = useGuardedSave(onSaved)
   const error = saveError || open.error
-  const [saving, setSaving] = useState(false)
-
-  const mounted = useMounted()
 
   useSaveShortcut(save, !saving)
 
@@ -250,9 +236,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
       setError('Choose the lot to add.')
       return
     }
-    setSaving(true)
-    setError('')
-    try {
+    await send(async () => {
       const payload = {
         lot_number: number,
         reserve: orNull(reserve),
@@ -261,24 +245,16 @@ function AddLotDialog({ auction, onSaved, onClose }) {
       if (mode === 'item') {
         const code = itemCode.trim()
         const itemId = await findItemIdByCode(code)
-        if (!mounted.current) return
-        if (itemId === null) {
-          setError(`No item with code ${code}.`)
-          return
-        }
+        // Closed while the item was looked up: the lot is not added.
+        if (!mounted.current) return undefined
+        if (itemId === null) throw new Error(`No item with code ${code}.`)
         payload.item_id = itemId
       } else {
         payload.lot_id = Number(lotId)
       }
       const saved = await api.addAuctionLot(auction.id, payload)
-      if (!mounted.current) return
-      onSaved(saved)
-    } catch (err) {
-      if (!mounted.current) return
-      setError(err.message)
-    } finally {
-      if (mounted.current) setSaving(false)
-    }
+      return saved
+    })
   }
 
   const label = `Add a lot to ${auction.title}`
@@ -372,10 +348,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
 /** Marking an auction consigned: when custody moved to the house. */
 function ConsignDialog({ auction, onSaved, onClose }) {
   const [onDate, setOnDate] = useState('')
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  const mounted = useMounted()
+  const { error, setError, saving, send } = useGuardedSave(onSaved)
 
   useSaveShortcut(save, !saving)
 
@@ -385,18 +358,10 @@ function ConsignDialog({ auction, onSaved, onClose }) {
       setError('Enter the date custody moved to the house.')
       return
     }
-    setSaving(true)
-    setError('')
-    try {
+    await send(async () => {
       const saved = await api.consignAuction(auction.id, { on_date: trimmed })
-      if (!mounted.current) return
-      onSaved(saved)
-    } catch (err) {
-      if (!mounted.current) return
-      setError(err.message)
-    } finally {
-      if (mounted.current) setSaving(false)
-    }
+      return saved
+    })
   }
 
   const label = `Mark ${auction.title} consigned`

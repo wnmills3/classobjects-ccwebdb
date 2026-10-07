@@ -52,6 +52,7 @@ class Report:
 
 
 def _vendor(db: Session, vendor_id: int) -> Vendor:
+    """The vendor with this id, or a `CleanupError`."""
     vendor = db.get(Vendor, vendor_id)
     if vendor is None:
         raise CleanupError(f"No vendor with id {vendor_id}")
@@ -204,16 +205,19 @@ def run(
 
 
 def _pair(text: str) -> tuple[int, int]:
+    """A `--merge` argument, `id:id`, as its two vendor ids."""
     left, _, right = text.partition(":")
     return int(left), int(right)
 
 
 def _kind(text: str) -> tuple[int, str]:
+    """A `--kind` argument, `id:code`, as a vendor id and a vendor kind's code."""
     left, _, right = text.partition(":")
     return int(left), right
 
 
 def _rename(text: str) -> tuple[int, str]:
+    """A rename argument, `id:name`, as a vendor id and the trimmed new name."""
     left, _, right = text.partition(":")
     return int(left), right.strip()
 

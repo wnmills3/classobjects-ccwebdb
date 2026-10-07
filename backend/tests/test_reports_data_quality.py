@@ -1148,6 +1148,7 @@ def test_dq_series_years_lists_what_its_issue_filter_finds(db: Session) -> None:
 def _coin_of(
     db: Session, denomination: str, year: int, **extra: object
 ) -> InventoryItem:
+    """A coin of this denomination and single year, the extras applied."""
     return build_bare_item(
         db,
         denomination_id=code_id(db, Denomination, denomination),
@@ -1158,6 +1159,7 @@ def _coin_of(
 
 
 def _review(db: Session, show: str = "all") -> ReportResult:
+    """The series-review report, run with this `show` filter."""
     return DQ_SERIES_REVIEW.run(db, DqSeriesReviewParams.model_validate({"show": show}))
 
 

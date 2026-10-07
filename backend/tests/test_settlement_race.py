@@ -426,6 +426,7 @@ def test_two_settlements_of_one_auction_leave_one_set_of_orders(
     refusals: list[str] = []
 
     def settle_it() -> Outcome:
+        """Settle the auction, in a session of its own; how it ended."""
         with committed() as session:
             try:
                 # Auction and operator loaded before the barrier, the way a
@@ -739,6 +740,7 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
     barrier = threading.Barrier(2)
 
     def settle_it() -> Outcome:
+        """Settle the consigned auction, its unsold coins going to the drawer."""
         with committed() as session:
             try:
                 auction = session.get_one(Auction, auction_id)
@@ -780,6 +782,7 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
                 return "stale"
 
     def mark_it_missing() -> Outcome:
+        """Record the contested coin as missing, through the receiving route."""
         with committed() as session:
             try:
                 operator = session.get_one(User, admin_id)
@@ -956,6 +959,7 @@ def test_cancelling_an_auction_races_settling_it(
     refusals: list[str] = []
 
     def settle_it() -> Outcome:
+        """Settle the auction, in a session of its own; how it ended."""
         with committed() as session:
             try:
                 auction = session.get_one(Auction, auction_id)
@@ -995,6 +999,7 @@ def test_cancelling_an_auction_races_settling_it(
                 return "stale"
 
     def cancel_it() -> Outcome:
+        """Cancel the auction, in a session of its own; how it ended."""
         with committed() as session:
             try:
                 auction = session.get_one(Auction, auction_id)
@@ -1135,6 +1140,7 @@ def test_consigning_an_auction_races_cancelling_it(
     refusals: list[str] = []
 
     def consign_it() -> Outcome:
+        """Consign the auction, in a session of its own; how it ended."""
         with committed() as session:
             try:
                 auction = session.get_one(Auction, auction_id)
@@ -1154,6 +1160,7 @@ def test_consigning_an_auction_races_cancelling_it(
                 return "stale"
 
     def cancel_it() -> Outcome:
+        """Cancel the auction, its coins going back to the drawer."""
         with committed() as session:
             try:
                 auction = session.get_one(Auction, auction_id)

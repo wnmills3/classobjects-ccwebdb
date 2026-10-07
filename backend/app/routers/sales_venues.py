@@ -25,7 +25,7 @@ from ._resolve import (
     refuse_null_required,
     refuse_stale_version,
 )
-from ._tx import commit
+from ._tx import commit, commit_unique
 
 router = APIRouter(prefix="/sales-venues", tags=["selling"])
 
@@ -118,15 +118,8 @@ def create_sales_venue(
         )
     venue = SalesVenue(**data, sales_venue_kind_id=kind_id)
     db.add(venue)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        # Two submissions racing past the checks above.
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="That platform code or purchase source is already in use",
-        ) from exc
+    # Two submissions racing past the checks above.
+    commit_unique(db, "That platform code or purchase source is already in use")
     db.refresh(venue)
     return _out(db, venue)
 

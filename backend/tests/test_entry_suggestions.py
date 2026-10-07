@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 def _note_lookup(
     client: TestClient, headers: dict[str, str], **params: object
 ) -> dict[str, object]:
+    """What the note-defaults route answers for the facts entered so far."""
     response = client.get("/api/defaults/note", params=params, headers=headers)
     assert response.status_code == 200, response.text
     body: dict[str, object] = response.json()
@@ -81,6 +82,7 @@ def test_no_warning_where_the_record_does_not_cover_the_note(
 def _coin_lookup(
     client: TestClient, headers: dict[str, str], **params: object
 ) -> dict[str, object]:
+    """What the coin-defaults route answers for the facts entered so far."""
     response = client.get("/api/defaults/coin", params=params, headers=headers)
     assert response.status_code == 200, response.text
     body: dict[str, object] = response.json()

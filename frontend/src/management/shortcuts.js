@@ -19,6 +19,11 @@ export const accel = (key) =>
 //: Every mounted `useSaveShortcut`, oldest first. Only the last one answers.
 const saveHandlers = []
 
+/**
+ * The one `keydown` listener behind every `useSaveShortcut`: Ctrl or Cmd
+ * with S or Enter is taken from the browser and given to the editor opened
+ * last, which saves if it is enabled.
+ */
 function handleSaveKey(e) {
   if (!(e.ctrlKey || e.metaKey)) return
   if (e.key !== 's' && e.key !== 'S' && e.key !== 'Enter') return

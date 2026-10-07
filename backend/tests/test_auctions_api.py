@@ -766,6 +766,7 @@ def test_a_shopper_is_not_told_how_the_server_is_misconfigured(
     from app.errors import ReferenceDataMissing
 
     def missing(*_args: object, **_kwargs: object) -> int:
+        """Fail as the venue lookup does on a database with no web store."""
         raise ReferenceDataMissing(
             "No web store platform: run `alembic upgrade head` on this database"
         )
@@ -803,6 +804,7 @@ def test_an_unrelated_runtime_error_is_not_swallowed(
     """
 
     def _boom(*args: object, **kwargs: object) -> None:
+        """Fail with an error that has nothing to do with reference data."""
         raise RuntimeError("something else entirely, not a seeding problem")
 
     monkeypatch.setattr(auctions, "consign", _boom)
@@ -849,6 +851,7 @@ def _home(db: Session) -> StorageLocation:
 
 
 def _last_move(db: Session, item: InventoryItem) -> LocationHistory:
+    """The newest row of the item's location history, read afresh."""
     db.expire_all()
     return db.scalars(
         select(LocationHistory)
@@ -1082,6 +1085,7 @@ def test_settlement_input_invalid_is_a_422_not_a_409(
     """
 
     def _raise_invalid(*args: object, **kwargs: object) -> list[SalesOrder]:
+        """Stand in for settlement, refusing its input as malformed."""
         raise auctions.SettlementInputInvalid("deliberately malformed, for the test")
 
     monkeypatch.setattr(auctions, "settle", _raise_invalid)
@@ -1107,6 +1111,7 @@ def test_a_plain_auction_refused_from_settle_is_still_a_409(
     """The base `AuctionRefused` -- a genuine conflict -- still maps to 409."""
 
     def _raise_refused(*args: object, **kwargs: object) -> list[SalesOrder]:
+        """Stand in for settlement, refusing the auction as a conflict."""
         raise auctions.AuctionRefused("a real conflict, for the test")
 
     monkeypatch.setattr(auctions, "settle", _raise_refused)
@@ -1136,6 +1141,7 @@ def test_sale_input_invalid_from_settle_is_a_422_not_a_409(
     """
 
     def _raise_invalid(*args: object, **kwargs: object) -> list[SalesOrder]:
+        """Stand in for settlement, the sale writer refusing its input."""
         raise sales_writes.SaleInputInvalid("deliberately malformed, for the test")
 
     monkeypatch.setattr(auctions, "settle", _raise_invalid)
@@ -1159,6 +1165,7 @@ def test_sale_refused_from_settle_is_a_409(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _raise_refused(*args: object, **kwargs: object) -> list[SalesOrder]:
+        """Stand in for settlement, the sale writer refusing a conflict."""
         raise sales_writes.SaleRefused("a real conflict, for the test")
 
     monkeypatch.setattr(auctions, "settle", _raise_refused)
@@ -1195,6 +1202,7 @@ def test_a_semicolon_in_a_reason_survives_the_round_trip(
     problem = "lot 1 and lot 2 cannot both be results; that is the whole problem"
 
     def _raise_refused(*args: object, **kwargs: object) -> list[SalesOrder]:
+        """Stand in for settlement, refusing one lot for a reason with a semicolon."""
         raise auctions.AuctionRefused(
             f"auction #{closed_auction_of_two_lots.id} cannot be settled: {problem}",
             refusals=[auctions.AuctionRefusal(reason=problem, lot_number="1")],

@@ -21,6 +21,7 @@ NEW = {
 
 
 def _accounts(db: Session) -> int:
+    """How many user accounts the database holds, read afresh."""
     db.expire_all()
     return db.scalar(select(func.count()).select_from(User)) or 0
 

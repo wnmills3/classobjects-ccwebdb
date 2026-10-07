@@ -38,8 +38,8 @@ only the kind's own denominations.
 | Denomination, country, year (coin) | metal | `composition` |
 | Denomination, year, series letter; seal and class for a note | **design series** | `app.series_classify.suggest_series`, with no text evidence |
 
-Both forms ask `GET /api/defaults/note` or `/coin` after a 250 ms pause in
-typing. The design series is decided by the same rules as the batch pass,
+The Identify section asks `GET /api/defaults/note` or `/coin` after a 250 ms
+pause in typing. The design series is decided by the same rules as the batch pass,
 from the facts alone: one candidate that needs no evidence is suggested; a
 boundary year (1921 $1: Morgan or Peace) or an evidence-only design is left
 open. Text is not read at entry -- a title is the seller's words, and the

@@ -129,6 +129,7 @@ def test_verification_rejects_an_image_it_could_not_clean(
     import app.imaging as imaging
 
     def passthrough(image: PILImage.Image, quality: int = 90) -> tuple[bytes, str]:
+        """Stand in for the cleaner, leaving a camera make in the output."""
         buffer = io.BytesIO()
         exif = {
             "0th": {piexif.ImageIFD.Make: b"Leaky"},
@@ -164,6 +165,7 @@ def test_surviving_gps_is_reported_as_gps(
     import app.imaging as imaging
 
     def leaks_gps(image: PILImage.Image, quality: int = 90) -> tuple[bytes, str]:
+        """Stand in for the cleaner, leaving a GPS position in the output."""
         buffer = io.BytesIO()
         exif = {
             "0th": {},
@@ -611,6 +613,7 @@ def media_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _stored(root: Path) -> list[Path]:
+    """Every file under the media root, whatever folder it is in."""
     return [path for path in root.rglob("*") if path.is_file()]
 
 
@@ -662,6 +665,7 @@ def test_a_deletion_that_fails_to_commit_keeps_the_bytes(
     assert stored
 
     def refuse() -> None:
+        """Stand in for the commit, failing it."""
         raise RuntimeError("the commit failed")
 
     monkeypatch.setattr(db, "commit", refuse)
