@@ -63,6 +63,13 @@ export const FIELD_HELP = {
       'Leave it blank to use the configured default. Every item entered below ' +
       'is stamped with it.',
   },
+  spot_price: {
+    title: 'New price',
+    text:
+      'What a troy ounce of this metal is quoted at today, in dollars: 31.50, ' +
+      'or 0.2875 for copper. Record makes it the price from now on and keeps ' +
+      'the one before; a price typed wrong is put right by recording another.',
+  },
   no_sales_tax: {
     title: 'No sales tax charged',
     text:

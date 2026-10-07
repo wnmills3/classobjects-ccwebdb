@@ -22,6 +22,7 @@ from .routers import (
     images,
     inventory,
     lots,
+    metal_prices,
     offers,
     orders,
     reference,
@@ -66,6 +67,7 @@ app.include_router(acquisitions.storage_locations_router, prefix=settings.api_pr
 app.include_router(friedberg.friedberg_router, prefix=settings.api_prefix)
 app.include_router(friedberg.item_router, prefix=settings.api_prefix)
 app.include_router(sales_venues.router, prefix=settings.api_prefix)
+app.include_router(metal_prices.router, prefix=settings.api_prefix)
 app.include_router(offers.router, prefix=settings.api_prefix)
 app.include_router(lots.router, prefix=settings.api_prefix)
 app.include_router(auctions_router.router, prefix=settings.api_prefix)

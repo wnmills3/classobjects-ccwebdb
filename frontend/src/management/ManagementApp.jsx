@@ -15,6 +15,7 @@ import Photos from './pages/Photos'
 import Platforms from './pages/Platforms'
 import Receiving from './pages/Receiving'
 import Reports from './pages/Reports'
+import SpotPrices from './pages/SpotPrices'
 import Vocabularies from './pages/Vocabularies'
 
 /**
@@ -78,6 +79,7 @@ function Console() {
               <NavLink to="/auctions">Auctions</NavLink>
             </span>
             <NavLink to="/platforms">Platforms</NavLink>
+            <NavLink to="/spot-prices">Spot prices</NavLink>
             <NavLink to="/reports">Reports</NavLink>
             <NavLink to="/vocabularies">Vocabularies</NavLink>
             <NavLink to="/lists">Lists</NavLink>
@@ -109,6 +111,7 @@ function Console() {
             <Route path="/lots" element={<Lots />} />
             <Route path="/auctions" element={<Auctions />} />
             <Route path="/platforms" element={<Platforms />} />
+            <Route path="/spot-prices" element={<SpotPrices />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/vocabularies" element={<Vocabularies />} />
             <Route path="/lists" element={<Lists />} />
