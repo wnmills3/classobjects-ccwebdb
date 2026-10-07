@@ -920,6 +920,65 @@ describe('NewPurchase: the purchases table', () => {
     await user.keyboard('{Enter}')
     await waitFor(() => expect(api.getPurchaseOrder).toHaveBeenCalledWith(2))
   })
+
+  describe('only purchases with items not yet received', () => {
+    // The open purchases are neither first nor last by date, and the newest
+    // has everything in: a list cut by position would not pass for this one.
+    const MIXED = [
+      { ...ORDERS[0], outstanding: 2, total: 2 },
+      ORDERS[1],
+      ORDERS[2],
+      { ...ORDERS[3], outstanding: 1, total: 5 },
+    ]
+
+    async function openMixed(user, orders = MIXED) {
+      api.listPurchaseOrders.mockResolvedValue(orders)
+      renderWithProviders(<NewPurchase />)
+      await user.click(
+        await screen.findByRole('radio', { name: /add to an existing purchase/i }),
+      )
+      await screen.findByRole('table', { name: /purchases/i })
+      return screen.getByRole('checkbox', { name: /items not yet received/i })
+    }
+
+    const table = () => screen.getByRole('table', { name: /purchases/i })
+
+    it('lists every purchase until it is ticked', async () => {
+      const only = await openMixed(userEvent.setup())
+      expect(only).not.toBeChecked()
+      expect(numbers(table())).toEqual(['B-9', 'B-10', 'A-1', 'no order number'])
+    })
+
+    it('leaves out a purchase with everything in, and brings it back', async () => {
+      const user = userEvent.setup()
+      const only = await openMixed(user)
+      await user.click(only)
+      expect(numbers(table())).toEqual(['B-10', 'A-1'])
+      await user.click(only)
+      expect(numbers(table())).toEqual(['B-9', 'B-10', 'A-1', 'no order number'])
+    })
+
+    it('narrows along with the filter', async () => {
+      const user = userEvent.setup()
+      await user.click(await openMixed(user))
+      await user.type(screen.getByRole('textbox', { name: /filter/i }), 'apmex')
+      expect(numbers(table())).toEqual(['A-1'])
+    })
+
+    it('says so when nothing is still to arrive, and stays to be unticked', async () => {
+      const user = userEvent.setup()
+      const only = await openMixed(user, ORDERS)
+      await user.click(only)
+      expect(
+        screen.queryByRole('table', { name: /purchases/i }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByText('No purchase has an item not yet received.'),
+      ).toBeInTheDocument()
+      await user.click(only)
+      expect(numbers(table())).toHaveLength(4)
+    })
+  })
 })
 
 describe('NewPurchase: Ctrl+S', () => {

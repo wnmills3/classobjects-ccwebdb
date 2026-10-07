@@ -214,14 +214,21 @@ function sortPurchases(orders, { key, desc }) {
  *
  * The sort controls are buttons in the headers, and each row's order number
  * is the button that picks it, so the whole table works from the keyboard.
+ *
+ * `openOnly` keeps the purchases with an item still to arrive -- `ordered`
+ * or `missing`, as the server counts `outstanding`.
  */
-function ExistingPurchasePicker({ orders, filterText, onPick }) {
+function ExistingPurchasePicker({ orders, filterText, openOnly, onPick }) {
   const [sort, setSort] = useState({ key: 'ordered_on', desc: true })
   if (orders.length === 0) {
     return <p className="muted">No purchases recorded yet.</p>
   }
+  const open = openOnly ? orders.filter((order) => order.outstanding > 0) : orders
+  if (open.length === 0) {
+    return <p className="muted">No purchase has an item not yet received.</p>
+  }
   const shown = sortPurchases(
-    orders.filter((order) => matchesFilter(order, filterText)),
+    open.filter((order) => matchesFilter(order, filterText)),
     sort,
   )
   if (shown.length === 0) {
@@ -435,6 +442,7 @@ export default function NewPurchase() {
   const [orders, setOrders] = useState(null)
   const [ordersError, setOrdersError] = useState('')
   const [orderFilter, setOrderFilter] = useState('')
+  const [openOnly, setOpenOnly] = useState(false)
   const [form, setForm] = useState(BLANK_PURCHASE)
   const [creating, setCreating] = useState(false)
   const [purchaseError, setPurchaseError] = useState('')
@@ -833,10 +841,22 @@ export default function NewPurchase() {
                 />
               </label>
             )}
+            {orders && orders.length > 0 && (
+              <label data-help="purchase_open_only" className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={openOnly}
+                  onChange={(e) => setOpenOnly(e.target.checked)}
+                />
+                {/* */}
+                Only purchases with items not yet received
+              </label>
+            )}
             {orders && (
               <ExistingPurchasePicker
                 orders={orders}
                 filterText={orderFilter}
+                openOnly={openOnly}
                 onPick={pickExisting}
               />
             )}
