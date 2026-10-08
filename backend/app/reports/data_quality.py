@@ -81,6 +81,9 @@ __all__ = [
     "DQ_SERIES_YEARS",
 ]
 
+#: The group these reports are listed under (`registry`'s order of groups).
+_GROUP = "Data quality"
+
 
 class DqIssuesParams(BaseModel):
     """No parameters: every check, on every live item, every time."""
@@ -131,7 +134,7 @@ def _dq_issues(db: Session, _params: DqIssuesParams) -> ReportResult:
 DQ_ISSUES = register(
     Report(
         id="dq_issues",
-        group="Data quality",
+        group=_GROUP,
         title="Open issues",
         purpose="Every named data-quality check, counted across coins and currency.",
         params=DqIssuesParams,
@@ -273,7 +276,7 @@ def _dq_completeness(db: Session, _params: DqCompletenessParams) -> ReportResult
 DQ_COMPLETENESS = register(
     Report(
         id="dq_completeness",
-        group="Data quality",
+        group=_GROUP,
         title="Field completeness",
         purpose="Percent of live items with each field filled in, by kind.",
         params=DqCompletenessParams,
@@ -393,7 +396,7 @@ def _dq_photos(db: Session, _params: DqPhotosParams) -> ReportResult:
 DQ_PHOTOS = register(
     Report(
         id="dq_photos",
-        group="Data quality",
+        group=_GROUP,
         title="Photographs",
         purpose="Live items with no photograph, by kind and status, plus "
         "photographs filed against no item.",
@@ -504,7 +507,7 @@ def _dq_derived(db: Session, _params: DqDerivedParams) -> ReportResult:
 DQ_DERIVED = register(
     Report(
         id="dq_derived",
-        group="Data quality",
+        group=_GROUP,
         title="Filled by a rule",
         purpose="Fields that still hold what a machine pass filled in, and "
         "the rule that filled each one.",
@@ -644,7 +647,7 @@ def _dq_purchases(db: Session, _params: DqPurchasesParams) -> ReportResult:
 DQ_PURCHASES = register(
     Report(
         id="dq_purchases",
-        group="Data quality",
+        group=_GROUP,
         title="Purchases with gaps",
         purpose="Purchases with a placeholder number, a missing or "
         "implausible order date, no web address, a zero-cost item, or no "
@@ -765,7 +768,7 @@ def _dq_locations(db: Session, _params: DqLocationsParams) -> ReportResult:
 DQ_LOCATIONS = register(
     Report(
         id="dq_locations",
-        group="Data quality",
+        group=_GROUP,
         title="Where items are",
         purpose="Live items by storage location, with items and total cost.",
         params=DqLocationsParams,
@@ -848,7 +851,7 @@ def _dq_series_years(db: Session, _params: DqSeriesYearsParams) -> ReportResult:
 DQ_SERIES_YEARS = register(
     Report(
         id="dq_series_years",
-        group="Data quality",
+        group=_GROUP,
         title="Coins dated outside their series",
         purpose="Coins whose year falls outside their design series' years -- "
         "a typo, a tribute piece, or the wrong series.",
@@ -997,7 +1000,7 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
 DQ_SERIES_REVIEW = register(
     Report(
         id="dq_series_review",
-        group="Data quality",
+        group=_GROUP,
         title="Series to review",
         purpose="Items whose design series a person must settle: the "
         "description names a design the recorded denomination and year rule "

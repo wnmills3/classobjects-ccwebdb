@@ -31,7 +31,11 @@ __all__ = [
 #: The two places US currency is printed, by code, as a person reads them.
 FACILITIES: dict[str, str] = {"dc": "Washington, DC", "fw": "Fort Worth, TX"}
 
-_FACE = re.compile(r"^(FW)?\s*([A-Z]?)\s*(\d{1,5})$")
+#: `FW`, a check letter and up to five digits, the first two optional and
+#: space allowed between the parts. The space after a check letter belongs to
+#: the letter's own group, so with no letter there is one run of space to
+#: match and only one way to match it.
+_FACE = re.compile(r"^(FW)?\s*(?:([A-Z])\s*)?(\d{1,5})$")
 _BACK = re.compile(r"^\d{1,5}$")
 
 
@@ -49,7 +53,7 @@ def face_plate(text: str | None) -> str | None:
             "(153), with FW before them for a Fort Worth note (FW E82)"
         )
     prefix, letter, digits = match.groups()
-    number = f"{letter}{digits}"
+    number = f"{letter or ''}{digits}"
     return f"FW {number}" if prefix else number
 
 

@@ -55,6 +55,8 @@ def committing(db: Session, stale_detail: str) -> Iterator[None]:
 def commit(db: Session, stale_detail: str) -> None:
     """Commit what the caller has already written, as `committing` would."""
     with committing(db, stale_detail):
+        # Nothing to run: the caller's writes are already in the session,
+        # and leaving the block is what commits them.
         pass
 
 

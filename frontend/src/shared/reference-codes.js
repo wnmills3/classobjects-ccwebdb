@@ -10,10 +10,12 @@
 
 /** The code a typed label becomes: `Mismatched Serial` -> `mismatched_serial`. */
 export function codeFromLabel(label) {
+  // Each run of other characters becomes one `_`, so there is at most one
+  // at either end to take off.
   return label
     .trim()
     .toLowerCase()
     .replace(/['`’]/g, '')
     .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/^_|_$/g, '')
 }

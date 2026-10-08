@@ -39,13 +39,36 @@ __all__ = ["main"]
 _RIGHT_ALIGN: frozenset[ColumnKind] = frozenset({"money", "count", "percent", "ounces"})
 
 
+def _printable(text: str) -> str:
+    r"""`text` with each character a terminal would act on spelled out instead.
+
+    What is printed is what was stored -- a name a customer chose, a
+    seller's title -- and a terminal obeys an escape sequence wherever it
+    comes from, while a line break inside a cell starts a row nobody wrote.
+    A character that is not printable is shown as its escape (`\x1b`,
+    `\n`, `‮`), so every row is one line of plain text. A space is
+    printable; a tab and the characters that reverse the reading order are
+    not.
+    """
+    if text.isprintable():
+        return text
+    return "".join(
+        ch if ch.isprintable() else ch.encode("unicode_escape").decode("ascii")
+        for ch in text
+    )
+
+
 def _display(kind: ColumnKind, value: object) -> str:
-    """One cell's plain-text form; a `Decimal` (money, percent) prints as `str` does."""
+    """One cell's plain-text form; a `Decimal` (money, percent) prints as `str` does.
+
+    Escaped by `_printable`, so the width a column is given is the width of
+    what is printed.
+    """
     if value is None:
         return ""
     if kind == "date" and hasattr(value, "isoformat"):
-        return value.isoformat()
-    return str(value)
+        return _printable(value.isoformat())
+    return _printable(str(value))
 
 
 def _column_widths(result: ReportResult) -> list[int]:
@@ -62,7 +85,7 @@ def _column_widths(result: ReportResult) -> list[int]:
 
 def _header_line(columns: list[Column], widths: list[int]) -> str:
     """The header row: every column's label, left-aligned to its width."""
-    cells = (c.label.ljust(w) for c, w in zip(columns, widths, strict=True))
+    cells = (_printable(c.label).ljust(w) for c, w in zip(columns, widths, strict=True))
     return "  ".join(cells).rstrip()
 
 
@@ -92,14 +115,14 @@ def _params_line(report: Report[Any], params: BaseModel) -> str:
         if value is None and is_date_field(field):
             value = "any"
         parts.append(f"{field.title or name}: {value}")
-    return ", ".join(parts)
+    return _printable(", ".join(parts))
 
 
 def format_report(
     report: Report[Any], params: BaseModel, result: ReportResult, run_at: datetime
 ) -> str:
     """`result`, as the plain-text table `run` prints: title through notes."""
-    lines = [report.title]
+    lines = [_printable(report.title)]
     params_line = _params_line(report, params)
     if params_line:
         lines.append(params_line)
@@ -115,7 +138,7 @@ def format_report(
     if result.notes:
         lines.append("")
         lines.append("Notes:")
-        lines.extend(f"  {note}" for note in result.notes)
+        lines.extend(f"  {_printable(note)}" for note in result.notes)
     return "\n".join(lines)
 
 

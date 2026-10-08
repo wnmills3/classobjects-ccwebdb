@@ -143,6 +143,7 @@ from ._resolve import (
     refuse_future,
     refuse_null_required,
     refuse_stale_version,
+    unprocessable,
 )
 from ._tx import committing
 
@@ -152,6 +153,13 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 #: request's read of it and its UPDATE: another writer got there first, and
 #: nothing of this request was applied.
 _STALE_ITEMS = "An item was changed by someone else while saving. Reload and retry."
+
+#: The OpenAPI description of the 422 the routes that write an item's fields
+#: answer -- entering, editing, bulk editing and the two dry runs.
+_REFUSED_ITEM = (
+    "Request validation failed, or a code is unknown or retired, or a field "
+    "does not fit the item's kind or the item as the change would leave it."
+)
 
 #: Per-piece classifier overrides a caller may supply, and where each resolves.
 PIECE_CLASSIFIERS: dict[str, type] = {
@@ -656,7 +664,20 @@ def _end_offers_holding(
         offering_writes.end_offer(db, live, note=f"item {verb} {codes[live.id]}")
 
 
-@router.post("/receive")
+@router.post(
+    "/receive",
+    responses={
+        404: {"description": "An item id names no item that can be received."},
+        409: {
+            "description": "An item is already received, is for sale and the "
+            "caller has not acknowledged it, or its offer cannot be ended here."
+        },
+        422: unprocessable(
+            "Request validation failed, or the outcome, the arrival date or "
+            "the storage location is not one the receipt can take."
+        ),
+    },
+)
 def receive_items(
     payload: ReceiveRequest, db: DbSession, admin: AdminUser
 ) -> dict[str, int | str]:
@@ -885,7 +906,11 @@ def receive_items(
     return {"outcome": payload.outcome, "items": len(items)}
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    responses={422: unprocessable(_REFUSED_ITEM)},
+)
 def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDetailOut:
     """Add an item to an existing purchase: a coin, banknote or other object.
 
@@ -1625,7 +1650,10 @@ def get_suggested_description(
     return SuggestedDescriptionOut(description=suggested_description(db, item))
 
 
-@router.post("/{item_id}/suggested-description")
+@router.post(
+    "/{item_id}/suggested-description",
+    responses={422: unprocessable(_REFUSED_ITEM)},
+)
 def suggest_description_for(
     item_id: int, payload: ItemSuggestIn, db: DbSession, _admin: AdminUser
 ) -> SuggestedDescriptionOut:
@@ -1674,7 +1702,7 @@ def suggest_description_for(
     return SuggestedDescriptionOut(description=description)
 
 
-@router.post("/{item_id}/preview")
+@router.post("/{item_id}/preview", responses={422: unprocessable(_REFUSED_ITEM)})
 def preview_item(
     item_id: int, payload: ItemSuggestIn, db: DbSession, _admin: AdminUser
 ) -> ItemDetailOut:
@@ -2367,7 +2395,7 @@ def _empty_worked_out_fine_weight(db: Session, items: Sequence[InventoryItem]) -
             forget(db, [item.id], ["fine_weight_ozt"])
 
 
-@router.post("/bulk")
+@router.post("/bulk", responses={422: unprocessable(_REFUSED_ITEM)})
 def bulk_edit(
     payload: BulkEditRequest, db: DbSession, admin: AdminUser
 ) -> dict[str, int]:
@@ -2562,7 +2590,11 @@ def bulk_edit(
     return {"updated": len(items)}
 
 
-@router.patch("/{item_id}", response_model=InventoryItemOut)
+@router.patch(
+    "/{item_id}",
+    response_model=InventoryItemOut,
+    responses={422: unprocessable(_REFUSED_ITEM)},
+)
 def update_item(
     item_id: int,
     payload: InventoryItemUpdate,

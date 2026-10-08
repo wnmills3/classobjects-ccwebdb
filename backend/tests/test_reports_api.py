@@ -7,15 +7,25 @@ from decimal import Decimal
 from io import BytesIO
 
 import pytest
-from app.models import ItemStatus
+from app.models import ItemStatus, User
 from app.reports import REPORTS
+from app.reports.base import Column, ReportResult
+from app.reports.purchasing import PR_OUTSTANDING, OutstandingParams
+from app.reports.workbook import write_workbook
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item, build_purchase_order, code_id
+from tests.builders import (
+    ItemFactory,
+    build_bare_item,
+    build_purchase_order,
+    code_id,
+    priced_item,
+)
 from tests.test_reports_performance import _build_modest_collection
+from tests.test_reports_selling import _placed, _venue
 
 _ENDPOINTS = (
     "/api/reports",
@@ -243,6 +253,79 @@ def test_the_workbook_rows_equal_the_jsons_rows(
         if cell.value is not None
     }
     assert set(json_body["notes"]) <= note_texts
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        '=HYPERLINK("https://example.test","Amy")',
+        "=1+1",
+        "+1 555 0100",
+        "-Amy-",
+        "@amy",
+        "#N/A",
+    ],
+)
+def test_a_customer_s_name_is_a_text_cell_whatever_it_begins_with(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+    admin_user: User,
+    name: str,
+) -> None:
+    """A name a customer chose is text in the workbook, never a formula.
+
+    Read back without evaluating anything: the cell's own type says whether
+    a spreadsheet would compute it (`f`), show it as an error (`e`) or show
+    it as written (`s`).
+    """
+    _placed(
+        db,
+        priced_item(make_item, "Coin", Decimal("40.00")),
+        _venue(db, "ebay"),
+        admin_user,
+        price=Decimal("133.75"),
+        status_code="paid",
+        buyer_name=name,
+    )
+    db.commit()
+
+    res = client.get("/api/reports/sl_fulfilment/workbook", headers=admin_headers)
+    assert res.status_code == 200, res.text
+
+    sheet = load_workbook(BytesIO(res.content)).worksheets[0]
+    named = [cell for row in sheet.iter_rows() for cell in row if cell.value == name]
+    assert len(named) == 1
+    assert named[0].data_type == "s"
+
+
+def test_every_text_cell_of_a_report_workbook_is_text() -> None:
+    """The title, a parameter, a header, a row, the totals and a note alike."""
+    formula = "=1+1"
+    report = PR_OUTSTANDING
+    result = ReportResult(
+        columns=[Column("what", formula, "text"), Column("cost", "Cost", "money")],
+        rows=[{"what": formula, "cost": Decimal("1.00")}],
+        totals={"what": formula, "cost": Decimal("1.00")},
+        drills=[None],
+        notes=[formula],
+    )
+
+    book = write_workbook(
+        report, OutstandingParams(), result, datetime.now().astimezone()
+    )
+
+    sheet = book.worksheets[0]
+    cells = [cell for row in sheet.iter_rows() for cell in row]
+    written = [cell for cell in cells if cell.value == formula]
+    # The header, the row, the totals row and the note.
+    assert len(written) == 4
+    assert {cell.data_type for cell in cells if isinstance(cell.value, str)} == {"s"}
+    # A number is still a number, in its own format.
+    money = [cell for cell in cells if cell.value == Decimal("1.00")]
+    assert [cell.data_type for cell in money] == ["n", "n"]
+    assert {cell.number_format for cell in money} == {"#,##0.00"}
 
 
 def test_the_workbook_formats_percent_and_count_cells(

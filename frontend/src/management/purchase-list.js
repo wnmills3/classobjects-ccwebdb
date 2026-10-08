@@ -54,7 +54,8 @@ export function sortPurchases(orders, { key, desc }) {
     const x = a[key] || null
     const y = b[key] || null
     if (x === null || y === null) {
-      return x === y ? newest(a, b) : x === null ? 1 : -1
+      if (x === y) return newest(a, b)
+      return x === null ? 1 : -1
     }
     // ISO dates sort as text; the collator reads the rest.
     const order = key === 'ordered_on' ? x.localeCompare(y) : byText.compare(x, y)

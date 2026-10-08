@@ -18,7 +18,7 @@ export const WEIGHT_UNITS = [
   ['g', 'grams'],
 ]
 
-const NUMBER = /^\d*\.?\d+$|^\d+\.$/
+const NUMBER = /^(\d+(\.\d*)?|\.\d+)$/
 
 /**
  * What to save for `text` typed in `unit`: troy ounces as a decimal string.

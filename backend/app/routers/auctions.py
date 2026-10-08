@@ -506,9 +506,7 @@ def cancel_auction(
     return _out(_get_auction(db, auction_id))
 
 
-@router.post(
-    "/{auction_id}/settle", response_model=SettleOut, responses=_REFUSAL_RESPONSES
-)
+@router.post("/{auction_id}/settle", responses=_REFUSAL_RESPONSES)
 def settle_auction(
     auction_id: int, payload: SettleIn, db: DbSession, admin: AdminUser
 ) -> SettleOut:

@@ -53,10 +53,13 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import Cell
+from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import field_changes, pass_cli
+from .cell_text import keep_text
 from .database import SessionLocal
 from .live import live_item
 from .models import InventoryItem, PurchaseOrder, Seller, Vendor
@@ -355,6 +358,21 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
     }
 
 
+def _append(sheet: Worksheet, row: Sequence[object]) -> None:
+    """Add `row` below the sheet's last, every string in it held as text.
+
+    The titles, seller names and notes in a review are as a seller or a
+    buyer wrote them, and one that begins with `=` would otherwise be a
+    formula for whoever opens the workbook (`app.cell_text`).
+    """
+    sheet.append(list(row))
+    last = sheet.max_row
+    for cells in sheet.iter_rows(min_row=last, max_row=last):
+        for cell in cells:
+            if isinstance(cell, Cell):
+                keep_text(cell)
+
+
 def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> None:
     """A workbook of what was done and of what is left for a person."""
     by_order: dict[str, list[Line]] = defaultdict(list)
@@ -407,7 +425,8 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
     sheet = book.active
     assert sheet is not None
     sheet.title = "Numbered"
-    sheet.append(
+    _append(
+        sheet,
         [
             "order number",
             "purchase",
@@ -416,11 +435,12 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
             "eBay items",
             "other sellers on the merged purchases",
             "notes carried from them",
-        ]
+        ],
     )
     for number, (survivor, merged) in sorted(todo.orders.items()):
         sellers, notes = merged_away(survivor, merged)
-        sheet.append(
+        _append(
+            sheet,
             [
                 number,
                 survivor,
@@ -429,14 +449,15 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
                 " | ".join(line.name for line in by_order[number])[:300],
                 ", ".join(sellers),
                 " | ".join(notes),
-            ]
+            ],
         )
     left = book.create_sheet("Needs you")
-    left.append(["purchase", "date", "link", "items", "titles", "why"])
+    _append(left, ["purchase", "date", "link", "items", "titles", "why"])
     for purchase_id, why in todo.unmatched:
-        left.append([*purchase_row(purchase_id), why])
+        _append(left, [*purchase_row(purchase_id), why])
     differ = book.create_sheet("Numbers that disagree")
-    differ.append(
+    _append(
+        differ,
         [
             "purchase",
             "date",
@@ -447,11 +468,12 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
             "eBay's number for its listing",
             "eBay's items on that order",
             "the stored number on eBay is",
-        ]
+        ],
     )
     for purchase_id, stored, found in todo.disagreements:
         elsewhere = by_order.get(stored)
-        differ.append(
+        _append(
+            differ,
             [
                 *purchase_row(purchase_id),
                 stored,
@@ -460,7 +482,7 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
                 " | ".join(line.name for line in elsewhere)[:300]
                 if elsewhere
                 else "not in the history (a typo?)",
-            ]
+            ],
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     book.save(path)

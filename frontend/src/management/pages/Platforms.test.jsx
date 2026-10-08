@@ -426,6 +426,36 @@ describe('rate conversion', () => {
   })
 
   it.each([
+    ['0', '0'],
+    ['00', '0'],
+    ['0.00', '00'],
+    ['1.', '0.01'],
+    ['10', '0.1'],
+    ['12.50', '0.125'],
+    ['.5', '0.005'],
+    ['1000', '10'],
+    // Not a number: handed on as it falls, for the server to refuse.
+    ['abc', 'a.bc'],
+    ['1x0', '1.x0'],
+    ['5.0x', '0.050x'],
+    ['-5', '0.-5'],
+  ])('percent %s goes out as %s, its trailing zeros gone', (percent, fraction) => {
+    expect(percentToFraction(percent)).toBe(fraction)
+  })
+
+  it.each([
+    ['0.1000', '10'],
+    ['0.12500', '12.5'],
+    ['0.10050', '10.05'],
+    ['0', '0'],
+  ])(
+    'fraction %s shows as percent %s, its trailing zeros gone',
+    (fraction, percent) => {
+      expect(fractionToPercent(fraction)).toBe(percent)
+    },
+  )
+
+  it.each([
     ['0.1325', '13.25'],
     ['0.0800', '8'],
     ['0.0050', '0.5'],

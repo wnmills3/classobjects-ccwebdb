@@ -176,7 +176,7 @@ _LADDER_WORDS = {"UNC": None, "BU": None, "CHOICE": 1, "GEM": 2}
 _STRIKE_WORDS = {"PROOF": "PR", "PR": "PR", "PF": "PR", "SP": "SP", "SPECIMEN": "SP"}
 
 #: A number search term, optionally prefixed: 55, 55+, 55%, MS65, PR69%.
-_TERM = re.compile(r"^([A-Z]{0,2})-?(\d{1,2})(\+|%)?$")
+_TERM = re.compile(r"^([A-Z]{0,2})-?(\d{1,2})([+%])?$")
 
 #: Not a restriction on the prefix at all.
 ANY_PREFIX = "*"

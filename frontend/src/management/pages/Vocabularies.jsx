@@ -604,31 +604,32 @@ export default function Vocabularies() {
             />
           </label>
         </div>
-        {values !== null &&
-          (adding ? (
-            <VocabularyAddForm
-              table={table}
-              fields={loaded.fields}
-              sequenced={sequenced}
-              onAdded={added}
-              onCancel={() => setAdding(false)}
-            />
-          ) : addable ? (
-            <p>
-              <button
-                type="button"
-                data-help="vocabulary_add"
-                onClick={() => setAdding(true)}
-              >
-                Add a value...
-              </button>
-            </p>
-          ) : (
-            <p className="muted">
-              Nothing can be added to {table}: the application acts on each of its
-              values by code. A value can still be renamed.
-            </p>
-          ))}
+        {values !== null && adding && (
+          <VocabularyAddForm
+            table={table}
+            fields={loaded.fields}
+            sequenced={sequenced}
+            onAdded={added}
+            onCancel={() => setAdding(false)}
+          />
+        )}
+        {values !== null && !adding && addable && (
+          <p>
+            <button
+              type="button"
+              data-help="vocabulary_add"
+              onClick={() => setAdding(true)}
+            >
+              Add a value...
+            </button>
+          </p>
+        )}
+        {values !== null && !adding && !addable && (
+          <p className="muted">
+            Nothing can be added to {table}: the application acts on each of its values
+            by code. A value can still be renamed.
+          </p>
+        )}
         {values === null ? (
           !error && <p className="muted">Loading...</p>
         ) : (

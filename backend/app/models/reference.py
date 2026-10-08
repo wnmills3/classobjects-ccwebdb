@@ -80,6 +80,9 @@ __all__ = [
     "VendorKind",
 ]
 
+# A foreign-key target named by several tables here.
+_FK_DENOMINATION = "denomination.id"
+
 
 class AppliesTo(enum.StrEnum):
     """Which kind of item an error type, attribute or designation is relevant to."""
@@ -222,7 +225,7 @@ class Series(ReferenceMixin, Base):
         String(16), default="coin", server_default=text("'coin'"), nullable=False
     )
     denomination_id: Mapped[int | None] = mapped_column(
-        ForeignKey("denomination.id", ondelete="RESTRICT"), nullable=True
+        ForeignKey(_FK_DENOMINATION, ondelete="RESTRICT"), nullable=True
     )
     #: The design shares its denomination and series with ordinary notes, so
     #: those facts alone do not decide it -- a Hawaii note is a 1934 or 1935A
@@ -319,7 +322,7 @@ class SeriesYearRange(Base):
         ForeignKey("series.id", ondelete="CASCADE"), index=True, nullable=False
     )
     denomination_id: Mapped[int | None] = mapped_column(
-        ForeignKey("denomination.id", ondelete="RESTRICT"), nullable=True
+        ForeignKey(_FK_DENOMINATION, ondelete="RESTRICT"), nullable=True
     )
     year_start: Mapped[int] = mapped_column(Integer, nullable=False)
     #: Null while the design is still being issued.
@@ -491,7 +494,7 @@ class NoteIssue(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     denomination_id: Mapped[int] = mapped_column(
-        ForeignKey("denomination.id", ondelete="RESTRICT"), nullable=False
+        ForeignKey(_FK_DENOMINATION, ondelete="RESTRICT"), nullable=False
     )
     series_year: Mapped[int] = mapped_column(Integer, nullable=False)
     #: The series letter, or null for a plain series (1935, not 1935A).

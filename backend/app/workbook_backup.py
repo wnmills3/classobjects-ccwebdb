@@ -116,6 +116,7 @@ from sqlalchemy.types import TypeEngine
 
 from . import media_backup
 from .backup import generated_columns, resync_sequence, stored_columns
+from .cell_text import keep_text
 from .config import REPO_ROOT, settings
 from .storage import get_storage
 
@@ -196,7 +197,7 @@ def from_cell(value: object, kind: TypeEngine[Any], where: str) -> object:
         return None
     try:
         return _convert(value, kind)
-    except (ValueError, ArithmeticError, TypeError, json.JSONDecodeError) as exc:
+    except (ValueError, ArithmeticError, TypeError) as exc:
         raise WorkbookError(f"{where}: {value!r} is not a valid {kind}: {exc}") from exc
 
 
@@ -301,9 +302,7 @@ def _read_type(column: Column[Any]) -> TypeEngine[Any]:
 def _text_cell(sheet: Worksheet, value: object) -> object:
     """A cell that stays text: a value starting with "=" is not a formula."""
     if isinstance(value, str) and value.startswith("="):
-        cell = WriteOnlyCell(sheet, value=value)
-        cell.data_type = "s"
-        return cell
+        return keep_text(WriteOnlyCell(sheet, value=value))
     return value
 
 

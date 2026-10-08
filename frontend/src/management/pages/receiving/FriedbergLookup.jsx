@@ -264,13 +264,11 @@ export default function FriedbergLookup({
   const narrowed = useRequest(narrowKey, () =>
     api.getSignatureChoices(JSON.parse(narrowKey)),
   )
-  const signatureOptions = yearUnreadable
-    ? []
-    : narrowKey === null
-      ? allSignatures
-      : narrowed.error
-        ? []
-        : (narrowed.data?.values ?? [])
+  let signatureOptions
+  if (yearUnreadable) signatureOptions = []
+  else if (narrowKey === null) signatureOptions = allSignatures
+  else if (narrowed.error) signatureOptions = []
+  else signatureOptions = narrowed.data?.values ?? []
 
   const denominations = useReference('denomination')
   const noteTypes = useReference('note_type')
@@ -516,7 +514,7 @@ export default function FriedbergLookup({
                 />
               </label>
               <label data-help="series_year">
-                Series year
+                Series year{/* */}
                 <input
                   type="text"
                   inputMode="numeric"
@@ -525,7 +523,7 @@ export default function FriedbergLookup({
                 />
               </label>
               <label data-help="series_letter">
-                Series letter
+                Series letter{/* */}
                 <input
                   type="text"
                   maxLength={1}
@@ -534,7 +532,7 @@ export default function FriedbergLookup({
                 />
               </label>
               <label data-help="signature_combination">
-                Signature combination
+                Signature combination{/* */}
                 <select
                   value={signatureCombination}
                   onChange={field('signatureCombination')}
@@ -565,7 +563,7 @@ export default function FriedbergLookup({
                 />
               </label>
               <label data-help="web_press">
-                Web press
+                Web press{/* */}
                 <select value={press} onChange={field('press')}>
                   <option value="">Not known</option>
                   <option value="yes">Yes</option>
@@ -573,7 +571,7 @@ export default function FriedbergLookup({
                 </select>
               </label>
               <label data-help="printing_facility">
-                Printed at
+                Printed at{/* */}
                 <select value={printing} onChange={field('printing')}>
                   <option value="">Not known</option>
                   {PRINTING_FACILITIES.map(([code, label]) => (
@@ -584,7 +582,7 @@ export default function FriedbergLookup({
                 </select>
               </label>
               <label data-help="face_plate_number">
-                Face plate
+                Face plate{/* */}
                 <input
                   type="text"
                   value={facePlate}
@@ -592,7 +590,7 @@ export default function FriedbergLookup({
                 />
               </label>
               <label data-help="back_plate_number">
-                Back plate
+                Back plate{/* */}
                 <input
                   type="text"
                   inputMode="numeric"
@@ -681,7 +679,7 @@ export default function FriedbergLookup({
             )}
             <div className="row">
               <label data-help="fr_number">
-                Fr. number
+                Fr. number{/* */}
                 <input
                   type="text"
                   value={recordFrNumber}

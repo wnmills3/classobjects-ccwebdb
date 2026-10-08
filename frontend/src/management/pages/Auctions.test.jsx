@@ -235,6 +235,32 @@ describe('Auctions', () => {
     expect(api.addAuctionLot).not.toHaveBeenCalled()
   })
 
+  it('keeps each placeholder short enough to read, and says the date form in full', async () => {
+    const user = userEvent.setup()
+    api.listAuctions.mockResolvedValue({ auctions: [] })
+    renderWithProviders(<Auctions />, { strict: true })
+
+    await user.click(await screen.findByRole('button', { name: 'New auction...' }))
+    const dialog = screen.getByRole('dialog', { name: 'Start a new auction' })
+    // A box here shows about twenty characters; a longer placeholder is cut.
+    for (const box of dialog.querySelectorAll('[placeholder]')) {
+      expect(box.getAttribute('placeholder').length).toBeLessThanOrEqual(20)
+    }
+    expect(within(dialog).getByLabelText('Starts')).toHaveAttribute(
+      'placeholder',
+      'date and time',
+    )
+    expect(within(dialog).getByLabelText('Ends')).toHaveAttribute(
+      'placeholder',
+      'date and time',
+    )
+    expect(
+      within(dialog).getByText(
+        'Starts and Ends are written year-month-day hour:minute, the hour out of 24.',
+      ),
+    ).toBeVisible()
+  })
+
   it('offers a new auction only the platforms one can be run on', async () => {
     // The web store runs no auction, and a retired platform runs nothing.
     const user = userEvent.setup()

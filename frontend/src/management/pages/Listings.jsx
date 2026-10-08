@@ -296,7 +296,7 @@ export default function Listings() {
       {notice && <p className="notice">{notice}</p>}
       <div className="filter-grid">
         <label>
-          Platform
+          Platform{/* */}
           <select value={filters.venue} onChange={filter('venue')}>
             <option value="">All platforms</option>
             {venues.map((v) => (
@@ -307,7 +307,7 @@ export default function Listings() {
           </select>
         </label>
         <label>
-          Format
+          Format{/* */}
           <select value={filters.format} onChange={filter('format')}>
             <option value="">Any format</option>
             {FORMATS.map(([value, text]) => (

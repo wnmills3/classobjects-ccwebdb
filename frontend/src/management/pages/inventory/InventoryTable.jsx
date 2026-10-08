@@ -133,19 +133,27 @@ export default function InventoryTable({
                       onChange={() => toggle(row.id)}
                     />
                   </td>
-                  {config.columns.map(([, key, kind]) => (
-                    <td key={key} className={kind === 'money' ? undefined : kind}>
-                      {key === 'item_code' ? (
+                  {config.columns.map(([, key, kind]) => {
+                    // The code opens the item; the order links to its
+                    // purchase; every other column is its value.
+                    let shown
+                    if (key === 'item_code') {
+                      shown = (
                         <button className="link mono" onClick={() => onOpen(row.id)}>
                           {row.item_code}
                         </button>
-                      ) : key === 'order_number' ? (
-                        orderCell(row)
-                      ) : (
-                        cell(row, key, kind)
-                      )}
-                    </td>
-                  ))}
+                      )
+                    } else if (key === 'order_number') {
+                      shown = orderCell(row)
+                    } else {
+                      shown = cell(row, key, kind)
+                    }
+                    return (
+                      <td key={key} className={kind === 'money' ? undefined : kind}>
+                        {shown}
+                      </td>
+                    )
+                  })}
                 </tr>
                 {detail && (
                   <tr className="item-detail">

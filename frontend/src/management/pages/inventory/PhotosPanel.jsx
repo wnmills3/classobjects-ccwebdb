@@ -61,11 +61,11 @@ export default function PhotosPanel({
   const photos = useRequest(`${itemId}:${reloadKey}`, () => api.listItemImages(itemId))
   // A load failure must not leave the panel stuck on "Loading...": an empty,
   // still-usable panel with the error shown is recoverable, a dead end is not.
-  const links = photos.error
-    ? []
-    : photos.data
-      ? [...photos.data].sort((a, b) => a.sort_order - b.sort_order)
-      : null
+  let links = null
+  if (photos.error) links = []
+  else if (photos.data) {
+    links = [...photos.data].sort((a, b) => a.sort_order - b.sort_order)
+  }
   const error = photos.error
   // What each filed photograph will be once Save applies what is held.
   // A photograph removed or moved away is leaving this item.
@@ -339,7 +339,7 @@ export default function PhotosPanel({
             {...drop.target}
           >
             <label>
-              Photo
+              Photo{/* */}
               <input type="file" accept="image/*" onChange={drop.onFileInput} />
             </label>
             <p className="muted">

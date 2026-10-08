@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { api } from '../api'
 import HelpScope from '../HelpScope'
+import { withoutTrailingZeros } from './platform-rates'
 import { centsOrZero, fromCents } from '../../shared/cents'
 import { dateTime, money } from '../../shared/format'
 import { useRequest } from '../../shared/useRequest'
@@ -23,7 +24,7 @@ function priceOf(text) {
   const plain = text
     .trim()
     .replace(/^\$\s*/, '')
-    .replace(/,/g, '')
+    .replaceAll(',', '')
   if (!PRICE.test(plain)) return ''
   return plain.replace(/^\./, '0.').replace(/\.$/, '')
 }
@@ -38,7 +39,7 @@ function priceOf(text) {
 function shownPrice(value) {
   if (value === null || value === undefined) return '--'
   const [whole, places = ''] = String(value).trim().split('.')
-  const beyondCents = places.slice(2).replace(/0+$/, '')
+  const beyondCents = withoutTrailingZeros(places.slice(2))
   if (beyondCents !== '') return `$${whole}.${places.padEnd(4, '0').slice(0, 4)}`
   return money(`${whole}.${places.padEnd(2, '0').slice(0, 2)}`)
 }

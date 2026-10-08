@@ -183,6 +183,43 @@ def test_login_finds_an_address_registered_with_capitals_in_its_domain(
     assert stored.status_code == 200, stored.text
 
 
+def test_an_unknown_address_costs_one_password_verification_like_a_wrong_password(
+    client: TestClient, customer_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both refusals do the same work, so neither answers sooner than the other.
+
+    Verification is the slow step. Skipped for an address with no account,
+    the time a refusal takes would say which addresses have one. Time is not
+    asserted, only the mechanism: one verification either way.
+    """
+    from app.routers import auth
+
+    real = auth.verify_password
+    calls: list[str] = []
+
+    def counted(plain: str, hashed: str) -> bool:
+        """Verify as usual, remembering that it was asked."""
+        calls.append(plain)
+        return real(plain, hashed)
+
+    monkeypatch.setattr(auth, "verify_password", counted)
+
+    unknown = client.post(
+        "/api/auth/login",
+        data={"username": "ghost@example.com", "password": "whatever123"},
+    )
+    assert calls == ["whatever123"]
+
+    wrong = client.post(
+        "/api/auth/login",
+        data={"username": customer_user.email, "password": "wrongpassword"},
+    )
+    assert calls == ["whatever123", "wrongpassword"]
+
+    assert unknown.status_code == wrong.status_code == 401
+    assert unknown.json() == wrong.json()
+
+
 def test_error_message_does_not_reveal_whether_email_exists(
     client: TestClient, customer_user: User
 ) -> None:

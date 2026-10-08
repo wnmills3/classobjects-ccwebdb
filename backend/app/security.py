@@ -50,6 +50,15 @@ def verify_password(plain: str, hashed: str) -> bool:
     return True
 
 
+#: A hash that belongs to no account, for a sign-in naming an address that
+#: has none: verifying the typed password against it costs what verifying
+#: against a real hash costs, so how long a refusal takes does not say whether
+#: the address is known. Made once, by the hasher real passwords use, so its
+#: parameters are theirs; from a fixed word and not a secret, because what it
+#: hashes is of no consequence -- a match against it signs nobody in.
+UNKNOWN_ACCOUNT_HASH = _hasher.hash("no account holds this password")
+
+
 def needs_rehash(hashed: str) -> bool:
     """True when argon2 parameters have changed since this hash was made."""
     try:

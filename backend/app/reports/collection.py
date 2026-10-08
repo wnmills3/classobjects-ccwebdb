@@ -97,6 +97,9 @@ __all__ = [
 #: `i`/`k` of `.tables`.
 _D = Denomination.__table__.alias("d")
 
+#: The heading of the total-cost column, which most reports here carry.
+_TOTAL_COST = "Total cost"
+
 
 class HoldingsParams(LiveParams):
     """`cb_holdings` takes no parameters beyond status and disposition."""
@@ -134,7 +137,7 @@ def _cb_holdings(db: Session, params: HoldingsParams) -> ReportResult:
         Column("denomination", "Denomination", "text"),
         Column("items", "Items", "count"),
         Column("pieces", "Pieces", "count"),
-        Column("total_cost", "Total cost", "money"),
+        Column("total_cost", _TOTAL_COST, "money"),
     ]
     src, where = _source_and_where(params)
 
@@ -358,7 +361,7 @@ def _cb_designs(db: Session, params: DesignsParams) -> ReportResult:
         Column("series", "Series", "text"),
         Column("items", "Items", "count"),
         Column("year_span", "Year span", "text"),
-        Column("total_cost", "Total cost", "money"),
+        Column("total_cost", _TOTAL_COST, "money"),
     ]
 
     rows_data = (
@@ -535,7 +538,7 @@ def _cb_notes(db: Session, params: NotesParams) -> ReportResult:
         columns.append(Column("star_notes", "Star notes", "count"))
     if fancy_id is not None:
         columns.append(Column("fancy_serials", "Fancy serials", "count"))
-    columns.append(Column("total_cost", "Total cost", "money"))
+    columns.append(Column("total_cost", _TOTAL_COST, "money"))
 
     notes: list[str] = []
     if star_id is None or fancy_id is None:
@@ -758,7 +761,7 @@ def _cb_grades(db: Session, params: GradesParams) -> ReportResult:
         Column("strike_type", "Strike type", "text"),
         Column("grading_service", "Grading service", "text"),
         Column("items", "Items", "count"),
-        Column("total_cost", "Total cost", "money"),
+        Column("total_cost", _TOTAL_COST, "money"),
     ]
 
     rows_data = (
@@ -952,7 +955,7 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
         Column("form", "Form", "text"),
         Column("items", "Items", "count"),
         Column("ounces", "Fine troy ounces", "ounces"),
-        Column("total_cost", "Total cost", "money"),
+        Column("total_cost", _TOTAL_COST, "money"),
         Column("melt", "Melt value", "money"),
     ]
 

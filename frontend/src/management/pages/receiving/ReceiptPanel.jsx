@@ -311,7 +311,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
 
       <div className="filter-grid">
         <label>
-          Arrived
+          Arrived{/* */}
           <input
             type="date"
             value={arrivedOn}
@@ -330,7 +330,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
         </label>
 
         <label>
-          Note
+          Note{/* */}
           <input
             type="text"
             value={note}
@@ -346,7 +346,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
           {...drop.target}
         >
           <label>
-            Photo
+            Photo{/* */}
             <input
               key={photoInputKey}
               type="file"

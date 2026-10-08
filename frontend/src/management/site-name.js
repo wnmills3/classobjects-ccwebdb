@@ -37,7 +37,7 @@ export function siteName(text) {
     const parts = site.split('.')
     // More than a name and its ending: a site of their own.
     if (parts.length > (COUNTRY_ENDING.test(site) ? 3 : 2)) return parts[0]
-    const last = url.pathname.split('/').filter(Boolean).pop()
+    const last = url.pathname.split('/').findLast(Boolean)
     return last ? decodeURIComponent(last) : site
   } catch {
     return ''

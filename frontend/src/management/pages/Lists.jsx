@@ -310,7 +310,7 @@ function CatalogTable({ config }) {
   return (
     <div className="catalog-table">
       <label className="search-row">
-        Search
+        Search{/* */}
         <input
           type="search"
           aria-label="Search"
@@ -374,44 +374,47 @@ function CatalogTable({ config }) {
                           Cancel
                         </button>
                       </>
-                    ) : deleting === row.id ? (
-                      <>
-                        <span>Delete {config.name(row)}?</span>
-                        <button
-                          type="button"
-                          onClick={() => write(() => config.remove(row.id))}
-                        >
-                          Yes, delete
-                        </button>
-                        <button
-                          type="button"
-                          className="link"
-                          onClick={() => setDeleting(null)}
-                        >
-                          No
-                        </button>
-                      </>
                     ) : (
-                      editable && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditing(row.id)
-                              setDraft({})
-                              setDeleting(null)
-                            }}
-                          >
-                            Edit
-                          </button>
-                          {config.actions?.(row, change)}
-                          {uses === 0 && (
-                            <button type="button" onClick={() => setDeleting(row.id)}>
-                              Delete
+                      <>
+                        {deleting === row.id && (
+                          <>
+                            <span>Delete {config.name(row)}?</span>
+                            <button
+                              type="button"
+                              onClick={() => write(() => config.remove(row.id))}
+                            >
+                              Yes, delete
                             </button>
-                          )}
-                        </>
-                      )
+                            <button
+                              type="button"
+                              className="link"
+                              onClick={() => setDeleting(null)}
+                            >
+                              No
+                            </button>
+                          </>
+                        )}
+                        {deleting !== row.id && editable && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditing(row.id)
+                                setDraft({})
+                                setDeleting(null)
+                              }}
+                            >
+                              Edit
+                            </button>
+                            {config.actions?.(row, change)}
+                            {uses === 0 && (
+                              <button type="button" onClick={() => setDeleting(row.id)}>
+                                Delete
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </>
                     )}
                   </td>
                 </tr>

@@ -25,6 +25,21 @@ describe('toOzt', () => {
     expect(toOzt('1 oz', 'ozt')).toBe('1 oz')
     expect(toOzt('abc', 'g')).toBe('abc')
   })
+
+  it.each([
+    ['5.', '0.160754'],
+    ['.5', '0.016075'],
+    ['05.50', '0.176829'],
+  ])('reads %s grams as a number, a point at either end included', (text, saved) => {
+    expect(toOzt(text, 'g')).toBe(saved)
+  })
+
+  it.each(['.', '1.2.3', '1..2', '-1', '1e3', '1,5'])(
+    'hands %s grams back as typed: it is not a number',
+    (text) => {
+      expect(toOzt(text, 'g')).toBe(text)
+    },
+  )
 })
 
 describe('fromOzt', () => {

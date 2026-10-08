@@ -7,6 +7,7 @@ were: one per eBay listing, linking it, some with a number and most without.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -467,6 +468,51 @@ def test_the_review_workbook_lists_what_was_numbered_and_what_is_left(
         "a cent",
         "not in the history (a typo?)",
     ]
+
+
+def test_a_title_that_begins_like_a_formula_is_text_on_every_review_sheet(
+    db: Session, tmp_path: Path
+) -> None:
+    """A seller wrote the title; the person reviewing opens it in a spreadsheet.
+
+    The history's own names and the titles stored on the items both begin
+    with `=`, so each of the three sheets has one to write. Read back
+    without evaluating anything, every such cell is of the text type.
+    """
+    formula = '=HYPERLINK("https://example.test","a dime")'
+    numbered = _purchase(db, "323232323231", DAY)
+    absent = _purchase(db, "323232323239", DAY)
+    wrong = _purchase(db, "323232323232", DAY, number="32-00000-00000")
+    for purchase in (numbered, absent, wrong):
+        for item in db.scalars(
+            select(InventoryItem).where(InventoryItem.purchase_order_id == purchase.id)
+        ):
+            item.source_title = formula
+    db.flush()
+    path = _history(
+        tmp_path,
+        [
+            ("32-32323-00001", "Mar 04, 2025", "323232323231", "a dime"),
+            ("32-32323-00002", "Mar 04, 2025", "323232323232", "a cent"),
+        ],
+    )
+    # The name as the seller wrote it: put on the lines read, since a cell
+    # of the history typed in here would itself be read as a formula.
+    lines = [replace(line, name=formula) for line in ebay_orders.read_history([path])]
+    review = tmp_path / "review.xlsx"
+
+    ebay_orders.write_review(db, ebay_orders.plan(db, lines), lines, review)
+
+    book = load_workbook(review)
+    try:
+        for name in ("Numbered", "Needs you", "Numbers that disagree"):
+            cells = [cell for row in book[name].iter_rows() for cell in row]
+            written = [cell for cell in cells if cell.value == formula]
+            assert written, f"{name} holds no such title: the fixture misses it"
+            kinds = {c.data_type for c in cells if isinstance(c.value, str)}
+            assert kinds == {"s"}, name
+    finally:
+        book.close()
 
 
 def test_an_order_number_is_compared_as_text(db: Session) -> None:

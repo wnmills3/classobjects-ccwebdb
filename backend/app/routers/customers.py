@@ -34,6 +34,8 @@ from .orders import order_out
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
+_NO_SUCH_CUSTOMER = "No such customer"
+
 
 @router.get("", response_model=list[CustomerOut])
 def list_customers(db: DbSession, _: AdminUser) -> list[Customer]:
@@ -52,7 +54,7 @@ def update_customer(
     customer_id: int, update: CustomerUpdate, db: DbSession, _: AdminUser
 ) -> Customer:
     """Correct a customer's contact details."""
-    customer = get_or_404(db, Customer, customer_id, "No such customer")
+    customer = get_or_404(db, Customer, customer_id, _NO_SUCH_CUSTOMER)
 
     fields = update.model_dump(exclude_unset=True)
     # `display_name` is NOT NULL: an explicit null would reach the database
@@ -84,7 +86,7 @@ def add_address(
     so an order shipped to the previous address still resolves to where it
     actually went.
     """
-    customer = get_or_404(db, Customer, customer_id, "No such customer")
+    customer = get_or_404(db, Customer, customer_id, _NO_SUCH_CUSTOMER)
 
     country_id = code_to_id(db, Country, body.country, "country")
 
@@ -123,16 +125,12 @@ def add_address(
     return customer
 
 
-@router.post(
-    "/{customer_id}/orders",
-    response_model=OrderOut,
-    status_code=status.HTTP_201_CREATED,
-)
+@router.post("/{customer_id}/orders", status_code=status.HTTP_201_CREATED)
 def place_order_for_customer(
     customer_id: int, body: AdminOrderCreate, db: DbSession, admin: AdminUser
 ) -> OrderOut:
     """Place an order for a customer: a phone, walk-in or account holder's order."""
-    customer = get_or_404(db, Customer, customer_id, "No such customer")
+    customer = get_or_404(db, Customer, customer_id, _NO_SUCH_CUSTOMER)
     order = place_order(
         db,
         customer,

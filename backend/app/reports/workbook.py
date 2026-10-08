@@ -8,7 +8,9 @@ there is one (bold), a blank row, then each note on its own row -- the
 layout `docs/specs/reporting-design.md`'s "API" section lays out. Money and
 percent cells are written as numbers, never as text, so a spreadsheet can
 still sum them; a column's ``None`` is an empty cell, `workbook_backup`'s own
-convention for NULL.
+convention for NULL. Text cells are written as text whatever they begin
+with (`app.cell_text`): a stored name or title beginning with ``=`` is not a
+formula.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from pydantic import BaseModel
 
+from ..cell_text import keep_text
 from .base import Column, ColumnKind, Report, ReportResult, is_date_field
 
 __all__ = ["workbook_filename", "write_workbook"]
@@ -114,6 +117,17 @@ def _display(value: object) -> str:
     return str(value)
 
 
+def _cell(sheet: Worksheet, row: int, col: int, value: _CellValue) -> Cell:
+    """The cell at `row`, `col` holding `value`, a string held as text.
+
+    Every cell this module writes is written here. The text in a report is
+    what was stored -- a name a customer chose, a seller's title -- and a
+    string that begins with `=` would otherwise be a formula for whoever
+    opens the workbook (`app.cell_text`).
+    """
+    return keep_text(sheet.cell(row=row, column=col, value=value))
+
+
 def _write_cell(
     sheet: Worksheet,
     row: int,
@@ -124,7 +138,7 @@ def _write_cell(
     bold: bool = False,
 ) -> Cell:
     """One data or totals cell, formatted by its column's `kind`."""
-    cell = sheet.cell(row=row, column=col, value=_cell_value(kind, value))
+    cell = _cell(sheet, row, col, _cell_value(kind, value))
     if kind == "money":
         cell.number_format = _MONEY_FORMAT
     elif kind == "percent":
@@ -193,35 +207,33 @@ def write_workbook(
     sheet.title = _sheet_name(report.title)
 
     row = 1
-    sheet.cell(row=row, column=1, value=report.title)
+    _cell(sheet, row, 1, report.title)
     row += 1
 
     for name, field in report.params.model_fields.items():
         label = field.title or name
         value = getattr(params, name)
-        sheet.cell(row=row, column=1, value=label)
-        cell = sheet.cell(
-            row=row,
-            column=2,
-            value=_param_cell_value(value, is_date=is_date_field(field)),
+        _cell(sheet, row, 1, label)
+        cell = _cell(
+            sheet, row, 2, _param_cell_value(value, is_date=is_date_field(field))
         )
         if isinstance(cell.value, (date, datetime)):
             cell.number_format = _DATE_FORMAT
         row += 1
 
-    sheet.cell(row=row, column=1, value="Run at")
+    _cell(sheet, row, 1, "Run at")
     # A timestamp is written as ISO text, not a cell of its own: openpyxl
     # refuses a timezone-aware `datetime` outright, and `run_at` always
     # carries one -- the same reason `workbook_backup`'s own export writes
     # timestamps as text.
-    sheet.cell(row=row, column=2, value=run_at.isoformat())
+    _cell(sheet, row, 2, run_at.isoformat())
     row += 1
 
     row += 1  # blank row, separating the parameters from the table
 
     header_row = row
     for col, column in enumerate(result.columns, start=1):
-        sheet.cell(row=header_row, column=col, value=column.label)
+        _cell(sheet, header_row, col, column.label)
     row += 1
 
     for data_row in result.rows:
@@ -244,7 +256,7 @@ def write_workbook(
     if result.notes:
         row += 1  # blank row, separating the table from the notes
         for note in result.notes:
-            sheet.cell(row=row, column=1, value=note)
+            _cell(sheet, row, 1, note)
             row += 1
 
     # Everything above and including the header stays visible while the data

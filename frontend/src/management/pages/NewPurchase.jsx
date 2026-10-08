@@ -587,8 +587,9 @@ export default function NewPurchase() {
   // configured default is used -- there is no endpoint that exposes it here.
   // An invalid rate is never passed down at all: saving is disabled instead
   // (see `itemDisabledReason`), so this only has to describe a valid state.
+  const typedRate = rateInvalid ? null : orNull(rateText)
   const itemDefaults = {
-    tax_rate: noTax ? '0' : rateInvalid ? null : orNull(rateText),
+    tax_rate: noTax ? '0' : typedRate,
     tax_includes_shipping:
       taxIncludesShipping === '' ? null : taxIncludesShipping === 'true',
   }

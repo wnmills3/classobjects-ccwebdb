@@ -35,13 +35,16 @@ let nextKey = 0
  * one item, no value. `key` is the row's own, so removing a row above it
  * does not move what was typed into another.
  */
-const blankRow = (item) => ({
-  key: (nextKey += 1),
-  description: item.description ?? '',
-  year: item.year_start == null ? '' : String(item.year_start),
-  count: '1',
-  value: '',
-})
+const blankRow = (item) => {
+  nextKey += 1
+  return {
+    key: nextKey,
+    description: item.description ?? '',
+    year: item.year_start == null ? '' : String(item.year_start),
+    count: '1',
+    value: '',
+  }
+}
 
 /** Rows to start from: one per piece the lot says it holds, at least two. */
 function startingRows(item) {
@@ -62,7 +65,7 @@ function shares(rows, mode, itemCost) {
     return VALUE.test(row.value.trim()) ? Number(row.value) * Number(row.count) : null
   })
   const sum = weights.reduce((total, w) => total + (w ?? 0), 0)
-  if (weights.some((w) => w === null) || sum <= 0) return rows.map(() => null)
+  if (weights.includes(null) || sum <= 0) return rows.map(() => null)
   const cents = toCents(itemCost)
   return weights.map((w) => Math.floor((cents * w) / sum))
 }

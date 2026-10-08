@@ -356,7 +356,6 @@ def plan(db: Session) -> Plan:
                     fineness = peer_fineness
                 if peer_gross is not None:
                     guess("gross_weight_ozt", peer_gross, WEIGHT_PEERS, why)
-                    gross = peer_gross
                 # Without both a gross weight and a fineness nothing works
                 # the fine weight out, so the peers' own is taken.
                 if peer_gross is None or fineness is None:
