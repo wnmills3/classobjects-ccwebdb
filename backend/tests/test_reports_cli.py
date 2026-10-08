@@ -77,7 +77,7 @@ def test_a_name_s_control_characters_are_printed_escaped_on_its_own_line(
     as its escape, so the row stays one line and the terminal is sent
     nothing but text.
     """
-    _outstanding_purchase(db, "Escape\x1b[2J\r\nVendor‮", "ESC-1")
+    _outstanding_purchase(db, "Escape\x1b[2J\r\nVendor\u202e", "ESC-1")
 
     exit_code = main(["run", "pr_outstanding"], db=db)
     out, _err = capsys.readouterr()
@@ -86,7 +86,7 @@ def test_a_name_s_control_characters_are_printed_escaped_on_its_own_line(
     escaped = "Escape\\x1b[2J\\r\\nVendor\\u202e"
     (line,) = [line for line in out.splitlines() if "ESC-1" in line]
     assert escaped in line
-    for character in ("\x1b", "\r", "‮"):
+    for character in ("\x1b", "\r", "\u202e"):
         assert character not in out
     # The column is as wide as what is printed, so the next one still starts
     # under its own header.
