@@ -100,13 +100,55 @@ describe('management console shell', () => {
     expect(screen.getByRole('link', { name: /listings/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /platforms/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /vocabularies/i })).toBeInTheDocument()
-    // The spec's Selling group holds exactly the three selling pages.
-    const selling = screen.getByRole('group', { name: 'Selling' })
-    expect(
-      within(selling)
+  })
+
+  it('groups the menu by what the work is for, each page in one group', () => {
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
+    const menu = screen.getByRole('navigation', { name: 'Console' })
+    const groups = within(menu).getAllByRole('group')
+    const pages = (group) =>
+      within(group)
         .getAllByRole('link')
-        .map((link) => link.textContent),
-    ).toEqual(['Listings', 'Lots', 'Auctions'])
+        .map((link) => [link.textContent, link.getAttribute('href')])
+
+    expect(groups.map((group) => group.getAttribute('aria-label'))).toEqual([
+      'Inventory',
+      'Procurement',
+      'Selling',
+      'Reports',
+      'Setup',
+    ])
+    // Buying, in the order it is done: entered, then received.
+    expect(pages(screen.getByRole('group', { name: 'Procurement' }))).toEqual([
+      ['Purchases', '/purchases'],
+      ['Receive', '/receiving'],
+    ])
+    expect(pages(screen.getByRole('group', { name: 'Selling' }))).toEqual([
+      ['Listings', '/listings'],
+      ['Lots', '/lots'],
+      ['Auctions', '/auctions'],
+      ['Sales', '/sales'],
+      ['Platforms', '/platforms'],
+      ['Spot prices', '/spot-prices'],
+    ])
+    expect(pages(screen.getByRole('group', { name: 'Inventory' }))).toEqual([
+      ['Coins', '/inventory/coins'],
+      ['Currency', '/inventory/currency'],
+      ['Photos', '/photos'],
+    ])
+    expect(pages(screen.getByRole('group', { name: 'Reports' }))).toEqual([
+      ['Reports', '/reports'],
+    ])
+    expect(pages(screen.getByRole('group', { name: 'Setup' }))).toEqual([
+      ['People', '/people'],
+      ['Vocabularies', '/vocabularies'],
+      ['Lists', '/lists'],
+    ])
+    // No link left loose beside the groups, and none in two of them.
+    const all = within(menu).getAllByRole('link')
+    const grouped = groups.flatMap((group) => within(group).getAllByRole('link'))
+    expect(grouped).toHaveLength(all.length)
+    expect(new Set(all.map((link) => link.getAttribute('href'))).size).toBe(15)
   })
 
   it('routes /photos to the unattached-photographs page', async () => {
@@ -162,13 +204,10 @@ describe('management console shell', () => {
     ).toBeInTheDocument()
   })
 
-  it('links to Reports immediately before Vocabularies', () => {
+  it('links to Reports from a group of its own', () => {
     renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
-    const links = screen.getAllByRole('link').map((link) => link.textContent)
-    const reports = links.indexOf('Reports')
-    expect(reports).toBeGreaterThan(-1)
-    expect(links[reports + 1]).toBe('Vocabularies')
-    expect(screen.getByRole('link', { name: 'Reports' })).toHaveAttribute(
+    const reports = screen.getByRole('group', { name: 'Reports' })
+    expect(within(reports).getByRole('link', { name: 'Reports' })).toHaveAttribute(
       'href',
       '/reports',
     )

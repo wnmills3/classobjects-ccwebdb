@@ -148,6 +148,11 @@ describe('SpotPrices', () => {
     ['$ 4,012.50', '4012.50'],
     [' $1,234,567.8912 ', '1234567.8912'],
     ['0.2875', '0.2875'],
+    // A decimal with nothing before the point, as it is often typed, is
+    // sent with its zero; one with nothing after it, without the point.
+    ['.4553', '0.4553'],
+    ['$.50', '0.50'],
+    ['31.', '31'],
   ])('reads "%s" as the price %s', async (typed, sent) => {
     const user = await open()
     api.recordMetalPrice.mockResolvedValue([SILVER, GOLD, COPPER])
@@ -161,7 +166,7 @@ describe('SpotPrices', () => {
     })
   })
 
-  it.each(['abc', '-5', '31.123456', '31.5.0', '$', '31 dollars'])(
+  it.each(['abc', '-5', '31.123456', '31.5.0', '$', '31 dollars', '.', '.45535'])(
     'says why "%s" is not a price, and sends nothing',
     async (typed) => {
       const user = await open()

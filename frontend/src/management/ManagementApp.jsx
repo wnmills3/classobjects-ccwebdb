@@ -18,6 +18,51 @@ import Reports from './pages/Reports'
 import SpotPrices from './pages/SpotPrices'
 import Vocabularies from './pages/Vocabularies'
 
+//: The console's menu, grouped by what the work is for rather than listed
+//: flat: what is held, buying it, selling it, the reports over all of it,
+//: and the setup the rest relies on. Each group is a label and its pages,
+//: in the order the work is done -- a purchase is entered before it is
+//: received; an item is listed, grouped into a lot or an auction, and
+//: then sold. A labelled group rather than a menu that opens: every page
+//: is one click away, and a screen reader announces the group.
+const MENU = [
+  [
+    'Inventory',
+    [
+      ['/inventory/coins', 'Coins'],
+      ['/inventory/currency', 'Currency'],
+      ['/photos', 'Photos'],
+    ],
+  ],
+  [
+    'Procurement',
+    [
+      ['/purchases', 'Purchases'],
+      ['/receiving', 'Receive'],
+    ],
+  ],
+  [
+    'Selling',
+    [
+      ['/listings', 'Listings'],
+      ['/lots', 'Lots'],
+      ['/auctions', 'Auctions'],
+      ['/sales', 'Sales'],
+      ['/platforms', 'Platforms'],
+      ['/spot-prices', 'Spot prices'],
+    ],
+  ],
+  ['Reports', [['/reports', 'Reports']]],
+  [
+    'Setup',
+    [
+      ['/people', 'People'],
+      ['/vocabularies', 'Vocabularies'],
+      ['/lists', 'Lists'],
+    ],
+  ],
+]
+
 /**
  * Guard for the whole console rather than for each route.
  *
@@ -58,31 +103,21 @@ function Console() {
             <span className="brand-sub">Console</span>
           </span>
 
-          <nav className="nav">
-            <NavLink to="/inventory/coins">Coins</NavLink>
-            <NavLink to="/inventory/currency">Currency</NavLink>
-            <NavLink to="/photos">Photos</NavLink>
-            <NavLink to="/receiving">Receive</NavLink>
-            <NavLink to="/purchases">Purchases</NavLink>
-            <NavLink to="/sales">Sales</NavLink>
-            <NavLink to="/people">People</NavLink>
-            {/* The spec's Selling group (selling-design.md, *Console*): the
-              three pages that put things on sale, together. A labeled
-              group rather than a submenu -- nothing to open, and a screen
-              reader announces the grouping. */}
-            <span className="nav-group" role="group" aria-label="Selling">
-              <span className="nav-group-label" aria-hidden="true">
-                Selling
+          <nav className="nav" aria-label="Console">
+            {MENU.map(([group, links]) => (
+              <span key={group} className="nav-group" role="group" aria-label={group}>
+                <span className="nav-group-label" aria-hidden="true">
+                  {group}
+                </span>
+                <span className="nav-group-links">
+                  {links.map(([to, text]) => (
+                    <NavLink key={to} to={to}>
+                      {text}
+                    </NavLink>
+                  ))}
+                </span>
               </span>
-              <NavLink to="/listings">Listings</NavLink>
-              <NavLink to="/lots">Lots</NavLink>
-              <NavLink to="/auctions">Auctions</NavLink>
-            </span>
-            <NavLink to="/platforms">Platforms</NavLink>
-            <NavLink to="/spot-prices">Spot prices</NavLink>
-            <NavLink to="/reports">Reports</NavLink>
-            <NavLink to="/vocabularies">Vocabularies</NavLink>
-            <NavLink to="/lists">Lists</NavLink>
+            ))}
           </nav>
 
           <div className="account">
