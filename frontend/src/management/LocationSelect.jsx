@@ -27,7 +27,7 @@ export default function LocationSelect({ value, onChange, disabled = false }) {
   const loaded = useRequest('locations', () => api.listStorageLocations())
   const [added, setAdded] = useState([])
   const locations = [...(loaded.data ?? []), ...added]
-  const { adding, setAdding, draft, setDraft, error, add, onKeyDown, ready } =
+  const { adding, setAdding, draft, setDraft, error, add, wrapper, ready } =
     useInlineAdd({
       blank: BLANK_DRAFT,
       ready: (d) => Boolean(d.kind),
@@ -45,9 +45,7 @@ export default function LocationSelect({ value, onChange, disabled = false }) {
 
   if (adding) {
     return (
-      // A wrapper that only hears its boxes' Enter: it is nothing to a
-      // reader of the page, and says so.
-      <div className="add-reference" role="presentation" onKeyDown={onKeyDown}>
+      <div className="add-reference" ref={wrapper}>
         <ReferenceSelect
           table="storage_location_kind"
           value={draft.kind}

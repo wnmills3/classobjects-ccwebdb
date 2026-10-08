@@ -342,7 +342,9 @@ export default function PhotosPanel({
         <div className="photo-add">
           <div
             className={`photo-drop${drop.dragActive ? ' photo-drop-active' : ''}`}
-            tabIndex={0}
+            // A click focuses the area, so a paste lands in it; by keyboard
+            // the file box inside is the stop, and a paste there reaches it too.
+            tabIndex={-1}
             aria-label="Add an image: drag one here, or paste one with Ctrl+V"
             {...drop.target}
           >
