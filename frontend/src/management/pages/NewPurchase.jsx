@@ -45,7 +45,7 @@ const BLANK_VENDOR_DRAFT = { name: '', vendor_kind: '', url: '' }
  * small component rather than a reuse of that one.
  */
 function VendorField({ vendors, value, onChange, onVendorAdded }) {
-  const { adding, setAdding, draft, setDraft, error, add, onKeyDown, ready } =
+  const { adding, setAdding, draft, setDraft, error, add, wrapper, ready } =
     useInlineAdd({
       blank: BLANK_VENDOR_DRAFT,
       ready: (d) => Boolean(d.name.trim()),
@@ -63,9 +63,7 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
 
   if (adding) {
     return (
-      // A wrapper that only hears its boxes' Enter: it is nothing to a
-      // reader of the page, and says so.
-      <div className="add-reference" role="presentation" onKeyDown={onKeyDown}>
+      <div className="add-reference" ref={wrapper}>
         {/* The address first: a vendor is named for its site, so the address
             proposes the name. Only a name the address gave follows it, or
             an empty one, which is nobody's choice; one typed by hand is

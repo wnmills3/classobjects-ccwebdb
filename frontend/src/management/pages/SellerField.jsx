@@ -23,7 +23,7 @@ export default function SellerField({ value, onChange }) {
   const sellers = [...(loaded.data ?? []), ...added].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
   )
-  const { adding, setAdding, draft, setDraft, error, add, onKeyDown, ready } =
+  const { adding, setAdding, draft, setDraft, error, add, wrapper, ready } =
     useInlineAdd({
       blank: BLANK_DRAFT,
       ready: (d) => Boolean(d.name.trim()),
@@ -40,9 +40,7 @@ export default function SellerField({ value, onChange }) {
 
   if (adding) {
     return (
-      // A wrapper that only hears its boxes' Enter: it is nothing to a
-      // reader of the page, and says so.
-      <div className="add-reference" role="presentation" onKeyDown={onKeyDown}>
+      <div className="add-reference" ref={wrapper}>
         {/* The store first: a seller is named for their place on the
             marketplace, so its address proposes the name. Only a name the
             address gave follows it, or an empty one, which is nobody's

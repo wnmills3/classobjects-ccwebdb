@@ -1651,10 +1651,10 @@ class ReferenceAliasIn(BaseModel):
 # Acquisitions: vendors, purchase orders and storage locations
 # --------------------------------------------------------------------------
 
-#: An http(s) address by how it begins, or `mailto:` and a whole mail address.
-#: Each alternative carries its own anchors: the end is the mail address's
-#: alone, since what follows `https://` is not judged here.
-_STORE_ADDRESS = re.compile(r"^(?:https?://|mailto:[^\s@]+@[^\s@]+$)", re.IGNORECASE)
+#: An http(s) address, judged by how it begins: what follows is not read here.
+_WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
+#: `mailto:` and a whole mail address.
+_MAILTO_ADDRESS = re.compile(r"^mailto:[^\s@]+@[^\s@]+$", re.IGNORECASE)
 _MAIL_ADDRESS = re.compile(r"^[^\s@:/]+@[^\s@:/]+$")
 
 
@@ -1668,7 +1668,7 @@ def _store_address_or_none(value: str | None) -> str | None:
         return None
     if _MAIL_ADDRESS.match(address):
         return f"mailto:{address}"
-    if not _STORE_ADDRESS.match(address):
+    if not (_WEB_ADDRESS.match(address) or _MAILTO_ADDRESS.match(address)):
         raise ValueError("must be a mail address, or start with http:// or https://")
     return address
 

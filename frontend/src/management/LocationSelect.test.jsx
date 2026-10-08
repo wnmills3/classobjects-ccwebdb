@@ -127,6 +127,63 @@ describe('LocationSelect', () => {
     ).toBeInTheDocument()
   })
 
+  it.each([
+    ['', false],
+    [' in StrictMode', true],
+  ])(
+    'adds once on Enter in a box, without submitting the form around it%s',
+    async (_name, strict) => {
+      const user = userEvent.setup()
+      // jsdom has no navigation: a submit let through is seen here, not followed.
+      const onSubmit = vi.fn((e) => e.preventDefault())
+      api.createStorageLocation.mockResolvedValue({
+        id: 9,
+        label: 'First Bank',
+        kind: 'home',
+      })
+      renderWithProviders(
+        <form onSubmit={onSubmit}>
+          <Holder onValue={vi.fn()} />
+          <button type="submit">Save purchase</button>
+        </form>,
+        {
+          reference: emptyReference({ tables: { storage_location_kind: KINDS } }),
+          strict,
+        },
+      )
+      await user.selectOptions(
+        await screen.findByRole('combobox', { name: /storage location/i }),
+        '__add__',
+      )
+
+      // Nothing to add yet: Enter is still kept from the outer form.
+      await user.type(screen.getByPlaceholderText('Bank or place'), 'First{Enter}')
+      expect(api.createStorageLocation).not.toHaveBeenCalled()
+      expect(onSubmit).not.toHaveBeenCalled()
+
+      await user.selectOptions(screen.getByLabelText('storage_location_kind'), 'home')
+      await user.type(screen.getByPlaceholderText('Bank or place'), ' Bank{Enter}')
+
+      await waitFor(() => expect(api.createStorageLocation).toHaveBeenCalledTimes(1))
+      // What was typed up to the key, not an earlier draft.
+      expect(api.createStorageLocation).toHaveBeenCalledWith({
+        kind: 'home',
+        institution: 'First Bank',
+        identifier: null,
+      })
+      expect(onSubmit).not.toHaveBeenCalled()
+      expect(
+        await screen.findByRole('option', { name: 'First Bank' }),
+      ).toBeInTheDocument()
+
+      // With the small form closed again, Enter belongs to the outer form.
+      screen.getByRole('button', { name: 'Save purchase' }).focus()
+      await user.keyboard('{Enter}')
+      expect(onSubmit).toHaveBeenCalledTimes(1)
+      expect(api.createStorageLocation).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('shows a refusal and keeps what was typed', async () => {
     const user = userEvent.setup()
     api.createStorageLocation.mockRejectedValue(
