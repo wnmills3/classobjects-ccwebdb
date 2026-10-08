@@ -120,7 +120,6 @@ export const COIN_VIEW = {
     'zero_cost',
     'kind_unknown',
     'repeated_identity',
-    'unreviewed',
   ],
 }
 
@@ -199,7 +198,6 @@ export const CURRENCY_VIEW = {
     'mixed_marker',
     'zero_cost',
     'repeated_identity',
-    'unreviewed',
     'star_mismatch',
     'malformed_serial',
     'near_duplicate_serial',

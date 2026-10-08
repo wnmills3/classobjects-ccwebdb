@@ -310,7 +310,7 @@
   border-color: #24507a;
   color: #fff;
 }
-/* The item editor, over the results. Sized to the form's four-column field
+/* The item editor, over the results. Sized to the form's three-column field
    grid, and scrolling inside itself so a long form never pushes Save off
    the screen. */
 .edit-dialog {
@@ -391,7 +391,7 @@ fieldset.identify {
   align-items: center;
   display: grid;
   gap: 0.5rem;
-  grid-template-columns: 9rem minmax(12rem, 24rem) auto auto;
+  grid-template-columns: 9rem minmax(12rem, 24rem) auto;
   margin-bottom: 0.4rem;
 }
 /* One lot being assembled, as a card.
@@ -438,12 +438,6 @@ fieldset.identify {
   font-size: 0.8rem;
   font-style: italic;
   margin-left: 0.4rem;
-}
-.review-mark {
-  color: var(--ok);
-  display: flex;
-  font-size: 0.85rem;
-  gap: 0.25rem;
 }
 /* A spot price's box and its Record button, side by side in the table cell:
    stacked, the button reads as belonging to the row below. */

@@ -515,13 +515,6 @@ export const FIELD_HELP = {
       'delivered, returned. Status says whether it has arrived; disposition says ' +
       'where it stands in selling.',
   },
-  reviewed: {
-    title: 'Confirmed',
-    text:
-      'Tick once you have checked this field against the item itself, not the ' +
-      "seller's listing. It records that a person looked; the rating pass leaves " +
-      'a confirmed field alone.',
-  },
   no_date: {
     title: 'No date',
     text:
@@ -606,7 +599,7 @@ export const FIELD_HELP = {
     title: 'Checks',
     text:
       'Ready-made lists of items needing attention, with how many each finds: no ' +
-      'grade, not yet reviewed, and so on. Click one to show only those items; ' +
+      'grade, no cost, and so on. Click one to show only those items; ' +
       'click it again to go back. Only checks with something to find are shown.',
   },
   missing_filter: {

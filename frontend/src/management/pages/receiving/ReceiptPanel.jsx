@@ -408,10 +408,9 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
       {error && <p className="error">{error}</p>}
       {uploadError && <p className="error">{uploadError}</p>}
 
-      {/* Collapsed by default -- expanding shows the item's reviewable
-          fields, composed from the same ReviewPane/ItemEditForm the
-          inventory page uses, so this never drifts from that page's idea of
-          what a reviewable field is. */}
+      {/* Collapsed by default -- expanding shows the item's fields,
+          composed from the same ReviewPane/ItemEditForm the inventory
+          page uses, so this never drifts from that page's editor. */}
       <div className="review-toggle">
         {reviewIds === null && (
           <>

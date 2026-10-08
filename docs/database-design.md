@@ -25,7 +25,7 @@ The sections follow the life of an item:
 | 4 | **Vocabulary** -- the shared words every item is classified with | 33 classifier tables, `series_alias`, `series_year_range`, `note_issue`, `reference_alias`, `reference_merge` |
 | 5 | **Identifying** -- certificates, errors, attributes, type catalogs | `item_certification`, `item_error`, `item_attribute_link`, `friedberg_number`, `pcgs_type` |
 | 6 | **Valuing** -- cost stored, worth computed | `composition`, `metal_price`, `valuation_snapshot` |
-| 7 | **Keeping track** -- status, location and who changed what | `item_status_history`, `storage_location`, `location_history`, `item_field_review`, `item_field_source`, `item_field_change` |
+| 7 | **Keeping track** -- status, location and who changed what | `item_status_history`, `storage_location`, `location_history`, `item_field_source`, `item_field_change` |
 | 8 | **Photographing** | `image`, `image_derivative`, `item_image`, `listing_image`, `shipment_image` |
 | 9 | **Selling** -- offers, lots, auctions, buyers, orders, shipping | `sales_venue`, `listing`, `listing_status_history`, `offer_claim`, `sales_lot`, `sales_lot_item`, `auction`, `auction_lot`, `customer`, `address`, `sales_order` and its children, `shipment` |
 | 10 | **Views** and the public boundary | `coin_inventory`, `currency_inventory`, `item_valuation`, `public_catalog` |
@@ -81,7 +81,7 @@ must change together, exactly one module writes them (§11).
                                 │
       item_certification, item_error, item_attribute_link   (identification)
       item_status_history, location_history ── storage_location
-      item_field_review, item_field_source, item_field_change  (per-field state)
+      item_field_source, item_field_change  (per-field state)
       item_image ── image ── image_derivative
       valuation_snapshot                    composition, metal_price
 
@@ -499,8 +499,7 @@ does not restate a past valuation.
 ## 7. Lifecycle, location and per-field state
 
 Keeping track of each object: whether it has arrived, where it is now and
-was before, and which of its fields a person confirmed, a pass filled in, or
-someone changed (`models/lifecycle.py`).
+was before, and which of its fields a pass filled in or someone changed (`models/lifecycle.py`).
 
 ### Two axes
 
@@ -549,7 +548,6 @@ house would otherwise each create a location.
 
 | Table | A row means | Unique |
 |---|---|---|
-| `item_field_review` (`field_name`, `reviewed_at`, `reviewed_by_id`) | a person confirmed this field by looking at the object | `(inventory_item_id, field_name)` |
 | `item_field_source` (`field_name`, `derived_by`, `derived_at`) | a pass filled this field from known facts and may refresh it; `derived_by = 'held'` means a person emptied it on purpose and no pass may fill it | `(inventory_item_id, field_name)` |
 | `item_field_change` (`field_name`, `old_value`, `new_value` JSONB, `changed_by_id`, `changed_at`) | a person's edit changed this field -- one row per change, never updated | none; indexed on `(inventory_item_id, field_name, changed_at)` |
 

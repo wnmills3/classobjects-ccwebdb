@@ -9,7 +9,7 @@ change to an existing line keeps its snapshot -- it is the same sale.
 The copy is the console's own view of the item (`routers.inventory`,
 everything the editor shows, mint, variety and certificates included) less
 what describes the editing rather than the item (`_EDITING_ONLY`: the lot's
-claims, review marks, derived defaults, the default tax rate, the sale
+claims, derived defaults, the default tax rate, the sale
 warning, the row version, and who last changed each field), plus the
 listing: title, description, price, currency. The certificates are
 kept under `certificates` as well as the view's own `cert_numbers`. It holds
@@ -57,7 +57,6 @@ SNAPSHOT_VERSION = 2
 _EDITING_ONLY = frozenset(
     {
         "lot_claims",
-        "reviewed",
         "derived",
         "default_tax_rate",
         "sale_state",

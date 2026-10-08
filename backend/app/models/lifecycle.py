@@ -32,7 +32,6 @@ from .reference import StorageLocationKind
 
 __all__ = [
     "ItemFieldChange",
-    "ItemFieldReview",
     "ItemFieldSource",
     "ItemStatusHistory",
     "LocationHistory",
@@ -187,53 +186,6 @@ class LocationHistory(Base):
     )
 
 
-class ItemFieldReview(Base):
-    """One field of one item, confirmed by a person looking at the object.
-
-    Per field rather than per item because the unit of work is the field.
-    Attributing fifty Morgans means confirming grade on all fifty, then year
-    on all fifty, in whatever order the light and the loupe allow; an
-    item-level flag cannot express a half-done coin, and a half-done coin is
-    the normal state.
-
-    Absent means unconfirmed, which is the correct default for any item
-    nobody has examined and needs no backfill.
-
-    Distinct from comparing a split child to its parent, which answers what
-    the *lot claimed*. That comparison is derived and cannot drift out of
-    sync; this is asserted and cannot be computed from anything. Both are
-    needed and neither replaces the other.
-    """
-
-    __tablename__ = "item_field_review"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"),
-        index=True,
-        nullable=False,
-    )
-    #: The column confirmed, e.g. `grade_id`. Checked against a whitelist at
-    #: the API boundary rather than by a constraint here: which fields are
-    #: worth confirming is a product decision that will change, and a check
-    #: constraint would need a migration every time it did.
-    field_name: Mapped[str] = mapped_column(String(64), nullable=False)
-    reviewed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, nullable=False
-    )
-    #: SET NULL rather than CASCADE: deactivating a member of staff must not
-    #: erase the record that the work was done.
-    reviewed_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
-    )
-
-    __table_args__ = (
-        UniqueConstraint(
-            "inventory_item_id", "field_name", name="uq_item_field_review"
-        ),
-    )
-
-
 class ItemFieldChange(Base):
     """One field of one item changed under a person's name: who, when, from what.
 
@@ -291,12 +243,10 @@ class ItemFieldSource(Base):
     not a rule's is `held`: a person emptied the field, and no pass fills it
     until someone sets it again (`app.field_sources`).
 
-    Per field, like `ItemFieldReview`, and for the same reason: an item is
-    partly derived and partly typed as a normal state. The two answer
-    different questions -- where a value came from, and whether a person has
-    confirmed it -- and a derived value can also be confirmed.
+    Per field rather than per item: an item is partly derived and partly
+    typed as a normal state.
 
-    `field_name` is the column, as in `ItemFieldReview` -- `note_type_id`,
+    `field_name` is the column -- `note_type_id`,
     `series_id`, `fineness` -- whether the column is on the item or on its
     currency detail.
     """

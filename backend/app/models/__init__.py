@@ -61,7 +61,6 @@ from .images import (
 )
 from .lifecycle import (
     ItemFieldChange,
-    ItemFieldReview,
     ItemFieldSource,
     ItemStatusHistory,
     LocationHistory,
@@ -225,7 +224,6 @@ __all__ = [
     "ItemCertification",
     "ItemError",
     "ItemFieldChange",
-    "ItemFieldReview",
     "ItemFieldSource",
     "ItemImage",
     "ItemKind",

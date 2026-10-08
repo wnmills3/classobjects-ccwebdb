@@ -99,7 +99,7 @@ def test_a_sale_keeps_the_item_as_it_was_sold(
     assert snapshot["listing"]["price"] == "189.00"
     assert snapshot["listing"]["currency"] == "USD"
     # What describes the editing is left out.
-    assert "reviewed" not in snapshot["item"]
+    assert "lot_claims" not in snapshot["item"]
     assert "sale_state" not in snapshot["item"]
 
 

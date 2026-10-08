@@ -8,7 +8,6 @@ vi.mock('../../api', () => ({
     getItemSales: vi.fn(),
     getItemHistory: vi.fn(),
     updateInventoryItem: vi.fn(),
-    setItemReview: vi.fn(),
     getItemErrors: vi.fn(),
     setItemErrors: vi.fn(),
     // OffersPanel's own calls: it reads the item's offers on mount, and its
@@ -54,7 +53,6 @@ const item = {
   id: 12,
   item_code: 'C-012',
   description: 'Mercury Dime',
-  reviewed: [],
 }
 
 beforeEach(() => {
@@ -67,7 +65,6 @@ beforeEach(() => {
   // The offers panel reads the platforms too, to tell the shop from the rest.
   api.listSalesVenues.mockResolvedValue([])
   api.getInventoryItem.mockResolvedValue(item)
-  api.setItemReview.mockResolvedValue({ reviewed: ['description'] })
   api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
   api.listItemImages.mockResolvedValue([])
 })
@@ -163,29 +160,10 @@ describe('ItemEditForm', () => {
     }
   })
 
-  it('offers a confirmed checkbox per reviewable field', async () => {
+  it('offers no confirmation box beside any field', async () => {
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
     await screen.findByDisplayValue('Mercury Dime')
-    expect(screen.getAllByLabelText(/confirmed/i).length).toBeGreaterThan(0)
-  })
-
-  it('records a field as reviewed when its box is ticked', async () => {
-    const user = userEvent.setup()
-    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
-    await screen.findByDisplayValue('Mercury Dime')
-
-    // By role rather than by label: the label's title also contains
-    // "confirmed", so a text query can return the label instead of the input.
-    // By name as well: "Range of years" is a checkbox too, ahead of these.
-    const box = screen.getAllByRole('checkbox', { name: /confirmed/ })[0]
-    expect(box).not.toBeChecked()
-    await user.click(box)
-
-    await waitFor(() =>
-      // replace:true -- unticking must remove the record, not leave a
-      // confirmation nobody stands behind.
-      expect(api.setItemReview).toHaveBeenCalledWith(12, expect.any(Array), true),
-    )
+    expect(screen.queryByRole('checkbox', { name: /confirmed/i })).toBeNull()
   })
 
   it('reports a failed load rather than showing an empty form', async () => {
@@ -1291,21 +1269,6 @@ describe('ItemEditForm years', () => {
     await user.click(rangeBox())
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
-
-  it('confirms one year as both ends with one box', async () => {
-    const user = await open({ year_start: 1878, year_end: 1878 })
-    api.setItemReview.mockResolvedValue({})
-    // The Year row's own box, wherever the row sits in the form.
-    const yearRow = screen.getByRole('spinbutton', { name: /^Year/ }).closest('.field')
-    await user.click(within(yearRow).getByRole('checkbox', { name: /confirmed/ }))
-    await waitFor(() =>
-      expect(api.setItemReview).toHaveBeenCalledWith(
-        12,
-        expect.arrayContaining(['year_start', 'year_end']),
-        true,
-      ),
-    )
-  })
 })
 
 describe('ItemEditForm keyboard accelerators', () => {
@@ -1391,7 +1354,7 @@ describe('field labels in the grid', () => {
     // inside it rather than beside it.
     expect(field.children[0].textContent).toBe('Title')
     expect(field.children[0].querySelector('u')).toHaveTextContent('T')
-    // ...and the input is the next cell, not the fourth.
+    // ...and the input is the next cell, not the last.
     expect(field.children[1]).toBe(title)
   })
 })

@@ -186,21 +186,6 @@ def test_an_item_with_no_parent_claims_nothing(
     assert body["lot_claims"] == {}
 
 
-def test_the_detail_carries_what_has_been_reviewed(
-    client: TestClient, admin_headers: dict[str, str], db: Session
-) -> None:
-    """One round trip for the edit form, not two."""
-    item = build_bare_item(db)
-    client.post(
-        f"/api/inventory/{item.id}/reviewed",
-        json={"fields": ["grade_id"]},
-        headers=admin_headers,
-    )
-
-    body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
-    assert body["reviewed"] == ["grade_id"]
-
-
 def test_a_piece_reports_the_lot_s_claim_even_when_it_still_agrees(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
@@ -224,7 +209,6 @@ def test_a_piece_reports_the_lot_s_claim_even_when_it_still_agrees(
     assert body["lot_claims"]["year_start"] == 1881, (
         "and the response must still say the lot is where that came from"
     )
-    assert body["reviewed"] == [], "nobody has confirmed it"
 
 
 def test_a_piece_reports_the_lot_s_claimed_grade_as_a_code(

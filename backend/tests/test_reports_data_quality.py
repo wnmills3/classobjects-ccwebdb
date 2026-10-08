@@ -24,7 +24,6 @@ from app.models import (
     Grade,
     Image,
     InventoryItem,
-    ItemFieldReview,
     ItemFieldSource,
     ItemImage,
     ItemKind,
@@ -545,13 +544,7 @@ def _mark_derived(db: Session, item: InventoryItem, field: str, rule: str) -> No
     db.commit()
 
 
-def _mark_reviewed(db: Session, item: InventoryItem, field: str) -> None:
-    """Record that a person confirmed `field` on `item` by examination."""
-    db.add(ItemFieldReview(inventory_item_id=item.id, field_name=field))
-    db.commit()
-
-
-def test_dq_derived_counts_a_source_with_no_matching_review(db: Session) -> None:
+def test_dq_derived_counts_a_field_a_rule_filled(db: Session) -> None:
     item = build_bare_item(db)
     _mark_derived(db, item, "series_id", SERIES_CLASSIFY)
 
@@ -572,36 +565,6 @@ def test_dq_derived_shows_the_raw_column_name_for_an_untitled_field(
     result = DQ_DERIVED.run(db, DqDerivedParams())
 
     row = next(r for r in result.rows if r["field"] == "some_future_column")
-    assert row["items"] == 1
-
-
-def test_dq_derived_excludes_a_field_reviewed_on_the_same_item(db: Session) -> None:
-    item = build_bare_item(db)
-    _mark_derived(db, item, "series_id", SERIES_CLASSIFY)
-    _mark_reviewed(db, item, "series_id")
-
-    result = DQ_DERIVED.run(db, DqDerivedParams())
-
-    assert not [r for r in result.rows if r["field"] == "Series"]
-
-
-def test_dq_derived_still_counts_an_unrelated_field_reviewed_on_the_same_item(
-    db: Session,
-) -> None:
-    """Reviewing one field does not clear another field's own gap.
-
-    This is exactly the case `issue=unreviewed` (item-level: any review row at
-    all) would score differently from this report (field-level): the item
-    below is not "unreviewed" by that check, since it has one review row, but
-    still has an unconfirmed series.
-    """
-    item = build_bare_item(db)
-    _mark_derived(db, item, "series_id", SERIES_CLASSIFY)
-    _mark_reviewed(db, item, "grade_id")
-
-    result = DQ_DERIVED.run(db, DqDerivedParams())
-
-    row = next(r for r in result.rows if r["field"] == "Series")
     assert row["items"] == 1
 
 

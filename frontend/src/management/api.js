@@ -81,11 +81,6 @@ export const api = {
     send(`/api/inventory/${id}`, { method: 'PATCH', body: payload }),
   bulkEditInventory: (ids, changes) =>
     send('/api/inventory/bulk', { method: 'POST', body: { ids, changes } }),
-  setItemReview: (id, fields, replace = false) =>
-    send(`/api/inventory/${id}/reviewed`, {
-      method: 'POST',
-      body: { fields, replace },
-    }),
   // Errors: several per item -- a bill is commonly miscut AND misprinted --
   // each with its own note. PUT replaces the whole set.
   getItemErrors: (id) => send(`/api/inventory/${id}/errors`),

@@ -11,7 +11,6 @@ vi.mock('../../api', () => ({
     uploadImage: vi.fn(),
     getInventoryItem: vi.fn(),
     getItemSales: vi.fn(),
-    setItemReview: vi.fn(),
     updateInventoryItem: vi.fn(),
     // The Identify section's look-up of what the facts decide.
     suggestNote: vi.fn(),
@@ -53,7 +52,6 @@ const ITEM = {
   // panel knows it: `kind` decides which half of the error vocabulary the
   // picker shows and which `applies_to` a type added there is marked with.
   item_kind: 'coin',
-  reviewed: [],
 }
 
 // `itemIds` is owned by something above `ReceiptPanel` (`Receiving.jsx`), so
@@ -79,7 +77,6 @@ beforeEach(() => {
   api.receiveItems.mockResolvedValue({ received: 2 })
   api.uploadImage.mockResolvedValue({ id: 1 })
   api.getInventoryItem.mockResolvedValue(ITEM)
-  api.setItemReview.mockResolvedValue({ reviewed: [] })
   api.updateInventoryItem.mockResolvedValue({})
   api.suggestNote.mockResolvedValue({})
   api.suggestCoin.mockResolvedValue({})
