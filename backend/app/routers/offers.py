@@ -283,6 +283,47 @@ def _offer_lot(
     )
 
 
+def _refuse_unlistable(
+    payload: OfferIn, venue: SalesVenue, listing_format: ListingFormat
+) -> None:
+    """422 for a batch whose shape this platform cannot list, before any write.
+
+    Two rules that read only the request and the platform, so they are
+    decided ahead of the first item or lot being looked up: the quantity,
+    then a shop lot's title.
+    """
+    # Off the store a listing is one unit. An outside sale is recorded as a
+    # line of one that ends the listing (`sales_writes.SaleLine`), so a
+    # listing of several would end with units still on it and its item
+    # still `listed` behind a sale.
+    if payload.quantity > 1 and not venue.is_own_store:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"quantity must be 1 on {venue.name}: only the web store "
+                "sells an item a unit at a time"
+            ),
+        )
+
+    # A lot offered in the shop is named to buyers by this title and nothing
+    # else: an item listing left untitled is named by its item, but a lot has
+    # no item, and its own title is the group's working name, which the
+    # catalog does not show (`routers.catalog._lot_entry`).
+    if (
+        payload.lot_id is not None
+        and venue.is_own_store
+        and listing_format is ListingFormat.fixed_price
+        and not payload.title.strip()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "title is required to offer a lot in the web store: it is "
+                "the only name a buyer sees"
+            ),
+        )
+
+
 @router.get("/offers/titles")
 def offer_titles(
     db: DbSession,
@@ -329,36 +370,7 @@ def create_offers(
     """
     venue = venue_by_code(db, payload.venue)
     listing_format = enum_member(ListingFormat, payload.format, "format")
-    # Off the store a listing is one unit. An outside sale is recorded as a
-    # line of one that ends the listing (`sales_writes.SaleLine`), so a
-    # listing of several would end with units still on it and its item
-    # still `listed` behind a sale.
-    if payload.quantity > 1 and not venue.is_own_store:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"quantity must be 1 on {venue.name}: only the web store "
-                "sells an item a unit at a time"
-            ),
-        )
-
-    # A lot offered in the shop is named to buyers by this title and nothing
-    # else: an item listing left untitled is named by its item, but a lot has
-    # no item, and its own title is the group's working name, which the
-    # catalog does not show (`routers.catalog._lot_entry`).
-    if (
-        payload.lot_id is not None
-        and venue.is_own_store
-        and listing_format is ListingFormat.fixed_price
-        and not payload.title.strip()
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                "title is required to offer a lot in the web store: it is "
-                "the only name a buyer sees"
-            ),
-        )
+    _refuse_unlistable(payload, venue, listing_format)
 
     listing_ids: list[int] = []
     refusals: list[OfferRefusalOut] = []

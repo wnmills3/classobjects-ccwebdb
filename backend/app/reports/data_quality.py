@@ -883,6 +883,22 @@ class DqSeriesReviewParams(BaseModel):
     )
 
 
+def _review_year(row: RowMapping) -> str:
+    """The year a reviewed item is read by: a note's series year, a coin's own.
+
+    A note's is its series year with its letter (`1935A`); any other kind's
+    is its year or range of years. Empty when the one that applies is not
+    recorded.
+    """
+    if row["kind"] == "currency":
+        if row["series_year"] is None:
+            return ""
+        return f"{row['series_year']}{row['series_letter'] or ''}"
+    if row["year_start"] is None:
+        return ""
+    return _years_text(row["year_start"], row["year_end"])
+
+
 def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult:
     """One row per live item the facts pass leaves for a person.
 
@@ -933,18 +949,6 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
         if row is None:
             continue  # the pass reads deleted items too; the report is live ones
         counts[found_case.reason] += 1
-        if row["kind"] == "currency":
-            year = (
-                f"{row['series_year']}{row['series_letter'] or ''}"
-                if row["series_year"] is not None
-                else ""
-            )
-        else:
-            year = (
-                _years_text(row["year_start"], row["year_end"])
-                if row["year_start"] is not None
-                else ""
-            )
         rows.append(
             {
                 "item": found_case.item_code,
@@ -953,7 +957,7 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
                     labels.get(code, code) for code in found_case.designs
                 ),
                 "denomination": row["denomination"] or "",
-                "year": year,
+                "year": _review_year(row),
                 "series": row["series"] or "",
                 # Every text the pass reads, each in its own column: a
                 # design is named in one of them, and a word that is in

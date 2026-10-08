@@ -135,11 +135,7 @@ export default function SpotPrices() {
       </p>
       {loaded.error && <p className="error">{loaded.error}</p>}
       {error && <p className="error">{error}</p>}
-      {said && (
-        <p className="notice" role="status">
-          {said}
-        </p>
-      )}
+      {said && <output className="notice status-line">{said}</output>}
       {!loaded.error && !loaded.data && <p className="muted">Loading...</p>}
       {rows.length > 0 && (
         <table className="table" aria-label="Spot prices">

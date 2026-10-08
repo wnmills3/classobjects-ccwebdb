@@ -46,7 +46,7 @@ import argparse
 import re
 import sys
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
@@ -210,53 +210,91 @@ def plan(db: Session, lines: Sequence[Line]) -> Plan:
     purchases = db.scalars(
         select(PurchaseOrder).where(PurchaseOrder.vendor_id.in_(vendor_ids))
     ).all()
-    items_of: dict[int, list[InventoryItem]] = defaultdict(list)
-    # Live items only: a deleted row, or a lot replaced by its pieces, may
-    # link a listing of another order and says nothing about this one.
-    for item in db.scalars(
-        select(InventoryItem).where(
-            InventoryItem.purchase_order_id.in_([p.id for p in purchases]),
-            live_item(),
-        )
-    ):
-        if item.purchase_order_id is not None:
-            items_of[item.purchase_order_id].append(item)
+    items_of = _live_items_by_purchase(db, [p.id for p in purchases])
 
     holder = {p.order_number: p.id for p in purchases if p.order_number}
     groups: dict[str, list[int]] = defaultdict(list)
     for purchase in sorted(purchases, key=lambda p: p.id):
-        own = item_id_of(purchase.source_url)
-        ids: set[str] = set()
-        for item in items_of[purchase.id]:
-            listing = item.sellers_item_id or item_id_of(item.listing_url) or own
-            if listing:
-                ids.add(listing)
-                if item.sellers_item_id is None:
-                    out.listing_ids[item.id] = listing
-        if own:
-            ids.add(own)
+        ids = _listing_ids_of(purchase, items_of[purchase.id], out)
         found = _orders_for(ids, purchase.ordered_on, by_item) if ids else set()
-        if purchase.order_number:
-            if len(found) == 1 and purchase.order_number not in found:
-                out.disagreements.append(
-                    (purchase.id, purchase.order_number, next(iter(found)))
-                )
-            continue
-        if not ids:
-            out.unmatched.append((purchase.id, "no eBay listing link"))
-        elif not found:
-            out.unmatched.append((purchase.id, "listing not in the purchase history"))
-        elif len(found) > 1:
-            out.unmatched.append(
-                (purchase.id, "in several orders: " + ", ".join(sorted(found)))
-            )
-        else:
-            groups[next(iter(found))].append(purchase.id)
+        _place(purchase, ids, found, out, groups)
 
     for number, members in groups.items():
         survivor = holder.get(number, min(members))
         out.orders[number] = (survivor, sorted(m for m in members if m != survivor))
     return out
+
+
+def _live_items_by_purchase(
+    db: Session, purchase_ids: Sequence[int]
+) -> dict[int, list[InventoryItem]]:
+    """These purchases' live items, by purchase id.
+
+    Live items only: a deleted row, or a lot replaced by its pieces, may
+    link a listing of another order and says nothing about this one.
+    """
+    items_of: dict[int, list[InventoryItem]] = defaultdict(list)
+    for item in db.scalars(
+        select(InventoryItem).where(
+            InventoryItem.purchase_order_id.in_(purchase_ids),
+            live_item(),
+        )
+    ):
+        if item.purchase_order_id is not None:
+            items_of[item.purchase_order_id].append(item)
+    return items_of
+
+
+def _listing_ids_of(
+    purchase: PurchaseOrder, items: Sequence[InventoryItem], out: Plan
+) -> set[str]:
+    """The eBay listing ids a purchase and its items name.
+
+    An item with no seller's item id of its own is planned to take the one
+    read from its link, or failing that its purchase's.
+    """
+    own = item_id_of(purchase.source_url)
+    ids: set[str] = set()
+    for item in items:
+        listing = item.sellers_item_id or item_id_of(item.listing_url) or own
+        if not listing:
+            continue
+        ids.add(listing)
+        if item.sellers_item_id is None:
+            out.listing_ids[item.id] = listing
+    if own:
+        ids.add(own)
+    return ids
+
+
+def _place(
+    purchase: PurchaseOrder,
+    ids: set[str],
+    found: set[str],
+    out: Plan,
+    groups: dict[str, list[int]],
+) -> None:
+    """File a purchase by the orders its listings were found in.
+
+    One with a number is only checked against the history's; one without
+    joins the group of its one order, or is listed for a person with why.
+    """
+    if purchase.order_number:
+        if len(found) == 1 and purchase.order_number not in found:
+            out.disagreements.append(
+                (purchase.id, purchase.order_number, next(iter(found)))
+            )
+        return
+    if not ids:
+        out.unmatched.append((purchase.id, "no eBay listing link"))
+    elif not found:
+        out.unmatched.append((purchase.id, "listing not in the purchase history"))
+    elif len(found) > 1:
+        out.unmatched.append(
+            (purchase.id, "in several orders: " + ", ".join(sorted(found)))
+        )
+    else:
+        groups[next(iter(found))].append(purchase.id)
 
 
 def _carry(survivor: PurchaseOrder, gone: PurchaseOrder) -> None:
@@ -271,6 +309,63 @@ def _carry(survivor: PurchaseOrder, gone: PurchaseOrder) -> None:
     notes = (gone.notes or "").strip()
     if notes and notes not in (survivor.notes or ""):
         survivor.notes = f"{survivor.notes}\n{notes}" if survivor.notes else notes
+
+
+def _move_items(
+    db: Session,
+    number: str,
+    survivor_id: int,
+    merged: Sequence[int],
+    log: Callable[[int, str, object, object], None],
+) -> int:
+    """Point an order's items at its surviving purchase; how many moved.
+
+    Each live item whose purchase did not already hold `number` has the
+    change logged through `log` before it moves.
+    """
+    moved = 0
+    members = [survivor_id, *merged]
+    for item in db.scalars(
+        select(InventoryItem).where(InventoryItem.purchase_order_id.in_(members))
+    ):
+        old = db.get(PurchaseOrder, item.purchase_order_id)
+        assert old is not None
+        # Every row moves with its purchase, or it would be orphaned;
+        # only a live one has a History anybody reads.
+        live = item.deleted_at is None and item.split_at is None
+        if live and old.order_number != number:
+            log(item.id, "order_number", old.order_number, number)
+        if item.purchase_order_id != survivor_id:
+            item.purchase_order_id = survivor_id
+            moved += 1
+    return moved
+
+
+def _delete_merged(db: Session, survivor: PurchaseOrder, merged: Sequence[int]) -> int:
+    """Delete the purchases merged into `survivor`; how many went.
+
+    What only they recorded is carried over first (`_carry`), and one that
+    still holds an item is an error rather than a deletion.
+    """
+    deleted = 0
+    for purchase_id in merged:
+        gone = db.get(PurchaseOrder, purchase_id)
+        assert gone is not None
+        _carry(survivor, gone)
+        # Expired first: a loaded `items` list would still hold the
+        # moved items, and deleting the purchase would then null their
+        # purchase -- SQLAlchemy's default for a parent's children.
+        db.expire(gone)
+        left = db.scalar(
+            select(InventoryItem.id)
+            .where(InventoryItem.purchase_order_id == purchase_id)
+            .limit(1)
+        )
+        if left is not None:
+            raise RuntimeError(f"purchase {purchase_id} still holds item {left}")
+        db.delete(gone)
+        deleted += 1
+    return deleted
 
 
 def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
@@ -307,20 +402,7 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
     for number, (survivor_id, merged) in todo.orders.items():
         survivor = db.get(PurchaseOrder, survivor_id)
         assert survivor is not None
-        members = [survivor_id, *merged]
-        for item in db.scalars(
-            select(InventoryItem).where(InventoryItem.purchase_order_id.in_(members))
-        ):
-            old = db.get(PurchaseOrder, item.purchase_order_id)
-            assert old is not None
-            # Every row moves with its purchase, or it would be orphaned;
-            # only a live one has a History anybody reads.
-            live = item.deleted_at is None and item.split_at is None
-            if live and old.order_number != number:
-                log(item.id, "order_number", old.order_number, number)
-            if item.purchase_order_id != survivor_id:
-                item.purchase_order_id = survivor_id
-                moved += 1
+        moved += _move_items(db, number, survivor_id, merged, log)
         if survivor.order_number != number:
             survivor.order_number = number
             numbered += 1
@@ -329,25 +411,7 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
         if merged:
             survivor.source_url = ORDER_PAGE.format(number)
             db.flush()  # the items point at the survivor before the rest go
-            for purchase_id in merged:
-                gone = db.get(PurchaseOrder, purchase_id)
-                assert gone is not None
-                _carry(survivor, gone)
-                # Expired first: a loaded `items` list would still hold the
-                # moved items, and deleting the purchase would then null their
-                # purchase -- SQLAlchemy's default for a parent's children.
-                db.expire(gone)
-                left = db.scalar(
-                    select(InventoryItem.id)
-                    .where(InventoryItem.purchase_order_id == purchase_id)
-                    .limit(1)
-                )
-                if left is not None:
-                    raise RuntimeError(
-                        f"purchase {purchase_id} still holds item {left}"
-                    )
-                db.delete(gone)
-                deleted += 1
+            deleted += _delete_merged(db, survivor, merged)
     db.flush()
     return {
         "listing ids set": len(todo.listing_ids),
@@ -373,53 +437,55 @@ def _append(sheet: Worksheet, row: Sequence[object]) -> None:
                 keep_text(cell)
 
 
+def _purchase_row(db: Session, purchase_id: int) -> list[object]:
+    """The review sheet's cells for one purchase: its date, address and items."""
+    purchase = db.get(PurchaseOrder, purchase_id)
+    items = db.scalars(
+        select(InventoryItem)
+        .where(InventoryItem.purchase_order_id == purchase_id)
+        .order_by(InventoryItem.id)
+    ).all()
+    return [
+        purchase_id,
+        purchase.ordered_on if purchase else None,
+        purchase.source_url if purchase else None,
+        ", ".join(i.item_code for i in items),
+        " | ".join(i.source_title for i in items)[:300],
+    ]
+
+
+def _merged_away(
+    db: Session, survivor_id: int, merged: Sequence[int]
+) -> tuple[list[str], list[str]]:
+    """What the purchases merged into `survivor_id` hold that it does not.
+
+    The names of their sellers other than the survivor's own -- one of
+    which the merge can keep only where the survivor names none -- and
+    their notes, which it appends.
+    """
+    kept = db.get(PurchaseOrder, survivor_id)
+    sellers: list[str] = []
+    notes: list[str] = []
+    for purchase_id in merged:
+        gone = db.get(PurchaseOrder, purchase_id)
+        if gone is None:
+            continue
+        if gone.seller_id is not None and (
+            kept is None or gone.seller_id != kept.seller_id
+        ):
+            name = db.get_one(Seller, gone.seller_id).name
+            if name not in sellers:
+                sellers.append(name)
+        if gone.notes and gone.notes.strip():
+            notes.append(gone.notes.strip())
+    return sellers, notes
+
+
 def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> None:
     """A workbook of what was done and of what is left for a person."""
     by_order: dict[str, list[Line]] = defaultdict(list)
     for line in lines:
         by_order[line.order_number].append(line)
-
-    def purchase_row(purchase_id: int) -> list[object]:
-        """The review sheet's cells for one purchase: its date, address and items."""
-        purchase = db.get(PurchaseOrder, purchase_id)
-        items = db.scalars(
-            select(InventoryItem)
-            .where(InventoryItem.purchase_order_id == purchase_id)
-            .order_by(InventoryItem.id)
-        ).all()
-        return [
-            purchase_id,
-            purchase.ordered_on if purchase else None,
-            purchase.source_url if purchase else None,
-            ", ".join(i.item_code for i in items),
-            " | ".join(i.source_title for i in items)[:300],
-        ]
-
-    def merged_away(
-        survivor_id: int, merged: Sequence[int]
-    ) -> tuple[list[str], list[str]]:
-        """What the purchases merged into `survivor_id` hold that it does not.
-
-        The names of their sellers other than the survivor's own -- one of
-        which the merge can keep only where the survivor names none -- and
-        their notes, which it appends.
-        """
-        kept = db.get(PurchaseOrder, survivor_id)
-        sellers: list[str] = []
-        notes: list[str] = []
-        for purchase_id in merged:
-            gone = db.get(PurchaseOrder, purchase_id)
-            if gone is None:
-                continue
-            if gone.seller_id is not None and (
-                kept is None or gone.seller_id != kept.seller_id
-            ):
-                name = db.get_one(Seller, gone.seller_id).name
-                if name not in sellers:
-                    sellers.append(name)
-            if gone.notes and gone.notes.strip():
-                notes.append(gone.notes.strip())
-        return sellers, notes
 
     book = Workbook()
     sheet = book.active
@@ -438,7 +504,7 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
         ],
     )
     for number, (survivor, merged) in sorted(todo.orders.items()):
-        sellers, notes = merged_away(survivor, merged)
+        sellers, notes = _merged_away(db, survivor, merged)
         _append(
             sheet,
             [
@@ -454,7 +520,7 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
     left = book.create_sheet("Needs you")
     _append(left, ["purchase", "date", "link", "items", "titles", "why"])
     for purchase_id, why in todo.unmatched:
-        _append(left, [*purchase_row(purchase_id), why])
+        _append(left, [*_purchase_row(db, purchase_id), why])
     differ = book.create_sheet("Numbers that disagree")
     _append(
         differ,
@@ -475,7 +541,7 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
         _append(
             differ,
             [
-                *purchase_row(purchase_id),
+                *_purchase_row(db, purchase_id),
                 stored,
                 found,
                 " | ".join(line.name for line in by_order[found])[:300],

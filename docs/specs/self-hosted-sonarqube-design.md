@@ -104,6 +104,15 @@ The frontend's `vitest run --coverage` writes `frontend/coverage/lcov.info`.
 Ignored by git: `coverage.xml`, `.scannerwork/`, `frontend/coverage/`,
 `.mcp.json`, `scripts/.sonar/`.
 
+**Rules.** Every language is analysed with the server's built-in `Sonar way`
+profile but JavaScript, whose profile is `ccwebdb way`: a child of `Sonar way`,
+so it follows the built-in's changes, with one rule switched off --
+`javascript:S6846`, which forbids the `accesskey` attribute. The console gives
+its fields Alt letters on purpose, and that attribute is how. The profile lives
+in the server's own database, not in this repository: a server built afresh
+needs it made again (Quality Profiles: create it for JavaScript, set `Sonar
+way` as its parent, deactivate the rule, and make it the project's).
+
 ## Authentication
 
 The scanner and MCP containers cannot read the host keychain, so both take

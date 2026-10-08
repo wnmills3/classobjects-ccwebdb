@@ -40,7 +40,9 @@ export default function SellerField({ value, onChange }) {
 
   if (adding) {
     return (
-      <div className="add-reference" onKeyDown={onKeyDown}>
+      // A wrapper that only hears its boxes' Enter: it is nothing to a
+      // reader of the page, and says so.
+      <div className="add-reference" role="presentation" onKeyDown={onKeyDown}>
         {/* The store first: a seller is named for their place on the
             marketplace, so its address proposes the name. Only a name the
             address gave follows it, or an empty one, which is nobody's

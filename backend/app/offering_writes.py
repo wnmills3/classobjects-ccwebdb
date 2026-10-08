@@ -1072,6 +1072,51 @@ def _lot_members(db: Session, lot: SalesLot) -> list[InventoryItem]:
     return [row.item for row in rows]
 
 
+def _store_listings_to_pause(
+    db: Session, member: InventoryItem, venue: SalesVenue, *, in_lot: bool
+) -> list[Listing]:
+    """The store listings an offer of this member sets aside, or a refusal.
+
+    Decides, from the live offers already holding `member` (locked and
+    re-read by `_locked_offers`), whether it can be offered on `venue` at
+    all: an offer on another platform refuses it, and so does a second item
+    listing in the shop. What is left -- the member's own store listings --
+    is what `offer` pauses. Writes nothing.
+
+    `in_lot` says the member is being offered as part of a lot rather than
+    on its own, which is the one case the shop takes while a store listing
+    already holds it.
+    """
+    holding = _locked_offers(db, member.id)
+    # Elsewhere first, whatever the listing ids happen to be: an item held
+    # on another platform is the refusal a person has to act on, and
+    # saying "it is already in the shop" instead would send them to the
+    # wrong screen.
+    elsewhere = [held for held in holding if not held.sales_venue.is_own_store]
+    if elsewhere:
+        raise OfferRefused(
+            member.item_code,
+            f"is active on {elsewhere[0].sales_venue.name}, "
+            f"listing #{elsewhere[0].id}: end it first",
+        )
+    ours = [held for held in holding if held.sales_venue.is_own_store]
+    # Offering an *item* on the store while it is already active on the
+    # store is a duplicate listing of the same thing, and the spec simply
+    # refuses it. A lot is not a duplicate of its member's listing: it is
+    # the coin moving from being sold on its own to being sold as part of
+    # a group, which is the same one-step transition shop -> eBay already
+    # is, so the member's store listing is *paused* instead. Both exits
+    # then come out right -- if the lot sells the member is sold and
+    # nothing resumes; if the lot is dissolved the member's store listing
+    # comes back, which is what the owner wants after an unsold grouping.
+    if ours and venue.is_own_store and not in_lot:
+        raise OfferRefused(
+            member.item_code,
+            f"is already offered in the shop, listing #{ours[0].id}",
+        )
+    return ours
+
+
 def offer(
     db: Session,
     *,
@@ -1121,33 +1166,7 @@ def offer(
     to_pause: dict[int, Listing] = {}
     for member in members:
         _refuse_unofferable(db, member, venue)
-        holding = _locked_offers(db, member.id)
-        # Elsewhere first, whatever the listing ids happen to be: an item held
-        # on another platform is the refusal a person has to act on, and
-        # saying "it is already in the shop" instead would send them to the
-        # wrong screen.
-        elsewhere = [held for held in holding if not held.sales_venue.is_own_store]
-        if elsewhere:
-            raise OfferRefused(
-                member.item_code,
-                f"is active on {elsewhere[0].sales_venue.name}, "
-                f"listing #{elsewhere[0].id}: end it first",
-            )
-        ours = [held for held in holding if held.sales_venue.is_own_store]
-        # Offering an *item* on the store while it is already active on the
-        # store is a duplicate listing of the same thing, and the spec simply
-        # refuses it. A lot is not a duplicate of its member's listing: it is
-        # the coin moving from being sold on its own to being sold as part of
-        # a group, which is the same one-step transition shop -> eBay already
-        # is, so the member's store listing is *paused* instead. Both exits
-        # then come out right -- if the lot sells the member is sold and
-        # nothing resumes; if the lot is dissolved the member's store listing
-        # comes back, which is what the owner wants after an unsold grouping.
-        if ours and venue.is_own_store and lot is None:
-            raise OfferRefused(
-                member.item_code,
-                f"is already offered in the shop, listing #{ours[0].id}",
-            )
+        ours = _store_listings_to_pause(db, member, venue, in_lot=lot is not None)
         # By listing id, defensively: `_refuse_unofferable` (above, via
         # `_refuse_grouped`) has already refused any member that is an open
         # part of an already-offered lot, so within one call `held` can only

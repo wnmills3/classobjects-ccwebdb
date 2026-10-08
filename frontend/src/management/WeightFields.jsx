@@ -22,10 +22,10 @@ const FIELDS = [
  * `get(key)` is the field's current value and `set(key, value)` takes the new
  * one -- null for an emptied box, so a save clears the field rather than
  * sending "". `className` is the row's class in the form it sits in, and
- * `aside(key)` renders whatever that form shows beside a field (a
+ * `renderAside(key)` renders whatever that form shows beside a field (a
  * "suggested" mark).
  */
-export default function WeightFields({ get, set, className, aside }) {
+export default function WeightFields({ get, set, className, renderAside }) {
   const base = useId()
   return FIELDS.map(([key, label]) => {
     const id = `${base}-${key}`
@@ -54,7 +54,7 @@ export default function WeightFields({ get, set, className, aside }) {
             onChange={(ozt) => set(key, ozt)}
           />
         )}
-        {aside?.(key)}
+        {renderAside?.(key)}
       </div>
     )
   })

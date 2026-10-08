@@ -90,11 +90,26 @@ class Features:
 #: Words a note grade is written shorter in: "Superb Gem Unc 67".
 _SHORT_GRADE_WORDS = ((re.compile(r"\bUncirculated\b"), "Unc"),)
 
-#: An attribute's label less the noun every serial feature shares: a
-#: "Radar Serial" is written "Radar" beside the serial number itself.
-#: The space is taken from where its run begins (`(?<!\s)`), which is where
-#: the match starts anyway, so a long run of spaces is read once.
-_SERIAL_SUFFIX = re.compile(r"(?<!\s)\s+Serial$")
+#: The noun every serial feature's label ends in.
+_SERIAL_NOUN = "Serial"
+
+
+def _without_serial(label: str) -> str:
+    """An attribute's label less the noun every serial feature shares.
+
+    A "Radar Serial" is written "Radar" beside the serial number itself. The
+    noun goes only from the very end, and only after white space, all of
+    which goes with it; a label ending in a line break keeps the break.
+    """
+    end = "\n" if label.endswith("\n") else ""
+    body = label[: len(label) - len(end)]
+    if not body.endswith(_SERIAL_NOUN):
+        return label
+    before = body[: -len(_SERIAL_NOUN)]
+    kept = before.rstrip()
+    if kept == before:
+        return label
+    return kept + end
 
 
 def _grade(item: InventoryItem) -> str | None:
@@ -152,7 +167,7 @@ def _features(db: Session, item: InventoryItem, given: Features | None) -> list[
     """
     features = given if given is not None else saved_features(db, item)
     attributes, errors = features.attributes, features.errors
-    labels = [_SERIAL_SUFFIX.sub("", label) for label in attributes]
+    labels = [_without_serial(label) for label in attributes]
     labels += [
         f"{label} ({details})" if details else label for label, details in errors
     ]

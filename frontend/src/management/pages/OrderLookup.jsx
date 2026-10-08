@@ -127,10 +127,10 @@ export default function OrderLookup() {
               Clear
             </button>
           </div>
-          <p role="status">
+          <output className="status-line">
             {shown.length.toLocaleString()} of {orders.length.toLocaleString()}{' '}
             purchases, costing {money(fromCents(cost))}
-          </p>
+          </output>
           {shown.length === 0 ? (
             <p className="muted">
               {orders.length === 0

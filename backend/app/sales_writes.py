@@ -31,7 +31,7 @@ recording a single sale did not.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -49,6 +49,7 @@ from .models import (
     SalesOrder,
     SalesOrderFee,
     SalesOrderStatus,
+    SalesVenue,
     User,
 )
 from .references import require_code
@@ -331,6 +332,55 @@ def record_sale(
     )
 
 
+def _listings_on_offer(
+    locked: Mapping[int, Listing], ordered: Sequence[SaleLine]
+) -> list[Listing]:
+    """Each line's listing, in line order; refuses the first that is not on offer.
+
+    `locked` is what `offering_writes.lock_for_sale` handed back, so the
+    status read here is the current row's and not whatever the caller loaded.
+
+    `.get` and an explicit refusal rather than a subscript: a bare
+    `KeyError` on an integer reads like a bug in this module. A listing
+    cannot actually vanish here -- `listing.sales_lot_id`
+    and `sales_order_item.listing_id` are both `RESTRICT` and nothing in
+    this codebase deletes a listing -- so this is the same 409-shaped
+    conflict as the status check rather than a case a caller is expected to
+    meet.
+    """
+    listings: list[Listing] = []
+    for line in ordered:
+        row = locked.get(line.listing_id)
+        if row is None:
+            raise SaleRefused(f"Listing {line.listing_id} no longer exists")
+        if row.status is not ListingStatus.active:
+            # Names the platform as well as the listing: the spec's *Errors*
+            # section asks for both, and an owner with the same item offered
+            # in two places needs to know which offer this was about.
+            raise SaleRefused(
+                f"Listing {row.id} on {row.sales_venue.name} is not on offer "
+                f"({row.status.value})"
+            )
+        listings.append(row)
+    return listings
+
+
+def _order_status_code(venue: SalesVenue, status_code: str | None) -> str:
+    """The status a sale's order starts at: the one given, or the venue kind's.
+
+    Refuses a venue kind `_STATUS_BY_VENUE_KIND` does not name rather than
+    defaulting it -- see that table for why.
+    """
+    if status_code is not None:
+        return status_code
+    try:
+        return _STATUS_BY_VENUE_KIND[venue.kind.code]
+    except KeyError:
+        raise SaleRefused(
+            f"No default order status for sales venue kind {venue.kind.code!r}"
+        ) from None
+
+
 def record_sale_lines(
     db: Session,
     lines: Sequence[SaleLine],
@@ -425,30 +475,9 @@ def record_sale_lines(
     # is only canonical across a whole acquisition, and two settlements
     # taking their lots one at a time in different orders is the deadlock
     # this door exists to prevent.
-    #
-    # `.get` and an explicit refusal rather than a subscript: a bare
-    # `KeyError` on an integer reads like a bug in this function. A listing
-    # cannot actually vanish here -- `listing.sales_lot_id`
-    # and `sales_order_item.listing_id` are both `RESTRICT` and nothing in
-    # this codebase deletes a listing -- so this is the same 409-shaped
-    # conflict as the status check below rather than a case a caller is
-    # expected to meet.
     locked = offering_writes.lock_for_sale(db, listing_ids=listing_ids)
     ordered = sorted(lines, key=lambda line: line.listing_id)
-    listings: list[Listing] = []
-    for line in ordered:
-        row = locked.listings.get(line.listing_id)
-        if row is None:
-            raise SaleRefused(f"Listing {line.listing_id} no longer exists")
-        if row.status is not ListingStatus.active:
-            # Names the platform as well as the listing: the spec's *Errors*
-            # section asks for both, and an owner with the same item offered
-            # in two places needs to know which offer this was about.
-            raise SaleRefused(
-                f"Listing {row.id} on {row.sales_venue.name} is not on offer "
-                f"({row.status.value})"
-            )
-        listings.append(row)
+    listings = _listings_on_offer(locked.listings, ordered)
 
     for line in ordered:
         _refuse_money(line.price, "Price")
@@ -479,15 +508,7 @@ def record_sale_lines(
     # below that writes -- rather than after `place_order` has already
     # flushed: an unmapped venue kind or an unknown `status_code` must both
     # fail before anything is written, not partway through.
-    if status_code is not None:
-        status = status_code
-    else:
-        try:
-            status = _STATUS_BY_VENUE_KIND[venue.kind.code]
-        except KeyError:
-            raise SaleRefused(
-                f"No default order status for sales venue kind {venue.kind.code!r}"
-            ) from None
+    status = _order_status_code(venue, status_code)
     require_code(db, SalesOrderStatus, status, "status")
 
     buyer = venue_buyer(db, venue, buyer_username)

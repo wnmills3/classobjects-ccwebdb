@@ -97,6 +97,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    ForeignKey,
     Integer,
     MetaData,
     Numeric,
@@ -208,46 +209,81 @@ def _convert(value: object, kind: TypeEngine[Any]) -> object:
     hold; the caller names the cell.
     """
     if _is_json(kind):
-        # A JSON null is a value, not SQL NULL: sent as JSON's null.
-        decoded = json.loads(str(value))
-        return JSON.NULL if decoded is None else decoded
+        return _as_json(value)
     if value == EMPTY_STRING:
         return ""
     if isinstance(kind, Boolean):
-        if isinstance(value, bool):
-            return value
-        word = str(value).strip().lower()
-        if word in {"true", "yes", "1"}:
-            return True
-        if word in {"false", "no", "0"}:
-            return False
-        raise ValueError("expected TRUE or FALSE")
+        return _as_boolean(value)
     if isinstance(kind, Numeric) and not isinstance(kind, Integer):
-        number = Decimal(str(value))
-        scale = kind.scale
-        return number if scale is None else number.quantize(Decimal(1).scaleb(-scale))
+        return _as_decimal(value, kind)
     if isinstance(kind, Integer):
-        number = Decimal(str(value))
-        if number != number.to_integral_value():
-            raise ValueError("expected a whole number")
-        return int(number)
+        return _as_whole_number(value)
     if isinstance(kind, DateTime):
-        moment = (
-            value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
-        )
-        if kind.timezone and moment.tzinfo is None:
-            # Typed in by hand with no zone: read as this machine's local time.
-            moment = moment.astimezone()
-        return moment
+        return _as_moment(value, kind)
     if isinstance(kind, Date):
-        if isinstance(value, datetime):
-            return value.date()
-        if isinstance(value, date):
-            return value
-        return date.fromisoformat(str(value))
+        return _as_day(value)
     if isinstance(kind, Enum):
         return str(value)
     return value if isinstance(value, str) else str(value)
+
+
+def _as_json(value: object) -> object:
+    """A JSON cell's text decoded; JSON's own null as `JSON.NULL`.
+
+    A JSON null is a value, not SQL NULL: sent as JSON's null.
+    """
+    decoded = json.loads(str(value))
+    return JSON.NULL if decoded is None else decoded
+
+
+def _as_boolean(value: object) -> bool:
+    """A cell read as true or false: a boolean cell, or one of the words for it."""
+    if isinstance(value, bool):
+        return value
+    word = str(value).strip().lower()
+    if word in {"true", "yes", "1"}:
+        return True
+    if word in {"false", "no", "0"}:
+        return False
+    raise ValueError("expected TRUE or FALSE")
+
+
+def _as_decimal(value: object, kind: Numeric[Any]) -> Decimal:
+    """A cell as a decimal, rounded to the column's scale where it has one."""
+    number = Decimal(str(value))
+    scale = kind.scale
+    return number if scale is None else number.quantize(Decimal(1).scaleb(-scale))
+
+
+def _as_whole_number(value: object) -> int:
+    """A cell as an integer; one with a fraction is refused, not rounded."""
+    number = Decimal(str(value))
+    if number != number.to_integral_value():
+        raise ValueError("expected a whole number")
+    return int(number)
+
+
+def _as_moment(value: object, kind: DateTime) -> datetime:
+    """A cell as a timestamp: a date-time cell, or ISO text.
+
+    For a zone-aware column, one typed in by hand with no zone is read as
+    this machine's local time.
+    """
+    moment = (
+        value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    )
+    if kind.timezone and moment.tzinfo is None:
+        moment = moment.astimezone()
+    return moment
+
+
+def _as_day(value: object) -> date:
+    """A cell as a date: a date or date-time cell, or ISO text."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))
 
 
 # -- the schema -----------------------------------------------------------------
@@ -327,22 +363,28 @@ def capture_widths(workbook: Path) -> Widths:
     book = load_workbook(workbook)
     out: Widths = {}
     for sheet in book.worksheets:
-        names = {
-            cell.column: str(cell.value)
-            for cell in next(sheet.iter_rows(min_row=1, max_row=1), ())
-            if cell.value is not None
-        }
-        found: dict[str, float] = {}
-        for dimension in sheet.column_dimensions.values():
-            if not dimension.customWidth or not dimension.width:
-                continue
-            for index in range(dimension.min or 0, (dimension.max or 0) + 1):
-                if index in names:
-                    found[names[index]] = round(float(dimension.width), 2)
+        found = _widths_set(sheet)
         if found:
             out[sheet.title] = dict(sorted(found.items()))
     book.close()
     return out
+
+
+def _widths_set(sheet: Worksheet) -> dict[str, float]:
+    """One sheet's hand-set widths, by the heading of each column they cover."""
+    names = {
+        cell.column: str(cell.value)
+        for cell in next(sheet.iter_rows(min_row=1, max_row=1), ())
+        if cell.value is not None
+    }
+    found: dict[str, float] = {}
+    for dimension in sheet.column_dimensions.values():
+        if not dimension.customWidth or not dimension.width:
+            continue
+        for index in range(dimension.min or 0, (dimension.max or 0) + 1):
+            if index in names:
+                found[names[index]] = round(float(dimension.width), 2)
+    return found
 
 
 def remember_widths(workbook: Path, path: Path = WIDTHS_FILE) -> Widths:
@@ -789,85 +831,107 @@ def _check_links(parts: list[_Loaded], unknown_for_missing: bool) -> list[Substi
     """
     by_name = {part.table.name: part for part in parts}
     present: dict[tuple[str, str], set[object]] = {}
-
-    def values(table: str, column: str) -> set[object]:
-        """Every value the workbook holds in one column, gathered once."""
-        if (table, column) not in present:
-            present[table, column] = {r.get(column) for r in by_name[table].rows}
-        return present[table, column]
-
     broken: list[str] = []
     substituted: list[Substitution] = []
     for part in parts:
         for fk in sorted(part.table.foreign_keys, key=lambda f: f.parent.name):
-            constraint = fk.constraint
-            if (
-                constraint is None
-                or len(constraint.elements) != 1
-                or fk.column.table.name not in by_name
-            ):
+            if not _is_checked_here(fk, by_name):
                 continue
-            target, column = fk.column.table, fk.column.name
-            for row in part.rows:
-                value = row.get(fk.parent.name)
-                if value is None or value in values(target.name, column):
-                    continue
-                if unknown_for_missing and _is_vocabulary(target):
-                    unknown = _unknown_row(by_name[target.name], column)
-                    values(target.name, column).add(unknown)
-                    row[fk.parent.name] = unknown
-                    substituted.append(
-                        Substitution(
-                            part.table.name,
-                            _key(part, row),
-                            fk.parent.name,
-                            value,
-                            target.name,
-                            unknown,
-                        )
-                    )
-                else:
-                    broken.append(
-                        f"{part.table.name} {_key(part, row)}: {fk.parent.name} "
-                        f"{value!r} is no {target.name}.{column}"
-                    )
-    if broken:
-        shown = "; ".join(broken[:_SHOWN])
-        more = f" (and {len(broken) - _SHOWN} more)" if len(broken) > _SHOWN else ""
-        hint = (
-            ""
-            if unknown_for_missing
-            else (
-                " -- with --unknown-for-missing, a link into a vocabulary "
-                "points at its Unknown row instead"
+            _check_link(
+                part, fk, by_name, present, unknown_for_missing, broken, substituted
             )
-        )
-        raise WorkbookError(
-            f"{len(broken)} link(s) point at nothing: {shown}{more}{hint}"
-        )
+    if broken:
+        raise _links_refused(broken, unknown_for_missing)
     return substituted
+
+
+def _held(
+    present: dict[tuple[str, str], set[object]],
+    by_name: dict[str, _Loaded],
+    table: str,
+    column: str,
+) -> set[object]:
+    """Every value the workbook holds in one column, gathered once into `present`."""
+    if (table, column) not in present:
+        present[table, column] = {r.get(column) for r in by_name[table].rows}
+    return present[table, column]
+
+
+def _is_checked_here(fk: ForeignKey, by_name: dict[str, _Loaded]) -> bool:
+    """Whether a link is one column into a table the workbook holds.
+
+    A link of several columns is left to the database.
+    """
+    constraint = fk.constraint
+    return not (
+        constraint is None
+        or len(constraint.elements) != 1
+        or fk.column.table.name not in by_name
+    )
+
+
+def _check_link(
+    part: _Loaded,
+    fk: ForeignKey,
+    by_name: dict[str, _Loaded],
+    present: dict[tuple[str, str], set[object]],
+    unknown_for_missing: bool,
+    broken: list[str],
+    substituted: list[Substitution],
+) -> None:
+    """Check one link of one table, row by row, in the sheet's order.
+
+    A row whose link finds no row is pointed at its vocabulary's Unknown row
+    and added to `substituted` when that was asked for and the target is a
+    vocabulary; otherwise it is added to `broken`.
+    """
+    target, column = fk.column.table, fk.column.name
+    for row in part.rows:
+        value = row.get(fk.parent.name)
+        if value is None or value in _held(present, by_name, target.name, column):
+            continue
+        if unknown_for_missing and _is_vocabulary(target):
+            unknown = _unknown_row(by_name[target.name], column)
+            _held(present, by_name, target.name, column).add(unknown)
+            row[fk.parent.name] = unknown
+            substituted.append(
+                Substitution(
+                    part.table.name,
+                    _key(part, row),
+                    fk.parent.name,
+                    value,
+                    target.name,
+                    unknown,
+                )
+            )
+        else:
+            broken.append(
+                f"{part.table.name} {_key(part, row)}: {fk.parent.name} "
+                f"{value!r} is no {target.name}.{column}"
+            )
+
+
+def _links_refused(broken: list[str], unknown_for_missing: bool) -> WorkbookError:
+    """The refusal naming the broken links: the first `_SHOWN`, and how many more."""
+    shown = "; ".join(broken[:_SHOWN])
+    more = f" (and {len(broken) - _SHOWN} more)" if len(broken) > _SHOWN else ""
+    hint = (
+        ""
+        if unknown_for_missing
+        else (
+            " -- with --unknown-for-missing, a link into a vocabulary "
+            "points at its Unknown row instead"
+        )
+    )
+    return WorkbookError(f"{len(broken)} link(s) point at nothing: {shown}{more}{hint}")
 
 
 def _load(engine: Engine, book: Workbook, *, unknown_for_missing: bool) -> Imported:
     """Replace every table's rows with the workbook's, in one transaction."""
     about = _about(book)
     tables = _tables(reflect(engine))
-    # Every sheet is the workbook's own description or a table's rows. Rows
-    # under a name the database has no table for would be left out without
-    # a word, and the load would still say it had loaded the workbook.
-    known = {ABOUT, COLUMNS, *(t.name for t in tables)}
-    stray = [name for name in book.sheetnames if name not in known]
-    if stray:
-        raise WorkbookError(
-            f"no table in the database for the sheet(s) {', '.join(stray)}: their "
-            "rows would not be loaded -- remove a sheet that is not a table's, or "
-            "bring the database to the workbook's migration revision"
-        )
-    for table in tables:
-        for column in table.columns:
-            if _is_json(column.type):
-                # None is SQL NULL here; JSON's null comes as JSON.NULL.
-                column.type = JSONB(none_as_null=True)
+    _refuse_stray_sheets(book, tables)
+    _write_none_as_sql_null(tables)
     counts: dict[str, int] = {}
     with engine.begin() as conn:
         _refuse_occupied(conn, tables)
@@ -890,21 +954,57 @@ def _load(engine: Engine, book: Workbook, *, unknown_for_missing: bool) -> Impor
             loaded.append(_read_sheet(book, table, remaining))
         substituted = _check_links(loaded, unknown_for_missing)
         for part in loaded:
-            # One insert per set of columns: a sheet's rows all share one, an
-            # added Unknown row names fewer.
-            shapes: dict[tuple[str, ...], list[dict[str, object]]] = {}
-            for r in part.rows:
-                first = {k: (None if k in part.deferred else v) for k, v in r.items()}
-                shapes.setdefault(tuple(first), []).append(first)
-            for rows in shapes.values():
-                for start in range(0, len(rows), CHUNK):
-                    _insert(conn, part.table, rows[start : start + CHUNK])
+            _first_pass(conn, part)
             counts[part.table.name] = len(part.rows)
         for part in loaded:
             _second_pass(conn, part)
         for table in tables:
             resync_sequence(conn, conn.dialect, table)
     return Imported(counts, substituted)
+
+
+def _refuse_stray_sheets(book: Workbook, tables: list[Table]) -> None:
+    """Refuse a workbook holding a sheet the database has no table for.
+
+    Every sheet is the workbook's own description or a table's rows. Rows
+    under a name the database has no table for would be left out without a
+    word, and the load would still say it had loaded the workbook.
+    """
+    known = {ABOUT, COLUMNS, *(t.name for t in tables)}
+    stray = [name for name in book.sheetnames if name not in known]
+    if stray:
+        raise WorkbookError(
+            f"no table in the database for the sheet(s) {', '.join(stray)}: their "
+            "rows would not be loaded -- remove a sheet that is not a table's, or "
+            "bring the database to the workbook's migration revision"
+        )
+
+
+def _write_none_as_sql_null(tables: list[Table]) -> None:
+    """Have every JSON column write Python's None as SQL NULL.
+
+    JSON's own null comes from a cell as `JSON.NULL` (`_as_json`), so the
+    two stay apart on the way in.
+    """
+    for table in tables:
+        for column in table.columns:
+            if _is_json(column.type):
+                column.type = JSONB(none_as_null=True)
+
+
+def _first_pass(conn: Connection, part: _Loaded) -> None:
+    """Insert one table's rows, the links `_second_pass` fills left empty.
+
+    One insert per set of columns: a sheet's rows all share one, an added
+    Unknown row names fewer.
+    """
+    shapes: dict[tuple[str, ...], list[dict[str, object]]] = {}
+    for r in part.rows:
+        first = {k: (None if k in part.deferred else v) for k, v in r.items()}
+        shapes.setdefault(tuple(first), []).append(first)
+    for rows in shapes.values():
+        for start in range(0, len(rows), CHUNK):
+            _insert(conn, part.table, rows[start : start + CHUNK])
 
 
 def _insert(conn: Connection, table: Table, rows: list[dict[str, object]]) -> None:
@@ -1055,54 +1155,71 @@ def main(argv: Sequence[str] | None = None) -> int:
     live = create_engine(settings.database_url)
     try:
         if args.command == "widths":
-            stored = remember_widths(args.file)
-            columns = sum(len(v) for v in stored.values())
-            print(
-                f"remembered {columns} column widths on {len(stored)} sheets "
-                f"in {WIDTHS_FILE}"
-            )
-            return 0
+            return _run_widths(args)
         if args.command == "export":
-            path = args.out or default_path()
-            counts = export_workbook(live, path)
-            _print_counts(counts)
-            print(f"wrote {path}")
-            if not args.no_media:
-                # The workbook holds every image row and no picture: the bytes
-                # are in media storage, so they are copied beside it.
-                folder = args.media or path.parent / "media"
-                with Session(live) as db:
-                    done = media_backup.copy_media(db, get_storage(), folder)
-                media_backup.report(done, folder)
-                if done.problems:
-                    return 1
-        elif args.command == "import":
-            imported = import_workbook(
-                args.file, args.to, unknown_for_missing=args.unknown_for_missing
-            )
-            _print_counts(imported.counts)
-            for s in imported.substituted:
-                print(
-                    f"  UNKNOWN {s.table} {s.row}: {s.column} {s.missing!r} -> "
-                    f"{s.vocabulary} Unknown ({s.unknown})"
-                )
-            if imported.substituted:
-                print(f"  {len(imported.substituted)} link(s) set to Unknown")
-            print(f"loaded {args.file} into {make_url(args.to).database}")
-        else:
-            differences = compare(live, create_engine(args.url))
-            for line in _lines(differences):
-                print(line)
-            print(
-                "identical"
-                if not differences
-                else f"{len(differences)} table(s) differ"
-            )
-            return 1 if differences else 0
+            return _run_export(live, args)
+        if args.command == "import":
+            return _run_import(args)
+        return _run_compare(live, args)
     except WorkbookError as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
+
+
+def _run_widths(args: argparse.Namespace) -> int:
+    """`widths FILE`: remember the workbook's column widths; the exit status."""
+    stored = remember_widths(args.file)
+    columns = sum(len(v) for v in stored.values())
+    print(
+        f"remembered {columns} column widths on {len(stored)} sheets in {WIDTHS_FILE}"
+    )
     return 0
+
+
+def _run_export(live: Engine, args: argparse.Namespace) -> int:
+    """`export`: write the workbook and copy the photographs; the exit status.
+
+    The workbook holds every image row and no picture: the bytes are in
+    media storage, so they are copied beside it unless `--no-media`. Exits 1
+    when a photograph could not be backed up.
+    """
+    path = args.out or default_path()
+    counts = export_workbook(live, path)
+    _print_counts(counts)
+    print(f"wrote {path}")
+    if args.no_media:
+        return 0
+    folder = args.media or path.parent / "media"
+    with Session(live) as db:
+        done = media_backup.copy_media(db, get_storage(), folder)
+    media_backup.report(done, folder)
+    return 1 if done.problems else 0
+
+
+def _run_import(args: argparse.Namespace) -> int:
+    """`import FILE --to URL`: load the workbook and say what was loaded."""
+    imported = import_workbook(
+        args.file, args.to, unknown_for_missing=args.unknown_for_missing
+    )
+    _print_counts(imported.counts)
+    for s in imported.substituted:
+        print(
+            f"  UNKNOWN {s.table} {s.row}: {s.column} {s.missing!r} -> "
+            f"{s.vocabulary} Unknown ({s.unknown})"
+        )
+    if imported.substituted:
+        print(f"  {len(imported.substituted)} link(s) set to Unknown")
+    print(f"loaded {args.file} into {make_url(args.to).database}")
+    return 0
+
+
+def _run_compare(live: Engine, args: argparse.Namespace) -> int:
+    """`compare URL`: print each table that differs; exit 1 when any does."""
+    differences = compare(live, create_engine(args.url))
+    for line in _lines(differences):
+        print(line)
+    print("identical" if not differences else f"{len(differences)} table(s) differ")
+    return 1 if differences else 0
 
 
 if __name__ == "__main__":

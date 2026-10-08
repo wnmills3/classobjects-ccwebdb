@@ -457,12 +457,40 @@ def _seed_series_year_ranges(
         session.execute(select(Denomination.code, Denomination.id)).tuples().all()
     )
 
-    wanted: dict[int, dict[tuple[int | None, int], tuple[int | None, str | None]]] = {}
+    wanted = _wanted_year_ranges(
+        rows, {code: design[0] for code, design in designs.items()}, denominations
+    )
+
+    for series_id, source in designs.values():
+        if series_id not in wanted:
+            continue
+        if source == ProvenanceSource.manual:
+            counter["skipped_manual"] += 1
+            continue
+        _match_year_ranges(session, series_id, wanted[series_id], counter)
+
+    session.flush()
+    return counter
+
+
+#: A year range's identity within its design: denomination and first year.
+_RangeKey = tuple[int | None, int]
+#: What a range holds beside its identity: last year, and letters.
+_RangeFacts = tuple[int | None, str | None]
+
+
+def _wanted_year_ranges(
+    rows: list[dict[str, Any]],
+    series_ids: dict[str, int],
+    denominations: dict[str, int],
+) -> dict[int, dict[_RangeKey, _RangeFacts]]:
+    """The file's year ranges by design id, or a `SeedError` for a bad row."""
+    wanted: dict[int, dict[_RangeKey, _RangeFacts]] = {}
     for position, row in enumerate(rows, start=1):
         where = f"series_year_range[{position}]"
         _refuse_unknown_keys(row, _SERIES_YEAR_RANGE_KEYS, where)
         code = row.get("series")
-        if code not in designs:
+        if code not in series_ids:
             raise SeedError(f"{where}: unknown series {code!r}")
         start = row.get("year_start")
         if not isinstance(start, int):
@@ -471,49 +499,48 @@ def _seed_series_year_ranges(
         if denomination is not None and denomination not in denominations:
             raise SeedError(f"{where}: unknown denomination {denomination!r}")
         key = (denominations[denomination] if denomination else None, start)
-        ranges = wanted.setdefault(designs[code][0], {})
+        ranges = wanted.setdefault(series_ids[code], {})
         if key in ranges:
             raise SeedError(f"{where}: {code} lists that range twice")
         ranges[key] = (row.get("year_end"), row.get("letters"))
+    return wanted
 
-    for series_id, source in designs.values():
-        if series_id not in wanted:
-            continue
-        if source == ProvenanceSource.manual:
-            counter["skipped_manual"] += 1
-            continue
-        want = wanted[series_id]
-        have = {
-            (r.denomination_id, r.year_start): r
-            for r in session.execute(
-                select(SeriesYearRange).where(SeriesYearRange.series_id == series_id)
-            ).scalars()
-        }
-        for key, stale in have.items():
-            if key not in want:
-                session.delete(stale)
-                counter["removed"] += 1
-        for (denomination_id, start), (end, letters) in want.items():
-            record = have.get((denomination_id, start))
-            if record is None:
-                session.add(
-                    SeriesYearRange(
-                        series_id=series_id,
-                        denomination_id=denomination_id,
-                        year_start=start,
-                        year_end=end,
-                        letters=letters,
-                    )
+
+def _match_year_ranges(
+    session: Session,
+    series_id: int,
+    want: dict[_RangeKey, _RangeFacts],
+    counter: Counter,
+) -> None:
+    """Make one design's ranges the file's: remove, add and correct, counting each."""
+    have = {
+        (r.denomination_id, r.year_start): r
+        for r in session.execute(
+            select(SeriesYearRange).where(SeriesYearRange.series_id == series_id)
+        ).scalars()
+    }
+    for key, stale in have.items():
+        if key not in want:
+            session.delete(stale)
+            counter["removed"] += 1
+    for (denomination_id, start), (end, letters) in want.items():
+        record = have.get((denomination_id, start))
+        if record is None:
+            session.add(
+                SeriesYearRange(
+                    series_id=series_id,
+                    denomination_id=denomination_id,
+                    year_start=start,
+                    year_end=end,
+                    letters=letters,
                 )
-                counter["created"] += 1
-            elif (record.year_end, record.letters) != (end, letters):
-                record.year_end, record.letters = end, letters
-                counter["updated"] += 1
-            else:
-                counter["unchanged"] += 1
-
-    session.flush()
-    return counter
+            )
+            counter["created"] += 1
+        elif (record.year_end, record.letters) != (end, letters):
+            record.year_end, record.letters = end, letters
+            counter["updated"] += 1
+        else:
+            counter["unchanged"] += 1
 
 
 def _codes(
@@ -615,14 +642,32 @@ def _seed_note_issues(
         "signatures": _codes(session, SignatureCombination, code_index),
     }
 
-    def resolve(where: str, kind: str, code: object) -> int:
-        """The id a code names in the `kind` vocabulary, or a `SeedError`."""
-        found = lookups[kind].get(str(code))
-        if found is None:
-            raise SeedError(f"{where}: unknown {kind} {code!r}")
-        return found
+    wanted = _wanted_note_issues(rows, lookups)
+    _match_note_issues(session, wanted, counter)
 
-    wanted: dict[_IssueKey, tuple[int | None, str | None, str | None]] = {}
+    session.flush()
+    return counter
+
+
+#: What a note_issue row holds beside its identity: signatures, variant, prefix.
+_IssueFacts = tuple[int | None, str | None, str | None]
+
+
+def _issue_code_id(
+    lookups: dict[str, dict[str, int]], where: str, kind: str, code: object
+) -> int:
+    """The id a code names in the `kind` vocabulary, or a `SeedError`."""
+    found = lookups[kind].get(str(code))
+    if found is None:
+        raise SeedError(f"{where}: unknown {kind} {code!r}")
+    return found
+
+
+def _wanted_note_issues(
+    rows: list[dict[str, Any]], lookups: dict[str, dict[str, int]]
+) -> dict[_IssueKey, _IssueFacts]:
+    """The file's note issues by identity, or a `SeedError` for a bad row."""
+    wanted: dict[_IssueKey, _IssueFacts] = {}
     for position, row in enumerate(rows, start=1):
         where = f"note_issue[{position}]"
         _refuse_unknown_keys(row, _NOTE_ISSUE_KEYS, where)
@@ -633,21 +678,29 @@ def _seed_note_issues(
         if letter is not None and (len(letter) != 1 or not letter.isupper()):
             raise SeedError(f"{where}: series_letter must be one capital letter")
         key: _IssueKey = (
-            resolve(where, "denomination", row.get("denomination")),
+            _issue_code_id(lookups, where, "denomination", row.get("denomination")),
             year,
             letter,
-            resolve(where, "note_type", row.get("note_type")),
-            resolve(where, "seal_color", row.get("seal_color")),
+            _issue_code_id(lookups, where, "note_type", row.get("note_type")),
+            _issue_code_id(lookups, where, "seal_color", row.get("seal_color")),
         )
         if key in wanted:
             raise SeedError(f"{where}: that issue is listed twice")
         signatures = row.get("signatures")
         wanted[key] = (
-            None if signatures is None else resolve(where, "signatures", signatures),
+            None
+            if signatures is None
+            else _issue_code_id(lookups, where, "signatures", signatures),
             row.get("variant") or None,
             row.get("serial_prefix") or None,
         )
+    return wanted
 
+
+def _match_note_issues(
+    session: Session, wanted: dict[_IssueKey, _IssueFacts], counter: Counter
+) -> None:
+    """Make the table's rows the file's: remove, add and correct, counting each."""
     have = {
         (
             r.denomination_id,
@@ -690,9 +743,6 @@ def _seed_note_issues(
             counter["updated"] += 1
         else:
             counter["unchanged"] += 1
-
-    session.flush()
-    return counter
 
 
 def _differs(current: object, incoming: object) -> bool:

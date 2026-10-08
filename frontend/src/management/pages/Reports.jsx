@@ -162,7 +162,7 @@ function Catalog({ entries, current }) {
   return (
     <nav className="report-catalog" aria-label="Reports" data-help="report_catalog">
       {groups.map((group, index) => (
-        <div key={group.name} role="group" aria-labelledby={`report-group-${index}`}>
+        <fieldset key={group.name} aria-labelledby={`report-group-${index}`}>
           <h2 id={`report-group-${index}`}>{group.name}</h2>
           <ul>
             {group.entries.map((entry) => (
@@ -176,7 +176,7 @@ function Catalog({ entries, current }) {
               </li>
             ))}
           </ul>
-        </div>
+        </fieldset>
       ))}
     </nav>
   )

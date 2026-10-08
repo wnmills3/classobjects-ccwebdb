@@ -432,17 +432,7 @@ def note_outcome(
         _retract(out, current, derived, NOTE_FILLED)
         return out
 
-    # Several classes, and the rating names exactly one of them: that one.
-    classes = {issue.note_type_id for issue in matches}
-    if len(classes) > 1 and note.rating:
-        named = {
-            type_id
-            for type_id, pattern in facts.class_names
-            if type_id in classes and pattern.search(note.rating)
-        }
-        if len(named) == 1:
-            matches = [issue for issue in matches if issue.note_type_id in named]
-
+    matches = _named_by_rating(facts, matches, note.rating)
     options = {
         column: {getattr(issue, column) for issue in matches} for column in NOTE_COLUMNS
     }
@@ -455,13 +445,7 @@ def note_outcome(
     )
     if note_type is None:
         _retract(out, current, derived, ("fed_district_id",))
-        if "note_type_id" in held:
-            # Empty by a person's choice: there is nothing for one to decide.
-            out.count = "note: class left empty"
-            return out
-        out.count = "note: class undecided (seal would decide)"
-        labels = sorted(facts.note_type_labels[t] for t in options["note_type_id"])
-        out.cases.append(("ambiguous", f"{series}: {' / '.join(labels)}"))
+        _class_left_open(out, facts, series, options["note_type_id"], held)
         return out
     out.count = "note: class known"
 
@@ -474,20 +458,90 @@ def note_outcome(
     if not bank:
         _retract(out, current, derived, ("fed_district_id",))
         return out
+    _prefix_case(out, note.serial_number, series, series_letter, matches)
+    _bank_outcome(out, facts, note, bank, derived, held)
+    return out
+
+
+def _named_by_rating(
+    facts: Facts, matches: list[Issue], rating: str | None
+) -> list[Issue]:
+    """The issues left once the rating has had its say.
+
+    Several classes, and the rating names exactly one of them: that one's
+    issues. Otherwise `matches` as given.
+    """
+    classes = {issue.note_type_id for issue in matches}
+    if len(classes) <= 1 or not rating:
+        return matches
+    named = {
+        type_id
+        for type_id, pattern in facts.class_names
+        if type_id in classes and pattern.search(rating)
+    }
+    if len(named) != 1:
+        return matches
+    return [issue for issue in matches if issue.note_type_id in named]
+
+
+def _class_left_open(
+    out: Outcome,
+    facts: Facts,
+    series: str,
+    classes: set[int],
+    held: frozenset[str],
+) -> None:
+    """Count, and report where a person must decide, a note left with no class.
+
+    `classes` are the note types its issues allow.
+    """
+    if "note_type_id" in held:
+        # Empty by a person's choice: there is nothing for one to decide.
+        out.count = "note: class left empty"
+        return
+    out.count = "note: class undecided (seal would decide)"
+    labels = sorted(facts.note_type_labels[t] for t in classes)
+    out.cases.append(("ambiguous", f"{series}: {' / '.join(labels)}"))
+
+
+def _prefix_case(
+    out: Outcome,
+    serial_number: str | None,
+    series: str,
+    series_letter: str,
+    matches: list[Issue],
+) -> None:
+    """Report a serial whose series letter is not the one its issue starts with."""
     prefixes = {issue.serial_prefix for issue in matches} - {None}
     if series_letter and len(prefixes) == 1 and series_letter not in prefixes:
         out.cases.append(
             (
                 "serial prefix",
-                f"{note.serial_number} is not Series {series} "
+                f"{serial_number} is not Series {series} "
                 f"(which starts {next(iter(prefixes))})",
             )
         )
+
+
+def _bank_outcome(
+    out: Outcome,
+    facts: Facts,
+    note: NoteFacts,
+    bank: str,
+    derived: set[str],
+    held: frozenset[str],
+) -> None:
+    """Add to `out` the Reserve Bank the serial's letter `bank` names.
+
+    A letter that is no Bank's is reported and a derived district taken
+    back; a recorded district the serial contradicts is reported, not changed.
+    """
+    current = note.current
     district = facts.districts.get(bank) if bank in BANK_LETTERS else None
     if district is None:
         out.cases.append(("serial prefix", f"{note.serial_number}: no Bank {bank}"))
         _retract(out, current, derived, ("fed_district_id",))
-        return out
+        return
     recorded = current.get("fed_district_id")
     writes, _ = decide(
         {"fed_district_id": recorded},
@@ -498,7 +552,6 @@ def note_outcome(
     out.writes += [(c, v, SERIAL_DISTRICT) for c, v in writes.items()]
     if recorded not in (None, district) and "fed_district_id" not in derived:
         out.cases.append(("disagrees", f"district, serial says {bank}"))
-    return out
 
 
 def coin_outcome(
@@ -576,6 +629,22 @@ def fine_weight(gross: Decimal, fineness: Decimal) -> Decimal:
     return (gross * fineness).quantize(_SIX_PLACES)
 
 
+def _weight_now(
+    item: InventoryItem, out: Outcome, written: dict[str, object], column: str
+) -> Decimal | None:
+    """A weight column's value as `out` leaves it: written, retracted or the item's.
+
+    `written` is `out.writes` by column.
+    """
+    if column in written:
+        value = written[column]
+        return value if isinstance(value, Decimal) else None
+    if column in out.retracts:
+        return None
+    current: Decimal | None = getattr(item, column)
+    return current
+
+
 def weight_outcome(item: InventoryItem, out: Outcome, recorded: dict[str, str]) -> None:
     """Add to `out` the fine weight that gross weight and fineness decide.
 
@@ -588,20 +657,13 @@ def weight_outcome(item: InventoryItem, out: Outcome, recorded: dict[str, str]) 
     if "fine_weight_ozt" in written:
         return
 
-    def now(column: str) -> Decimal | None:
-        """The column's value as `out` leaves it: written, retracted or the item's."""
-        if column in written:
-            value = written[column]
-            return value if isinstance(value, Decimal) else None
-        return None if column in out.retracts else getattr(item, column)
-
     rule = recorded.get("fine_weight_ozt")
     if rule == HELD:
         return
     gross, fineness, current = (
-        now("gross_weight_ozt"),
-        now("fineness"),
-        now("fine_weight_ozt"),
+        _weight_now(item, out, written, "gross_weight_ozt"),
+        _weight_now(item, out, written, "fineness"),
+        _weight_now(item, out, written, "fine_weight_ozt"),
     )
     if gross is None or fineness is None:
         if rule == WEIGHT and current is not None:
@@ -668,21 +730,77 @@ def attribute_outcome(
             rule, note_type, note.face, note.series_year, note.series_letter
         )
         link = links.get((item_id, attribute_id))
-        active = link is not None and link.active
-        mine = active and link is not None and link.derived_by == attribute_rules.RULE
-        if verdict == attribute_rules.ALWAYS:
-            if link is None:
-                changes.append(LinkChange(item_id, attribute_id, add=True))
-                counts.append(f"attribute: {rule.attribute} added")
+        add = _link_change(verdict, link)
+        if add is not None:
+            changes.append(LinkChange(item_id, attribute_id, add=add))
+            counts.append(
+                f"attribute: {rule.attribute} {'added' if add else 'taken back'}"
+            )
             continue
-        if mine:
-            changes.append(LinkChange(item_id, attribute_id, add=False))
-            counts.append(f"attribute: {rule.attribute} taken back")
-        elif verdict == attribute_rules.EVIDENCE and not active:
-            cases.append(("needs evidence", f"{series}: {label}?"))
-        elif verdict == attribute_rules.NEVER and active:
-            cases.append(("disagrees", f"{series} is never {label}"))
+        case = _link_case(verdict, link, series, label)
+        if case is not None:
+            cases.append(case)
     return changes, cases, counts
+
+
+def _link_change(verdict: str | None, link: Link | None) -> bool | None:
+    """Whether a rule adds its link (True), takes it back (False) or neither.
+
+    Added where the facts always carry the attribute and the note has no
+    link for it at all, a removed one included. Taken back where they do not
+    always carry it and the link in force is the rule's own.
+    """
+    if verdict == attribute_rules.ALWAYS:
+        return True if link is None else None
+    if link is None or not link.active:
+        return None
+    return False if link.derived_by == attribute_rules.RULE else None
+
+
+def _link_case(
+    verdict: str | None, link: Link | None, series: str, label: str
+) -> tuple[str, str] | None:
+    """The case for a person where a rule changes nothing, or None.
+
+    A series that may or may not carry the attribute, on a note without it,
+    needs evidence; one that never does, on a note with it, disagrees.
+    """
+    active = link is not None and link.active
+    if verdict == attribute_rules.EVIDENCE and not active:
+        return "needs evidence", f"{series}: {label}?"
+    if verdict == attribute_rules.NEVER and active:
+        return "disagrees", f"{series} is never {label}"
+    return None
+
+
+def _add_attributes(
+    report: Report,
+    facts: Facts,
+    item: InventoryItem,
+    note: NoteFacts,
+    outcome: Outcome,
+    links: dict[tuple[int, int], Link],
+) -> None:
+    """Add to `report` what the attribute rules say of a note.
+
+    Judged by the class `outcome` leaves it with: the one just written, none
+    if it was taken back, else the one recorded.
+    """
+    written = {column: value for column, value, _ in outcome.writes}
+    note_type_id = written.get(
+        "note_type_id",
+        None if "note_type_id" in outcome.retracts else note.current["note_type_id"],
+    )
+    changes, cases, counts = attribute_outcome(
+        facts,
+        item.id,
+        note,
+        note_type_id if isinstance(note_type_id, int) else None,
+        links,
+    )
+    report.links += changes
+    report.counts.update(counts)
+    report.review += [Case(item.item_code, r, d) for r, d in cases]
 
 
 def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
@@ -705,21 +823,7 @@ def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
             note = _note_facts(item, detail, face)
             outcome = note_outcome(facts, note, mine, held)
             on_note = True
-            written = {column: value for column, value, _ in outcome.writes}
-            note_type_id = written.get(
-                "note_type_id",
-                None if "note_type_id" in outcome.retracts else detail.note_type_id,
-            )
-            changes, cases, counts = attribute_outcome(
-                facts,
-                item.id,
-                note,
-                note_type_id if isinstance(note_type_id, int) else None,
-                links,
-            )
-            report.links += changes
-            report.counts.update(counts)
-            report.review += [Case(item.item_code, r, d) for r, d in cases]
+            _add_attributes(report, facts, item, note, outcome, links)
         else:
             guessed = {f for f, rule in recorded.items() if rule in WEIGHT_RULES}
             outcome = coin_outcome(facts, item, mine, held, mine - guessed)
@@ -763,33 +867,44 @@ def apply(db: Session, report: Report, *, commit: bool = True) -> None:
     for change in report.changes:
         by_item.setdefault(change.item_id, []).append(change)
     for item_id, changes in by_item.items():
-        item = db.get(InventoryItem, item_id)
-        if item is None:
-            continue
-        for change in changes:
-            target = item.currency_detail if change.on_note else item
-            setattr(target, change.column, change.value)
-        forget(db, [item_id], [c.column for c in changes if c.rule == RETRACT])
-        for rule in {c.rule for c in changes} - {RETRACT}:
-            record_derived(
-                db, item_id, [c.column for c in changes if c.rule == rule], rule
-            )
+        _apply_changes(db, item_id, changes)
     for link in report.links:
-        if link.add:
-            db.add(
-                ItemAttributeLink(
-                    inventory_item_id=link.item_id,
-                    item_attribute_id=link.attribute_id,
-                    source=ProvenanceSource.derived,
-                    derived_by=attribute_rules.RULE,
-                )
-            )
-        else:
-            row = db.get(ItemAttributeLink, (link.item_id, link.attribute_id))
-            if row is not None:
-                db.delete(row)
+        _apply_link(db, link)
     if commit:
         db.commit()
+
+
+def _apply_changes(db: Session, item_id: int, changes: list[Change]) -> None:
+    """Write one item's changes and bring its field records in step with them.
+
+    An item that is gone is passed over.
+    """
+    item = db.get(InventoryItem, item_id)
+    if item is None:
+        return
+    for change in changes:
+        target = item.currency_detail if change.on_note else item
+        setattr(target, change.column, change.value)
+    forget(db, [item_id], [c.column for c in changes if c.rule == RETRACT])
+    for rule in {c.rule for c in changes} - {RETRACT}:
+        record_derived(db, item_id, [c.column for c in changes if c.rule == rule], rule)
+
+
+def _apply_link(db: Session, link: LinkChange) -> None:
+    """Add the attribute link a rule gives a note, or delete the one it takes back."""
+    if link.add:
+        db.add(
+            ItemAttributeLink(
+                inventory_item_id=link.item_id,
+                item_attribute_id=link.attribute_id,
+                source=ProvenanceSource.derived,
+                derived_by=attribute_rules.RULE,
+            )
+        )
+        return
+    row = db.get(ItemAttributeLink, (link.item_id, link.attribute_id))
+    if row is not None:
+        db.delete(row)
 
 
 def refresh_items(db: Session, item_ids: Collection[int]) -> None:

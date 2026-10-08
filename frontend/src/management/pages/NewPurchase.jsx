@@ -63,7 +63,9 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
 
   if (adding) {
     return (
-      <div className="add-reference" onKeyDown={onKeyDown}>
+      // A wrapper that only hears its boxes' Enter: it is nothing to a
+      // reader of the page, and says so.
+      <div className="add-reference" role="presentation" onKeyDown={onKeyDown}>
         {/* The address first: a vendor is named for its site, so the address
             proposes the name. Only a name the address gave follows it, or
             an empty one, which is nobody's choice; one typed by hand is

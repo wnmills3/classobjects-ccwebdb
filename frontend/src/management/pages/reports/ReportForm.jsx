@@ -62,9 +62,7 @@ export default function ReportForm({ report, values, error, busy, ranAt, onRun }
         </button>
         {/* The same rows often come back, so the time is what shows that
             pressing Run ran the report again. */}
-        <span className="muted" role="status">
-          {busy ? 'Running...' : ran}
-        </span>
+        <output className="muted">{busy ? 'Running...' : ran}</output>
       </div>
     </form>
   )

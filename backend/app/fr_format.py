@@ -20,40 +20,80 @@ __all__ = ["fr_problem", "fr_traits", "normalize_fr", "seal_shade"]
 
 #: `Fr.`, `Fr#`, `FR-`, `Fr. #` -- a label for the number, not part of it --
 #: taken off only where digits follow, so a word starting "fr" is left whole.
-_PREFIX = re.compile(r"^fr[\s.#-]*(?=[0-9])", re.IGNORECASE)
-#: Space around the hyphen: `9907 - L`.
-_SPACED_HYPHEN = re.compile(r"\s*-\s*")
+#: The digit is `0` to `9` only -- `(?a:...)` holds `\d` to ASCII without
+#: narrowing the space before it, which stays any script's.
+_PREFIX = re.compile(r"^fr[\s.#-]*(?=(?a:\d))", re.IGNORECASE)
 #: 1 to 4 digits, an optional letter (`1a`), a district `-A` to `-L`, `m` for
 #: a mule (`9907-Em`; without a district the optional letter already holds
 #: it), and `*` for a star note.
 #: Then, after a space, `LGS` or `DGS` for a light or dark green seal --
 #: `9908-B LGS`. The seal is a catalog fact of its own,
 #: so the two shades are already two types; the suffix keeps their numbers
-#: apart. Digits are `0` to `9` only, here and in `_PREFIX`: `\d` would take
-#: any script's, which the console's copy of the rule refuses.
-_FORM = re.compile(r"^(?P<digits>[0-9]+)[A-Za-z]?(?:-[A-L]m?)?\*?(?: (?:LGS|DGS))?$")
-#: A seal shade typed at the end, any case and spacing: taken off before the
-#: rest is cleaned, and put back as ` LGS` / ` DGS`.
-_SHADE = re.compile(r"\s+(?P<shade>lgs|dgs)$", re.IGNORECASE)
+#: apart. Digits are `0` to `9` only, here and in `_PREFIX`: without
+#: `re.ASCII`, `\d` would take any script's, which the console's copy of the
+#: rule refuses.
+_FORM = re.compile(
+    r"^(?P<digits>\d+)[A-Za-z]?(?:-[A-L]m?)?\*?(?: (?:LGS|DGS))?$", re.ASCII
+)
+#: The letters of a seal shade typed at the end, any case: with space before
+#: them they are taken off before the rest is cleaned, and put back as
+#: ` LGS` / ` DGS`.
+_SHADE_LETTERS = re.compile(r"lgs|dgs", re.IGNORECASE)
 #: A district with a mule's `m`, the star typed either side of it: kept as
 #: `Em*`, the `m` lower-case so capitalising the district cannot turn it into
 #: a second district letter.
 _MULE_DISTRICT = re.compile(r"(?P<district>[a-l])(?P<a>\*?)m(?P<b>\*?)", re.IGNORECASE)
 
 
+def _close_hyphens(text: str) -> str:
+    """`text` with the space on either side of each hyphen taken out.
+
+    `9907 - L` is `9907-L`: the space ending what comes before a hyphen and
+    the space starting what follows it are not part of the number. Text with
+    no hyphen is returned as it is.
+    """
+    parts = text.split("-")
+    last = len(parts) - 1
+    closed = []
+    for at, part in enumerate(parts):
+        if at > 0:
+            part = part.lstrip()
+        if at < last:
+            part = part.rstrip()
+        closed.append(part)
+    return "-".join(closed)
+
+
+def _shade_at_end(text: str) -> tuple[str, str] | None:
+    """What comes before a seal shade typed at the end of `text`, and its letters.
+
+    None when `text`, already trimmed, does not end with space and then LGS
+    or DGS: the letters alone, or run on to what is before them, are no
+    shade.
+    """
+    letters = text[-3:]
+    if _SHADE_LETTERS.fullmatch(letters) is None:
+        return None
+    before = text[:-3]
+    base = before.rstrip()
+    if len(base) == len(before):
+        return None
+    return base, letters
+
+
 def normalize_fr(raw: str) -> str:
     """The number as it is kept: trimmed, unprefixed, its district in capitals."""
     number = raw.strip()
-    shade = _SHADE.search(number)
-    suffix = f" {shade['shade'].upper()}" if shade else ""
-    if shade:
-        number = number[: shade.start()]
-    return _normalize_base(number) + suffix
+    shade = _shade_at_end(number)
+    if shade is None:
+        return _normalize_base(number)
+    base, letters = shade
+    return f"{_normalize_base(base)} {letters.upper()}"
 
 
 def _normalize_base(raw: str) -> str:
     """The number before any seal shade, cleaned."""
-    number = _SPACED_HYPHEN.sub("-", _PREFIX.sub("", raw.strip()))
+    number = _close_hyphens(_PREFIX.sub("", raw.strip()))
     head, hyphen, district = number.partition("-")
     if not hyphen:
         return number

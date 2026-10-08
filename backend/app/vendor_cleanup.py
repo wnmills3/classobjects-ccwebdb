@@ -104,6 +104,105 @@ def _clashing_numbers(db: Session, left: int, right: int) -> list[str]:
     return sorted(number for number in right_numbers if number is not None)
 
 
+def _merge(db: Session, source_id: int, target_id: int, report: Report) -> None:
+    """Move one vendor's purchase orders to another and remove it, or refuse."""
+    source, target = _vendor(db, source_id), _vendor(db, target_id)
+    if source_id == target_id:
+        raise CleanupError(f"Cannot merge {source.name} into itself")
+    # The source is deleted at the end of this merge, so it faces the
+    # same FK as a plain --delete does. Checked before anything moves.
+    _refuse_if_a_platform_sells_through(db, source)
+    clashes = _clashing_numbers(db, source_id, target_id)
+    if clashes:
+        raise CleanupError(
+            f"{source.name} and {target.name} both have order number(s) "
+            f"{', '.join(clashes)}; resolve those first"
+        )
+    moved = _order_count(db, source_id)
+    db.execute(
+        update(PurchaseOrder)
+        .where(PurchaseOrder.vendor_id == source_id)
+        .values(vendor_id=target_id)
+    )
+    report.merged.append((source.name, target.name, moved))
+    db.delete(source)
+
+
+def _delete(db: Session, vendor_id: int, report: Report) -> None:
+    """Remove a vendor nothing names, or refuse."""
+    vendor = _vendor(db, vendor_id)
+    if _order_count(db, vendor_id):
+        raise CleanupError(f"{vendor.name} still has purchase orders; merge it instead")
+    _refuse_if_a_platform_sells_through(db, vendor)
+    report.deleted.append(vendor.name)
+    db.delete(vendor)
+
+
+def _set_kind(db: Session, vendor_id: int, code: str, report: Report) -> None:
+    """Give a vendor the kind with this code, or refuse an unknown one."""
+    vendor = _vendor(db, vendor_id)
+    kind_id = db.scalar(select(VendorKind.id).where(VendorKind.code == code))
+    if kind_id is None:
+        raise CleanupError(f"Unknown vendor_kind {code!r}")
+    vendor.vendor_kind_id = kind_id
+    report.kinds.append((vendor.name, code))
+
+
+def _rename_vendor(
+    db: Session, vendor_id: int, typed_name: str, report: Report
+) -> None:
+    """Give a vendor a new name, its address following it, or refuse."""
+    vendor = _vendor(db, vendor_id)
+    new_name = typed_name.strip()
+    if not new_name:
+        raise CleanupError(
+            f"Cannot rename {vendor.name} to nothing: a vendor needs a name"
+        )
+    # `uq_vendor_name` is case-sensitive, but two vendors differing
+    # only in case are the same source to a person, so the check here
+    # is case-insensitive -- the same rule the vendors API applies.
+    taken = db.scalar(
+        select(Vendor).where(
+            func.lower(Vendor.name) == new_name.casefold(),
+            Vendor.id != vendor_id,
+        )
+    )
+    if taken is not None:
+        raise CleanupError(
+            f"Cannot rename {vendor.name} to {new_name}: "
+            f"{taken.name} already has that name"
+        )
+    old_name = vendor.name
+    report.renamed.append((old_name, new_name))
+    vendor.name = new_name
+    _follow_rename(vendor, old_name, new_name)
+
+
+def _follow_rename(vendor: Vendor, old_name: str, new_name: str) -> None:
+    """Correct a renamed vendor's host and link where they repeated its name.
+
+    A misspelt source misspells its web address too (`ampex.com` for
+    apmex.com), so a name fixed on its own would leave the vendor's `host`
+    naming a site that does not exist. The address follows the name only as
+    one host name for another: the old name must be the host, or the end of
+    it after a dot, and both names must be host names. A fragment replaced
+    wherever it occurs, or words put where a host belongs, would name no
+    site at all.
+    """
+    old_host = vendor.host
+    if not old_host:
+        return
+    if not (_HOST_NAME.match(old_name) and _HOST_NAME.match(new_name)):
+        return
+    old_key = old_name.lower()
+    if old_host != old_key and not old_host.endswith(f".{old_key}"):
+        return
+    new_host = old_host[: -len(old_key)] + new_name.lower()
+    vendor.host = new_host
+    if vendor.url:
+        vendor.url = vendor.url.replace(old_host, new_host, 1)
+
+
 def run(
     db: Session,
     merges: Sequence[tuple[int, int]],
@@ -127,85 +226,13 @@ def run(
     report = Report()
     try:
         for source_id, target_id in merges:
-            source, target = _vendor(db, source_id), _vendor(db, target_id)
-            if source_id == target_id:
-                raise CleanupError(f"Cannot merge {source.name} into itself")
-            # The source is deleted at the end of this merge, so it faces the
-            # same FK as a plain --delete does. Checked before anything moves.
-            _refuse_if_a_platform_sells_through(db, source)
-            clashes = _clashing_numbers(db, source_id, target_id)
-            if clashes:
-                raise CleanupError(
-                    f"{source.name} and {target.name} both have order number(s) "
-                    f"{', '.join(clashes)}; resolve those first"
-                )
-            moved = _order_count(db, source_id)
-            db.execute(
-                update(PurchaseOrder)
-                .where(PurchaseOrder.vendor_id == source_id)
-                .values(vendor_id=target_id)
-            )
-            report.merged.append((source.name, target.name, moved))
-            db.delete(source)
-
+            _merge(db, source_id, target_id, report)
         for vendor_id in deletes:
-            vendor = _vendor(db, vendor_id)
-            if _order_count(db, vendor_id):
-                raise CleanupError(
-                    f"{vendor.name} still has purchase orders; merge it instead"
-                )
-            _refuse_if_a_platform_sells_through(db, vendor)
-            report.deleted.append(vendor.name)
-            db.delete(vendor)
-
+            _delete(db, vendor_id, report)
         for vendor_id, code in kinds:
-            vendor = _vendor(db, vendor_id)
-            kind_id = db.scalar(select(VendorKind.id).where(VendorKind.code == code))
-            if kind_id is None:
-                raise CleanupError(f"Unknown vendor_kind {code!r}")
-            vendor.vendor_kind_id = kind_id
-            report.kinds.append((vendor.name, code))
-
+            _set_kind(db, vendor_id, code, report)
         for vendor_id, typed_name in renames:
-            vendor = _vendor(db, vendor_id)
-            new_name = typed_name.strip()
-            if not new_name:
-                raise CleanupError(
-                    f"Cannot rename {vendor.name} to nothing: a vendor needs a name"
-                )
-            # `uq_vendor_name` is case-sensitive, but two vendors differing
-            # only in case are the same source to a person, so the check here
-            # is case-insensitive -- the same rule the vendors API applies.
-            taken = db.scalar(
-                select(Vendor).where(
-                    func.lower(Vendor.name) == new_name.casefold(),
-                    Vendor.id != vendor_id,
-                )
-            )
-            if taken is not None:
-                raise CleanupError(
-                    f"Cannot rename {vendor.name} to {new_name}: "
-                    f"{taken.name} already has that name"
-                )
-            old_name = vendor.name
-            report.renamed.append((old_name, new_name))
-            vendor.name = new_name
-            # A misspelt source misspells its web address too (`ampex.com` for
-            # apmex.com), so a name fixed on its own would leave the vendor's
-            # `host` naming a site that does not exist. The address follows
-            # the name only as one host name for another: the old name must
-            # be the host, or the end of it after a dot, and both names must
-            # be host names. A fragment replaced wherever it occurs, or
-            # words put where a host belongs, would name no site at all.
-            old_host = vendor.host
-            if old_host and _HOST_NAME.match(old_name) and _HOST_NAME.match(new_name):
-                old_key = old_name.lower()
-                if old_host == old_key or old_host.endswith(f".{old_key}"):
-                    new_host = old_host[: -len(old_key)] + new_name.lower()
-                    vendor.host = new_host
-                    if vendor.url:
-                        vendor.url = vendor.url.replace(old_host, new_host, 1)
-
+            _rename_vendor(db, vendor_id, typed_name, report)
         db.flush()
     except Exception:
         # Every exception, not only CleanupError. A database constraint this

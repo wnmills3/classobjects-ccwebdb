@@ -737,6 +737,36 @@ def _grade_term(key: str, value: str) -> grades.GradeTerm:
     return term
 
 
+def _grade_term_parts(
+    term: grades.GradeTerm, bound: dict[str, Any], joins: list[tuple[str, ...]]
+) -> list[str]:
+    """The conditions one `grade` search term asks for, each to be ANDed.
+
+    Whichever of its parts the term states: a grade with no number by its
+    code, a range of grade rank, plus grades or plain ones, and the strike
+    prefix the item shows -- none at all, or a named one. Their values go
+    into `bound`, and the strike join into `joins` where the prefix is read.
+    """
+    parts: list[str] = []
+    if term.code is not None:
+        bound["p_grade_code"] = term.code
+        parts.append("g.code = :p_grade_code")
+    if term.low is not None:
+        bound["p_grade_low"] = term.low
+        bound["p_grade_high"] = term.high
+        parts.append("g.grade_rank BETWEEN :p_grade_low AND :p_grade_high")
+    if term.plus is not None:
+        parts.append("g.is_plus" if term.plus else "NOT g.is_plus")
+    if term.prefix is None:
+        joins.append((_J_STRIKE,))
+        parts.append("stk.prefix IS NULL")
+    elif term.prefix != grades.ANY_PREFIX:
+        joins.append((_J_STRIKE,))
+        bound["p_grade_prefix"] = term.prefix
+        parts.append("stk.prefix = :p_grade_prefix")
+    return parts
+
+
 def _grade_clause(
     params: dict[str, Any], bound: dict[str, Any], joins: list[tuple[str, ...]]
 ) -> str | None:
@@ -751,22 +781,7 @@ def _grade_clause(
     parts: list[str] = []
     if given["grade"]:
         term = _grade_term("grade", given["grade"])
-        if term.code is not None:
-            bound["p_grade_code"] = term.code
-            parts.append("g.code = :p_grade_code")
-        if term.low is not None:
-            bound["p_grade_low"] = term.low
-            bound["p_grade_high"] = term.high
-            parts.append("g.grade_rank BETWEEN :p_grade_low AND :p_grade_high")
-        if term.plus is not None:
-            parts.append("g.is_plus" if term.plus else "NOT g.is_plus")
-        if term.prefix is None:
-            joins.append((_J_STRIKE,))
-            parts.append("stk.prefix IS NULL")
-        elif term.prefix != grades.ANY_PREFIX:
-            joins.append((_J_STRIKE,))
-            bound["p_grade_prefix"] = term.prefix
-            parts.append("stk.prefix = :p_grade_prefix")
+        parts.extend(_grade_term_parts(term, bound, joins))
     if given["grade_min"]:
         low = _grade_term("grade_min", given["grade_min"]).low
         if low is not None:

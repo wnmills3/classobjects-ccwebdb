@@ -337,9 +337,7 @@ export function ReferenceSelect({
     return (
       <>
         {box}
-        <span className="error" role="status">
-          Could not load {table}.
-        </span>
+        <output className="error">Could not load {table}.</output>
       </>
     )
   }
@@ -411,11 +409,7 @@ export function ReferenceSelect({
         )}
         {allowAdd && <option value="__add__">+ Add a new value...</option>}
       </select>
-      {notice && (
-        <span className="muted" role="status">
-          {notice}
-        </span>
-      )}
+      {notice && <output className="muted">{notice}</output>}
     </div>
   )
 }

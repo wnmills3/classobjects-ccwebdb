@@ -404,11 +404,7 @@ export default function OfferDialog({
         >
           Fill blank prices
         </button>
-        {filled && (
-          <span className="notice" role="status">
-            {filled}
-          </span>
-        )}
+        {filled && <output className="notice">{filled}</output>}
       </div>
       <table>
         <thead>

@@ -159,6 +159,54 @@ function attachmentName(header) {
 }
 
 /**
+ * A request's body as `fetch` takes it, with the headers that describe it:
+ * `{ payload, headers }`. A form goes URL-encoded, anything else as JSON,
+ * and no body at all is no payload.
+ */
+function encodeBody(body, form) {
+  if (form) return { payload: new URLSearchParams(body), headers: {} }
+  // Multipart body (an image upload). Handed to `fetch` untouched: the
+  // browser sets `Content-Type` itself, boundary included, and setting it
+  // by hand here would produce a request the server cannot parse.
+  if (body instanceof FormData) return { payload: body, headers: {} }
+  if (body === undefined) return { payload: undefined, headers: {} }
+  return {
+    payload: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+  }
+}
+
+/**
+ * The tokens another request stored while this one, sent with `sentWith`,
+ * was out -- the ones to send it again with -- or null when the stored ones
+ * are still those it was refused with.
+ */
+function refreshedMeanwhile(sentWith) {
+  const stored = loadTokens()
+  const moved = stored?.access_token && stored.access_token !== sentWith?.access_token
+  return moved ? stored : null
+}
+
+/**
+ * Throw the `ApiError` for a refused response, whose body `parsed` is --
+ * `undefined` for one that is not JSON. `carriedSession` says the request
+ * was sent with the session, which a 401 then ends.
+ */
+function refuse(res, parsed, carriedSession) {
+  // Only a request that carried the session says anything about it. A
+  // refused sign-in is a 401 too, and must leave a session already held
+  // alone.
+  if (res.status === 401 && carriedSession) {
+    clearTokens()
+    for (const listener of signedOutListeners) listener()
+  }
+  if (parsed === undefined) {
+    throw new ApiError(res.status, res.statusText || `Request failed (${res.status})`)
+  }
+  throw new ApiError(res.status, readDetail(parsed), parsed)
+}
+
+/**
  * The one place a request is made, exported so `management/api.js` can build the
  * console's calls on the same token handling and error shape.
  *
@@ -171,20 +219,7 @@ export async function send(
   path,
   { method = 'GET', body, form, auth = true, binary = false } = {},
 ) {
-  const headers = {}
-  let payload
-
-  if (form) {
-    payload = new URLSearchParams(body)
-  } else if (body instanceof FormData) {
-    // Multipart body (an image upload). Handed to `fetch` untouched: the
-    // browser sets `Content-Type` itself, boundary included, and setting it
-    // by hand here would produce a request the server cannot parse.
-    payload = body
-  } else if (body !== undefined) {
-    headers['Content-Type'] = 'application/json'
-    payload = JSON.stringify(body)
-  }
+  const { payload, headers } = encodeBody(body, form)
 
   const withAuth = (tokens) => {
     const h = { ...headers }
@@ -204,11 +239,7 @@ export async function send(
   if (res.status === 401 && auth) {
     // Another request may already have refreshed while this one was out;
     // its tokens are then the ones to retry with.
-    const stored = loadTokens()
-    const fresh =
-      stored?.access_token && stored.access_token !== sentWith?.access_token
-        ? stored
-        : await refreshOnce()
+    const fresh = refreshedMeanwhile(sentWith) ?? (await refreshOnce())
     if (fresh) {
       res = await fetch(path, {
         method,
@@ -230,19 +261,7 @@ export async function send(
   // a failed request with a status, not a SyntaxError from the parser.
   const parsed = parseBody(await res.text())
 
-  if (!res.ok) {
-    // Only a request that carried the session says anything about it. A
-    // refused sign-in is a 401 too, and must leave a session already held
-    // alone.
-    if (res.status === 401 && auth) {
-      clearTokens()
-      for (const listener of signedOutListeners) listener()
-    }
-    if (parsed === undefined) {
-      throw new ApiError(res.status, res.statusText || `Request failed (${res.status})`)
-    }
-    throw new ApiError(res.status, readDetail(parsed), parsed)
-  }
+  if (!res.ok) refuse(res, parsed, auth)
   if (parsed === undefined) {
     throw new ApiError(res.status, 'The server sent a response that is not JSON')
   }
