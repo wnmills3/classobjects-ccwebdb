@@ -136,6 +136,51 @@ def test_the_three_logs_are_merged_newest_first(
     )
 
 
+def test_a_status_changed_in_the_editor_is_shown_once(
+    client: TestClient, admin_headers: dict[str, str], admin_user: User, db: Session
+) -> None:
+    """An edit's status move is in two logs, and is one thing that happened.
+
+    The status history holds it, and the field log holds it too so that a
+    conflict can say who changed the status. The list shows the move, not
+    both records of it; a field changed in the same save is still shown.
+    """
+    edited = build_bare_item(db, status_id=code_id(db, ItemStatus, "ordered"))
+    record_initial_status(db, edited, user_id=admin_user.id)
+    bulk = build_bare_item(db, status_id=code_id(db, ItemStatus, "ordered"))
+    record_initial_status(db, bulk, user_id=admin_user.id)
+    db.commit()
+
+    saved = client.patch(
+        f"/api/inventory/{edited.id}",
+        json={"status": "received", "description": "arrived"},
+        headers=admin_headers,
+    )
+    assert saved.status_code == 200, saved.text
+    moved = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [bulk.id], "changes": {"status": "received"}},
+        headers=admin_headers,
+    )
+    assert moved.status_code == 200, moved.text
+
+    for item in (edited, bulk):
+        events = _history(client, admin_headers, item.id)
+        about_status = [e for e in events if e["field"] == "status"]
+        # The move and the opening row, each from the status history.
+        assert [(e["kind"], e["old_value"], e["new_value"]) for e in about_status] == [
+            ("status", "Ordered", "Received"),
+            ("status", None, "Ordered"),
+        ]
+    described = [
+        e for e in _history(client, admin_headers, edited.id) if e["kind"] == "field"
+    ]
+    assert [e["field"] for e in described] == ["description"]
+    # The field log still holds it, for the editor's "who changed this".
+    last = client.get(f"/api/inventory/{edited.id}", headers=admin_headers).json()
+    assert "status" in last["last_changes"]
+
+
 def test_attributes_are_shown_by_label_and_a_vanished_code_as_logged(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

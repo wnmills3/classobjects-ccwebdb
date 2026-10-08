@@ -43,6 +43,11 @@ class Issue:
 #: whole clauses.
 _J_CUR_DETAIL = "LEFT JOIN currency_detail cud ON cud.inventory_item_id = i.id"
 
+#: The live-row rule (`app.live.live_item`) for the *other* item a check
+#: compares against, aliased `oi`: a row that was deleted, or a lot that was
+#: split into its pieces, is not something an item can duplicate.
+_LIVE_OTHER = "oi.deleted_at IS NULL AND oi.split_at IS NULL"
+
 
 SHARED_ISSUES: dict[str, Issue] = {
     # A piece marked as having no date at all is not missing one.
@@ -66,7 +71,7 @@ SHARED_ISSUES: dict[str, Issue] = {
         description="A coin or banknote with no denomination",
     ),
     "zero_cost": Issue(
-        "coalesce(i.item_cost, 0) = 0",
+        "i.item_cost = 0",
         description="No cost recorded, or zero",
     ),
     "mixed_marker": Issue(
@@ -108,11 +113,15 @@ COIN_ISSUES: dict[str, Issue] = {
         description="Bullion with no weight; its value cannot be computed",
     ),
     "repeated_identity": Issue(
+        # Counted over live rows only: a deleted row, or a lot split into
+        # its pieces, is not a second holder of the certificate, and
+        # deleting a duplicate has to clear the check.
         "EXISTS (SELECT 1 FROM item_certification c "
         "WHERE c.inventory_item_id = i.id AND c.cert_number IN ("
-        "SELECT cert_number FROM item_certification "
-        "WHERE coalesce(cert_number, '') <> '' "
-        "GROUP BY cert_number HAVING count(*) > 1))",
+        "SELECT oc.cert_number FROM item_certification oc "
+        f"JOIN inventory_item oi ON oi.id = oc.inventory_item_id AND {_LIVE_OTHER} "
+        "WHERE coalesce(oc.cert_number, '') <> '' "
+        "GROUP BY oc.cert_number HAVING count(*) > 1))",
         # Candidates only, never merged. Three different problems look alike
         # here -- the same item entered twice, one purchase recorded twice,
         # and a year parsed into the cert field -- and only the shape of the
@@ -161,19 +170,19 @@ CURRENCY_ISSUES: dict[str, Issue] = {
         ),
     ),
     "repeated_identity": Issue(
-        "cud.serial_number IN (SELECT serial_number FROM currency_detail "
-        "WHERE coalesce(serial_number, '') <> '' "
-        "GROUP BY serial_number HAVING count(*) > 1)",
+        # Over live rows only, as the coin check is.
+        "cud.serial_number IN (SELECT o.serial_number FROM currency_detail o "
+        f"JOIN inventory_item oi ON oi.id = o.inventory_item_id AND {_LIVE_OTHER} "
+        "WHERE coalesce(o.serial_number, '') <> '' "
+        "GROUP BY o.serial_number HAVING count(*) > 1)",
         join=(_J_CUR_DETAIL,),
-        # Four of the nine groups in this collection are legitimate: matched
-        # serials across issues are a deliberate pursuit. Candidates, not
-        # errors.
+        # Some groups are legitimate: matched serials across issues are a
+        # deliberate pursuit. Candidates, not errors.
         description="A serial that appears on more than one note",
     ),
     "near_duplicate_serial": Issue(
-        # Exact matching is not enough. Duplicates in this collection hide
-        # behind a dropped or duplicated character and are invisible to
-        # equality.
+        # Exact matching is not enough. A duplicate hides behind a dropped
+        # or duplicated character and is invisible to equality.
         #
         # Edit distance alone is not enough either: a consecutive run of
         # serials, bought and kept as a set, differs from its neighbour by
@@ -184,9 +193,8 @@ CURRENCY_ISSUES: dict[str, Issue] = {
         # Length is the signal that actually separates the two. A run like
         # ...160, ...161, ...162 keeps the same length; a dropped or
         # duplicated character changes it. Requiring the two cleaned serials
-        # to differ in length narrows this to 4 hits, both real
-        # mistranscriptions: a duplicated digit (D31997827A / D319997827A)
-        # and a dropped one (K62594467F / K6294467F).
+        # to differ in length narrows this to the mistranscriptions: a
+        # duplicated digit, or a dropped one.
         #
         # What this cannot find: a same-length substitution, `6` for `3` in
         # the middle of a serial, is indistinguishable from the next note in
@@ -195,12 +203,13 @@ CURRENCY_ISSUES: dict[str, Issue] = {
         #
         # Scoped to one purchase order, which is both where mistranscriptions
         # cluster and what keeps this affordable: the comparison is quadratic
-        # within a group and the largest order holds 85 items. Collection-wide
-        # it would be 1,015 x 1,015 and would find mostly noise, because two
-        # unrelated notes differing by one character are two unrelated notes.
+        # within a group, and an order is small. Collection-wide it would
+        # compare every note with every other and find mostly noise, because
+        # two unrelated notes differing by one character are two unrelated
+        # notes.
         "EXISTS (SELECT 1 FROM currency_detail o "
         "JOIN inventory_item oi ON oi.id = o.inventory_item_id "
-        "WHERE oi.id <> i.id "
+        f"WHERE oi.id <> i.id AND {_LIVE_OTHER} "
         "AND oi.purchase_order_id = i.purchase_order_id "
         "AND i.purchase_order_id IS NOT NULL "
         "AND coalesce(o.serial_number, '') <> '' "

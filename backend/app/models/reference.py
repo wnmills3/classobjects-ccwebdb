@@ -1,9 +1,11 @@
 """Reference (classifier) tables.
 
-Every table here follows `ReferenceMixin`: id, code, label, sort_order,
+Every classifier here follows `ReferenceMixin`: id, code, label, sort_order,
 is_active, source. A handful carry extra columns, and those are the interesting
 ones -- each extra column exists because some question could not be answered
-without it.
+without it. Five tables beside them are not classifiers and have shapes of
+their own: `series_alias`, `series_year_range`, `note_issue`,
+`reference_alias` and `reference_merge`.
 
 Foreign keys pointing at these tables are ``ON DELETE RESTRICT``: a classifier
 that is in use must not be able to vanish and orphan the rows that reference

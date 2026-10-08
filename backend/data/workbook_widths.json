@@ -172,12 +172,6 @@
     "new_value": 25.27,
     "old_value": 22.86
   },
-  "item_field_review": {
-    "field_name": 15.0,
-    "inventory_item_id": 15.8,
-    "reviewed_at": 31.13,
-    "reviewed_by_id": 13.6
-  },
   "item_kind": {
     "code": 10.6,
     "id": 4.4,

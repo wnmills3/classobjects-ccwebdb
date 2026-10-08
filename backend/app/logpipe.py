@@ -9,7 +9,8 @@ so each log type keeps a bounded number of files of bounded size
 
 ``backend.log`` is the current file; ``backend.1.log`` the one before it and
 ``backend.2.log`` the one before that. A new file is started on every launch
-and whenever the current one would pass the size limit.
+and whenever the current one would pass the size limit -- unless another
+program still has the current one open, when the lines are added to it.
 
 It can also only start a new file, for one a program writes itself:
 
@@ -92,16 +93,40 @@ class RollingWriter:
         self.keep = keep
         self.max_bytes = max_bytes
         path.parent.mkdir(parents=True, exist_ok=True)
-        rotate(path, keep)
-        self._file: BinaryIO = path.open("ab")
+        self._said_held = False
+        self._file: BinaryIO = self._start()
         self._size = 0
+
+    def _start(self) -> BinaryIO:
+        """Open the file to write: a new one, or the current one if it is held.
+
+        Windows refuses to rename or delete a file another program has open,
+        as a server from an earlier start still has its log. The program on
+        the other end of the pipe must keep its output all the same, so the
+        lines are added to the file as it stands, under one line saying so.
+        """
+        try:
+            rotate(self.path, self.keep)
+        except OSError as exc:
+            file = self.path.open("ab")
+            if not self._said_held:
+                self._said_held = True
+                file.write(
+                    f"[logpipe] no new file was started ({exc}); "
+                    "adding to this one\n".encode()
+                )
+                file.flush()
+            return file
+        return self.path.open("ab")
 
     def write(self, chunk: bytes) -> None:
         """Write one line (or chunk), rolling over first if it would not fit."""
         if self._size and self._size + len(chunk) > self.max_bytes:
             self._file.close()
-            rotate(self.path, self.keep)
-            self._file = self.path.open("ab")
+            # Counted from nothing either way: a file that could not be
+            # rolled over is tried again a whole limit later, not on every
+            # line.
+            self._file = self._start()
             self._size = 0
         self._file.write(chunk)
         self._file.flush()
@@ -122,7 +147,11 @@ def pipe(lines: Iterable[bytes], writer: RollingWriter) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Pipe stdin to a rolling log, or only start a new log file."""
+    """Pipe stdin to a rolling log, or only start a new log file.
+
+    Returns 0, or 1 when `--rotate` could not move the file out of the way:
+    the caller then writes over the file that should have been kept.
+    """
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("target", help="the log file")
     parser.add_argument(
@@ -136,7 +165,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.rotate:
         target.parent.mkdir(parents=True, exist_ok=True)
-        rotate(target, keep)
+        try:
+            rotate(target, keep)
+        except OSError as exc:
+            print(f"logpipe: {target} was not rotated: {exc}", file=sys.stderr)
+            return 1
         return 0
 
     writer = RollingWriter(target, keep, max_bytes_setting())

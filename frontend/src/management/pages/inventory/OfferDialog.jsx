@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { AccessLabel } from '../../AccessLabel'
 import { api } from '../../api'
+import HelpScope from '../../HelpScope'
 import ModalDialog from '../../ModalDialog'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import { isMoney } from '../../../shared/cents'
@@ -213,6 +214,13 @@ export default function OfferDialog({
   // and an item with no cost recorded is left blank: there is nothing
   // to work a margin from, and it is counted so the gap is seen.
   function fillPrices() {
+    // The margin asked for is after a platform's fees: with none chosen
+    // there are no fees to work to, and a price filled for none would fall
+    // short once one is. Said on the press rather than by a dead button.
+    if (!chosen) {
+      setFilled('Choose a platform first: the margin is worked out after its fees.')
+      return
+    }
     const filled = {}
     let uncosted = 0
     for (const subject of subjects) {
@@ -245,6 +253,18 @@ export default function OfferDialog({
           .map((subject) => subject.label)
           .join(', ')}`,
       )
+      return
+    }
+    // A lot in the web store at a fixed price is shown to buyers by this
+    // title alone, and the server refuses it blank. Said here, where the
+    // title is typed, rather than left to that refusal.
+    if (
+      lot &&
+      chosen?.is_own_store &&
+      format === 'fixed_price' &&
+      rowFor(subjects[0]).title.trim() === ''
+    ) {
+      setError('Give the lot a title: it is the only name a buyer sees.')
       return
     }
     setOffering(true)
@@ -310,8 +330,9 @@ export default function OfferDialog({
   const action = lot ? 'Offer the lot for sale' : `Offer ${items.length} for sale`
   const buttonText = offering ? 'Offering...' : action
 
-  return (
-    <ModalDialog label={label} onClose={onClose}>
+  // What the dialog holds, set inside its help scope below.
+  const body = (
+    <>
       <h2>{label}</h2>
       {error && <p className="error">{error}</p>}
       {refused.length > 0 && (
@@ -336,7 +357,7 @@ export default function OfferDialog({
         </p>
       )}
       <div className="filter-grid">
-        <label>
+        <label data-help="offer_platform">
           <AccessLabel text="Platform" accessKey={KEYS.venue} />
           <select
             value={venue}
@@ -351,7 +372,7 @@ export default function OfferDialog({
             ))}
           </select>
         </label>
-        <label>
+        <label data-help="offer_format">
           <AccessLabel text="Format" accessKey={KEYS.format} />
           <select
             value={format}
@@ -367,7 +388,7 @@ export default function OfferDialog({
         </label>
       </div>
       <div className="row">
-        <label>
+        <label data-help="offer_margin">
           Margin after fees, %{/* */}
           <input
             inputMode="decimal"
@@ -414,7 +435,7 @@ export default function OfferDialog({
             return (
               <tr key={subject.key}>
                 <td className="mono">{subject.label}</td>
-                <td>
+                <td data-help="offer_price">
                   {/* Text, not number: money crosses the API as a decimal
                       string and a number input hands back a float. */}
                   <input
@@ -424,14 +445,14 @@ export default function OfferDialog({
                     onChange={set(subject, 'price')}
                   />
                 </td>
-                <td>
+                <td data-help="offer_title">
                   <input
                     aria-label={`Title for ${subject.label}`}
                     value={draft.title}
                     onChange={set(subject, 'title')}
                   />
                 </td>
-                <td>
+                <td data-help="offer_description">
                   <textarea
                     rows={2}
                     aria-label={`Description for ${subject.label}`}
@@ -439,7 +460,7 @@ export default function OfferDialog({
                     onChange={set(subject, 'description')}
                   />
                 </td>
-                <td>
+                <td data-help="offer_listing_number">
                   <input
                     aria-label={`Listing number for ${subject.label}`}
                     value={draft.external_id}
@@ -474,6 +495,12 @@ export default function OfferDialog({
           Cancel
         </button>
       </div>
+    </>
+  )
+
+  return (
+    <ModalDialog label={label} onClose={onClose}>
+      <HelpScope>{body}</HelpScope>
     </ModalDialog>
   )
 }

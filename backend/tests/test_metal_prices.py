@@ -5,7 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from app.models import InventoryItem, ItemKind, Metal, MetalPrice
+from app.models import (
+    Disposition,
+    InventoryItem,
+    ItemKind,
+    ItemStatus,
+    Metal,
+    MetalPrice,
+)
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -27,14 +34,21 @@ def _quote(db: Session, metal: str, price: str, *, days_ago: int) -> None:
     db.commit()
 
 
-def _bullion(db: Session, metal: str, ounces: str, pieces: int = 1) -> InventoryItem:
-    """A live bullion item of this metal, fine weight per piece and piece count."""
+def _bullion(
+    db: Session, metal: str, ounces: str, pieces: int = 1, **columns: object
+) -> InventoryItem:
+    """A bullion item of this metal, received and held unless `columns` say otherwise.
+
+    `ounces` is the fine weight of one piece; `columns` are further column
+    values, such as a `status_id`.
+    """
     return build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "bullion"),
         metal_id=code_id(db, Metal, metal),
         fine_weight_ozt=Decimal(ounces),
         piece_count=pieces,
+        **columns,
     )
 
 
@@ -100,6 +114,59 @@ def test_melt_value_is_the_fine_ounces_held_at_the_newest_quote(
     # Gold is held but not quoted: ounces, and no value put on them.
     assert Decimal(str(rows["gold"]["fine_ozt_held"])) == Decimal("1")
     assert rows["gold"]["melt_value"] is None
+
+
+def test_only_what_is_received_and_held_or_listed_counts_as_held(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    _quote(db, "silver", "30.00", days_ago=1)
+    _bullion(db, "silver", "1")
+    # On offer, and still metal in the drawer until it sells.
+    _bullion(db, "silver", "2", disposition_id=code_id(db, Disposition, "listed"))
+    # Live rows, neither deleted nor split, that are not in hand: one still
+    # on order and one already sold. Each outweighs what is in hand, so
+    # counting either one cannot pass for the right answer.
+    _bullion(db, "silver", "10", status_id=code_id(db, ItemStatus, "ordered"))
+    _bullion(db, "silver", "100", disposition_id=code_id(db, Disposition, "sold"))
+
+    silver = _by_metal(client.get(URL, headers=admin_headers).json())["silver"]
+
+    assert Decimal(str(silver["fine_ozt_held"])) == Decimal("3")
+    assert Decimal(str(silver["melt_value"])) == Decimal("90.00")
+
+
+def test_a_half_cent_of_melt_value_rounds_up(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    # Half an ounce at 30.05 is 15.025: half up is 15.03, and rounding the
+    # tie to the even cent would give 15.02.
+    _quote(db, "silver", "30.05", days_ago=1)
+    _bullion(db, "silver", "0.5")
+
+    silver = _by_metal(client.get(URL, headers=admin_headers).json())["silver"]
+
+    assert Decimal(str(silver["melt_value"])) == Decimal("15.03")
+
+
+def test_a_retired_metal_still_held_is_listed(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    _quote(db, "platinum", "1000.00", days_ago=1)
+    _bullion(db, "platinum", "2")
+    # Retired twice over: one metal with ounces held, one with none.
+    for code in ("platinum", "gold"):
+        metal = db.scalars(select(Metal).where(Metal.code == code)).one()
+        metal.is_active = False
+    db.commit()
+
+    rows = _by_metal(client.get(URL, headers=admin_headers).json())
+
+    # Retiring a metal stops it being offered; what is held of it is still
+    # held, and still has a melt value.
+    assert Decimal(str(rows["platinum"]["fine_ozt_held"])) == Decimal("2")
+    assert Decimal(str(rows["platinum"]["melt_value"])) == Decimal("2000.00")
+    # A retired metal nothing is held of has no row to price.
+    assert "gold" not in rows
 
 
 def test_recording_a_price_adds_a_quote_and_keeps_the_one_before(

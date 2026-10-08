@@ -36,18 +36,17 @@ import WeightFields from '../../WeightFields'
 /**
  * One item, every field, with what the lot claimed beside each.
  *
- * Two provenance marks appear on every field and they mean different things.
+ * Two marks can stand beside a field and they mean different things.
  * "lot says BU" is *derived* by comparing this piece to its parent: it says
  * what the seller claimed about the whole lot, and it recomputes so it cannot
- * drift. The confirm box is *asserted*: it says a person looked at this coin.
- * Neither is computable from the other, which is why both are here.
+ * drift. "suggested" says a rule filled the value from the item's facts, and
+ * that nobody has typed over it.
  */
 
 //: How often an open form checks for changes made elsewhere. It also checks
 //: whenever the window gets focus back, which is when it matters most.
 const CHECK_EVERY_MS = 15000
 
-//: What the Friedberg lookup starts from (`FriedbergLookup`'s `fromItem`).
 //: What identifies a piece, in the order the editor asks for it, by kind.
 //: A coin is its denomination, year and mint. A bar or a round has no face
 //: value: it is its form, its metal and what it weighs, and a year or a
@@ -77,6 +76,7 @@ const FACTS_ASKED = {
 //: fineness and weights. A fact the kind is asked for is not repeated here.
 const FACTS_DECIDED = ['series', 'metal', 'weights']
 
+//: What the Friedberg lookup starts from (`FriedbergLookup`'s `fromItem`).
 const FRIEDBERG_FACTS = [
   'denomination',
   'note_type',
@@ -166,7 +166,7 @@ const DERIVED_FROM = {
   weight_peers: 'A guess, from what most items of this form and metal weigh',
 }
 
-/** The column a form field is stored in, as `derived` and reviews name it. */
+/** The column a form field is stored in, as `derived` names it. */
 const columnOf = (key, isClassifier) => (isClassifier ? `${key}_id` : key)
 
 //: Vocabularies this form must not let anyone extend. `item_status` is a
@@ -268,6 +268,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // The Split dialog, while open; and what the last split made, to say so.
   const [splitting, setSplitting] = useState(false)
   const [splitNote, setSplitNote] = useState('')
+  // Counts the saves made here. Errors and photographs are saved without
+  // moving the item's version, so the history is read again on this too.
+  const [saves, setSaves] = useState(0)
   const kinds = useReference('item_kind')
   const vocab = {
     denomination: useReference('denomination'),
@@ -379,6 +382,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           if (cancelled || versionRef.current == null) return
           if (fresh.version === versionRef.current) return
           setItem(fresh)
+          // A preview answered the item as it was: shown on, it would hide
+          // the very change being taken in.
+          setPreview(null)
           setBaseItem((previous) => rebase(fresh, previous, draftRef.current))
           setRefreshedAt(new Date())
         })
@@ -413,6 +419,8 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       .getInventoryItem(itemId)
       .then((body) => {
         setItem(body)
+        // As in the check above: a preview of the item as it was is stale.
+        setPreview(null)
         // Edited fields keep their base: a change made elsewhere to one of
         // them shows as a conflict, never silently adopted.
         setBaseItem((previous) => rebase(body, previous, draftRef.current))
@@ -423,7 +431,10 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // Asked for a moment after the last change, by the rules Save applies
   // (`POST /inventory/{id}/preview`, which writes nothing). A change Save
   // would refuse has no preview: what was last shown stays until it does.
+  // Asked again when the item's version moves, since the answer is the item
+  // as it stood when asked.
   const draftKey = JSON.stringify(draft)
+  const itemVersion = item?.version ?? null
   useEffect(() => {
     if (draftKey === '{}') return undefined
     let cancelled = false
@@ -432,18 +443,25 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       if (Array.isArray(changes.cert_numbers)) {
         changes.cert_numbers = changes.cert_numbers.filter(Boolean)
       }
-      Promise.resolve()
-        .then(() => api.previewItem(itemId, { changes }))
+      api
+        .previewItem(itemId, { changes })
         .then((body) => {
-          if (!cancelled && body) setPreview(body)
+          if (!cancelled) setPreview(body ?? null)
         })
-        .catch(() => {})
+        .catch((err) => {
+          // Only a refusal of the change itself leaves the last preview up.
+          // Any other failure says nothing about the item, and a preview
+          // left standing would show values no longer asked about.
+          if (!cancelled && err?.status !== 422 && err?.status !== 409) {
+            setPreview(null)
+          }
+        })
     }, PREVIEW_DELAY_MS)
     return () => {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [itemId, draftKey])
+  }, [itemId, draftKey, itemVersion])
 
   if (error && !item) return <p className="error">{error}</p>
   if (!item) return <p className="muted">Loading...</p>
@@ -465,6 +483,11 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         )
       : ''
   const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
+  // A picker set back to blank, or a box emptied, clears the field: null,
+  // which the server holds empty. An empty string would clear it without
+  // saying a person emptied it, and a rule would fill it straight back.
+  const setOrClear = (key) => (e) =>
+    setDraft({ ...draft, [key]: e.target.value === '' ? null : e.target.value })
 
   // A listing's address carries the seller's id for it -- eBay's item
   // number, a HiBid lot -- so typing or pasting the address fills the id.
@@ -513,9 +536,22 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       }
       next.attributes = attributes.keep
     }
+    // A note has no "no date", and shows no box to untick: one ticked here
+    // is not sent, since the server refuses it on a note. A stored one the
+    // server drops with the piece's years.
+    if (isCurrencyKind(kind) && next.no_date === true) {
+      cleared.no_date = { had: true, prev: true, was: true }
+      delete next.no_date
+    }
     setDraft(next)
     setKindCleared(cleared)
   }
+
+  // Whether the seller's item id is an eBay item number: the listing's own
+  // address says so, and where none is recorded the vendor does.
+  const boughtOnEbay = item.listing_url
+    ? /^https?:\/\/([^/]*\.)?ebay\./i.test(item.listing_url)
+    : /ebay/i.test(item.vendor ?? '')
 
   const kindLabel = (code) => kinds?.find((k) => k.code === code)?.label ?? code
   const leavingNote = item.item_kind === 'currency' && value('item_kind') !== 'currency'
@@ -611,9 +647,29 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     if (e.target.checked) {
       setRanged(false)
       setDraft({ ...draft, no_date: true, year_start: null, year_end: null })
-    } else {
-      setDraft({ ...draft, no_date: false })
+      return
     }
+    // Unticked: the years the tick emptied go back to the stored ones, and
+    // on a piece not stored as undated the flag leaves the draft too, so
+    // ticking and unticking is no change at all.
+    const next = { ...draft }
+    if (item.no_date) next.no_date = false
+    else delete next.no_date
+    if (next.year_start === null && next.year_end === null) {
+      delete next.year_start
+      delete next.year_end
+      setRanged(isRange(item.year_start, item.year_end))
+    }
+    setDraft(next)
+  }
+
+  // In a range the start is sent with the end the form shows. A start sent
+  // alone moves a single year's end with it, and the end on screen -- the
+  // stored one, never typed -- would be lost.
+  function setRangeStart(e) {
+    const shownEnd =
+      'year_end' in draft ? draft.year_end : (item.year_end ?? item.year_start ?? null)
+    setDraft({ ...draft, year_start: yearValue(e.target.value), year_end: shownEnd })
   }
 
   const rangeToggle = (
@@ -659,8 +715,10 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         setSuggestNote('Nothing recorded yet to describe it from.')
         return
       }
-      // Into the draft only: the owner edits it, and Save keeps it.
-      setDraft({ ...draft, description })
+      // Into the draft only: the owner edits it, and Save keeps it. Into the
+      // draft as it is when the answer arrives, which may hold more than
+      // it did when the question was asked.
+      setDraft((current) => ({ ...current, description }))
       setSuggestNote('Suggested from what is shown -- edit it, then Save to keep it.')
     } catch (err) {
       setSuggestNote(err.message)
@@ -800,7 +858,14 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         setSaving(false)
         // Someone changed one of these fields between the last check and this
         // save: read the item again, and the conflicts show for a choice.
-        if (err.body?.conflicts) reloadItem()
+        // And after a number was cleared above: that much was written, so
+        // the note is read again to show it gone, and the opener is told.
+        const cleared = heldFriedberg?.action === 'clear'
+        if (err.body?.conflicts || cleared) reloadItem()
+        if (cleared) {
+          setSaves((n) => n + 1)
+          onChanged?.()
+        }
         return
       }
     }
@@ -831,12 +896,23 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     // Receiving's one-item review -- would otherwise keep the old version and
     // the spent draft, and its next save would be refused as a conflict with
     // itself.
+    // What was typed while the save was out: in the draft now, and not in
+    // the one that was sent. It is kept, on top of the item read back.
+    let typedSince = {}
     try {
-      adopt(await api.getInventoryItem(itemId))
+      const saved = await api.getInventoryItem(itemId)
+      typedSince = Object.fromEntries(
+        Object.entries(draftRef.current).filter(
+          ([key, held]) => !(key in draft) || draft[key] !== held,
+        ),
+      )
+      adopt(saved)
+      setDraft(typedSince)
     } catch (err) {
       problems.push(`saved, but could not read it back: ${err.message}`)
     } finally {
       setSaving(false)
+      setSaves((n) => n + 1)
     }
     if (problems.length > 0) {
       setError(`Not all was saved -- ${problems.join('; ')}`)
@@ -846,7 +922,10 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       return
     }
     setError('')
-    onSaved?.()
+    // An edit made meanwhile is still to be saved: the form stays open on
+    // it, and whoever opened the form is told only that something changed.
+    if (Object.keys(typedSince).length > 0) onChanged?.()
+    else onSaved?.()
   }
 
   const textRow = ([label, key, letter]) => (
@@ -867,7 +946,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         <ReferenceSelect
           table={table}
           value={value(key)}
-          onChange={set(key)}
+          onChange={setOrClear(key)}
           allowAdd={!FIXED_VOCABULARIES.has(table)}
           // A series is offered by the kind of item it is for, so one
           // added here is marked for this item's kind. Unmarked, it
@@ -905,7 +984,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       {value('item_kind') === 'currency' && (
         <NoteFields
           value={value}
-          set={set}
+          set={setOrClear}
           setNumber={(key) => (e) =>
             setDraft({ ...draft, [key]: yearValue(e.target.value) })
           }
@@ -938,12 +1017,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
                 type="number"
                 disabled={noDate}
                 value={value('year_start')}
-                onChange={
-                  ranged
-                    ? (e) =>
-                        setDraft({ ...draft, year_start: yearValue(e.target.value) })
-                    : setYear
-                }
+                onChange={ranged ? setRangeStart : setYear}
                 {...accel('y')}
               />
               {rangeToggle}
@@ -1036,17 +1110,24 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               {item.vendor ? ` · ${item.vendor}` : ''} -- edit
             </a>
           )}
-          {item.sellers_item_id && (
-            // The listing it was bought from, on eBay (app.ebay_orders).
-            <a
-              href={`https://www.ebay.com/itm/${item.sellers_item_id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              data-help="sellers_item_id"
-            >
-              eBay item {item.sellers_item_id}
-            </a>
-          )}
+          {item.sellers_item_id &&
+            (boughtOnEbay ? (
+              // The listing it was bought from, on eBay (app.ebay_orders).
+              <a
+                href={`https://www.ebay.com/itm/${item.sellers_item_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-help="sellers_item_id"
+              >
+                eBay item {item.sellers_item_id}
+              </a>
+            ) : (
+              // Another seller's id -- an auction house's lot number -- is
+              // no eBay item number: named, and reached by the listing link.
+              <span data-help="sellers_item_id">
+                Seller&apos;s item id {item.sellers_item_id}
+              </span>
+            ))}
           {/^https?:\/\//i.test(item.listing_url ?? '') && (
             // Only a web address is offered as a link.
             <a
@@ -1424,9 +1505,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
 
         <SaleHistory itemId={itemId} />
 
-        {/* Read-only; re-read whenever the item's version moves, so a save
-            made above appears here at once. */}
-        <HistoryPanel itemId={itemId} version={item.version} />
+        {/* Read-only; re-read whenever the item's version moves, and after
+            every save here, so a save made above appears here at once. */}
+        <HistoryPanel itemId={itemId} version={item.version} saves={saves} />
       </HelpScope>
     </div>
   )

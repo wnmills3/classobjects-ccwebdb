@@ -68,6 +68,9 @@ def test_words_with_no_single_weight_give_none(text: str | None) -> None:
         ("Franklin Mint Sterling Rounds", "0.9250"),
         ("8G 22K GOLD 1911 COIN", "0.9167"),
         ("90% silver", "0.9000"),
+        # Written with its zero.
+        ("0.999 Silver Round", "0.9990"),
+        ("Medal, 0.925 silver", "0.9250"),
     ],
 )
 def test_a_fineness_is_read_out_of_the_words(text: str, fineness: str) -> None:
@@ -83,6 +86,8 @@ def test_a_fineness_is_read_out_of_the_words(text: str, fineness: str) -> None:
         "24K GOLD Foil Layered Souvenirs",
         "24K gold plated round",
         ".999 silver and .925 silver",
+        # The decimals of a larger number, not a fineness.
+        "Lot 12.925 silver round",
         "Silver Round",
     ],
 )
@@ -203,6 +208,53 @@ def test_peers_with_no_fineness_recorded_are_taken_for_fine_metal(
     assert _guesses(db, marked_sterling) == {}
     assert _guesses(db, fine) == one_ounce
     assert _guesses(db, unknown) == one_ounce
+
+
+def test_peers_with_a_gross_weight_and_no_fineness_give_their_fine_weight_too(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """Gross weight alone leads to no fine weight: there is nothing to multiply."""
+    for _ in range(6):
+        _bullion(
+            db,
+            make_item,
+            gross_weight_ozt=Decimal("1"),
+            fine_weight_ozt=Decimal("1"),
+        )
+    plain = _bullion(db, make_item)
+    db.commit()
+
+    assert _guesses(db, plain) == {
+        "gross_weight_ozt": (Decimal("1"), "weight_peers"),
+        "fine_weight_ozt": (Decimal("1"), "weight_peers"),
+    }
+
+
+def test_too_few_peers_give_no_guess_however_well_they_agree(
+    db: Session, make_item: ItemFactory
+) -> None:
+    def ounce(form: str) -> None:
+        """One round or bar of an ounce of .999, a peer for its form."""
+        _bullion(
+            db,
+            make_item,
+            form=form,
+            gross_weight_ozt=Decimal("1"),
+            fineness=Decimal("0.9990"),
+            fine_weight_ozt=Decimal("0.999"),
+        )
+
+    for _ in range(4):
+        ounce("round")
+    for _ in range(5):
+        ounce("bar")
+    few = _bullion(db, make_item)
+    enough = _bullion(db, make_item, form="bar")
+    db.commit()
+
+    # Four of four agree, and four is not enough; five of five is.
+    assert _guesses(db, few) == {}
+    assert set(_guesses(db, enough)) == {"gross_weight_ozt", "fineness"}
 
 
 def test_peers_that_do_not_mostly_agree_give_no_guess(

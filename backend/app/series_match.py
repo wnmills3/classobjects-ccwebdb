@@ -1,8 +1,8 @@
 """Assign a design series to items from what their description already says.
 
-Half the collection names its series in free text -- "1883-O AU/UNC MORGAN
+Much of a collection names its series in free text -- "1883-O AU/UNC MORGAN
 SILVER DOLLAR" -- so the classification is recoverable rather than something
-anyone must type 7,591 times.
+anyone must type item by item.
 
 **Ambiguity is the whole difficulty.** Several series names are shared across
 denominations and mean nothing on their own:
@@ -25,6 +25,12 @@ outranks this and is never overwritten by a re-run.
 Beautiful quarter, which began in 2010, and "$5 Commemorative" on a half
 eagle is not a commemorative half dollar; such an item is left unclassified
 and counted, for a person to look at.
+
+**A bar, a round, a medal or a token is not a coin for sharing its name.**
+With no denomination recorded it has nothing to check a name against, so a
+design struck at one face value is not believed of it: a "Buffalo" round is
+not an Indian Head nickel. A bullion design, which records no denomination,
+still is. A coin with no denomination recorded is matched by its own words.
 
 Only coins (and the other non-note kinds) are matched here, and only against
 coin designs. Notes are classified by `app.series_classify`, which checks the
@@ -269,6 +275,30 @@ def struck_in(years: Years, series_code: str, year: int) -> bool:
     return any(start <= year and (end is None or year <= end) for start, end in spans)
 
 
+#: The kinds that are not struck at a face value: with no denomination
+#: recorded, one of these has none to check a named design against.
+UNDENOMINATED_KINDS: frozenset[str] = frozenset({"bullion", "medal", "token"})
+
+
+def _fits_face(
+    code: str,
+    denomination: str | None,
+    item_kind: str | None,
+    faces: dict[str, set[str]],
+) -> bool:
+    """Whether an item of this denomination and kind can be the design `code`.
+
+    A design with no denomination recorded fits anything. An item with none
+    fits any design unless its kind is one of `UNDENOMINATED_KINDS`, which
+    are not taken for a design struck at a face value.
+    """
+    if code not in faces:
+        return True
+    if denomination is None:
+        return item_kind not in UNDENOMINATED_KINDS
+    return denomination in faces[code]
+
+
 def _classify(
     items: Sequence[Any],
     rules: list[Rule],
@@ -285,15 +315,13 @@ def _classify(
         # A piece of one year cannot be a design not struck that year, nor a
         # piece of one denomination a design struck in others. A range of
         # years spans designs, so it rules nothing out; nor does a
-        # denomination left empty.
+        # denomination left empty on a coin.
         year = single_year((start, end))
         found = {
             code
             for code in named
             if (year is None or struck_in(years, code, year))
-            and (
-                denomination is None or code not in faces or denomination in faces[code]
-            )
+            and _fits_face(code, denomination, item_kind, faces)
         }
         if named and not found:
             stats["contradicted"] += 1

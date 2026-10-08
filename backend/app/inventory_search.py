@@ -7,17 +7,15 @@ specifications.
 
 **Why this queries base tables rather than the inventory views.** The obvious
 implementation reads `coin_inventory`, which is what those views are for. It is
-also thirty times slower, because the view joins fourteen tables and every
-query pays for all of them -- a `count(*)` that needs no join at all, a facet
-that needs one. Measured over 6,370 coins: a page plus
-facets took 220 ms through the view and 7 ms against the base tables with
-only the joins each query actually needs. The ratio widens with the
-collection.
+also many times slower, because the view joins every classifier table and
+every query pays for all of them -- a `count(*)` that needs no join at all, a
+facet that needs one. Against the base tables each query takes only the
+joins it actually needs, and the gap widens with the collection.
 
 Copying classifier labels onto every item would also make searching fast,
 at the price of a second copy of every label that can drift from the first.
 It is not needed: the cost is not the normalization but asking a
-fourteen-way join for one column.
+many-way join for one column.
 
 The views remain the right thing for reading a whole item.
 
@@ -87,6 +85,10 @@ class Filt:
     sql: str
     op: str = "eq"
     join: tuple[str, ...] = ()
+    #: The column is an integer. A query string is always text, so the value
+    #: is read as a number before it is bound, and one that is not a number
+    #: is refused by name rather than handed to the database to reject.
+    integer: bool = False
 
 
 @dataclass(frozen=True)
@@ -328,7 +330,7 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "series": Col("ser.code", (_J_SERIES,)),
     "series_label": Col("ser.label", (_J_SERIES,)),
     # The purchase the item arrived on, so a row can open that order in
-    # Receiving. LEFT joins: 99 items were never on a recorded order.
+    # Receiving. LEFT joins: an item may be on no recorded order.
     "purchase_order_id": Col("i.purchase_order_id"),
     "order_number": Col("po.order_number", (_J_PURCHASE_ORDER,)),
     "vendor": Col("v.name", (_J_PURCHASE_ORDER, _J_VENDOR)),
@@ -344,7 +346,7 @@ _SHARED_FILTERS: dict[str, Filt] = {
     "order_number": Filt("po.order_number", "ilike", (_J_PURCHASE_ORDER,)),
     # Exact: a link naming one order. Its number is neither unique across
     # vendors nor always recorded, so a number match cannot stand in for it.
-    "purchase_order_id": Filt("i.purchase_order_id"),
+    "purchase_order_id": Filt("i.purchase_order_id", integer=True),
     "country": Filt("c.code", join=(_J_COUNTRY,)),
     # Not here: `grade`, `grade_min` and `grade_max` are search terms
     # (55%, BU+), read by `_grade_clause`.
@@ -356,8 +358,8 @@ _SHARED_FILTERS: dict[str, Filt] = {
     # Not here: "error_type" is handled by `_error_type_clause`, an EXISTS
     # subquery rather than a join, for the same reason as `_C_ERROR_TYPES`.
     "series": Filt("ser.code", join=(_J_SERIES,)),
-    "year_min": Filt(_C_YEAR_START, "gte"),
-    "year_max": Filt(_C_YEAR_START, "lte"),
+    "year_min": Filt(_C_YEAR_START, "gte", integer=True),
+    "year_max": Filt(_C_YEAR_START, "lte", integer=True),
 }
 
 _SHARED_SORT = (
@@ -465,7 +467,7 @@ CURRENCY_VIEW = ViewSpec(
         "note_type": Filt("nt.code", join=(_J_CUR_DETAIL, _J_NOTE_TYPE)),
         "seal_color": Filt("sc.code", join=(_J_CUR_DETAIL, _J_SEAL)),
         "fed_district": Filt("fd.letter", join=(_J_CUR_DETAIL, _J_DISTRICT)),
-        "series_year": Filt("cud.series_year", join=(_J_CUR_DETAIL,)),
+        "series_year": Filt("cud.series_year", join=(_J_CUR_DETAIL,), integer=True),
         "series_letter": Filt("cud.series_letter", join=(_J_CUR_DETAIL,)),
         "printing_facility": Filt("cud.printing_facility", join=(_J_CUR_DETAIL,)),
         "face_plate_number": Filt("cud.face_plate_number", "ilike", (_J_CUR_DETAIL,)),
@@ -475,8 +477,8 @@ CURRENCY_VIEW = ViewSpec(
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),
         # A note's year is its series year; it holds no other, so Year
         # from / to read that.
-        "year_min": Filt("cud.series_year", "gte", (_J_CUR_DETAIL,)),
-        "year_max": Filt("cud.series_year", "lte", (_J_CUR_DETAIL,)),
+        "year_min": Filt("cud.series_year", "gte", (_J_CUR_DETAIL,), integer=True),
+        "year_max": Filt("cud.series_year", "lte", (_J_CUR_DETAIL,), integer=True),
     },
     search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_RATING, _C_ITEM_CODE),
     named=(
@@ -619,10 +621,10 @@ def names_matching(
     to each as `names`.
 
     This is what makes aliases do anything in search. The formal name and the
-    colloquial one are often disjoint in practice -- nothing in this
-    collection's descriptions says "Winged Liberty Head", and 104 rows say
-    "Mercury" -- so matching description text alone finds whichever name the
-    seller happened to use and misses the other entirely.
+    colloquial one are often disjoint in practice -- a seller writes
+    "Mercury" and never "Winged Liberty Head" -- so matching description text
+    alone finds whichever name the seller happened to use and misses the
+    other entirely.
     """
     if not query or not query.strip():
         return []
@@ -794,9 +796,18 @@ def _issue_clause(
 
 
 def _value_clause(key: str, value: object, f: Filt, bound: dict[str, Any]) -> str:
-    """One column-to-value comparison from the view's filter table."""
+    """One column-to-value comparison from the view's filter table.
+
+    Raises ValueError, naming the parameter, for text sent to an integer
+    filter.
+    """
     placeholder = f"p_{key}"
     template = _FILTER_TEMPLATES.get(f.op, _FILTER_DEFAULT)
+    if f.integer:
+        try:
+            value = int(str(value).strip())
+        except ValueError:
+            raise ValueError(f"{key}={value!r} is not a whole number.") from None
     bound[placeholder] = f"%{value}%" if f.op == "ilike" else value
     return template.format(sql=f.sql, placeholder=placeholder)
 
@@ -937,13 +948,13 @@ def search(
     sort_sql = spec.columns[sort_key].sql
     direction = "DESC" if descending else "ASC"
 
-    # Two steps, because one is eleven times slower.
+    # Two steps, because one is many times slower.
     #
     # Selecting every display column and *then* applying LIMIT makes
-    # PostgreSQL join sixteen tables across all 6,370 matching rows before
-    # discarding all but fifty. Picking the fifty ids first -- which needs only
-    # the joins the filters and the sort actually use -- and joining the
-    # display tables onto those fifty costs 8 ms against 96 ms.
+    # PostgreSQL join every display table across every matching row before
+    # discarding all but one page. Picking the page's ids first -- which needs
+    # only the joins the filters and the sort actually use -- and joining the
+    # display tables onto those few rows is what keeps a page cheap.
     #
     # NULLS LAST so unrecorded values sort to the end rather than filling the
     # first page of every ascending search. The ordering is repeated on the

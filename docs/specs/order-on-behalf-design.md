@@ -88,6 +88,9 @@ another platform (`sales_writes`); an on-behalf order leaves them unset.
 
 1. Lock and re-read the `sales_order` row first. Status not `pending` or
    `paid`: 409. `version` differs: 409, "changed by someone else… reload".
+   An order that records a sale on another platform takes no stock: a line
+   added or grown on it is a 409 naming the platform. Its prices, customer
+   and notes may still be changed.
 2. Take the listings of the current and desired lines together through
    `_lock_listings`.
 3. Per listing, `delta = desired - current`. `delta > 0` needs an active
@@ -113,6 +116,9 @@ code: `pending`, `paid`, `packed`, `shipped`, `delivered`, `cancelled`,
   while it is unpacked, because there is nothing to return the stock to.
 - Cancelling a `packed`, `shipped` or `delivered` order moves no stock; it is
   how a refund is recorded, whatever the listing's state.
+- "Has been packed" is read from the order's status history, not only its
+  status: an order set back from `shipped` to `pending` or `paid` still
+  returns no stock when it is cancelled or refunded.
 - **Refunding** moves stock exactly as cancelling does. Refunded while
   `pending` or `paid`, the coins never left: the stock is returned, refused
   in the same cases a cancellation is, and the order cannot then be moved on
@@ -182,12 +188,13 @@ sale, or a store order with a line whose listing has ended
   swapping listings in one save; `listed`/`sold` as edits cross zero; an
   over-request refused with nothing changed.
 - Concurrency (`tests/test_order_revision_race.py`): a manager's edit and a
-  checkout contending for a last unit on real threads -- one succeeds, stock
-  never negative; two edits at one version, the second 409; a cancel and an
+  checkout contending for a last unit on real threads -- one succeeds, the
+  other is refused for the stock, stock never negative; a cancel and an
   edit of one order neither deadlock nor corrupt stock; a concurrent edit to
   an item does not refuse a revision or a cancellation.
-- Rules: editable statuses, version, price and quantity bounds, duplicate
-  listings, at least one line, unknown customer and listing.
+- Rules: editable statuses; a second edit sent at a version already used is
+  a 409; price and quantity bounds, duplicate listings, at least one line,
+  unknown customer and listing.
 - Access: each manager endpoint is 401 signed out and 403 for a shopper,
   writing nothing.
 - History: one row per difference; none for a no-op; `placed` on both paths;
@@ -198,7 +205,8 @@ sale, or a store order with a line whose listing has ended
 ## Not built
 
 - Finding an item to add by inventory code (the catalog search covers
-  the listing title, the item's source title and its description).
+  the listing's title and description and the item's source title and
+  description).
 - Shipping or billing addresses on an order. `sales_order` has
   `shipping_address_id` and `billing_address_id`, and a customer's addresses
   can be recorded (`POST /api/customers/{id}/addresses`), but nothing sets

@@ -37,7 +37,9 @@ and with `--delete` removes them. It judges nothing obsolete in a folder
 that is not a complete copy for this database -- one missing a file the rows
 name, or a database that records no photographs at all -- so pointing it at
 the wrong folder, or at the wrong database, deletes nothing. It works on
-`MEDIA_ROOT` itself as on a copy of it.
+`MEDIA_ROOT` itself as on a copy of it, with the server stopped: a
+photograph's files are written before its rows are committed, so one being
+stored while the prune runs is a file no row names yet.
 """
 
 from __future__ import annotations

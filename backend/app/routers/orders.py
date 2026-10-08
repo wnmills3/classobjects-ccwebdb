@@ -305,16 +305,35 @@ def list_order_changes(
     ]
 
 
+def _ever_shipped(db: Session, order_id: int, *, before: int | None = None) -> bool:
+    """Whether this order has ever been packed, shipped or delivered.
+
+    Read from its history, not its status: whether the coins left is a fact
+    about the order's past, and a status set back to `pending` or `paid`
+    afterwards does not bring the parcel home. `before` is a history row's
+    id, and asks the question as of that row.
+    """
+    shipped = select(SalesOrderChange.id).where(
+        SalesOrderChange.sales_order_id == order_id,
+        SalesOrderChange.change == SalesOrderChangeKind.status,
+        SalesOrderChange.to_value.in_(sorted(SHIPPED_STATUSES)),
+    )
+    if before is not None:
+        shipped = shipped.where(SalesOrderChange.id < before)
+    return db.scalar(shipped.limit(1)) is not None
+
+
 def _refund_returned_stock(db: Session, order_id: int) -> bool:
     """Whether this order's refund put its stock back, read from its history.
 
     The status row that made it `refunded` names what it was refunded from:
-    an unshipped status means the stock came back (`update_order_status`). An
-    order with no such row -- written before the history was, or refunded
-    after shipping -- returned nothing.
+    an unshipped status, on an order that had never shipped by then, means
+    the stock came back (`update_order_status`). An order with no such row
+    -- written before the history was, or refunded after shipping --
+    returned nothing.
     """
-    refunded_from = db.scalar(
-        select(SalesOrderChange.from_value)
+    refund = db.execute(
+        select(SalesOrderChange.id, SalesOrderChange.from_value)
         .where(
             SalesOrderChange.sales_order_id == order_id,
             SalesOrderChange.change == SalesOrderChangeKind.status,
@@ -322,8 +341,12 @@ def _refund_returned_stock(db: Session, order_id: int) -> bool:
         )
         .order_by(SalesOrderChange.id.desc())
         .limit(1)
+    ).one_or_none()
+    return (
+        refund is not None
+        and refund.from_value not in NO_STOCK_RETURN_STATUSES
+        and not _ever_shipped(db, order_id, before=refund.id)
     )
-    return refunded_from is not None and refunded_from not in NO_STOCK_RETURN_STATUSES
 
 
 def _no_stock_to_return(db: Session, order: SalesOrder) -> str | None:
@@ -394,7 +417,9 @@ def update_order_status(
     cancelled or refunded -- a sale recorded from an outside platform, or a
     lot bought in the shop -- because there is nothing to return the stock to
     (`_no_stock_to_return`). Once it has shipped, either returns no stock and
-    so strands nothing. An order refunded before it shipped, like a cancelled
+    so strands nothing -- and "has shipped" is read from its history
+    (`_ever_shipped`), so setting the status back does not change the
+    answer. An order refunded before it shipped, like a cancelled
     one, cannot be moved on: its stock is back on sale.
 
     Locks and re-reads the `sales_order` row -- order first, listings second
@@ -414,10 +439,13 @@ def update_order_status(
     # Cancelling or refunding an order that has not shipped returns its stock
     # to the catalog; a shipped order's goods have left, so either moves no
     # stock. Re-sending `cancelled` on an
-    # already-cancelled order is a no-op.
+    # already-cancelled order is a no-op. Shipped is asked of the order's
+    # history as well as its status: one walked back from `shipped` to
+    # `pending` is still an order whose coins have left.
     returns_stock = (
         payload.status in STOCK_RETURNING_STATUSES
         and previous not in NO_STOCK_RETURN_STATUSES
+        and not _ever_shipped(db, order_id)
     )
     # An order whose stock cannot be put back cannot be cancelled here --
     # `_no_stock_to_return` says which shape it is and why, and is where the
@@ -462,18 +490,20 @@ def update_order_status(
 
     # The status write, its history row and (on a cancellation) returning
     # stock all sit inside `committing`, whose `StaleDataError` clause turns
-    # a moved version into the 409 below. `return_stock` can autoflush a
-    # write to `InventoryItem.disposition`, which carries its own version
-    # column, so a `StaleDataError` can rise here and not only at
-    # `db.commit()`. `return_stock` takes its rows through
-    # `order_writes._lock_listings` and so through
+    # a moved version into the 409 below. `return_stock` writes
+    # `InventoryItem.disposition`, which carries its own version column, and
+    # a session that autoflushes sends that write at the next query inside
+    # the block rather than at `db.commit()` -- the application's session
+    # does not (`app/database.py`), the test suite's does -- so the whole
+    # block is covered, not only the commit. `return_stock` takes its rows
+    # through `order_writes._lock_listings` and so through
     # `offering_writes.lock_for_sale`, which locks and re-reads every item it
     # will write, so this is defense in depth
     # (`test_a_concurrently_edited_item_no_longer_refuses_a_cancellation`).
     # The clause itself is still covered, by
     # `test_a_stale_data_error_inside_a_cancellation_is_a_409_not_a_500`,
-    # which forces the failure from a patched flush at exactly the autoflush
-    # this comment names: make that clause re-raise and that test goes red.
+    # which forces the failure from a patched flush inside this block: make
+    # that clause re-raise and that test goes red.
     # `order_id` (the path parameter), not `order.id`, appears in every
     # message below: once a flush has failed, every instance in the session
     # is expired, and reading an attribute off one issues a SELECT that

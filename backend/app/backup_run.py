@@ -10,13 +10,27 @@ unattended:
    table. A backup that has not been restored is not known to restore.
 3. **Check the photographs**: every file the image rows name is in the
    copy and is the bytes its row describes.
-4. Only when all of that held: **prune** the photograph files no image
-   names any more, and **remove the older workbooks**, keeping the newest
-   `--keep` of them.
+4. Only when all of that held: **remove the older workbooks**, keeping the
+   newest `--keep` of them, and -- when the new one is the only one kept --
+   **prune** the photograph files no image names any more.
 
 When any step fails nothing is removed: the new workbook is left beside the
 old ones, the reason is printed, and the command exits 1. So the folder
 always holds at least one workbook that was proved.
+
+**What `--keep` above 1 means.** The older workbooks kept are whole: the
+photograph copy is not pruned, because a photograph removed or replaced
+since they were written is still named by their rows, and pruning it would
+leave them restoring rows with no picture. The copy then only grows; prune
+it by hand (`python -m app.media_backup prune`) once the older workbooks
+are no longer wanted. With the default of 1 the copy is pruned to what live
+names today, so a photograph deleted from live is gone from the backup after
+the next proved run.
+
+**Only this command's own workbooks are removed**: a file named exactly
+`ccwebdb_<8 digits>_<6 digits>.xlsx`. A workbook saved under any other name
+-- a corrected copy, an export named by hand -- is never touched and takes
+no place among those kept.
 
 Usage, from `backend/`:
 
@@ -32,6 +46,7 @@ next run sets it right.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -41,7 +56,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.orm import Session
 
 from . import media_backup, workbook_backup
@@ -50,8 +65,10 @@ from .storage import get_storage
 
 __all__ = ["BackupRun", "main", "prove_workbook", "run"]
 
-#: A workbook this command wrote, and so may later remove.
-WORKBOOKS = "ccwebdb_*.xlsx"
+#: The name of a workbook this command wrote, and so may later remove: its
+#: prefix and the time stamp `run` gives it, and nothing else. A name a
+#: person chose begins the same way and must not match.
+WORKBOOK = re.compile(r"ccwebdb_\d{8}_\d{6}\.xlsx")
 
 
 @dataclass
@@ -70,6 +87,8 @@ class BackupRun:
     #: Obsolete photograph files and older workbooks removed.
     pruned: int = 0
     removed: list[Path] = field(default_factory=list)
+    #: Why the photograph copy was left unpruned in a proved run, when it was.
+    not_pruned: str | None = None
 
     @property
     def proved(self) -> bool:
@@ -109,8 +128,9 @@ def prove_workbook(live: Engine, workbook: Path, *, stamp: str) -> list[str]:
                 for difference in workbook_backup.compare(live, scratch):
                     problems.append(
                         f"the workbook differs from live in {difference.table}: "
-                        f"{difference.left_rows:,} rows live, "
-                        f"{difference.right_rows:,} restored"
+                        + _rows(difference.left_rows, "rows live", "not in live")
+                        + ", "
+                        + _rows(difference.right_rows, "restored", "not restored")
                     )
             finally:
                 scratch.dispose()
@@ -118,10 +138,35 @@ def prove_workbook(live: Engine, workbook: Path, *, stamp: str) -> list[str]:
             problems.append(f"the workbook could not be restored: {exc}")
         finally:
             with server.connect() as conn:
-                conn.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+                _drop_scratch(conn, name)
     finally:
         server.dispose()
     return problems
+
+
+def _rows(count: int, counted: str, absent: str) -> str:
+    """One side's row count for a table, or that the side has no such table."""
+    return absent if count < 0 else f"{count:,} {counted}"
+
+
+def _drop_scratch(conn: Connection, name: str) -> None:
+    """Drop the scratch database, ending the client sessions on it first.
+
+    Client sessions only, and not `DROP DATABASE ... WITH (FORCE)`: that
+    form also signals an autovacuum worker that happens to be on the
+    database, which the application's role may not do, and the refusal
+    would take the proof's own result with it. A worker leaves by itself
+    when the database is dropped. `conn` must be in autocommit mode.
+    """
+    conn.execute(
+        text(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname = :name AND pid <> pg_backend_pid() "
+            "AND backend_type = 'client backend'"
+        ),
+        {"name": name},
+    )
+    conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
 
 
 def run(
@@ -155,10 +200,24 @@ def run(
         if not done.proved:
             return done
 
-        pruned = media_backup.prune_media(db, media, delete=True)
-        done.pruned = pruned.deleted
+        if keep > 1:
+            # The older workbooks kept still name the photographs they were
+            # exported with; pruned to what live names today, they would
+            # restore rows whose pictures are gone.
+            done.not_pruned = (
+                f"the older workbooks kept (--keep {keep}) still name them"
+            )
+        else:
+            pruned = media_backup.prune_media(db, media, delete=True)
+            done.pruned, done.not_pruned = pruned.deleted, pruned.refused
     older = sorted(
-        (path for path in folder.glob(WORKBOOKS) if path != done.workbook),
+        (
+            path
+            for path in folder.iterdir()
+            if path.is_file()
+            and WORKBOOK.fullmatch(path.name)
+            and path != done.workbook
+        ),
         key=lambda path: path.name,
         reverse=True,
     )
@@ -183,7 +242,10 @@ def _report(done: BackupRun) -> None:
         return
     print("proved: the workbook restores to exactly what live holds,")
     print("        and every photograph is in the copy and matches its row")
-    print(f"pruned {done.pruned:,} obsolete photograph file(s)")
+    if done.not_pruned is None:
+        print(f"pruned {done.pruned:,} obsolete photograph file(s)")
+    else:
+        print(f"photographs not pruned: {done.not_pruned}")
     for path in done.removed:
         print(f"removed the older workbook {path.name}")
 
@@ -207,6 +269,15 @@ def main(argv: Sequence[str] | None = None, *, live: Engine | None = None) -> in
     engine = live or create_engine(settings.database_url)
     try:
         done = run(engine, args.folder, keep=args.keep)
+    except workbook_backup.WorkbookError as exc:
+        # The export itself was refused: no workbook was written, so there
+        # is nothing to prove and nothing older may go.
+        print(
+            f"NOT PROVED: the database could not be exported: {exc}. Nothing "
+            "was removed; the workbooks already there are untouched.",
+            file=sys.stderr,
+        )
+        return 1
     finally:
         if live is None:
             engine.dispose()

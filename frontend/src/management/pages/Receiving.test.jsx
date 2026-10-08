@@ -395,6 +395,29 @@ describe('Receive all', () => {
     expect(screen.getByRole('radio', { name: 'Coins' })).toBeChecked()
   })
 
+  it('is not offered from the last read while the order is being read again', async () => {
+    // Until the new read answers, the lines on hand are the ones just
+    // received: offering them would send a receipt the server refuses.
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockResolvedValue(orderWithLines())
+    api.receiveItems.mockResolvedValue({ received: 2 })
+    renderOnOrder()
+    await user.click(
+      await screen.findByRole('button', { name: 'Receive all 2 still ordered' }),
+    )
+    const dialog = await screen.findByRole('dialog')
+
+    // The read after the receipt never answers.
+    api.getPurchaseOrder.mockReturnValue(new Promise(() => {}))
+    await user.click(within(dialog).getByRole('button', { name: 'Receive' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(api.getPurchaseOrder).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('button', { name: /Receive all/ })).toBeNull()
+    // The order's own header stays while it is read again.
+    expect(screen.getByRole('heading', { name: /27-1234/ })).toBeInTheDocument()
+  })
+
   it('is not offered for a single line still ordered', async () => {
     const order = orderWithLines()
     order.lines = order.lines.filter((l) => l.id !== 503)

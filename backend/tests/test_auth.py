@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
+import jwt
 import pytest
+from app.config import settings
 from app.models import User, UserRole
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -151,6 +155,34 @@ def test_login_rejects_disabled_account(
     assert response.status_code == 403
 
 
+def test_login_finds_an_address_registered_with_capitals_in_its_domain(
+    client: TestClient,
+) -> None:
+    """Whatever registration stored for an address, login must look up too.
+
+    Registration validates the address, which normalizes its domain; a
+    login that compared the text as typed would refuse the very address the
+    account was opened with, in the next request.
+    """
+    typed = "ada@Example.COM"
+    registered = client.post(
+        "/api/auth/register", json={"email": typed, "password": "longenough"}
+    )
+    assert registered.status_code == 201, registered.text
+
+    response = client.post(
+        "/api/auth/login", data={"username": typed, "password": "longenough"}
+    )
+    assert response.status_code == 200, response.text
+
+    # And by the address as it was stored, which is the one shown back.
+    stored = client.post(
+        "/api/auth/login",
+        data={"username": registered.json()["email"], "password": "longenough"},
+    )
+    assert stored.status_code == 200, stored.text
+
+
 def test_error_message_does_not_reveal_whether_email_exists(
     client: TestClient, customer_user: User
 ) -> None:
@@ -229,12 +261,59 @@ def test_access_token_is_not_accepted_as_refresh_token(
     assert response.status_code == 401
 
 
-def test_token_signed_with_wrong_secret_is_rejected(client: TestClient) -> None:
-    import jwt
+def _access_claims(user: User, *, expires_in: timedelta) -> dict[str, object]:
+    """Every claim a good access token for this user carries.
 
-    forged = jwt.encode({"sub": "1", "type": "access"}, "x" * 64)
-    response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {forged}"})
-    assert response.status_code == 401
+    Complete on purpose: a token missing its user, its type or its version is
+    refused for that, whatever else is wrong with it, so a test of one check
+    has to hand over a token every *other* check accepts.
+    """
+    now = datetime.now(UTC)
+    return {
+        "sub": str(user.id),
+        "type": "access",
+        "iat": now,
+        "exp": now + expires_in,
+        "tv": user.token_version,
+    }
+
+
+def _me(client: TestClient, claims: dict[str, object], secret: str) -> int:
+    """The status `GET /api/auth/me` gives a token of these claims and signature."""
+    token = jwt.encode(claims, secret, algorithm=settings.jwt_algorithm)
+    return client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {token}"}
+    ).status_code
+
+
+def test_token_signed_with_wrong_secret_is_rejected(
+    client: TestClient, customer_user: User
+) -> None:
+    """The signature is what is refused, with every other claim in order.
+
+    The same claims under the real secret are accepted first: without that,
+    a token refused for its user or its version would pass this test with
+    signature checking switched off.
+    """
+    claims = _access_claims(customer_user, expires_in=timedelta(minutes=5))
+    assert _me(client, claims, settings.jwt_secret) == 200
+
+    assert _me(client, claims, "x" * 64) == 401
+
+
+def test_an_expired_token_is_rejected(client: TestClient, customer_user: User) -> None:
+    """Correctly signed and otherwise in order, but past its expiry."""
+    claims = _access_claims(customer_user, expires_in=timedelta(minutes=-5))
+    assert _me(client, claims, settings.jwt_secret) == 401
+
+
+def test_a_token_carrying_an_earlier_version_is_rejected(
+    client: TestClient, customer_user: User
+) -> None:
+    """A version behind the account's is dead, however long it had to run."""
+    claims = _access_claims(customer_user, expires_in=timedelta(minutes=5))
+    claims["tv"] = customer_user.token_version - 1
+    assert _me(client, claims, settings.jwt_secret) == 401
 
 
 def test_token_for_deleted_user_is_rejected(

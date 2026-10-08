@@ -20,8 +20,8 @@ const BLANK_DRAFT = { kind: '', institution: '', identifier: '' }
  *
  * `value` is the location's id as text ('' for none) and `onChange` receives
  * the same; the form turns it into a number or null when it sends it. A list
- * that fails to load leaves only "--" and the add: a location is never
- * required.
+ * that fails to load leaves only "--" and the add, with the failure said
+ * beside them: a location is never required.
  */
 export default function LocationSelect({ value, onChange, disabled = false }) {
   const loaded = useRequest('locations', () => api.listStorageLocations())
@@ -75,21 +75,30 @@ export default function LocationSelect({ value, onChange, disabled = false }) {
   }
 
   return (
-    <select
-      value={value ?? ''}
-      disabled={disabled}
-      onChange={(e) => {
-        if (e.target.value === '__add__') setAdding(true)
-        else onChange(e.target.value)
-      }}
-    >
-      <option value="">--</option>
-      {locations.map((loc) => (
-        <option key={loc.id} value={String(loc.id)}>
-          {loc.label}
-        </option>
-      ))}
-      <option value="__add__">+ Add a location...</option>
-    </select>
+    <>
+      <select
+        value={value ?? ''}
+        disabled={disabled}
+        onChange={(e) => {
+          if (e.target.value === '__add__') setAdding(true)
+          else onChange(e.target.value)
+        }}
+      >
+        <option value="">--</option>
+        {locations.map((loc) => (
+          <option key={loc.id} value={String(loc.id)}>
+            {loc.label}
+          </option>
+        ))}
+        <option value="__add__">+ Add a location...</option>
+      </select>
+      {/* Said, because without the list "--" shows for an item that has a
+          location as well as for one that has none. */}
+      {loaded.error && (
+        <span className="error">
+          The storage locations could not be read: {loaded.error}
+        </span>
+      )}
+    </>
   )
 }

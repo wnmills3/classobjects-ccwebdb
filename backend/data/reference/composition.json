@@ -9,6 +9,11 @@
     "exists, not a recomputation from gross weight -- the published figure is",
     "what the market quotes and what every dealer's calculator agrees with.",
     "",
+    "A span has a row only where every coin of it shares one composition. A",
+    "dollar of 1971-1976 was struck in copper-nickel clad for circulation and in",
+    "40% silver for collectors, and a five-cent piece of 1942 in both alloys, so",
+    "neither has a row: the weight of such a coin is entered by hand.",
+    "",
     "This is exactly the kind of table a new installation should inherit rather",
     "than rebuild: nothing here is specific to one collection."
   ],
@@ -50,15 +55,10 @@
      "gross_weight_ozt": "0.859380", "fine_weight_ozt": "0.773440",
      "note": "Morgan and Peace dollar, 26.73 g. The canonical ASW figure."},
 
-    {"denomination": "usd_coin_1_00", "country": "US", "year_from": 1971, "year_to": 1976,
-     "metal": "silver", "fineness": "0.4000",
-     "gross_weight_ozt": "0.790500", "fine_weight_ozt": "0.316200",
-     "note": "40% silver Eisenhower dollar, collector issues only, 24.59 g."},
-
-    {"denomination": "usd_coin_0_05", "country": "US", "year_from": 1942, "year_to": 1945,
+    {"denomination": "usd_coin_0_05", "country": "US", "year_from": 1943, "year_to": 1945,
      "metal": "silver", "fineness": "0.3500",
      "gross_weight_ozt": "0.160755", "fine_weight_ozt": "0.056260",
-     "note": "War nickel. The only silver nickel, and easy to miss in a roll."},
+     "note": "War nickel. The only silver nickel, and easy to miss in a roll. 1942 was struck in both alloys, so it has no row."},
 
     {"denomination": "usd_coin_0_05", "country": "US", "year_from": 1866, "year_to": 1941,
      "metal": "nickel", "fineness": "0.2500", "fine_weight_ozt": "0.000000",

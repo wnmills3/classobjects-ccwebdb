@@ -34,7 +34,9 @@ still open and unshipped (`sale_state.OPEN_ORDER_STATUSES`), oldest first.
 by months since received x kind -- the receipt itself read through
 `app.reports.receipts`, the one definition `pr_received` also reads.
 `sl_auctions`: one row per auction, by status, with a settled one's lots,
-sold, unsold, hammer total and fees.
+sold, unsold, hammer total and fees. `sl_ready`: per kind, the items in hand
+and not offered, and how many have each thing a listing needs -- an own
+photograph, a grade or weight, a location and a cost -- and all four.
 """
 
 from __future__ import annotations
@@ -88,7 +90,15 @@ from ..models import (
 )
 from ..offering_writes import OFFER_CURRENCY, ON_OFFER
 from ..sale_state import OPEN_ORDER_STATUSES
-from .base import Column, DateRange, Report, ReportResult, local_date, period_label
+from .base import (
+    ZERO_MONEY,
+    Column,
+    DateRange,
+    Report,
+    ReportResult,
+    local_date,
+    period_label,
+)
 from .receipts import receipt_day, received_transitions
 from .registry import register
 
@@ -234,7 +244,7 @@ def _lot_rows(db: Session, today: date) -> list[_Entry]:
     addition (unlike `float`) never rounds.
     """
     member_cost = (
-        select(func.coalesce(func.sum(InventoryItem.total_cost), 0))
+        select(func.coalesce(func.sum(InventoryItem.total_cost), ZERO_MONEY))
         .select_from(SalesLotItem)
         .join(InventoryItem, InventoryItem.id == SalesLotItem.inventory_item_id)
         .where(
@@ -328,8 +338,8 @@ def _sl_offered(db: Session, _params: OfferedParams) -> ReportResult:
     # a candidate for the asking total in the first place. Both running
     # sums are exact Python `Decimal` addition over each row's own
     # SQL-computed value, never a float and never re-queried.
-    asking_total = Decimal("0")
-    cost_total = Decimal("0")
+    asking_total = ZERO_MONEY
+    cost_total = ZERO_MONEY
     non_usd_excluded = 0
     paused_excluded = 0
     for entry in entries:
@@ -1057,7 +1067,7 @@ def _auction_fees(db: Session, auction_ids: set[int]) -> dict[int, Decimal]:
     rows = db.execute(
         select(
             order_ids.c.auction_id,
-            func.coalesce(func.sum(SalesOrderFee.amount), 0).label("fees"),
+            func.coalesce(func.sum(SalesOrderFee.amount), ZERO_MONEY).label("fees"),
         )
         .select_from(order_ids)
         .join(SalesOrderFee, SalesOrderFee.sales_order_id == order_ids.c.order_id)
@@ -1090,9 +1100,9 @@ def _sl_auctions(db: Session, _params: AuctionsParams) -> ReportResult:
             func.count(AuctionLot.id).label("lots"),
             func.count(case((is_sold, AuctionLot.id))).label("sold"),
             func.count(case((is_unsold, AuctionLot.id))).label("unsold"),
-            func.coalesce(func.sum(case((is_sold, AuctionLot.hammer_price))), 0).label(
-                "hammer_total"
-            ),
+            func.coalesce(
+                func.sum(case((is_sold, AuctionLot.hammer_price))), ZERO_MONEY
+            ).label("hammer_total"),
         )
         .select_from(Auction)
         .join(SalesVenue, SalesVenue.id == Auction.sales_venue_id)
@@ -1125,7 +1135,7 @@ def _sl_auctions(db: Session, _params: AuctionsParams) -> ReportResult:
                 "sold": row.sold if settled else None,
                 "unsold": row.unsold if settled else None,
                 "hammer_total": row.hammer_total if settled else None,
-                "fees": fees_by_auction.get(row.id, Decimal("0")) if settled else None,
+                "fees": fees_by_auction.get(row.id, ZERO_MONEY) if settled else None,
             }
         )
         drills.append("/auctions")
@@ -1247,7 +1257,9 @@ def _sl_ready(db: Session, _params: ReadyParams) -> ReportResult:
     totals: dict[str, object] = {"kind": "All kinds", **dict.fromkeys(measures, 0)}
     for row in db.execute(stmt).mappings().all():
         rows.append({"kind": row["kind_label"], **{key: row[key] for key in measures}})
-        query = {"status": "received"}
+        # Both halves of what the row counts, so the search lists the same
+        # items: a received piece that is listed or sold is not one of them.
+        query = {"status": "received", "disposition": "held"}
         if row["kind_code"] != "currency":
             query["kind"] = row["kind_code"]
         drills.append(f"{view_path(row['kind_code'])}?{urlencode(query)}")

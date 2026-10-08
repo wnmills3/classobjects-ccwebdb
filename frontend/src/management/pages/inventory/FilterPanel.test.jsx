@@ -58,6 +58,56 @@ describe('FilterPanel', () => {
     expect(props.apply).toHaveBeenCalledWith({ q: 'morgan' })
   })
 
+  it('applies nothing when a box is left as it was, so the page stays', async () => {
+    const user = userEvent.setup()
+    const { props } = setup({
+      current: { q: 'morgan', series: 'peace', year_min: '1921', offset: '100' },
+    })
+    await user.click(screen.getByRole('textbox', { name: 'Search' }))
+    await user.click(screen.getByPlaceholderText('e.g. morgan'))
+    await user.click(screen.getByRole('spinbutton', { name: 'Year from' }))
+    await user.click(screen.getByRole('spinbutton', { name: 'Year to' }))
+    await user.tab()
+    expect(props.apply).not.toHaveBeenCalled()
+  })
+
+  it('empties its boxes when the filters are cleared, so none comes back', async () => {
+    const user = userEvent.setup()
+    const { props, rerender } = setup()
+    const search = screen.getByRole('textbox', { name: 'Search' })
+    const series = screen.getByPlaceholderText('e.g. morgan')
+    const from = screen.getByRole('spinbutton', { name: 'Year from' })
+    await user.type(search, 'morgan')
+    await user.type(series, 'peace')
+    await user.type(from, '1921')
+    await user.tab()
+    const typed = { q: 'morgan', series: 'peace', year_min: '1921' }
+    rerender(<FilterPanel {...props} current={typed} />)
+    expect(search).toHaveValue('morgan')
+
+    // Clear filters: the address holds none, and neither may a box.
+    props.apply.mockClear()
+    rerender(<FilterPanel {...props} current={{}} />)
+    expect(search).toHaveValue('')
+    expect(series).toHaveValue('')
+    expect(from).toHaveValue(null)
+
+    await user.click(search)
+    await user.click(series)
+    await user.click(from)
+    await user.tab()
+    expect(props.apply).not.toHaveBeenCalled()
+  })
+
+  it('leaves the box being typed in alone when other filters change', async () => {
+    const user = userEvent.setup()
+    const { props, rerender } = setup()
+    const search = screen.getByRole('textbox', { name: 'Search' })
+    await user.type(search, 'mor')
+    rerender(<FilterPanel {...props} current={{ kind: 'coin' }} />)
+    expect(search).toHaveValue('mor')
+  })
+
   it('toggles an issue filter off when it is already the active one', async () => {
     const user = userEvent.setup()
     const { props } = setup({ current: { issue: 'missing_grade' } })

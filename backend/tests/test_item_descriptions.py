@@ -89,7 +89,7 @@ def _link(db: Session, item: InventoryItem, code: str) -> str:
 
 
 def test_a_note_reads_as_the_owner_writes_it(db: Session) -> None:
-    """The owner's own example, CC-006140."""
+    """The owner's own example of a note described well."""
     item = _note(db)
     radar = _link(db, item, "radar")
     assert radar.endswith(" Serial")
@@ -112,6 +112,20 @@ def test_fancy_serial_alone_is_still_said(db: Session) -> None:
     item = _note(db)
     fancy = _link(db, item, "fancy_serial").removesuffix(" Serial")
     assert f"EPQ {fancy} 1999" in suggested_description(db, item)
+
+
+def test_fancy_serial_is_said_beside_an_attribute_that_is_no_digit_pattern(
+    db: Session,
+) -> None:
+    # A star, a low serial or No Motto says nothing of the digits' pattern, so
+    # beside one of those "Fancy" is still the only word for it.
+    item = _note(db)
+    star = _link(db, item, "star")
+    fancy = _link(db, item, "fancy_serial").removesuffix(" Serial")
+    _link(db, item, "low_serial")
+    text = suggested_description(db, item)
+    assert star in text
+    assert fancy in text
 
 
 def test_no_district_signatures_service_or_labels(db: Session) -> None:

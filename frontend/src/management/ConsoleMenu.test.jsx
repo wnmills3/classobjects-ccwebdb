@@ -164,6 +164,15 @@ describe('ConsoleMenu', () => {
     expect(group('Settings')).toHaveFocus()
   })
 
+  it('closes on Escape while focus is still on the button that opened it', async () => {
+    const user = open()
+    await user.click(group('Selling'))
+    expect(group('Selling')).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(list('Selling')).toBeNull()
+    expect(group('Selling')).toHaveFocus()
+  })
+
   it('closes on a click anywhere outside the menu', async () => {
     const user = open()
     await user.click(group('Inventory'))

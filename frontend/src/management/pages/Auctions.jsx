@@ -118,11 +118,15 @@ function AuctionForm({ venues, onSaved, onClose }) {
             {...accel(CREATE_KEYS.venue)}
           >
             <option value="">Choose a platform</option>
-            {venues.map((v) => (
-              <option key={v.code} value={v.code}>
-                {v.name}
-              </option>
-            ))}
+            {/* The web store runs no auction, and a retired platform runs
+                nothing: neither is offered. */}
+            {venues
+              .filter((v) => !v.is_own_store && v.is_active !== false)
+              .map((v) => (
+                <option key={v.code} value={v.code}>
+                  {v.name}
+                </option>
+              ))}
           </select>
         </label>
         <label>
@@ -147,7 +151,7 @@ function AuctionForm({ venues, onSaved, onClose }) {
           <input
             value={form.starts_at}
             onChange={set('starts_at')}
-            placeholder="2026-10-01T18:00"
+            placeholder="date and time, as year-month-day hour:minute"
           />
         </label>
         <label>
@@ -155,7 +159,7 @@ function AuctionForm({ venues, onSaved, onClose }) {
           <input
             value={form.ends_at}
             onChange={set('ends_at')}
-            placeholder="2026-10-01T20:00"
+            placeholder="date and time, as year-month-day hour:minute"
           />
         </label>
         <label>
@@ -300,7 +304,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
             <input
               value={itemCode}
               onChange={(e) => setItemCode(e.target.value)}
-              placeholder="CC-000123"
+              placeholder="the code on the item"
             />
           </label>
         ) : (
@@ -393,7 +397,8 @@ function ConsignDialog({ auction, onSaved, onClose }) {
  * `returned_to_location_id` is required whenever `auction.consigned_on` is
  * set -- the items physically left the premises and something has to say
  * where they came back to -- so the picker appears then, and the confirm
- * button stays disabled until a location is chosen, the same way this page
+ * button stays disabled until a location is chosen, with the reason said
+ * beside it, the same way this page
  * never lets the owner submit a request the API would only refuse for a
  * missing field. `onConfirm` is called with the location id, or null when
  * none was needed.
@@ -439,6 +444,9 @@ function ReturnLocationConfirm({
             ))}
           </select>
         </label>
+      )}
+      {needsLocation && locationId === '' && (
+        <p className="muted">Choose where the items come back to first.</p>
       )}
     </ConfirmDialog>
   )

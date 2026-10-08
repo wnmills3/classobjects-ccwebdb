@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, model_validator
@@ -21,6 +22,13 @@ from sqlalchemy.orm import QueryableAttribute, Session
 #: exported. Never the query -- a report groups and filters however it
 #: needs to; this only tells a reader how to print what came back.
 ColumnKind = Literal["text", "count", "money", "percent", "date", "ounces"]
+
+
+#: What a money sum with nothing to add up comes to. Two places, as every
+#: stored amount carries, so an empty sum reads `0.00` beside the amounts in
+#: its column rather than a bare `0` -- on the wire, on the command line and
+#: in a total alike.
+ZERO_MONEY = Decimal("0.00")
 
 
 @dataclass(frozen=True)
@@ -228,6 +236,7 @@ class Report[P: BaseModel]:
 
 
 __all__ = [
+    "ZERO_MONEY",
     "Column",
     "ColumnKind",
     "DateRange",

@@ -49,10 +49,9 @@ def test_search_finds_an_item_by_a_name_its_description_lacks(
 ) -> None:
     """The reason the alias table exists.
 
-    The description says "Mercury" and never "Winged Liberty Head". Measured
-    over the real collection: 104 rows say the nickname and none say the
-    formal name, so matching description text alone finds one and misses the
-    other entirely.
+    The description says "Mercury" and never "Winged Liberty Head", as
+    sellers' descriptions do, so matching description text alone finds the
+    nickname and misses the formal name entirely.
     """
     mercury = _series(db, "winged_liberty_head_dime")
     make_item(description="1945 Silver Mercury Dime", series_id=mercury.id)
@@ -123,8 +122,8 @@ def test_presidential_on_a_dollar_names_the_presidential_dollar(db: Session) -> 
 def test_two_series_in_one_description_stays_ambiguous(db: Session) -> None:
     """A Franklin Pierce Presidential Dollar is not a Franklin Half.
 
-    Real case: CC-000371 in the collection matches both, and taking the first
-    match would have filed a presidential dollar as a Franklin half.
+    Its description matches both, and taking the first match would file a
+    presidential dollar as a Franklin half.
     """
     rules = build_rules(db)
     found = match("2010 D FRANKLIN PIERCE PRESIDENTIAL DOLLAR ANACS", None, rules)

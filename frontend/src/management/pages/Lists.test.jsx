@@ -266,6 +266,66 @@ describe('Lists: sellers, vendors and storage locations', () => {
     )
   })
 
+  it('shows a vendor with no kind as having none, and takes the first kind for it', async () => {
+    const user = userEvent.setup()
+    api.updateVendor.mockResolvedValue({})
+    api.listVendors.mockResolvedValue([
+      { id: 6, name: 'kindless.example', url: null, vendor_kind: null, order_count: 1 },
+    ])
+    open('vendors')
+    const row = (await screen.findByText('kindless.example')).closest('tr')
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    const kind = within(row).getByRole('combobox', { name: 'Kind' })
+    // Not the first kind in the list, which nobody chose for it.
+    expect(kind).toHaveValue('')
+
+    await user.selectOptions(kind, 'marketplace')
+    await user.click(within(row).getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateVendor).toHaveBeenCalledWith(6, { vendor_kind: 'marketplace' }),
+    )
+  })
+
+  it('shows a kind the pickers no longer offer as itself', async () => {
+    const user = userEvent.setup()
+    api.listVendors.mockResolvedValue([
+      {
+        id: 6,
+        name: 'old.example',
+        url: null,
+        vendor_kind: 'pawnshop',
+        order_count: 1,
+      },
+    ])
+    open('vendors')
+    const row = (await screen.findByText('old.example')).closest('tr')
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    expect(within(row).getByRole('combobox', { name: 'Kind' })).toHaveValue('pawnshop')
+  })
+
+  it('refuses a blank name, which the server would leave as it was', async () => {
+    const user = userEvent.setup()
+    open('sellers')
+    const row = (await screen.findByText('idle_seler')).closest('tr')
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    await user.clear(within(row).getByRole('textbox', { name: 'Name' }))
+    await user.click(within(row).getByRole('button', { name: 'Save' }))
+
+    expect(screen.getByText('Name cannot be blank.')).toBeInTheDocument()
+    expect(api.updateSeller).not.toHaveBeenCalled()
+    // Still open, to be typed into again.
+    expect(within(row).getByRole('textbox', { name: 'Name' })).toBeInTheDocument()
+  })
+
+  it('tells a search that found nothing from a list with nothing in it', async () => {
+    const user = userEvent.setup()
+    open('sellers')
+    await screen.findByText('idle_seler')
+    await user.type(screen.getByRole('searchbox', { name: 'Search' }), 'zzz')
+    expect(screen.getByText('Nothing matches zzz.')).toBeInTheDocument()
+    expect(screen.queryByText('Nothing here yet.')).toBeNull()
+  })
+
   it("corrects a location's identifier, and leaves the sale code's own alone", async () => {
     const user = userEvent.setup()
     api.updateStorageLocation.mockResolvedValue({})

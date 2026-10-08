@@ -94,11 +94,9 @@ export default function PhotosPanel({
   // The photograph whose Move picker is open, and what it last refused.
   const [moving, setMoving] = useState(null)
   const [moveError, setMoveError] = useState('')
-  // Whether a drag carrying files is currently over the drop target, and
-  // what the last file dropped or pasted there was refused for -- a chosen
-  // file never fails this check (the file box already filters by
-  // `accept="image/*"`), so this only ever fires from a drop or a paste.
-  // A held photograph counts: two added at once are an obverse and a reverse.
+  // The roles already taken, by the filed photographs that are staying and
+  // by the held ones. A held photograph counts: two added at once are an
+  // obverse and a reverse.
   const held = new Set([
     ...shown.filter((row) => !leaving(row.edit)).map((row) => row.role),
     ...pending.map((entry) => entry.role),

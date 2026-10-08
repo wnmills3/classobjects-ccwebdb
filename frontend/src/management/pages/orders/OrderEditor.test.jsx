@@ -58,6 +58,15 @@ const setup = async (order = null) => {
   return { user, onSaved }
 }
 
+/** The editor rendered and loaded, with the element it was rendered into. */
+const setupIn = async (order = null) => {
+  const rendered = render(
+    <OrderEditor order={order} onSaved={vi.fn()} onClose={vi.fn()} />,
+  )
+  await screen.findByRole('combobox', { name: 'Customer' })
+  return rendered
+}
+
 describe('OrderEditor', () => {
   it('prefills an order being edited and shows the paid warning', async () => {
     await setup(ORDER)
@@ -185,5 +194,26 @@ describe('OrderEditor', () => {
     )
     fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
     await waitFor(() => expect(api.reviseOrder).toHaveBeenCalled())
+  })
+
+  it('underlines every Alt letter where it can be seen, each one once', async () => {
+    const { container } = await setupIn(ORDER)
+    const controls = [...container.querySelectorAll('[accesskey]')]
+    const letters = controls.map((control) => control.getAttribute('accesskey'))
+    expect(letters).toHaveLength(5)
+    expect(new Set(letters).size).toBe(letters.length)
+    expect(letters.filter((l) => 'def'.includes(l))).toEqual([])
+    for (const control of controls) {
+      const underlined = (control.closest('label') ?? control).querySelector('u')
+      expect(underlined?.textContent.toLowerCase()).toBe(
+        control.getAttribute('accesskey'),
+      )
+    }
+  })
+
+  it('says why a line has no availability when its listing cannot be read', async () => {
+    api.getCatalogItem.mockRejectedValue(new Error('Listing not found'))
+    await setup(ORDER)
+    expect(await screen.findByText('not known: Listing not found')).toBeInTheDocument()
   })
 })

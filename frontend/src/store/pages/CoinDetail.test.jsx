@@ -71,6 +71,20 @@ describe('CoinDetail', () => {
     expect(button).toBeDisabled()
   })
 
+  it('says a withdrawn listing is no longer for sale, and offers no way to add it', async () => {
+    // The detail endpoint serves a listing that was ended or paused with
+    // stock left, so a bookmarked page can say so. Its stock is not for
+    // sale: checkout refuses it.
+    api.getCatalogItem.mockResolvedValue({ ...COIN, is_active: false })
+    const cart = emptyCart()
+    show({ cart })
+
+    expect(await screen.findByText('No longer for sale.')).toBeInTheDocument()
+    expect(screen.queryByText('2 available')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Add to cart' })).toBeNull()
+    expect(cart.add).not.toHaveBeenCalled()
+  })
+
   it('reports a failed load rather than showing nothing', async () => {
     api.getCatalogItem.mockRejectedValue(new Error('that coin is not for sale'))
     show()

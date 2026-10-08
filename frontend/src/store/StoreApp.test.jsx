@@ -86,12 +86,12 @@ describe('shop shell', () => {
   // adminAuth() deliberately -- for an anonymous visitor a redirect to sign-in
   // would also satisfy "not found", so only an administrator seeing a 404
   // proves the route is absent rather than merely guarded.
-  it.each(['/admin/people', '/inventory/coins'])(
+  it.each(['/people', '/inventory/coins'])(
     'does not confirm that %s exists',
     (route) => {
       renderWithProviders(<StoreApp />, { auth: adminAuth(), route })
       expect(screen.getByText(/page not found/i)).toBeInTheDocument()
-      expect(screen.queryByText(/administrator privileges/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/privileges/i)).not.toBeInTheDocument()
     },
   )
 })

@@ -4,10 +4,10 @@ rem  Open psql against the development database.
 rem
 rem  Every argument is passed straight through to psql, so the usual flags work:
 rem
-rem    ccweb_psql                          interactive shell
-rem    ccweb_psql -c "select * from metal;"    run one statement
-rem    ccweb_psql -f query.sql                 run a file
-rem    ccweb_psql -c "\d inventory_item"       describe a table
+rem    .\scripts\ccweb_psql.cmd                              interactive shell
+rem    .\scripts\ccweb_psql.cmd -c "select * from metal;"    run one statement
+rem    .\scripts\ccweb_psql.cmd -f query.sql                 run a file
+rem    .\scripts\ccweb_psql.cmd -c "\d inventory_item"       describe a table
 rem
 rem  Defaults (localhost:5432, ccwebdb/ccwebdb, devpassword) match
 rem  backend\app\config.py's DATABASE_URL. Override any of them by setting

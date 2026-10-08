@@ -49,7 +49,7 @@ or ever sold.
 |---|---|---|
 | `cb_holdings` | Holdings | Kind x denomination: items, pieces, total cost; a subtotal row (`All <kind>`) after each kind's denominations, and an overall total. A row drills to that kind's search, narrowed to the denomination (or `missing=denomination`, where the kind can carry one and none is recorded); a subtotal row drills to the kind alone. |
 | `cb_designs` | Coins by design | Design series held, across every non-currency kind (currency's own design identity is the Friedberg number, not a series, so it is excluded rather than folded into "No series"): items, year span, total cost, with an overall total. Rows follow the series vocabulary's own order (then label), "No series" last. A row drills to the coin search narrowed to that series (or `missing=series`). |
-| `cb_notes` | Notes | Note type x series designation: items, seal colors present, Federal Reserve districts present, total cost, with an overall total; star notes and fancy serials counted from the attribute codes that mean them, when the vocabulary carries both (a note explains it when it does not). A row drills to the currency search narrowed to that note type and series designation, only when both are known. |
+| `cb_notes` | Notes | Note type x series designation: items, seal colors present, Federal Reserve districts present, total cost, with an overall total; star notes and fancy serials counted from the attribute codes that mean them, each column shown when the vocabulary carries its code (a note explains it when one is left out). A row drills to the currency search narrowed to that note type and series designation, only when both are known. |
 | `cb_grades` | Grades | View (Coins or Currency) x grade band (1-49, 50-59, 60-64, 65-70, or "No numeric grade") x strike type x grading service ("Raw" when none): items, total cost, with an overall total. A row's drill is decided from its own group-by key, never by running a search at report time: it is kept only when no other row would be swept into the same search, and omitted for a band with no numeric grade, since no search term states that band. |
 | `cb_metal` | Precious metal | Metal x form (Coin, a bullion form, or the kind's own label), over items with a recorded fine weight: items, fine troy ounces, total cost, and melt value at the latest recorded spot price. A metal with no recorded price contributes to items, ounces and cost but not melt; the melt total is empty (not zero) when nothing is priced, and a note names every metal left out. A row's drill, like `cb_grades`, is decided structurally, not by a run-time search; currency and a bullion row with no form are never drilled. |
 | `cb_attributes` | Attributes and errors | Every attribute and error type a live item carries, split by the view it was recorded on (an attribute or error type that applies to either kind is two rows, one per view): items; attributes first, then errors, each in its vocabulary's own order (then label). No total: an item can carry several at once. A row drills to that view's search narrowed to the attribute or error type. |
@@ -85,7 +85,7 @@ or ever sold.
 | `sl_fulfilment` | To ship | One row per order still open and unshipped -- `pending`, `paid` or `packed`, the open-order statuses the sales side itself uses (`sale_state`), stated as an included list so a future status is never swept in by default -- oldest first: customer, items, amount, days waiting. A row drills to `/sales`; an overall total. A deleted or split item is left out of its order's own item count; a note counts them when there are any. |
 | `sl_aging` | Held and not offered | Live items received and held, not on any active or paused listing and not an open member of a sales lot, by months since receipt (0-5, 6-11, 12-23, 24+, or "Unknown" when no receipt transition is found -- an item whose history holds only its opening row, which is not an arrival) x kind: items, total cost. A split child with no receipt of its own falls back to its split parent's. No drills; an overall total. A note counts the "Unknown" items when there are any. |
 | `sl_auctions` | Auctions | One row per auction, ordered by status (draft through settled, then cancelled): lots, sold, unsold (withdrawn counts as unsold), hammer total and fees -- shown only for a settled auction, since a closed one may carry a result mid-settlement. A row drills to `/auctions`. No totals row: the figures are not meaningful summed across different auctions and statuses. |
-| `sl_ready` | Ready to sell | One row per kind, over live items received and held (not listed, sold or shipped): the items, then how many have each of the four things a listing needs -- an own photograph (one filed against the item with no web address on record: a seller's listing picture does not count), a grade or weight (a grade on a coin or a note; a fine weight on bullion, a medal or a token; a set and any other kind needs neither), a storage location, and a total cost above zero -- and how many have all four. One grouped query, so `ready` never exceeds another column. A row drills to that kind's received items; the totals row adds the kinds. |
+| `sl_ready` | Ready to sell | One row per kind, over live items received and held (not listed, sold or shipped): the items, then how many have each of the four things a listing needs -- an own photograph (one filed against the item with no web address on record: a seller's listing picture does not count), a grade or weight (a grade on a coin or a note; a fine weight on bullion, a medal or a token; a set and any other kind needs neither), a storage location, and a total cost above zero -- and how many have all four. One grouped query, so `ready` never exceeds another column. A row drills to that kind's search narrowed to received and held, the items it counts; the totals row adds the kinds. |
 
 ### Money -- what it cost and what it is worth
 
@@ -227,11 +227,13 @@ and exits 2. Read-only, so no `--commit`.
   than silently running that parameter's default -- except a date parameter
   (`<input type=date>`), where emptying either From or To means no bound on
   that side: the field is simply left out of the request and the address,
-  not refused.
+  not refused. A dropdown whose value in the address is not one of its
+  choices starts at its default, so what it shows is what Run sends.
 - Columns sort in the browser (a report is at most a few thousand rows), a
   header click sorting ascending, then descending, then back to the report's
   own order. Money is shown with `money()` from the decimal string, never
-  parsed into a float.
+  parsed into a float; fine ounces are shown to three places, as the
+  workbook shows them, from the decimal string the same way.
 - Pressing Run on an unchanged form runs the report again. Beside the button
   the form says "Running..." while the request is out and then when the
   answer on screen was run ("Ran <time>"), since the same rows often come
@@ -317,8 +319,9 @@ its own.
 ## Out of scope
 
 Charts; scheduled or emailed reports; dashboards; a free-form query
-builder; a tax-return form of realized gain (`sl_sales` shows gain per item,
-but how fees and shipping are presented on a return is outside it); and
+builder; a tax-return form of realized gain (`sl_sales` works gain out per
+item and shows it by month and venue, but how fees and shipping are
+presented on a return is outside it); and
 snapshots over time, which need history the database does not keep.
 
 ## Decisions
@@ -340,8 +343,10 @@ snapshots over time, which need history the database does not keep.
 - Each report's `run` is tested against built data with a known answer,
   including a deleted and a split item that must not count, and an item of a
   kind a field does not apply to (`tests/test_reports_collection.py`,
-  `_data_quality`, `_purchasing`, `_selling`, `_money`; date ranges and
-  periods in `_dates`; the registry's ordering and refusals in `_registry`).
+  `_data_quality`, `_purchasing`, `_selling`, `_money`; `sl_ready` in
+  `_ready`; date ranges and periods in `_dates`; the period-by-vendor table
+  `pr_spend` and `mn_tax` share in `test_period_by_vendor.py`; the
+  registry's ordering and refusals in `_registry`).
 - The API (`test_reports_api.py`): catalog shape, a parameter default, a
   422, a 404, manager only; the workbook round-trips -- the sheet's rows
   equal the JSON's. The command line: `test_reports_cli.py`.
@@ -351,4 +356,6 @@ snapshots over time, which need history the database does not keep.
   and run time), and drills down.
 - Performance (`test_reports_performance.py`): every report runs against the
   test database and fails if any takes over a second -- a guard, not a
-  benchmark.
+  benchmark -- and fails if it sends more queries once the same collection
+  is built a second time beside the first, which is what one query per row
+  looks like.

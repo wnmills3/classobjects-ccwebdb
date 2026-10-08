@@ -153,7 +153,7 @@ describe('AddItem', () => {
     expect(await screen.findByRole('dialog')).toHaveTextContent('editing item 31')
   })
 
-  it("copies a coin's metal and mint, and none of a note's fields", async () => {
+  it("copies a coin's metal and mint as a person set them, and none of a note's fields", async () => {
     const user = userEvent.setup()
     renderRow()
     await user.type(screen.getByRole('textbox', { name: 'Title' }), 'A dollar')
@@ -183,6 +183,89 @@ describe('AddItem', () => {
         tax_includes_shipping: true,
       }),
     )
+  })
+
+  it('leaves what a rule filled on the last item for the rules to fill on the next', async () => {
+    const user = userEvent.setup()
+    renderRow()
+    await user.type(screen.getByRole('textbox', { name: 'Title' }), 'A dime')
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
+    await user.click(await screen.findByRole('button', { name: 'stub save' }))
+
+    api.getInventoryItem.mockResolvedValue({
+      id: 30,
+      item_kind: 'coin',
+      source_title: 'A dime',
+      denomination: 'usd_coin_0_10',
+      // Typed by a person: shared with the next piece.
+      mint: 'S',
+      // Filled from the year, which the next piece does not share. Sent as
+      // typed they would be held against the next piece's own year.
+      metal: 'silver',
+      series: 'roosevelt_dime',
+      derived: { metal_id: 'composition', series_id: 'series_classify' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Add another like CC-000030' }))
+
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenLastCalledWith({
+        purchase_order_id: 22,
+        item_kind: 'coin',
+        source_title: 'A dime',
+        denomination: 'usd_coin_0_10',
+        mint: 'S',
+        tax_rate: '0.0635',
+        tax_includes_shipping: true,
+      }),
+    )
+  })
+
+  it("leaves a note's Bank read from its serial, and copies the class typed", async () => {
+    const user = userEvent.setup()
+    renderRow()
+    await addNote(user)
+    await user.click(await screen.findByRole('button', { name: 'stub save' }))
+
+    api.getInventoryItem.mockResolvedValue({
+      id: 30,
+      item_kind: 'currency',
+      source_title: 'A note',
+      note_type: 'frn',
+      seal_color: 'green',
+      fed_district: 'F',
+      derived: { fed_district_id: 'serial_district', seal_color_id: 'note_issue' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Add another like CC-000030' }))
+
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenLastCalledWith({
+        purchase_order_id: 22,
+        item_kind: 'currency',
+        source_title: 'A note',
+        note_type: 'frn',
+        tax_rate: '0.0635',
+        tax_includes_shipping: true,
+      }),
+    )
+  })
+
+  it('starts the next piece as ordered when the last was marked missing', async () => {
+    const user = userEvent.setup()
+    renderRow()
+    await addNote(user)
+    await user.click(await screen.findByRole('button', { name: 'stub save' }))
+
+    api.getInventoryItem.mockResolvedValue({
+      id: 30,
+      item_kind: 'currency',
+      source_title: 'A note',
+      // Not a status an item can be entered with: the server refuses it.
+      status: 'missing',
+    })
+    await user.click(screen.getByRole('button', { name: 'Add another like CC-000030' }))
+
+    await waitFor(() => expect(api.createInventoryItem).toHaveBeenCalledTimes(2))
+    expect(api.createInventoryItem.mock.calls[1][0]).not.toHaveProperty('status')
   })
 
   it('removes an item whose editor was closed without a save', async () => {

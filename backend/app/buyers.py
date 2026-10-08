@@ -11,7 +11,10 @@ Uniqueness is enforced by the two partial indexes on `customer`
 `uq_customer_venue_undisclosed`), not by the lookup below: this function's
 SELECT-then-INSERT is inherently racy -- two concurrent sales to the same new
 buyer would both find nothing and both insert -- and it is the database
-indexes, not application-level locking, that make that safe.
+indexes, not application-level locking, that keep a second row out. The
+loser of that race is not turned into a reader of the winner's row: its
+insert fails with `IntegrityError`, which no caller maps, so that request
+ends as a 500 with nothing written and succeeds when repeated.
 """
 
 from __future__ import annotations
@@ -48,8 +51,8 @@ def venue_buyer(db: Session, venue: SalesVenue, username: str | None) -> Custome
     Matching ignores case and surrounding whitespace: platforms display the
     same account as `CoinFan88`, `coinfan88`, and ` coinfan88 ` with a
     transcription space, and the whitespace is not part of the account name.
-    See the module docstring for why this lookup does not need to be
-    race-safe on its own.
+    See the module docstring for what the indexes do for two lookups that
+    race, and what the loser of that race gets.
     """
     stored = buyer_name(username)
     query = select(Customer).where(Customer.sales_venue_id == venue.id)

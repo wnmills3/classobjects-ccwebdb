@@ -215,6 +215,48 @@ describe('Photos', () => {
     })
   })
 
+  it('picking another item drops the refusal, and its acknowledgement with it', async () => {
+    // The refusal named a listing on the first item. Carried over, "Link
+    // anyway" would acknowledge a listing on the second that nobody was shown.
+    const user = userEvent.setup()
+    api.listUnattachedImages.mockResolvedValue([unattached({ image_id: 7 })])
+    api.searchInventory.mockImplementation((view, params) =>
+      Promise.resolve({
+        view,
+        rows:
+          view === 'coins'
+            ? [
+                foundItem(
+                  params.item_code === 'C-200' ? { id: 43, item_code: 'C-200' } : {},
+                ),
+              ]
+            : [],
+      }),
+    )
+    api.attachImage.mockRejectedValueOnce(forSaleError()).mockResolvedValueOnce({})
+
+    renderWithProviders(<Photos />)
+
+    const row = (await screen.findAllByRole('listitem'))[0]
+    await pickItem(user, row)
+    await user.click(within(row).getByRole('button', { name: 'Link' }))
+    await within(row).findByRole('button', { name: /link anyway/i })
+
+    const code = within(row).getByLabelText('Item code')
+    await user.clear(code)
+    await user.type(code, 'C-200')
+    await user.click(within(row).getByRole('button', { name: 'Find' }))
+    await user.click(await within(row).findByRole('button', { name: /C-200/ }))
+
+    expect(within(row).queryByRole('button', { name: /link anyway/i })).toBeNull()
+    expect(within(row).queryByRole('alert')).toBeNull()
+    await user.click(within(row).getByRole('button', { name: 'Link' }))
+    expect(api.attachImage).toHaveBeenNthCalledWith(2, 7, {
+      inventoryItemId: 43,
+      acknowledgeForSale: false,
+    })
+  })
+
   it('a non-"For sale" failure shows an ordinary error and keeps the row', async () => {
     // Not a 409, and not the "For sale" prefix `sale_state.guard` always
     // uses -- this must take the plain error branch, never the refusal one.

@@ -124,5 +124,91 @@ def test_a_change_save_would_refuse_is_refused(
     assert "denomination" in bad.text
 
 
+def _undated_bar(client: TestClient, headers: dict[str, str], db: Session) -> int:
+    """The id of a bullion item entered as having no date at all."""
+    order = build_purchase_order(db, vendor_name="Preview Vendor", order_number="P-2")
+    made = client.post(
+        "/api/inventory",
+        json={
+            "purchase_order_id": order.id,
+            "item_kind": "bullion",
+            "source_title": "bar",
+            "no_date": True,
+        },
+        headers=headers,
+    )
+    assert made.status_code == 201, made.text
+    return int(made.json()["id"])
+
+
+def test_a_year_typed_on_a_piece_with_no_date_is_previewed_as_save_takes_it(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A year dates the piece, so Save clears `no_date`; the preview does too.
+
+    Left set beside the year, the flag breaks the database's own rule that a
+    piece with no date holds no year, and the preview would refuse a change
+    Save accepts.
+    """
+    item_id = _undated_bar(client, admin_headers, db)
+
+    for changes in ({"year_start": 2021}, {"no_date": False, "year_start": 2021}):
+        shown = client.post(
+            f"/api/inventory/{item_id}/preview",
+            json={"changes": changes},
+            headers=admin_headers,
+        )
+        assert shown.status_code == 200, (changes, shown.text)
+        body = shown.json()
+        assert (body["no_date"], body["year_start"], body["year_end"]) == (
+            False,
+            2021,
+            2021,
+        )
+
+    saved = client.patch(
+        f"/api/inventory/{item_id}", json={"year_start": 2021}, headers=admin_headers
+    )
+    assert saved.status_code == 200, saved.text
+
+
+def test_no_date_ticked_is_previewed_with_its_years_cleared(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    item_id = _new(client, admin_headers, db, "bullion")
+    dated = client.patch(
+        f"/api/inventory/{item_id}", json={"year_start": 2020}, headers=admin_headers
+    )
+    assert dated.status_code == 200, dated.text
+
+    shown = client.post(
+        f"/api/inventory/{item_id}/preview",
+        json={"changes": {"no_date": True, "year_start": None, "year_end": None}},
+        headers=admin_headers,
+    )
+
+    assert shown.status_code == 200, shown.text
+    body = shown.json()
+    assert (body["no_date"], body["year_start"], body["year_end"]) == (True, None, None)
+    # Nothing of it is written.
+    db.expire_all()
+    item = db.get_one(InventoryItem, item_id)
+    assert (item.no_date, item.year_start) == (False, 2020)
+
+
+def test_no_date_beside_a_year_is_refused_in_the_preview_as_save_refuses_it(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    item_id = _new(client, admin_headers, db, "bullion")
+
+    shown = client.post(
+        f"/api/inventory/{item_id}/preview",
+        json={"changes": {"no_date": True, "year_start": 2021}},
+        headers=admin_headers,
+    )
+
+    assert shown.status_code == 422, shown.text
+
+
 def test_a_preview_is_staff_only(client: TestClient) -> None:
     assert client.post("/api/inventory/1/preview", json={}).status_code == 401

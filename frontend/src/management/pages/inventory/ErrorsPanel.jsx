@@ -43,6 +43,12 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   // null means "not loaded yet"; the controlled mode never reads this and
   // renders through `value` instead.
   const [rows, setRows] = useState(null)
+  // Why the set could not be read, while it could not; and a count of the
+  // readings asked for, so "Try again" reads it once more. Until it has been
+  // read there is nothing to edit: every change sends the whole set, and one
+  // built up from nothing would replace the errors that were never seen.
+  const [unread, setUnread] = useState('')
+  const [reading, setReading] = useState(0)
   // Sticky for the editing session: this panel PUTs on every change, and an
   // acknowledgement asked per save would be asked on every keystroke-ish
   // action -- add a row, remove one, blur a note box -- which teaches an
@@ -77,16 +83,19 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
       })
       .catch((err) => {
         // A load failure must not leave the panel stuck showing "Loading...":
-        // an empty, editable set with the error message visible is the
-        // recoverable state, not a dead end.
-        if (cancelled) return
-        setError(err.message)
-        setRows([])
+        // the reason, and a way to read again, is the recoverable state.
+        if (!cancelled) setUnread(err.message)
       })
     return () => {
       cancelled = true
     }
-  }, [itemId, controlled])
+  }, [itemId, controlled, reading])
+
+  /** Read the set again after a reading that failed. */
+  function readAgain() {
+    setUnread('')
+    setReading((n) => n + 1)
+  }
 
   const list = controlled ? (value ?? []) : (rows ?? [])
 
@@ -97,7 +106,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   }
 
   /**
-   * PUTs the whole set. No-op in the controlled mode -- there is no item yet.
+   * PUTs the whole set. No-op in the controlled mode -- the caller sends it.
    *
    * No "still mounted?" guard (`useMounted`): both continuations only call
    * this panel's own `setError`, and React 19 makes a `setState` on an
@@ -139,15 +148,31 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
     )
   }
 
-  const loading = !controlled && rows === null
+  const loading = !controlled && rows === null && !unread
 
-  // The heading is inside the panel rather than at each of the three mount
-  // points, so every one of them says what this is: without it the panel reads
-  // as a stray dropdown whose only accessible name is the table's own name,
-  // `error_type`. `field` is the shape the item editor's other rows use (see
-  // AttributesField): the label in the first grid column, the controls in the
-  // second. In Receiving and the new-item form, where no `.edit-form` grid is
-  // in play, it lays out as a plain block, still labeled.
+  // The heading is inside the panel rather than at each of its mount points,
+  // so both say what this is: without it the panel reads as a stray dropdown
+  // whose only accessible name is the table's own name, `error_type`. `field`
+  // is the shape the item editor's other rows use (see AttributesField): the
+  // label in the first grid column, the controls in the second. In
+  // Receiving, where no `.edit-form` grid is in play, it lays out as a plain
+  // block, still labeled.
+  if (unread) {
+    return (
+      <div className="field errors-panel" data-help="errors">
+        <span>Errors</span>
+        <div className="error-body">
+          <p className="error">The errors could not be read: {unread}</p>
+          <button type="button" onClick={readAgain}>
+            Try again
+          </button>
+        </div>
+        <span />
+        <span />
+      </div>
+    )
+  }
+
   return (
     <div className="field errors-panel" data-help="errors">
       <span>Errors</span>

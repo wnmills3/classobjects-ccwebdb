@@ -167,8 +167,9 @@ def members_held(lot: SalesLot) -> list[SalesLotItem]:
     lot that has already **sold** must show: `offering_writes._end` releases
     every membership the moment a lot ends, so `open_members` answers "none"
     for exactly the lot a buyer is most likely to be looking at. The same
-    split already exists one module over: `order_writes._sync_shares`' update
-    branch had to stop asking `offered_items` for this reason.
+    split exists one module over: `order_writes._sync_shares`' update branch
+    reads the line's existing shares rather than `offered_items`, for this
+    reason.
 
     No history is invented by including released rows. A membership dropped
     during assembly is **deleted** by `remove_member`, never released, so

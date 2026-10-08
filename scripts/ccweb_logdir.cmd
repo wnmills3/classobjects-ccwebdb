@@ -7,9 +7,9 @@ rem  from the repo root, not from wherever the caller happens to stand, so
 rem  startup and shutdown always agree. LOGS is always absolute, with no
 rem  trailing backslash.
 rem
-rem  Called by ccweb_startup.cmd, ccweb_shutdown.cmd and ccweb_claude.cmd once
-rem  REPO is set. No
-rem  setlocal: setting the caller's LOGS is the point.
+rem  Called by ccweb_startup.cmd, ccweb_shutdown.cmd, ccweb_claude.cmd and
+rem  ccweb_backup.cmd once REPO is set. No setlocal: setting the caller's
+rem  LOGS is the point.
 rem ---------------------------------------------------------------------------
 if not defined CCWEB_LOG_DIR set "CCWEB_LOG_DIR=.\logs"
 pushd "%REPO%"

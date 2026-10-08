@@ -2,9 +2,10 @@
 
 An eBay purchase recorded without an order number cannot be found or
 checked against eBay. The purchase
-history -- workbooks from the "eBay Download History" Chrome extension, one per
-year, a row per line bought (OrderNumber, OrderDate, ItemID, Seller, ItemName,
-ItemPrice, ...) -- supplies both the order number and eBay's item id.
+history -- workbooks from the "eBay Purchase History Downloader" Chrome
+extension, one per year, a row per line bought (OrderNumber, OrderDate,
+ItemID, Seller, ItemName, ItemPrice, ...) -- supplies both the order number
+and eBay's item id.
 
 **The item id is the key, not the words.** Every one of those purchases links
 its eBay listing (`https://www.ebay.com/itm/<item id>`), and so do most items
@@ -25,7 +26,11 @@ What the pass does, all in one transaction:
    was split into are merged: their items move to one (the purchase already
    holding the number, else the oldest), the emptied ones are deleted, and each
    item keeps its own listing's id. A merged purchase's link becomes the
-   order's page on eBay.
+   order's page on eBay; a deleted purchase's notes are appended to the
+   survivor's, and its seller goes to a survivor that names none.
+
+A vendor is eBay by its host name (`is_ebay`); with none recorded the pass
+refuses rather than report nothing to do. Only live items are read.
 
 Every item whose order number or listing id changes gets a row in its History
 (`item_field_change`) under the person named by `--by`. Dry run by default;
@@ -53,21 +58,31 @@ from sqlalchemy.orm import Session
 
 from . import field_changes, pass_cli
 from .database import SessionLocal
-from .models import InventoryItem, PurchaseOrder, User, Vendor
+from .live import live_item
+from .models import InventoryItem, PurchaseOrder, Seller, Vendor
 
 __all__ = [
+    "ITEM_ID",
     "Line",
     "Plan",
     "apply",
+    "is_ebay",
     "item_id_of",
     "plan",
     "read_history",
+    "vendor_key",
 ]
 
-#: The vendor eBay purchases are recorded under.
+#: The name eBay purchases are usually recorded under. A vendor is eBay by
+#: `is_ebay`, whatever it is called.
 EBAY = "ebay.com"
+#: eBay's own host name, whatever the country: `ebay.com`, `www.ebay.co.uk`.
+#: The whole label, so a site whose name only contains the letters is not
+#: eBay.
+_EBAY_HOST = re.compile(r"(?:^|\.)ebay\.[a-z]{2,3}(?:\.[a-z]{2})?$")
 #: eBay's listing link: `/itm/<id>`, or `/itm/<title>/<id>` in older links.
-_ITEM_ID = re.compile(r"ebay\.[a-z.]+/itm/(?:[^/?#]*/)?(\d{9,15})", re.IGNORECASE)
+#: `app.listing_links` reads the same pattern.
+ITEM_ID = re.compile(r"ebay\.[a-z.]+/itm/(?:[^/?#]*/)?(\d{9,15})", re.IGNORECASE)
 #: An order's page on eBay, as a merged purchase links it.
 ORDER_PAGE = "https://order.ebay.com/ord/show?orderId={}"
 #: The history's columns this pass reads.
@@ -88,8 +103,28 @@ class Line:
 
 def item_id_of(url: str | None) -> str | None:
     """The eBay item id in a listing link, or None for any other link."""
-    match = _ITEM_ID.search(url or "")
+    match = ITEM_ID.search(url or "")
     return match.group(1) if match else None
+
+
+def vendor_key(vendor: Vendor) -> str:
+    """What a vendor is recognised by: its host, else its name, in lower case."""
+    return (vendor.host or vendor.name or "").strip().lower()
+
+
+def is_ebay(vendor: Vendor) -> bool:
+    """Whether the vendor is eBay: called `ebay`, or at one of eBay's hosts.
+
+    The one rule this pass and `app.listing_links` share, so a vendor
+    renamed in the console is eBay to both or to neither.
+    """
+    key = vendor_key(vendor)
+    return key == "ebay" or _EBAY_HOST.search(key) is not None
+
+
+def _ebay_vendor_ids(db: Session) -> list[int]:
+    """The ids of the vendors that are eBay."""
+    return [vendor.id for vendor in db.scalars(select(Vendor)) if is_ebay(vendor)]
 
 
 def _price(value: object) -> Decimal | None:
@@ -166,16 +201,19 @@ def plan(db: Session, lines: Sequence[Line]) -> Plan:
     for line in lines:
         out.order_dates.setdefault(line.order_number, line.ordered_on)
 
-    vendor_id = db.scalar(select(Vendor.id).where(Vendor.name == EBAY))
-    if vendor_id is None:
+    vendor_ids = _ebay_vendor_ids(db)
+    if not vendor_ids:
         return out
     purchases = db.scalars(
-        select(PurchaseOrder).where(PurchaseOrder.vendor_id == vendor_id)
+        select(PurchaseOrder).where(PurchaseOrder.vendor_id.in_(vendor_ids))
     ).all()
     items_of: dict[int, list[InventoryItem]] = defaultdict(list)
+    # Live items only: a deleted row, or a lot replaced by its pieces, may
+    # link a listing of another order and says nothing about this one.
     for item in db.scalars(
         select(InventoryItem).where(
-            InventoryItem.purchase_order_id.in_([p.id for p in purchases])
+            InventoryItem.purchase_order_id.in_([p.id for p in purchases]),
+            live_item(),
         )
     ):
         if item.purchase_order_id is not None:
@@ -218,6 +256,20 @@ def plan(db: Session, lines: Sequence[Line]) -> Plan:
     return out
 
 
+def _carry(survivor: PurchaseOrder, gone: PurchaseOrder) -> None:
+    """Keep on the survivor what only the purchase about to be deleted recorded.
+
+    Its notes are appended. Its seller goes to a survivor that names none; a
+    survivor with a seller of its own keeps it -- a purchase has one -- and
+    the review workbook names the other.
+    """
+    if survivor.seller_id is None:
+        survivor.seller_id = gone.seller_id
+    notes = (gone.notes or "").strip()
+    if notes and notes not in (survivor.notes or ""):
+        survivor.notes = f"{survivor.notes}\n{notes}" if survivor.notes else notes
+
+
 def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
     """Make the planned changes and log each item's; the caller commits.
 
@@ -258,7 +310,10 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
         ):
             old = db.get(PurchaseOrder, item.purchase_order_id)
             assert old is not None
-            if old.order_number != number:
+            # Every row moves with its purchase, or it would be orphaned;
+            # only a live one has a History anybody reads.
+            live = item.deleted_at is None and item.split_at is None
+            if live and old.order_number != number:
                 log(item.id, "order_number", old.order_number, number)
             if item.purchase_order_id != survivor_id:
                 item.purchase_order_id = survivor_id
@@ -274,6 +329,7 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
             for purchase_id in merged:
                 gone = db.get(PurchaseOrder, purchase_id)
                 assert gone is not None
+                _carry(survivor, gone)
                 # Expired first: a loaded `items` list would still hold the
                 # moved items, and deleting the purchase would then null their
                 # purchase -- SQLAlchemy's default for a parent's children.
@@ -321,12 +377,49 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
             " | ".join(i.source_title for i in items)[:300],
         ]
 
+    def merged_away(
+        survivor_id: int, merged: Sequence[int]
+    ) -> tuple[list[str], list[str]]:
+        """What the purchases merged into `survivor_id` hold that it does not.
+
+        The names of their sellers other than the survivor's own -- one of
+        which the merge can keep only where the survivor names none -- and
+        their notes, which it appends.
+        """
+        kept = db.get(PurchaseOrder, survivor_id)
+        sellers: list[str] = []
+        notes: list[str] = []
+        for purchase_id in merged:
+            gone = db.get(PurchaseOrder, purchase_id)
+            if gone is None:
+                continue
+            if gone.seller_id is not None and (
+                kept is None or gone.seller_id != kept.seller_id
+            ):
+                name = db.get_one(Seller, gone.seller_id).name
+                if name not in sellers:
+                    sellers.append(name)
+            if gone.notes and gone.notes.strip():
+                notes.append(gone.notes.strip())
+        return sellers, notes
+
     book = Workbook()
     sheet = book.active
     assert sheet is not None
     sheet.title = "Numbered"
-    sheet.append(["order number", "purchase", "merged from", "eBay date", "eBay items"])
+    sheet.append(
+        [
+            "order number",
+            "purchase",
+            "merged from",
+            "eBay date",
+            "eBay items",
+            "other sellers on the merged purchases",
+            "notes carried from them",
+        ]
+    )
     for number, (survivor, merged) in sorted(todo.orders.items()):
+        sellers, notes = merged_away(survivor, merged)
         sheet.append(
             [
                 number,
@@ -334,6 +427,8 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
                 ", ".join(map(str, merged)),
                 todo.order_dates.get(number),
                 " | ".join(line.name for line in by_order[number])[:300],
+                ", ".join(sellers),
+                " | ".join(notes),
             ]
         )
     left = book.create_sheet("Needs you")
@@ -371,8 +466,13 @@ def write_review(db: Session, todo: Plan, lines: Sequence[Line], path: Path) -> 
     book.save(path)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Report, or with --commit apply, the order numbers and listing ids."""
+def main(argv: Sequence[str] | None = None, *, db: Session | None = None) -> int:
+    """Report, or with --commit apply, the order numbers and listing ids.
+
+    `db` is the session to work in; run as a module, the application's own
+    `SessionLocal` is opened. A caller that already has a session -- the
+    tests, which must never let this open the live database -- passes it.
+    """
     parser = argparse.ArgumentParser(prog="ebay_orders", description=__doc__)
     parser.add_argument(
         "files", nargs="+", type=Path, help="purchase-history workbooks"
@@ -382,28 +482,48 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = pass_cli.parse_args(parser, argv)
 
     lines = read_history(args.files)
-    with SessionLocal() as db:
-        todo = plan(db, lines)
-        merged = sum(len(m) for _, m in todo.orders.values())
-        orders = len({x.order_number for x in lines})
-        print(f"history: {len(lines)} lines, {orders} orders")
-        print(f"listing ids to set: {len(todo.listing_ids)}")
-        print(f"orders to number: {len(todo.orders)}, merging {merged} purchases")
-        print(f"left for a person: {len(todo.unmatched)}")
-        print(f"stored numbers that disagree: {len(todo.disagreements)}")
-        if args.review:
-            write_review(db, todo, lines, args.review)
-            print(f"review workbook: {args.review}")
-        if not args.commit:
-            print(pass_cli.DRY_RUN)
-            return 0
-        user_id = db.scalar(select(User.id).where(User.email == args.by))
-        if user_id is None:
-            print(f"refused: no account {args.by}", file=sys.stderr)
-            return 2
-        for name, count in apply(db, todo, user_id).items():
-            print(f"  {name}: {count}")
-        db.commit()
+    if db is None:
+        with SessionLocal() as own:
+            return _run(own, args, lines)
+    return _run(db, args, lines)
+
+
+def _run(db: Session, args: argparse.Namespace, lines: Sequence[Line]) -> int:
+    """The report, and the changes when asked for, in one session.
+
+    Exit status: 0 for a dry run or a commit, 1 when no vendor is eBay, 2
+    when `--by` names no account.
+    """
+    # Said, not left to read as a report of nothing to do: with no eBay
+    # vendor every count below would be zero.
+    if not _ebay_vendor_ids(db):
+        print(
+            "refused: no eBay vendor is recorded (one named ebay, or whose "
+            "host or name is an eBay host such as ebay.com)",
+            file=sys.stderr,
+        )
+        return 1
+    todo = plan(db, lines)
+    merged = sum(len(m) for _, m in todo.orders.values())
+    orders = len({x.order_number for x in lines})
+    print(f"history: {len(lines)} lines, {orders} orders")
+    print(f"listing ids to set: {len(todo.listing_ids)}")
+    print(f"orders to number: {len(todo.orders)}, merging {merged} purchases")
+    print(f"left for a person: {len(todo.unmatched)}")
+    print(f"stored numbers that disagree: {len(todo.disagreements)}")
+    if args.review:
+        write_review(db, todo, lines, args.review)
+        print(f"review workbook: {args.review}")
+    if not args.commit:
+        print(pass_cli.DRY_RUN)
+        return 0
+    user_id = pass_cli.user_id_by_email(db, args.by)
+    if user_id is None:
+        print(f"refused: no account {args.by}", file=sys.stderr)
+        return 2
+    for name, count in apply(db, todo, user_id).items():
+        print(f"  {name}: {count}")
+    db.commit()
     return 0
 
 

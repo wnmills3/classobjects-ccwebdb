@@ -50,9 +50,8 @@ def test_designations(serial: str, expected: set[str]) -> None:
 def test_a_star_is_not_a_fancy_serial() -> None:
     """Two different questions on a grading form, and two different suffixes.
 
-    Sweeping stars into `fancy_serial` labeled all 189 of this collection's
-    star notes as fancy serials, which is a claim about their digits that
-    their digits do not support.
+    A star swept into `fancy_serial` would be a claim about the note's digits
+    that its digits do not support.
     """
     plain_star = analyse("A19472856*")
     assert plain_star == {"star"}
@@ -67,8 +66,8 @@ def test_short_serials_yield_no_pattern() -> None:
     """The eight-digit rule.
 
     "59" has two distinct digits, so a naive binary test calls it a binary
-    note. It is a truncated field, not a note. 43 of this collection's serials
-    are short, and reading patterns from them would invent designations.
+    note. It is a truncated field, not a note, and reading patterns from a
+    short serial would invent designations.
     """
     for serial in ("59", "887", "1791040", "99V7711"):
         assert is_incomplete(serial)
@@ -83,8 +82,8 @@ def test_a_short_serial_still_shows_its_star() -> None:
 def test_consecutive_is_never_derived() -> None:
     """It describes a run of notes, which one serial cannot show.
 
-    68 items carry it, recorded by a person who knew they bought a run. No
-    single serial could establish that, so this must not try.
+    It is recorded by a person who knows they bought a run. No single serial
+    could establish that, so this must not try.
     """
     for serial in ("A12345678B", "A00000001B", "M88888888"):
         assert "consecutive" not in analyse(serial)
@@ -95,11 +94,11 @@ def test_empty_serial_is_silent() -> None:
 
 
 def test_an_internal_letter_warns_rather_than_refusing() -> None:
-    """Usually a transposition, but the owner has shown it is not always.
+    """Usually a transposition, but not always.
 
-    S97535476A typed as S9753547A6 is the common case. But three notes in
-    this collection carry an internal letter and are correct as recorded, so
-    refusing outright would have blocked legitimate entry. It warns instead.
+    S97535476A typed as S9753547A6 is the common case. But a note can carry
+    an internal letter and be correct as recorded, so refusing outright would
+    block a legitimate serial. It warns instead.
     """
     from app.serial_patterns import check
 
@@ -109,7 +108,7 @@ def test_an_internal_letter_warns_rather_than_refusing() -> None:
 
 
 def test_short_and_high_serials_only_warn() -> None:
-    """Unusual is not impossible, and entry proceeds if the owner insists."""
+    """Unusual is not impossible: a short or a high serial is a warning."""
     from app.serial_patterns import check
 
     short = check("E9801342C")
@@ -147,10 +146,8 @@ def test_shape_rules_apply_to_us_notes_only() -> None:
     """A world note is not malformed for looking unlike a US one.
 
     Many national formats interleave letters and digits legitimately, so
-    applying the US shape to a Bank of Canada or Bundesbank note would refuse
-    a correct entry. The four malformed serials found in this collection came
-    from a lot described as "US or World Currency", which is how the question
-    arose.
+    applying the US shape to a Bank of Canada or Bundesbank note would fault
+    a correct serial.
     """
     from app.serial_patterns import check
 
@@ -162,7 +159,7 @@ def test_shape_rules_apply_to_us_notes_only() -> None:
 def test_pre_1928_notes_are_not_shape_checked() -> None:
     """Large-size and obsolete issues predate the convention.
 
-    CC-007305 is an 1852 $5 whose serial is S143r1 and is correct. The
+    An 1852 $5 can carry the serial S143r1 and be correct. The
     letters-at-the-ends rule arrived with small-size notes in 1928, so
     applying it 76 years early would condemn a genuine note.
     """

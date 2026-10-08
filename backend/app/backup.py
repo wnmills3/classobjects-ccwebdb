@@ -9,7 +9,7 @@ URL. Pointing it at another engine is a change of URL, not of code.
     python -m app.backup                          copy to a timestamped database
     python -m app.backup --to <url>               copy anywhere SQLAlchemy reaches
     python -m app.backup --list                   what copies exist
-    python -m app.backup --verify <name>          check a copy against the source
+    python -m app.backup --verify <name>          compare a copy's row counts
 
 **What portability does and does not buy.** Every row moves, in foreign-key
 order, and `Base.metadata.create_all` builds the schema on any dialect
@@ -41,15 +41,18 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     Column,
     MetaData,
     Table,
+    bindparam,
     create_engine,
     func,
     insert,
     inspect,
     select,
     text,
+    update,
 )
 from sqlalchemy.engine import Connection, Dialect, Engine, make_url
 from sqlalchemy.orm import Session
@@ -57,9 +60,31 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .models import Base
 
+__all__ = [
+    "CHUNK",
+    "MISSING",
+    "admin_engine",
+    "all_tables",
+    "compare",
+    "copy_rows",
+    "create_database",
+    "generated_columns",
+    "main",
+    "resync_sequence",
+    "run",
+    "stored_columns",
+    "timestamped_name",
+    "unmodelled_tables",
+]
+
 #: Rows copied per round trip. Large enough to be quick, small enough that a
 #: failure does not sit on one enormous uncommitted transaction.
 CHUNK = 1000
+
+#: Prefix of the parameter a JSON column's value is written through: a name
+#: of its own, so that the parameter can carry a type that keeps SQL NULL
+#: and JSON's null apart.
+_JSON_PARAMETER = "json_"
 
 
 def generated_columns(table: Table) -> list[Column[Any]]:
@@ -130,30 +155,73 @@ def copy_rows(
     """Every table, in foreign-key order, yielding what was written.
 
     `sorted_tables` is the topological order, so a row never arrives before
-    the row it references. Copying alphabetically would fail on the first
-    foreign key. The unmodelled tables come last: they reference modeled
-    ones, never the reverse.
+    the row it references in another table. Copying alphabetically would
+    fail on the first foreign key. The unmodelled tables come last: they
+    reference modeled ones, never the reverse.
+
+    Two things the order alone does not settle:
+
+    - **A row that points at a row of its own table** (a split item's
+      `parent_item_id`) may point at one that arrives later. Such a link is
+      written empty and filled once the whole table is in.
+    - **JSON's own `null` is not SQL NULL**, and both read back as Python's
+      `None`. Each JSON column is read together with whether it is SQL NULL,
+      and written so that each stays what it was.
     """
     with Session(source) as read, Session(target) as write:
         for table in tables if tables is not None else all_tables(source):
             columns = stored_columns(table)
             names = [c.name for c in columns]
+            jsons = [c for c in columns if isinstance(c.type, JSON)]
+            keys = list(table.primary_key.columns)
+            # Without a key there is no saying which row to fill in later.
+            own = sorted(
+                {f.parent.name for f in table.foreign_keys if f.column.table is table}
+                if keys
+                else ()
+            )
+            statement = insert(table).values(
+                {
+                    c.name: bindparam(
+                        _JSON_PARAMETER + c.name, type_=type(c.type)(none_as_null=True)
+                    )
+                    for c in jsons
+                    if isinstance(c.type, JSON)
+                }
+            )
+            links: list[tuple[list[Any], dict[str, Any]]] = []
             total = 0
             offset = 0
             while True:
                 rows = read.execute(
-                    select(*columns)
-                    .order_by(*table.primary_key.columns)
+                    select(*columns, *(c.is_(None) for c in jsons))
+                    .order_by(*keys)
                     .limit(CHUNK)
                     .offset(offset)
                 ).all()
                 if not rows:
                     break
-                write.execute(
-                    insert(table), [dict(zip(names, row, strict=True)) for row in rows]
-                )
+                records = []
+                for row in rows:
+                    record = dict(zip(names, row[: len(names)], strict=True))
+                    for column, is_sql_null in zip(
+                        jsons, row[len(names) :], strict=True
+                    ):
+                        value = record.pop(column.name)
+                        record[_JSON_PARAMETER + column.name] = (
+                            JSON.NULL if value is None and not is_sql_null else value
+                        )
+                    held = {n: record[n] for n in own if record[n] is not None}
+                    if held:
+                        links.append(([record[k.name] for k in keys], held))
+                        record.update(dict.fromkeys(held))
+                    records.append(record)
+                write.execute(statement, records)
                 total += len(rows)
                 offset += CHUNK
+            for key_values, held in links:
+                matches = [k == v for k, v in zip(keys, key_values, strict=True)]
+                write.execute(update(table).where(*matches).values(**held))
             write.commit()
             _resync_sequences(write, table)
             yield table.name, total
@@ -320,7 +388,9 @@ def main(argv: list[str] | None = None) -> int:
                 shown = "absent" if right == MISSING else f"{right:>8,}"
                 print(f"  {table:<28}source {left:>8,}   copy {shown:>8}")
             return 1
-        print(f"{args.verify} matches the source on every table")
+        # Counts are all this compares: a copy with the right number of rows
+        # and a wrong value in one of them is not found here.
+        print(f"{args.verify}: row counts match the source on every table")
         return 0
 
     print("copying...")

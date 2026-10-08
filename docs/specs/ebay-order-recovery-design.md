@@ -47,6 +47,12 @@ ones are deleted. Nothing but `inventory_item` points at a purchase. Each
 item keeps its own listing's id in `sellers_item_id`; the merged purchase's
 link becomes the order's page on eBay.
 
+What only a deleted purchase recorded is kept: its notes are appended to
+the surviving purchase's, and its seller is given to a survivor that has
+none. A survivor that already names another seller keeps its own -- a
+purchase has one -- and the review workbook names the other, with every
+note carried, for a person to settle.
+
 Deleting a purchase whose loaded `items` list still held the moved items
 would null their purchase -- SQLAlchemy's default for a parent's children --
 so the pass expires each purchase before deleting it and raises if any item
@@ -74,7 +80,14 @@ python -m app.ebay_orders FILE... [--review OUT.xlsx] [--commit --by EMAIL]
 
 **Dry run by default**: it prints what it would do and writes nothing.
 `--commit` writes, in one transaction, and requires `--by`, the email of the
-account the History rows name (an unknown account is refused, exit 2).
+account the History rows name, capitals aside (an unknown account is
+refused, exit 2).
+
+The eBay vendor is known by its host name -- `ebay.com`, `www.ebay.co.uk` --
+read from the vendor's host, else its name, the rule `app.listing_links`
+shares. With no such vendor the pass refuses (exit 1) rather than report
+that nothing is left to do. Only live items are read: a deleted row and a
+lot replaced by its pieces say nothing about an order.
 
 1. `plan` decides everything, writing nothing: listing ids to set, the order
    for each unnumbered eBay purchase (the one order its listings appear in,
@@ -87,7 +100,8 @@ account the History rows name (an unknown account is refused, exit 2).
 3. `--review` writes a workbook with three sheets: **Numbered**, **Needs
    you**, and **Numbers that disagree** (the stored number, eBay's number for
    its listing, and what each order held -- or "not in the history (a
-   typo?)").
+   typo?)"). **Numbered** also lists the sellers and notes of the purchases
+   each order merges.
 
 ## Settling a number that disagrees
 

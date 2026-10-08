@@ -51,7 +51,7 @@ def before_url() -> Iterator[str]:
 def test_each_seller_link_becomes_a_seller(before_url: str) -> None:
     engine = create_engine(before_url)
     with engine.begin() as conn:
-        # Decoy vendors first, so no purchase's id coincides with a seller's.
+        # Decoy vendors first, so the eBay vendor is not row 1 of its table.
         for name in ("decoy-a", "decoy-b", "decoy-c", "ebay.com"):
             conn.execute(
                 text(
@@ -69,6 +69,9 @@ def test_each_seller_link_becomes_a_seller(before_url: str) -> None:
             "P-3": "https://www.ebay.com/usr/coinhound",
             "P-4": "https://www.ebay.com/str/examplestore",
             "P-5": None,
+            # A store and a profile of one name: two links, so two sellers,
+            # and the second to be made is told apart by a number.
+            "P-6": "https://www.ebay.com/str/coinhound",
         }
         for number, link in links.items():
             conn.execute(
@@ -83,11 +86,11 @@ def test_each_seller_link_becomes_a_seller(before_url: str) -> None:
     _to(before_url, "head")
 
     with engine.connect() as conn:
-        sellers = conn.execute(
-            text("select name, store_url from seller order by name")
-        ).all()
-        assert [tuple(s) for s in sellers] == [
-            ("coinhound", "https://www.ebay.com/usr/coinhound"),
+        sellers = conn.execute(text("select name, store_url from seller")).all()
+        # Links are taken in their own order, so the store comes first.
+        assert sorted(tuple(s) for s in sellers) == [
+            ("coinhound", "https://www.ebay.com/str/coinhound"),
+            ("coinhound (2)", "https://www.ebay.com/usr/coinhound"),
             ("examplestore", "https://www.ebay.com/str/examplestore"),
             ("examplecoins", "https://www.ebay.com/usr/examplecoins"),
         ]
@@ -105,9 +108,10 @@ def test_each_seller_link_becomes_a_seller(before_url: str) -> None:
         assert named == {
             "P-1": "examplecoins",
             "P-2": "examplecoins",
-            "P-3": "coinhound",
+            "P-3": "coinhound (2)",
             "P-4": "examplestore",
             "P-5": None,
+            "P-6": "coinhound",
         }
         columns = {c["name"] for c in inspect(conn).get_columns("purchase_order")}
         assert "seller_url" not in columns

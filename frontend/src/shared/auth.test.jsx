@@ -7,9 +7,10 @@ vi.mock('./api', async (importOriginal) => ({
   loadTokens: vi.fn(),
   saveTokens: vi.fn(),
   clearTokens: vi.fn(),
+  onSignedOut: vi.fn(() => () => {}),
 }))
 
-import { ApiError, api, clearTokens, loadTokens, saveTokens } from './api'
+import { ApiError, api, clearTokens, loadTokens, onSignedOut, saveTokens } from './api'
 import { AuthProvider } from './auth'
 import { useAuth } from './auth-context'
 import { adminAuth, customerAuth } from '../test/helpers'
@@ -98,6 +99,33 @@ describe('AuthProvider', () => {
     )
     expect(api.login).toHaveBeenCalledWith('buyer@example.com', 'p')
     expect(auth.current.user).toEqual(BUYER)
+  })
+
+  it('shows nobody signed in once the session is refused mid-visit', async () => {
+    // The tokens expire, or the password is reset, while the page is open.
+    // A header still naming the account beside requests that all fail gives
+    // no way to the sign-in form short of a reload.
+    loadTokens.mockReturnValue({ access_token: 'a', refresh_token: 'r' })
+    api.me.mockResolvedValue(BUYER)
+    const auth = await mount()
+    expect(auth.current.user).toEqual(BUYER)
+
+    const signedOut = onSignedOut.mock.calls.at(-1)[0]
+    act(() => signedOut())
+
+    expect(auth.current.user).toBeNull()
+  })
+
+  it('stops listening for a refused session when it unmounts', async () => {
+    const stop = vi.fn()
+    onSignedOut.mockReturnValueOnce(stop)
+    loadTokens.mockReturnValue(null)
+    const { result, unmount } = renderHook(() => useAuth(), { wrapper: AuthProvider })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    unmount()
+
+    expect(stop).toHaveBeenCalledTimes(1)
   })
 
   it('clears the stored tokens on logout', async () => {

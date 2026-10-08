@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import httpx
-from app.models import Listing, SalesLot, SalesVenue
+import pytest
+from app.models import Listing, SalesLot, SalesLotItem, SalesVenue
 from fastapi.testclient import TestClient
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from tests.builders import ItemFactory
@@ -105,6 +107,68 @@ def test_membership_changes_need_the_current_version(
     )
     assert second.status_code == 409
     assert "changed" in second.json()["detail"].lower()
+
+
+def test_a_version_that_moves_before_the_lot_is_locked_is_a_conflict(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+    make_lot: Callable[..., SalesLot],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The token is compared with the row the lock granted, not the row loaded.
+
+    Two saves from the same loaded form can overlap: the second loads the lot
+    while the first still holds its row, so it reads the version both forms
+    carry, and then waits. `lot_writes` takes the row `FOR UPDATE` and
+    re-reads it, which hands the waiting request the *new* version -- so its
+    own UPDATE matches, and nothing but a comparison made after that lock can
+    tell it that the lot it was looking at has changed.
+
+    One connection cannot overlap two requests, so the first save is stood in
+    for by an UPDATE issued behind the session's back, between the router's
+    load and the lock -- `synchronize_session=False` is what leaves the
+    loaded copy holding the version the form sent, as a request that read
+    before the other committed would. The membership it asked for must not
+    be written.
+    """
+    from app.routers import lots as lots_router
+
+    joiner = make_item(title="Added from a form that has gone stale")
+    lot = make_lot([make_item(title="Already in the lot")])
+    db.commit()
+    loaded = lot.version
+
+    real_get = lots_router._get_lot
+
+    def load_then_lose_the_race(session: Session, lot_id: int) -> SalesLot:
+        """Load the lot, then move its version on as another save would."""
+        found = real_get(session, lot_id)
+        session.execute(
+            update(SalesLot)
+            .where(SalesLot.id == lot_id)
+            .values(version=SalesLot.version + 1)
+            .execution_options(synchronize_session=False)
+        )
+        return found
+
+    monkeypatch.setattr(lots_router, "_get_lot", load_then_lose_the_race)
+    response = client.patch(
+        f"/api/sales-lots/{lot.id}",
+        headers=admin_headers,
+        json={"version": loaded, "add_item_ids": [joiner.id]},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "changed by someone else" in response.json()["detail"]
+    db.expire_all()
+    assert (
+        db.scalars(
+            select(SalesLotItem.id).where(SalesLotItem.inventory_item_id == joiner.id)
+        ).all()
+        == []
+    )
 
 
 def test_editing_an_offered_lot_is_refused(
@@ -350,6 +414,50 @@ def test_an_assembling_lot_can_be_deleted_and_an_offered_one_cannot(
         client.get(f"/api/sales-lots/{spare['id']}", headers=admin_headers).status_code
         == 404
     )
+
+
+def test_deleting_an_assembling_lot_takes_its_memberships_with_it(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+    make_lot: Callable[..., SalesLot],
+) -> None:
+    """A discarded draft leaves no membership behind to hold its coins.
+
+    An empty lot cannot show this: with nothing in it, the delete succeeds
+    whether or not the memberships go too. Two members here, and the proof
+    that they went is the one that matters to an owner -- a coin from the
+    discarded lot joins another, which `uq_sales_lot_item_open` would refuse
+    while its old membership was still open.
+    """
+    members = [make_item(title=f"Drafted {index}") for index in range(2)]
+    lot = make_lot(members)
+    db.commit()
+    lot_id = lot.id
+
+    deleted = client.delete(f"/api/sales-lots/{lot_id}", headers=admin_headers)
+    assert deleted.status_code == 204, deleted.text
+
+    db.expire_all()
+    assert (
+        db.scalars(
+            select(SalesLotItem.id).where(SalesLotItem.sales_lot_id == lot_id)
+        ).all()
+        == []
+    )
+    fresh = client.post(
+        "/api/sales-lots", headers=admin_headers, json={"title": "Started again"}
+    ).json()
+    rejoined = client.patch(
+        f"/api/sales-lots/{fresh['id']}",
+        headers=admin_headers,
+        json={"version": fresh["version"], "add_item_ids": [members[0].id]},
+    )
+    assert rejoined.status_code == 200, rejoined.text
+    assert [row["inventory_item_id"] for row in rejoined.json()["members"]] == [
+        members[0].id
+    ]
 
 
 def test_an_item_cannot_be_added_and_removed_in_one_request(

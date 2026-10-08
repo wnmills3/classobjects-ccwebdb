@@ -52,6 +52,7 @@ from app.models import (
     ListingFormat,
     ListingStatus,
     ListingStatusHistory,
+    LocationHistory,
     SalesLot,
     SalesOrder,
     SalesOrderItem,
@@ -671,6 +672,71 @@ def test_returned_items_move_to_the_chosen_location(
     assert consigned_closed_auction.status is AuctionStatus.settled
 
 
+def test_every_returned_coin_is_stored_home_without_autoflush(
+    db: Session,
+    consigned_closed_auction: Auction,
+    drawer: StorageLocation,
+    admin_user: User,
+) -> None:
+    """Settlement's returns reach every coin's row, run as production runs.
+
+    `SessionLocal` (app/database.py) sets `autoflush=False`; the test session
+    does not. `settle` moves every coming-home coin through
+    `lifecycle_writes.set_location`, which assigns without flushing, and only
+    then ends each lot's offer, which locks that lot's item rows with
+    `populate_existing`. A move still pending when its rows are re-read is
+    discarded, so the first lot ended is the one that shows it -- both lots
+    are unsold here, and both coins are asserted.
+
+    Read back through a session of its own, so the location is the row as
+    committed. The history is read the same way: out to the house and back
+    to the drawer, the return recorded against whoever settled.
+    """
+    lots = lots_of(db, consigned_closed_auction)
+    coin_ids = [members_of(db, row)[0].id for row in lots]
+    consigned_ids = [members_of(db, row)[0].storage_location_id for row in lots]
+    assert len(coin_ids) == 2
+    assert None not in consigned_ids
+    drawer_id = drawer.id
+    admin_id = admin_user.id
+    db.flush()
+
+    db.autoflush = False
+    try:
+        settle(
+            db,
+            consigned_closed_auction,
+            lines=[SettlementLine(row.id, AuctionLotResult.unsold) for row in lots],
+            fees={},
+            settled_by=admin_user,
+            returned_to_location_id=drawer_id,
+        )
+        db.commit()
+    finally:
+        db.autoflush = True
+
+    with Session(bind=db.get_bind(), join_transaction_mode="create_savepoint") as fresh:
+        for coin_id, consigned_id in zip(coin_ids, consigned_ids, strict=True):
+            assert (
+                fresh.scalar(
+                    select(InventoryItem.storage_location_id).where(
+                        InventoryItem.id == coin_id
+                    )
+                )
+                == drawer_id
+            )
+            moves = fresh.scalars(
+                select(LocationHistory)
+                .where(LocationHistory.inventory_item_id == coin_id)
+                .order_by(LocationHistory.id)
+            ).all()
+            assert [move.storage_location_id for move in moves] == [
+                consigned_id,
+                drawer_id,
+            ]
+            assert moves[-1].moved_by_id == admin_id
+
+
 def test_consignment_is_cleared_even_when_every_lot_sold(
     db: Session, consigned_closed_auction: Auction, admin_user: User
 ) -> None:
@@ -1035,16 +1101,37 @@ def test_settling_an_auction_that_is_not_closed_is_refused(
 
 
 def test_a_line_naming_a_lot_from_another_auction_is_refused(
-    db: Session, closed_auction: Auction, ebay_auction: Auction, admin_user: User
+    db: Session,
+    closed_auction: Auction,
+    ebay_auction: Auction,
+    make_item: ItemFactory,
+    admin_user: User,
 ) -> None:
-    """The grid belongs to one sale; a stray id is a mis-posted form."""
-    lines = [
-        SettlementLine(row.id, AuctionLotResult.unsold)
-        for row in lots_of(db, closed_auction)
-    ]
-    lines.append(SettlementLine(9_999_999, AuctionLotResult.unsold))
-    with pytest.raises(AuctionRefused, match="9999999"):
+    """The grid belongs to one sale; a stray id is a mis-posted form.
+
+    The stray id is a **real** lot, of another auction: an id no lot wears
+    would be refused just the same by a check that only asked whether the
+    lot exists, which is the wrong question.
+    """
+    elsewhere = add_lot(
+        db,
+        ebay_auction,
+        priced_item(make_item, "Another sale's lot", Decimal("100.00")),
+        lot_number="1",
+        reserve=None,
+        price=Decimal("10.00"),
+    )
+    own = lots_of(db, closed_auction)
+    assert elsewhere.id not in {row.id for row in own}
+    lines = [SettlementLine(row.id, AuctionLotResult.unsold) for row in own]
+    lines.append(SettlementLine(elsewhere.id, AuctionLotResult.unsold))
+    with pytest.raises(
+        AuctionRefused,
+        match=rf"lot id {elsewhere.id} is not in auction #{closed_auction.id}",
+    ):
         settle(db, closed_auction, lines=lines, fees={}, settled_by=admin_user)
+    db.expire_all()
+    assert db.get_one(AuctionLot, elsewhere.id).result is None
 
 
 def test_fees_for_a_buyer_who_bought_nothing_are_refused(

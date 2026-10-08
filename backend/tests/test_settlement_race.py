@@ -43,7 +43,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from app import auctions
+from app import auctions, lot_writes
 from app.auctions import AuctionRefused, SettlementInputInvalid, SettlementLine
 from app.models import (
     Auction,
@@ -1204,3 +1204,179 @@ def test_consigning_an_auction_races_cancelling_it(
             else:
                 # They never left: a build_item coin has no location at all.
                 assert item.storage_location_id is None, item_id
+
+
+def _auction_of_lots_added_newest_first(
+    factory: sessionmaker[Session], venue_id: int, *, lot_count: int
+) -> tuple[int, list[int]]:
+    """A scheduled auction whose lot order runs against its sales lots' ids.
+
+    Returns `(auction_id, item_ids)`. Every sales lot is assembled first, one
+    coin each, so their ids ascend in the order they were made; they are then
+    added to the auction **newest first**, so ascending `auction_lot.id` is
+    descending `sales_lot.id`. That is an ordinary thing to do from the Lots
+    page -- nothing ties the order lots are assembled in to the order they
+    are catalogued in -- and it is the only shape in which a writer walking
+    the auction's lots one at a time takes `sales_lot` rows in a different
+    order from a writer that takes them all in one ascending statement.
+    """
+    with factory() as session:
+        venue = session.get_one(SalesVenue, venue_id)
+        auction = Auction(
+            sales_venue_id=venue.id,
+            title="RACE cancellation sale",
+            external_id="RACE-2026-10",
+        )
+        session.add(auction)
+        session.flush()
+        lots: list[SalesLot] = []
+        item_ids: list[int] = []
+        for number in range(1, lot_count + 1):
+            item = build_item(
+                session,
+                title=RACE_TITLE,
+                item_cost=Decimal("100.00"),
+                tax_rate=Decimal("0"),
+            )
+            lot = lot_writes.create_lot(session, title=f"RACE lot {number}")
+            lot_writes.add_member(session, lot, item)
+            lots.append(lot)
+            item_ids.append(item.id)
+        for number, lot in enumerate(reversed(lots), start=1):
+            auctions.add_lot(
+                session,
+                auction,
+                lot,
+                lot_number=str(number),
+                reserve=None,
+                price=Decimal("10.00"),
+            )
+        auctions.schedule(session, auction)
+        session.commit()
+        return auction.id, item_ids
+
+
+def test_cancelling_an_auction_races_a_receipt_across_its_lots(
+    committed: sessionmaker[Session],
+) -> None:
+    """Cancel an auction while a receipt names a coin from every lot: no 500.
+
+    The receipt takes its rows in one `offering_writes.lock_for_sale` pass --
+    every `sales_lot` row in one ascending statement, then the items, then
+    the listings. A cancellation that reached the same rows one lot at a
+    time, in `auction_lot` order, would be holding the newest sales lot's
+    rows while asking for an older one, against a receipt holding the older
+    ones and waiting for the newest: N sorted statements are not a sorted
+    acquisition (`docs/specs/lock-order-design.md`). `cancel` takes every
+    coin in the auction in one pass before it removes anything, as `settle`
+    does, and this is what measures it.
+
+    Two outcomes are legal and both are asserted. The receipt first: it
+    holds the rows, finds live auction lots and is refused with a 409, and
+    the cancellation follows. The cancellation first: every offer is over by
+    the time the receipt's locks are granted, so the coins are recorded
+    missing. Neither is a deadlock.
+
+    The failure this guards against is by likelihood, not by construction: a
+    cancellation that finishes before the receipt asks for its first row
+    never overlaps. Six lots, added newest first, are what make an overlap
+    the usual case rather than the rare one.
+    """
+    venue_id = _house_venue(committed, f"{RACE_PREFIX}-receipt")
+    admin_id = _admin(committed)
+    auction_id, item_ids = _auction_of_lots_added_newest_first(
+        committed, venue_id, lot_count=6
+    )
+    barrier = threading.Barrier(2)
+
+    def cancel_it() -> Outcome:
+        """Cancel the auction, in a session of its own; how it ended."""
+        with committed() as session:
+            try:
+                auction = session.get_one(Auction, auction_id)
+                barrier.wait(timeout=10)
+                auctions.cancel(session, auction)
+                session.commit()
+                return "cancelled"
+            except AuctionRefused:
+                session.rollback()
+                return "cancel_refused"
+            except OfferRefused:
+                session.rollback()
+                return "offer_refused"
+            except LockSetChanged:
+                session.rollback()
+                return "lock_set_changed"
+            except OperationalError:
+                session.rollback()
+                return "deadlock"
+            except IntegrityError:
+                session.rollback()
+                return "integrity_error"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    def mark_them_missing() -> Outcome:
+        """Record every coin as missing, through the receiving route."""
+        with committed() as session:
+            try:
+                operator = session.get_one(User, admin_id)
+                payload = ReceiveRequest(
+                    item_ids=item_ids,
+                    outcome="missing",
+                    acknowledge_for_sale=True,
+                )
+                barrier.wait(timeout=10)
+                receive_items(payload, session, operator)
+                return "marked"
+            except HTTPException:
+                session.rollback()
+                return "refused"
+            except LockSetChanged:
+                session.rollback()
+                return "lock_set_changed"
+            except OperationalError:
+                session.rollback()
+                return "deadlock"
+            except IntegrityError:
+                session.rollback()
+                return "integrity_error"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(cancel_it)
+        second = pool.submit(mark_them_missing)
+        outcomes = sorted([first.result(), second.result()])
+
+    assert "deadlock" not in outcomes, outcomes
+    assert "stale" not in outcomes, outcomes
+    assert "lock_set_changed" not in outcomes, outcomes
+    assert outcomes in (["cancelled", "marked"], ["cancelled", "refused"]), outcomes
+
+    with committed() as verify:
+        assert verify.get_one(Auction, auction_id).status is AuctionStatus.cancelled
+        assert (
+            verify.scalar(
+                select(AuctionLot.id).where(AuctionLot.auction_id == auction_id)
+            )
+            is None
+        )
+        listings = list(
+            verify.scalars(
+                select(Listing).where(
+                    Listing.sales_lot_id.in_(
+                        select(SalesLotItem.sales_lot_id).where(
+                            SalesLotItem.inventory_item_id.in_(item_ids)
+                        )
+                    )
+                )
+            ).all()
+        )
+        assert len(listings) == 6, listings
+        assert {listing.status for listing in listings} == {ListingStatus.ended}
+        expected = "missing" if "marked" in outcomes else "received"
+        for item_id in item_ids:
+            assert verify.get_one(InventoryItem, item_id).status.code == expected

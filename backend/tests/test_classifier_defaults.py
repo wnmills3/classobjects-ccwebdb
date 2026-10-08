@@ -886,3 +886,106 @@ def test_an_emptied_series_stays_empty(
     match_series(db, commit=True)
     db.refresh(dime)
     assert dime.series_id is None
+
+
+def test_an_emptied_class_is_not_reported_as_undecided(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    """One class is possible and a person left it empty: nothing to decide."""
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    note = _note(db, make_item, "usd_note_1", 1957)
+    run(db, commit=True)
+    response = client.patch(
+        f"/api/inventory/{note.id}", json={"note_type": None}, headers=admin_headers
+    )
+    assert response.status_code == 200, response.text
+
+    assert [reason for reason, _ in review_cases(db, note)] == []
+    assert _detail(db, note).note_type_id is None
+
+
+# -- coins: years struck in two compositions ----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("denomination", "year"),
+    [
+        # Copper-nickel clad for circulation, 40% silver for collectors.
+        ("usd_coin_1_00", 1971),
+        ("usd_coin_1_00", 1976),
+        # The ordinary alloy for most of the year, the wartime one after.
+        ("usd_coin_0_05", 1942),
+    ],
+)
+def test_a_year_struck_in_two_compositions_gets_no_default(
+    db: Session, make_item: ItemFactory, denomination: str, year: int
+) -> None:
+    coin = make_item(
+        title="Plain coin",
+        denomination_id=code_id(db, Denomination, denomination),
+        year_start=year,
+    )
+
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert coin.composition_id is None
+    assert coin.fine_weight_ozt is None
+    assert "composition" not in derived_fields(db, coin.id).values()
+
+
+def test_a_wartime_five_cent_piece_of_a_single_alloy_year_is_silver(
+    db: Session, make_item: ItemFactory
+) -> None:
+    coin = make_item(
+        title="Plain coin",
+        denomination_id=code_id(db, Denomination, "usd_coin_0_05"),
+        year_start=1943,
+    )
+
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert coin.fineness == Decimal("0.3500")
+    assert derived_fields(db, coin.id)["fineness"] == "composition"
+
+
+# -- coins: a fine weight both taken back and worked out ----------------------
+
+
+def test_a_fine_weight_the_composition_loses_is_worked_out_in_the_same_save(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    """Gross weight and fineness are the person's, so a fine weight follows.
+
+    The composition's fine weight goes with the composition; what replaces
+    it is the two typed values multiplied, in that save and not the next.
+    """
+    dime = _dime(
+        db,
+        make_item,
+        1964,
+        gross_weight_ozt=Decimal("0.080376"),
+        fineness=Decimal("0.9000"),
+    )
+    run(db, commit=True)
+    db.refresh(dime)
+    assert derived_fields(db, dime.id)["fine_weight_ozt"] == "composition"
+
+    response = client.patch(
+        f"/api/inventory/{dime.id}",
+        json={"year_start": 1960, "year_end": 1970},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    db.refresh(dime)
+    assert dime.composition_id is None
+    assert dime.fine_weight_ozt == Decimal("0.072338")
+    assert derived_fields(db, dime.id) == {"fine_weight_ozt": "weight"}

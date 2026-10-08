@@ -7,7 +7,7 @@ without writing history, which is why these are the only writers.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 from app.lifecycle_writes import record_initial_status, set_location, set_status
 from app.models import (
@@ -181,6 +181,58 @@ def test_bulk_editing_the_status_through_the_api_records_it_per_item(
         assert rows[-1].changed_by_id is not None
 
 
+def test_a_deleted_item_cannot_be_received(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A row that should never have existed does not arrive.
+
+    All or nothing: the live item sent with it is not received either, and
+    no history is written for either.
+    """
+    ordered = _status_id(db, "ordered")
+    deleted = build_bare_item(
+        db, status_id=ordered, deleted_at=datetime(2026, 1, 1, tzinfo=UTC)
+    )
+    live = build_bare_item(db, status_id=ordered)
+
+    refused = client.post(
+        "/api/inventory/receive",
+        json={"item_ids": [live.id, deleted.id], "outcome": "received"},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 404, refused.text
+    assert str(deleted.id) in refused.json()["detail"]
+    db.expire_all()
+    assert (deleted.status_id, live.status_id) == (ordered, ordered)
+    assert (
+        db.scalars(
+            select(ItemStatusHistory.id).where(
+                ItemStatusHistory.inventory_item_id.in_([deleted.id, live.id])
+            )
+        ).all()
+        == []
+    )
+
+
+def test_an_unknown_field_in_a_receipt_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A misspelt `arrived_on` would record a receipt with no arrival date."""
+    ordered = _status_id(db, "ordered")
+    item = build_bare_item(db, status_id=ordered)
+
+    refused = client.post(
+        "/api/inventory/receive",
+        json={"item_ids": [item.id], "outcome": "received", "arived_on": "2026-09-04"},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 422, refused.text
+    db.expire_all()
+    assert item.status_id == ordered
+
+
 def test_no_item_lacks_history_across_every_creation_path_a_test_can_drive(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
@@ -197,7 +249,7 @@ def test_no_item_lacks_history_across_every_creation_path_a_test_can_drive(
     """
     order = build_purchase_order(db, vendor_name="Lifecycle Test Vendor")
 
-    client.post(
+    entered = client.post(
         "/api/inventory",
         json={
             "purchase_order_id": order.id,
@@ -210,6 +262,8 @@ def test_no_item_lacks_history_across_every_creation_path_a_test_can_drive(
         },
         headers=admin_headers,
     )
+    # An entry that was refused would leave only the split path exercised.
+    assert entered.status_code == 201, entered.text
 
     # `parent` is test scaffolding built directly with `build_bare_item`, which
     # deliberately bypasses these helpers so tests can set up arbitrary

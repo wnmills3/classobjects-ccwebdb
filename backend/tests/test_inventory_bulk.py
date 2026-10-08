@@ -88,18 +88,57 @@ def test_one_bad_id_changes_nothing(
 def test_one_bad_code_changes_nothing(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
+    """The good field sent beside the bad code is not applied either."""
     items = [build_bare_item(db, year_start=1878) for _ in range(3)]
 
     response = client.post(
         "/api/inventory/bulk",
-        json={"ids": [i.id for i in items], "changes": {"grade": "NOT_A_GRADE"}},
+        json={
+            "ids": [i.id for i in items],
+            "changes": {"year_start": 1964, "grade": "NOT_A_GRADE"},
+        },
         headers=admin_headers,
     )
 
     assert response.status_code == 422
+    db.expire_all()
     for item in items:
-        db.refresh(item)
-        assert item.year_start == 1878
+        assert item.year_start == 1878, "a rejected bulk edit must apply nothing"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("mint", "S"),
+        ("variety", "VAM-3"),
+        ("cert_numbers", ["9900001"]),
+        ("base", {"year_start": 1878}),
+    ],
+)
+def test_a_field_a_bulk_edit_cannot_set_is_refused_by_name(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    field: str,
+    value: object,
+) -> None:
+    """Refused, not dropped: a 200 would report a change that was never made.
+
+    A coin's mint and variety, an item's certificates and the merge's `base`
+    are a single edit's; nothing in a bulk edit writes them.
+    """
+    item = build_bare_item(db, year_start=1878)
+
+    response = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [item.id], "changes": {"year_start": 1964, field: value}},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert field in response.json()["detail"]
+    db.expire_all()
+    assert item.year_start == 1878, "nothing sent with the refused field is applied"
 
 
 def test_bulk_nulling_a_required_classifier_is_refused_naming_the_field(

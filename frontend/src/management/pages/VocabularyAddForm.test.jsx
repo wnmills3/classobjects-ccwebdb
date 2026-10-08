@@ -146,13 +146,17 @@ describe('Adding a value to a vocabulary', () => {
 
     await user.click(screen.getByRole('button', { name: 'Add a value...' }))
     await user.type(screen.getByLabelText('Label'), ' Three Cents ')
-    // Its own columns are required: a label alone adds nothing.
+    // Its own columns are required: a label alone adds nothing, and the
+    // button says which one it is waiting for.
     expect(addButton()).toBeDisabled()
+    expect(screen.getByText('Currency is needed first.')).toBeVisible()
 
     await user.selectOptions(screen.getByLabelText('currency'), 'USD')
     await user.type(screen.getByLabelText('Face value'), '0.03')
     expect(addButton()).toBeDisabled()
+    expect(screen.getByText('Kind is needed first.')).toBeVisible()
     await user.selectOptions(screen.getByLabelText('Kind'), 'coin')
+    expect(screen.queryByText(/is needed first/)).toBeNull()
     await user.type(screen.getByLabelText('Position (optional)'), '15')
     await user.click(addButton())
 
@@ -295,8 +299,9 @@ describe('Adding a value to a vocabulary', () => {
     expect(screen.getByLabelText('Face value')).toHaveValue('0.0500')
     expect(screen.getByLabelText('Kind')).toHaveValue('coin')
     const save = screen.getByRole('button', { name: 'Save details' })
-    // Nothing changed yet: nothing to save.
+    // Nothing changed yet: nothing to save, and it says so.
     expect(save).toBeDisabled()
+    expect(screen.getByText('Nothing is changed yet.')).toBeVisible()
 
     await user.selectOptions(screen.getByLabelText('Kind'), 'note')
     await user.click(save)

@@ -112,7 +112,7 @@ if not defined REST (
 exit /b %ERRORLEVEL%
 
 rem ---------------------------------------------------------------------------
-rem  :waitpg <max seconds>  - poll until PostgreSQL accepts connections
+rem  :waitpg <max tries>  - poll until PostgreSQL accepts connections
 rem
 rem  PostgreSQL is started through `start`, into a console of its own, because
 rem  it must outlive this window and the Claude Code session run from it. The

@@ -319,6 +319,68 @@ def test_a_missing_outcome_with_a_location_writes_neither(
     assert rows == []
 
 
+def test_an_arrival_date_is_kept_only_for_a_receipt(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A parcel written off as missing did not arrive on any day.
+
+    `arrived_on` sent beside another outcome is dropped, not stored: the
+    history row would otherwise date an arrival that never happened.
+    """
+    item = _ordered(db)
+    res = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_ids": [item.id],
+            "outcome": "missing",
+            "arrived_on": "2026-09-04",
+        },
+        headers=admin_headers,
+    )
+    assert res.status_code == 200, res.text
+
+    db.expire_all()
+    row = db.scalars(
+        select(ItemStatusHistory)
+        .where(ItemStatusHistory.inventory_item_id == item.id)
+        .order_by(ItemStatusHistory.id.desc())
+    ).first()
+    assert row is not None
+    assert (
+        row.to_status_id
+        == db.scalars(select(ItemStatus.id).where(ItemStatus.code == "missing")).one()
+    )
+    assert row.arrived_on is None
+
+
+def test_an_unknown_location_is_refused_whatever_the_outcome(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The location is checked even where it would not be used.
+
+    A request naming a place that does not exist is wrong as sent, and
+    nothing of it is written -- for `missing` as for `received`.
+    """
+    ordered_id = db.scalars(
+        select(ItemStatus.id).where(ItemStatus.code == "ordered")
+    ).one()
+    for outcome in ("received", "missing"):
+        item = _ordered(db)
+        res = client.post(
+            "/api/inventory/receive",
+            json={
+                "item_ids": [item.id],
+                "outcome": outcome,
+                "storage_location_id": 10_000_000,
+            },
+            headers=admin_headers,
+        )
+        assert res.status_code == 422, (outcome, res.text)
+        assert "10000000" in res.text
+        db.expire_all()
+        assert db.get_one(type(item), item.id).status_id == ordered_id
+
+
 def test_a_customer_cannot_receive(
     client: TestClient, customer_headers: dict[str, str], db: Session
 ) -> None:

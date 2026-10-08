@@ -28,9 +28,16 @@ export default function VocabularyDetailsForm({
   const [saving, setSaving] = useState(false)
 
   const changed = fields.filter((field) => draft[field.name] !== before[field.name])
-  const ready =
-    changed.length > 0 &&
-    fields.every((field) => !field.required || filled(field, draft[field.name]))
+  const missing = fields.find(
+    (field) => field.required && !filled(field, draft[field.name]),
+  )
+  // What Save is waiting for, said beside it; '' once it can be sent.
+  const waiting = missing
+    ? `${missing.label} is needed.`
+    : changed.length === 0
+      ? 'Nothing is changed yet.'
+      : ''
+  const ready = waiting === ''
 
   async function save(e) {
     e.preventDefault()
@@ -83,6 +90,7 @@ export default function VocabularyDetailsForm({
         <button type="button" className="link" onClick={onCancel}>
           Cancel
         </button>
+        {waiting && <span className="muted">{waiting}</span>}
       </div>
     </form>
   )

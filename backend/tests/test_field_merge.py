@@ -134,6 +134,52 @@ def test_numbers_compare_as_numbers_not_text(
     assert response.status_code == 200, response.text
 
 
+def test_an_identifier_is_compared_as_text_not_as_a_number(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A seller's item id `0123` is not `123`: a leading zero is part of it.
+
+    Read as numbers the two are equal, so a change someone else made to the
+    same field would not be seen as one and this save would overwrite it.
+    """
+    item = build_bare_item(db, sellers_item_id="012345")
+    mine = _open(client, admin_headers, item)
+    theirs = _open(client, admin_headers, item)
+    first = _save(client, admin_headers, theirs, {"sellers_item_id": "12345"})
+    assert first.status_code == 200, first.text
+
+    response = _save(client, admin_headers, mine, {"sellers_item_id": "0012345"})
+
+    assert response.status_code == 409, response.text
+    [conflict] = response.json()["conflicts"]
+    assert (conflict["was"], conflict["theirs"], conflict["yours"]) == (
+        "012345",
+        "12345",
+        "0012345",
+    )
+    db.expire_all()
+    stored = db.get(InventoryItem, item.id)
+    assert stored is not None
+    assert stored.sellers_item_id == "12345"
+
+
+def test_text_that_reads_as_not_a_number_still_equals_itself(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """`NaN` as a number is unequal to itself; as a title it is just a title.
+
+    Sent back unchanged beside a real change, it must not be a conflict.
+    """
+    item = build_bare_item(db, source_title="NaN", description="as bought")
+    opened = _open(client, admin_headers, item)
+
+    response = _save(
+        client, admin_headers, opened, {"source_title": "NaN", "description": "x"}
+    )
+
+    assert response.status_code == 200, response.text
+
+
 def test_base_must_cover_every_field_sent(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

@@ -14,7 +14,6 @@ vi.mock('../../api', () => ({
 
 import { api } from '../../api'
 import FriedbergLookup from './FriedbergLookup'
-import { webSearchText } from './webSearchText'
 import { emptyReference, renderWithProviders } from '../../../test/helpers'
 
 // Obviously synthetic, per `docs/reference-data.md` -- these codes and
@@ -581,50 +580,64 @@ describe('FriedbergLookup', () => {
   })
 })
 
-describe('webSearchText', () => {
-  const labels = {
-    denomination: { usd_note_1: '$1 Bill' },
-    note_type: { frn: 'Federal Reserve Note' },
-    fed_district: { B: 'B - New York' },
-    signature_combination: { granahan_fowler: 'Granahan / Fowler' },
-  }
+describe('FriedbergLookup: a series year that is not a number', () => {
+  const REFUSAL = /is not a series year/i
 
-  it('reads as a listing does: series, bill, type, city, signers', () => {
-    expect(
-      webSearchText(
-        {
-          seriesYear: '1963',
-          seriesLetter: 'A',
-          denomination: 'usd_note_1',
-          noteType: 'frn',
-          district: 'B',
-          signatureCombination: 'granahan_fowler',
-        },
-        labels,
-      ),
-    ).toBe(
-      'What is the Friedberg number for Series 1963-A $1 Federal Reserve Note New York Granahan Fowler?',
-    )
+  it('does not look it up, and says why', async () => {
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.type(screen.getByLabelText(/series year/i), '1963A')
+
+    const lookUp = screen.getByRole('button', { name: /^look up$/i })
+    expect(lookUp).toBeEnabled()
+    await userEvent.click(lookUp)
+
+    expect(await screen.findByText(REFUSAL)).toBeInTheDocument()
+    expect(api.searchFriedberg).not.toHaveBeenCalled()
   })
 
-  it('names web press only when it is known, and no letter when there is none', () => {
-    const fields = { seriesYear: '1995', denomination: 'usd_note_1', press: 'yes' }
-    expect(webSearchText(fields, labels)).toBe(
-      'What is the Friedberg number for Series 1995 $1 web press?',
-    )
-    expect(webSearchText({ ...fields, press: 'no' }, labels)).toBe(
-      'What is the Friedberg number for Series 1995 $1?',
-    )
+  it('does not record a number without its year, and says why', async () => {
+    // Recorded with the year dropped, the row would be a type that a search
+    // for its year no longer finds by it.
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    const year = screen.getByLabelText(/series year/i)
+    await userEvent.type(year, '1963')
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await userEvent.type(await screen.findByLabelText(/fr\. number/i), '9903')
+    await userEvent.type(year, 'A')
+
+    const save = screen.getByRole('button', { name: /save as proposed/i })
+    expect(save).toBeEnabled()
+    await userEvent.click(save)
+
+    expect(await screen.findByText(REFUSAL)).toBeInTheDocument()
+    expect(api.createFriedbergNumber).not.toHaveBeenCalled()
+    expect(api.attachFriedberg).not.toHaveBeenCalled()
+    expect(screen.getByLabelText(/fr\. number/i)).toHaveValue('9903')
   })
 
-  it('falls back to the code while a vocabulary is still loading', () => {
-    expect(webSearchText({ noteType: 'frn' })).toBe(
-      'What is the Friedberg number for frn?',
-    )
-  })
+  it('looks up and records again once the year is corrected', async () => {
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    const year = screen.getByLabelText(/series year/i)
+    await userEvent.type(year, '1963A')
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await screen.findByText(REFUSAL)
 
-  it('still asks a question when nothing is known yet', () => {
-    expect(webSearchText({})).toBe('What is the Friedberg number for this US banknote?')
+    await userEvent.type(year, '{Backspace}')
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+
+    await waitFor(() =>
+      expect(api.searchFriedberg).toHaveBeenCalledWith({ series_year: 1963 }),
+    )
+    expect(screen.queryByText(REFUSAL)).toBeNull()
+  })
+})
+
+describe('FriedbergLookup: the signature pairs', () => {
+  it('says so when they cannot be read', async () => {
+    // An empty pulldown would read as "no pair fits this note".
+    api.getSignatureChoices.mockRejectedValue(new Error('lost connection'))
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    expect(await screen.findByText(/lost connection/)).toBeInTheDocument()
   })
 })
 

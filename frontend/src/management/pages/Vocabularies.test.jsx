@@ -329,6 +329,9 @@ describe('Vocabularies', () => {
     expect(within(choice).queryByText('National Bank Note')).toBeNull()
     const merge = screen.getByRole('button', { name: 'Merge' })
     expect(merge).toBeDisabled()
+    // Held back with its reason beside it, not greyed out in silence.
+    const reason = 'Choose the value to merge into, to see what would move.'
+    expect(screen.getByText(reason)).toBeVisible()
 
     await user.selectOptions(choice, 'us_note')
     expect(api.mergeReferenceValue).toHaveBeenCalledWith(
@@ -359,6 +362,52 @@ describe('Vocabularies', () => {
     // The list is read again, and pickers elsewhere are told.
     expect(api.getReference).toHaveBeenCalledTimes(3)
     expect(reference.invalidate).toHaveBeenCalledWith('note_type')
+  })
+
+  it('names the old names a merge cannot keep, before it asks and after', async () => {
+    const user = userEvent.setup()
+    const lost = [
+      "'National Bank Note of the Old Series': longer than the 32 characters an alias holds",
+      "'Legal Tender': already the name of Legal Tender Note",
+    ]
+    api.mergeReferenceValue.mockImplementation(async (table, code, into, dryRun) => ({
+      table,
+      code,
+      into,
+      dry_run: dryRun,
+      moved: {},
+      items: 3,
+      dropped: 0,
+      aliases: ['national_bank_note'],
+      names_not_kept: lost,
+    }))
+    await openNoteTypes(user)
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Merge National Bank Note into another value',
+      }),
+    )
+    await user.selectOptions(
+      screen.getByLabelText('Merge National Bank Note into'),
+      'us_note',
+    )
+
+    expect(
+      await screen.findByText(
+        'Moves 3 items to United States Note, then removes National Bank Note. ' +
+          'national_bank_note will find United States Note. ' +
+          `These names will no longer find it -- ${lost[0]}; ${lost[1]}. ` +
+          'This cannot be undone.',
+      ),
+    ).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Merge' }))
+    expect(
+      await screen.findByText(
+        'Merged national_bank_note into us_note: 3 items moved. ' +
+          `These names no longer find it -- ${lost[0]}; ${lost[1]}.`,
+      ),
+    ).toBeVisible()
   })
 
   it('shows a refusal and does not merge', async () => {

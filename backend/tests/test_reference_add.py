@@ -229,6 +229,112 @@ def test_whole_numbers_and_switches_are_read_strictly(
     assert made.json()["extra"]["is_plus"] is True
 
 
+@pytest.mark.parametrize(
+    ("table", "body", "said"),
+    [
+        # INTEGER holds up to 2**31 - 1.
+        (
+            "grade",
+            {"code": "BIGTEST", "label": "Big", "extra": {"numeric_value": 2**31}},
+            "numeric_value",
+        ),
+        (
+            "grade",
+            {"code": "BIGTEST", "label": "Big", "extra": {"numeric_value": -(2**32)}},
+            "numeric_value",
+        ),
+        # NUMERIC(12,4) holds eight whole digits.
+        (
+            "denomination",
+            {
+                "label": "Too Much",
+                "extra": {"currency": "USD", "face_value": "1e20", "kind": "note"},
+            },
+            "face_value",
+        ),
+        (
+            "denomination",
+            {
+                "label": "Too Much",
+                "extra": {"currency": "USD", "face_value": "100000000", "kind": "note"},
+            },
+            "face_value",
+        ),
+    ],
+)
+def test_a_number_too_large_for_its_column_is_a_422_naming_it(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    table: str,
+    body: dict[str, object],
+    said: str,
+) -> None:
+    """Refused as the form's own mistake, before the database is asked."""
+    res = client.post(f"/api/reference/{table}", json=body, headers=admin_headers)
+    assert res.status_code == 422, res.text
+    assert said in res.json()["detail"]
+
+
+def test_the_largest_number_a_column_holds_is_still_taken(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    made = client.post(
+        "/api/reference/denomination",
+        json={
+            "label": "Just Enough",
+            "extra": {"currency": "USD", "face_value": "99999999.9999", "kind": "note"},
+        },
+        headers=admin_headers,
+    )
+    assert made.status_code == 201, made.text
+    assert made.json()["extra"]["face_value"] == "99999999.9999"
+
+
+def test_a_change_to_a_number_too_large_for_its_column_is_a_422(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    res = client.patch(
+        "/api/reference/grade/64",
+        json={"label": "64", "extra": {"numeric_value": 2**40}},
+        headers=admin_headers,
+    )
+    assert res.status_code == 422, res.text
+    assert "numeric_value" in res.json()["detail"]
+
+
+def test_another_vocabularys_value_is_named_by_its_code_never_its_id(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """`currency_id` is the column, not the name it crosses the API under.
+
+    An id is per-installation, and sent beside `currency` it would silently
+    decide which of the two was stored.
+    """
+    usd = db.scalar(select(Currency.id).where(Currency.code == "USD"))
+    res = client.post(
+        "/api/reference/denomination",
+        json={
+            "label": "Eleven Cents",
+            "extra": {"currency_id": usd, "face_value": "0.11", "kind": "coin"},
+        },
+        headers=admin_headers,
+    )
+    assert res.status_code == 422, res.text
+    assert "currency_id" in res.json()["detail"]
+    assert (
+        db.scalar(select(Denomination).where(Denomination.code == "usd_coin_0_11"))
+        is None
+    )
+
+    changed = client.patch(
+        "/api/reference/denomination/usd_coin_0_10",
+        json={"label": "Dime", "extra": {"currency_id": usd}},
+        headers=admin_headers,
+    )
+    assert changed.status_code == 422, changed.text
+    assert "currency_id" in changed.json()["detail"]
+
+
 def test_text_longer_than_its_column_is_refused(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

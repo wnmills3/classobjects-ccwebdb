@@ -58,8 +58,8 @@ _SAME_FORMAT: dict[str, tuple[str, ...]] = {
 def named_as_stored(source_ref: str | None, media_type: str) -> str | None:
     """The file's name with the extension of what was stored.
 
-    Every file is re-encoded on the way in -- a WebP or HEIC is stored as
-    JPEG -- so a converted file's name says what is actually held:
+    Every file is re-encoded on the way in -- a WebP is stored as JPEG --
+    so a converted file's name says what is actually held:
     `CC-007595_02.webp` becomes `CC-007595_02.jpg`. A name already right
     for the format (`DSC00417.JPG`), or with no extension, is kept as it is.
     """

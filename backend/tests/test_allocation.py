@@ -56,6 +56,12 @@ def test_the_remainder_goes_to_the_parts_cut_hardest() -> None:
     # the totals must be exact and the spread must be one cent.
     assert max(shares) - min(shares) == D("0.01")
 
+    # Equal weights tie on every remainder, so they cannot tell this method
+    # from handing pennies out in order. Unequal ones can: 0.10 over 1:2 is
+    # 0.0333... and 0.0666..., floored to 0.03 and 0.06, and the one penny
+    # left belongs to the second part, which lost twice as much to the floor.
+    assert allocate(D("0.10"), [D(1), D(2)]) == [D("0.03"), D("0.07")]
+
 
 @pytest.mark.parametrize(
     "total",

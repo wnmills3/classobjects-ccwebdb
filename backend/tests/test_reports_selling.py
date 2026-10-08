@@ -18,6 +18,7 @@ from app.models import (
     Disposition,
     InventoryItem,
     ItemStatus,
+    ItemStatusHistory,
     Listing,
     ListingFormat,
     ListingStatus,
@@ -523,6 +524,21 @@ def test_a_non_usd_listing_adds_a_note_naming_how_many_were_excluded(
     assert result.notes == [
         f"2 listings not priced in {OFFER_CURRENCY} excluded from the asking total."
     ]
+
+
+def test_money_with_nothing_to_add_up_still_reads_to_two_places(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A lot with no members costs 0.00; no listing in USD asks 0.00 in all."""
+    venue = _venue(db, "ebay")
+    _lot_listing(db, _lot(db), venue, currency="CAD", title="Empty lot")
+    db.commit()
+
+    result = SL_OFFERED.run(db, OfferedParams())
+    assert str(result.rows[0]["cost_basis"]) == "0.00"
+    assert result.totals is not None
+    assert str(result.totals["asking"]) == "0.00"
+    assert str(result.totals["cost_basis"]) == "0.00"
 
 
 def test_no_non_usd_listings_adds_no_note(db: Session, make_item: ItemFactory) -> None:
@@ -1046,6 +1062,73 @@ def test_date_range_excludes_orders_outside_it(
     assert out_of_range.rows == []
 
 
+def test_sales_date_bounds_are_inclusive(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    """An order placed on either bound day counts; the day outside each does not."""
+    venue = _venue(db, "ebay")
+    placed_on = {
+        "Day before": date(2026, 5, 31),
+        "First day": date(2026, 6, 1),
+        "Last day": date(2026, 6, 30),
+        "Day after": date(2026, 7, 1),
+    }
+    for title, day in placed_on.items():
+        order = _sold(
+            db,
+            priced_item(make_item, title, Decimal("10.00")),
+            venue,
+            admin_user,
+            price=Decimal("20.00"),
+        )
+        order.placed_at = _at_noon(day)
+    db.commit()
+
+    result = SL_SALES.run(
+        db, SalesParams(date_from=date(2026, 6, 1), date_to=date(2026, 6, 30))
+    )
+    assert [(r["period"], r["orders"]) for r in result.rows] == [("2026-06", 2)]
+    assert result.rows[0]["gross"] == Decimal("40.00")
+
+
+def test_excluded_order_count_keeps_to_the_date_range(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    """Only a cancelled order placed inside the range is named as left out."""
+    venue = _venue(db, "ebay")
+    buyer = venue_buyer(db, venue, "amy")
+    for title, day in (
+        ("On the first day", date(2026, 6, 1)),
+        ("On the last day", date(2026, 6, 30)),
+        ("The day before", date(2026, 5, 31)),
+        ("The day after", date(2026, 7, 1)),
+    ):
+        listing = _offer_on(
+            db,
+            priced_item(make_item, title, Decimal("10.00")),
+            venue,
+            price=Decimal("50.00"),
+        )
+        order = order_writes.place_order(
+            db,
+            buyer,
+            [Line(listing_id=listing.id, quantity=1, unit_price=Decimal("50.00"))],
+            admin_user,
+            venue=venue,
+            status_code="cancelled",
+        )
+        order.placed_at = _at_noon(day)
+    db.commit()
+
+    result = SL_SALES.run(
+        db, SalesParams(date_from=date(2026, 6, 1), date_to=date(2026, 6, 30))
+    )
+    assert result.rows == []
+    assert any("2 cancelled or refunded orders" in note for note in result.notes), (
+        result.notes
+    )
+
+
 def test_totals_equal_the_sum_of_the_rows(
     db: Session, make_item: ItemFactory, admin_user: User
 ) -> None:
@@ -1521,6 +1604,37 @@ def test_a_split_childs_age_comes_from_its_split_parents_receipt(
     assert result.rows[0]["total_cost"] == Decimal("20.00")
 
 
+def test_an_item_received_twice_is_aged_from_its_latest_receipt(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """Returned and received again: the later arrival is the one that ages it.
+
+    The later receipt is written first, so neither the first row read nor
+    the last can stand in for the latest by `changed_at`.
+    """
+    item = priced_item(make_item, "Back again", Decimal("50.00"))
+    ordered = code_id(db, ItemStatus, "ordered")
+    received = code_id(db, ItemStatus, "received")
+    for arrived_on, changed_at in (
+        (_months_ago(2), _at_noon(_months_ago(2))),
+        (_months_ago(30), _at_noon(_months_ago(30))),
+    ):
+        db.add(
+            ItemStatusHistory(
+                inventory_item_id=item.id,
+                from_status_id=ordered,
+                to_status_id=received,
+                changed_at=changed_at,
+                arrived_on=arrived_on,
+            )
+        )
+        db.flush()
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert [(r["age"], r["items"]) for r in result.rows] == [("0-5", 1)]
+
+
 def test_aging_totals_equal_the_sum_of_the_rows(
     db: Session, make_item: ItemFactory
 ) -> None:
@@ -1702,6 +1816,9 @@ def test_unsold_includes_a_withdrawn_lot(
     assert row["unsold"] == 2
     assert row["hammer_total"] == Decimal("0")
     assert row["fees"] == Decimal("0")
+    # Nothing sold is still an amount of money: two places.
+    assert str(row["hammer_total"]) == "0.00"
+    assert str(row["fees"]) == "0.00"
 
 
 def test_auction_rows_are_ordered_by_status(

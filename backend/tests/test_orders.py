@@ -397,6 +397,18 @@ def test_customer_cannot_change_status(
     assert response.status_code == 403
 
 
+def test_changing_status_requires_signing_in(
+    client: TestClient, listing: Listing, customer_headers: dict[str, str]
+) -> None:
+    order = post_order(client, customer_headers, listing.id, 1).json()
+
+    response = client.patch(f"/api/orders/{order['id']}", json={"status": "cancelled"})
+
+    assert response.status_code == 401
+    current = client.get(f"/api/orders/{order['id']}", headers=customer_headers).json()
+    assert current["status"] == "pending"
+
+
 def test_admin_can_advance_status(
     client: TestClient,
     listing: Listing,
@@ -651,6 +663,37 @@ def test_an_order_refunded_before_shipping_cannot_be_moved_on(
     _walk(client, admin_headers, order["id"], "refunded")
     db.refresh(listing)
     assert listing.quantity_available == 5
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        # Walked back to an unshipped status, then ended.
+        ("shipped", "pending", "cancelled"),
+        ("paid", "packed", "paid", "cancelled"),
+        ("delivered", "pending", "refunded"),
+        # A refund after shipping, taken back, then cancelled.
+        ("shipped", "refunded", "paid", "cancelled"),
+    ],
+)
+def test_an_order_that_ever_shipped_returns_no_stock_however_it_is_walked_back(
+    path: tuple[str, ...],
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """Whether the coins left is a fact about the order's past, not its status.
+
+    A status set back to `pending` or `paid` by mistake does not bring the
+    parcel home. Deciding from the status of the moment alone would put the
+    stock back on sale at the next cancellation, for coins already posted.
+    """
+    order = post_order(client, customer_headers, listing.id, 2).json()
+    _walk(client, admin_headers, order["id"], *path)
+    db.refresh(listing)
+    assert listing.quantity_available == 3
 
 
 def test_an_order_refunded_after_shipping_can_still_be_moved_on(

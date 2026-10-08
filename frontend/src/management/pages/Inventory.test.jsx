@@ -10,6 +10,8 @@ vi.mock('../api', () => ({
     getItemSales: vi.fn(),
     getItemHistory: vi.fn(),
     updateInventoryItem: vi.fn(),
+    // The editor asks what a change decides a moment after it is typed.
+    previewItem: vi.fn(),
     bulkEditInventory: vi.fn(),
     getItemErrors: vi.fn(),
     setItemErrors: vi.fn(),
@@ -58,6 +60,7 @@ beforeEach(() => {
   })
   api.getItemErrors.mockResolvedValue({ inventory_item_id: 7, errors: [] })
   api.listItemImages.mockResolvedValue([])
+  api.previewItem.mockReturnValue(new Promise(() => {}))
 })
 
 async function openItem(user) {

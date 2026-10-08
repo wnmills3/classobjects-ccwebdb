@@ -117,6 +117,16 @@ describe('LocationSelect', () => {
     expect(kinds).not.toContain('sold')
   })
 
+  it('says so when the locations cannot be read, rather than showing none recorded', async () => {
+    api.listStorageLocations.mockRejectedValue(new Error('Request failed (502)'))
+    renderPicker()
+    expect(
+      await screen.findByText(
+        'The storage locations could not be read: Request failed (502)',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('shows a refusal and keeps what was typed', async () => {
     const user = userEvent.setup()
     api.createStorageLocation.mockRejectedValue(

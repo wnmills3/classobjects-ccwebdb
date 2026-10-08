@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { ApiError, api, clearTokens, loadTokens, saveTokens } from './api'
+import { ApiError, api, clearTokens, loadTokens, onSignedOut, saveTokens } from './api'
 import { AuthContext } from './auth-context'
 
 /**
@@ -42,6 +42,12 @@ export function AuthProvider({ children }) {
       cancelled = true
     }
   }, [])
+
+  // A session the server stops accepting while the page is open -- expired
+  // past its refresh, or ended by a password reset -- leaves nobody signed
+  // in, so the page offers sign-in again rather than naming an account
+  // whose every request is refused.
+  useEffect(() => onSignedOut(() => setUser(null)), [])
 
   const login = useCallback(async (email, password) => {
     const tokens = await api.login(email, password)

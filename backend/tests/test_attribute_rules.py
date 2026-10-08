@@ -111,7 +111,7 @@ def test_no_motto_follows_the_series(
 @pytest.mark.parametrize(
     ("note_type", "face", "year"),
     [
-        # Decision 5: the $1 run only, and Silver Certificates only.
+        # The $1 run only, and Silver Certificates only.
         ("us_note", Decimal("1"), 1928),
         ("silver_certificate", Decimal("5"), 1934),
         (None, Decimal("1"), 1935),
@@ -295,3 +295,34 @@ def test_a_class_taken_back_takes_no_motto_with_it(
     body = client.get(f"/api/inventory/{note.id}", headers=admin_headers).json()
     assert body["note_type"] is None
     assert body["attributes"] == []
+
+
+def test_no_motto_a_person_set_again_is_not_the_rules_to_take_back(
+    db: Session,
+    make_item: ItemFactory,
+    client: TestClient,
+    admin_headers: dict[str, str],
+) -> None:
+    """Removed and then set by hand, the link is the person's, whatever made it."""
+    note = _note(db, make_item, 1935, "F")
+    run(db, commit=True)
+    for codes in ([], ["no_motto"]):
+        response = client.patch(
+            f"/api/inventory/{note.id}",
+            json={"attributes": codes},
+            headers=admin_headers,
+        )
+        assert response.status_code == 200, response.text
+
+    # 1935G was printed both ways: the rule no longer says "always".
+    response = client.patch(
+        f"/api/inventory/{note.id}",
+        json={"series_letter": "G"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    link = _link(db, note)
+    assert link is not None and link.removed_at is None
+    assert (link.source, link.derived_by) == (ProvenanceSource.manual, None)

@@ -6,7 +6,7 @@ if an original somehow retained something, it is not reachable over HTTP.
 
 Uploads are content-addressed by the hash of the *cleansed* bytes, so
 re-uploading the same photograph links the existing image rather than storing a
-second copy. Two people photographing the same coin twice cost one file.
+second copy. The same file uploaded twice costs one file.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from ..models import (
     InventoryItem,
     ItemImage,
 )
+from ..references import code_to_id
 from ..schemas import ImageFromUrl, ImageLinkIn, ImageLinkOut, ImageOut
 from ..storage import get_storage
 from ._resolve import found_or_404, get_or_404
@@ -87,9 +88,9 @@ async def upload_image(
     has decided what they depict. An unattached image is still stored,
     browsable and searchable -- linking is a separate, human step.
 
-    The item is found and the for-sale guard asked before `ingest` writes
-    the bytes, so a refused upload leaves no file behind with no row
-    pointing at it.
+    The item is found, the for-sale guard asked and the role looked up
+    before `ingest` writes the bytes, so a refused upload leaves no file
+    behind with no row pointing at it.
     """
     item: InventoryItem | None = None
     if inventory_item_id is not None:
@@ -100,8 +101,11 @@ async def upload_image(
             f"Unknown inventory_item_id: {inventory_item_id}",
         )
         sale_state.guard(db, [item], acknowledged=acknowledge_for_sale)
+        code_to_id(db, ImageRole, image_role, "image_role")
 
-    raw = await file.read()
+    # One byte past the limit is enough to know it is over: the rest of an
+    # oversized upload is never read into memory.
+    raw = await file.read(settings.max_upload_bytes + 1)
     try:
         image = ingest(db, raw, source_ref=file.filename)
     except ImageRejected as exc:
@@ -120,9 +124,9 @@ async def upload_image(
             )
         except image_links.LinkRefused as exc:
             # Re-uploading a photograph the item already has updates how it is
-            # filed rather than refusing: the upload endpoint has always been
-            # an upsert, and the caller is a file picker, not a filing
-            # decision. Both writes still go through `image_links`, which is
+            # filed rather than refusing: the caller is a file picker, not a
+            # filing decision, and picking a file again must not be an
+            # error. Both writes still go through `image_links`, which is
             # what keeps the primary swap in one place.
             existing = db.scalar(
                 select(ItemImage).where(
@@ -166,7 +170,8 @@ def add_image_from_url(
     kept as its source is the one the bytes came from. Then stored as any
     upload is -- converted and stripped -- named for its place on the item,
     `CC-000412_02.jpg`, and filed there after the item's other photographs.
-    A refused fetch stores nothing.
+    A refused fetch stores nothing, and neither does a role that is not one:
+    it is looked up before anything is fetched.
     """
     item = get_or_404(
         db,
@@ -175,6 +180,7 @@ def add_image_from_url(
         f"Unknown inventory_item_id: {payload.inventory_item_id}",
     )
     sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
+    code_to_id(db, ImageRole, payload.image_role, "image_role")
     try:
         raw, fetched_from = image_fetch.fetch_full_size(payload.url)
     except image_fetch.ImageFetchRefused as exc:

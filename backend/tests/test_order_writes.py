@@ -23,6 +23,7 @@ from app.models import (
     SalesOrder,
     SalesOrderChange,
     SalesOrderChangeKind,
+    SalesOrderItem,
     SalesOrderItemShare,
     SalesOrderStatus,
     SalesVenue,
@@ -204,6 +205,51 @@ def test_an_account_can_be_given_a_customer_record(
     assert again.json()["id"] == first.json()["id"]
 
 
+def test_a_customer_record_made_meanwhile_is_found_rather_than_made_twice(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    customer_user: User,
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two first requests for one account must both end with its one record.
+
+    Each looks for the account's customer before either has written one, and
+    `uq_customer_user` then stops the second insert. The loser's lookup is
+    made to miss the winner's row, as it would have mid-race; it must come
+    back with that row, not an unhandled IntegrityError.
+    """
+    winner = customer_for_user(db, customer_user)
+    db.commit()
+    winner_id = winner.id
+
+    real = db.scalar
+    missed: list[bool] = []
+
+    # The first lookup of a customer is answered with nothing -- `append`
+    # returns None, which is the miss -- and every other query truly.
+    monkeypatch.setattr(
+        db,
+        "scalar",
+        lambda statement, *args, **kw: (
+            missed.append(True)
+            if not missed and "FROM customer" in str(statement)
+            else real(statement, *args, **kw)
+        ),
+    )
+
+    response = client.post(
+        f"/api/users/{customer_user.id}/customer", headers=admin_headers
+    )
+
+    assert missed, "the lookup this test stands in for was never made"
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == winner_id
+    monkeypatch.undo()
+    rows = db.scalars(select(Customer).where(Customer.user_id == customer_user.id))
+    assert [row.id for row in rows] == [winner_id]
+
+
 def test_only_an_admin_may_create_a_customer_record_for_an_account(
     client: TestClient,
     customer_headers: dict[str, str],
@@ -338,7 +384,7 @@ def test_placing_an_order_never_consults_a_new_line_s_shares(
 
     Looking costs a SELECT that can only come back empty -- one per line,
     inside the `FOR UPDATE` window `offering_writes._lock_listing_rows`'
-    docstring asks callers not to widen -- and leaves the collection
+    docstring says not to lengthen -- and leaves the collection
     **cached empty** for the rest of the
     session, because `db.add` does not invalidate a collection an earlier read
     populated. That stale cache is what forced `sales_writes` and
@@ -463,6 +509,43 @@ def test_raising_a_quantity_takes_stock_and_records_it(
         ("quantity", "2", "3"),
         ("total", "378.00", "567.00"),
     ]
+
+
+def test_lowering_a_quantity_returns_stock_and_records_it(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """The line stays, smaller: only the difference goes back on sale."""
+    order = _place(client, customer_headers, listing.id, 3)
+    db.refresh(listing)
+    assert listing.quantity_available == 2
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 1, "unit_price": "189.00"}],
+    )
+
+    assert response.status_code == 200, response.text
+    assert [line["quantity"] for line in response.json()["items"]] == [1]
+    assert response.json()["total_amount"] == "189.00"
+    db.refresh(listing)
+    assert listing.quantity_available == 4
+    assert _changes(db, order["id"])[1:] == [
+        ("quantity", "3", "1"),
+        ("total", "567.00", "189.00"),
+    ]
+    share = db.scalar(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == order["items"][0]["id"]
+        )
+    )
+    assert share is not None
+    assert share.amount == Decimal("189.00")
 
 
 def test_revising_a_lines_quantity_and_price_brings_its_share_back_in_line(
@@ -1132,6 +1215,58 @@ def test_a_revision_that_removes_a_lot_line_is_refused(
 
     assert refused.value.status_code == 409
     assert "has ended" in str(refused.value.detail)
+
+
+def test_a_sale_recorded_from_another_platform_cannot_be_given_store_lines(
+    db: Session,
+    ebay_listing: Listing,
+    listing: Listing,
+    admin_user: User,
+) -> None:
+    """An order that records a sale made elsewhere takes no stock from the shop.
+
+    Such an order cannot be cancelled -- `routers.orders._no_stock_to_return`
+    refuses any order that is not the store's -- so a store line added to it
+    would hold shop stock on an order with no way to release it short of
+    editing the line out again. The existing line is sent back unchanged, so
+    the store line is the only thing this revision asks for.
+    """
+    order = record_sale(
+        db,
+        ebay_listing,
+        price=Decimal("120.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-7",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    db.commit()
+    order_id, sold_listing_id, store_listing_id = order.id, ebay_listing.id, listing.id
+
+    with pytest.raises(HTTPException) as refused:
+        revise_order(
+            db,
+            order,
+            customer=order.customer,
+            lines=[
+                Line(sold_listing_id, 1, Decimal("120.00")),
+                Line(store_listing_id, 1),
+            ],
+            notes=None,
+            version=order.version,
+            by=admin_user,
+        )
+
+    assert refused.value.status_code == 409
+    assert "eBay" in str(refused.value.detail)
+    db.expire_all()
+    assert db.get_one(Listing, store_listing_id).quantity_available == 5
+    lines = db.scalars(
+        select(SalesOrderItem.listing_id).where(
+            SalesOrderItem.sales_order_id == order_id
+        )
+    ).all()
+    assert list(lines) == [sold_listing_id]
 
 
 def test_a_revision_that_adds_a_lot_line_ends_the_lot_sold(

@@ -455,6 +455,10 @@ def note_outcome(
     )
     if note_type is None:
         _retract(out, current, derived, ("fed_district_id",))
+        if "note_type_id" in held:
+            # Empty by a person's choice: there is nothing for one to decide.
+            out.count = "note: class left empty"
+            return out
         out.count = "note: class undecided (seal would decide)"
         labels = sorted(facts.note_type_labels[t] for t in options["note_type_id"])
         out.cases.append(("ambiguous", f"{series}: {' / '.join(labels)}"))
@@ -727,13 +731,16 @@ def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
             Change(item.id, on_note, column, value, rule)
             for column, value, rule in outcome.writes
         ]
+        # A column one rule gives up and another fills in the same outcome
+        # keeps the new value: a retraction applied after it would clear it.
+        refilled = {column for column, _, _ in outcome.writes}
+        retracts = [c for c in dict.fromkeys(outcome.retracts) if c not in refilled]
         report.changes += [
-            Change(item.id, on_note, column, None, RETRACT)
-            for column in dict.fromkeys(outcome.retracts)
+            Change(item.id, on_note, column, None, RETRACT) for column in retracts
         ]
         report.review += [
             Case(item.item_code, "retracted", column.removesuffix("_id"))
-            for column in dict.fromkeys(outcome.retracts)
+            for column in retracts
         ]
         report.review += [
             Case(item.item_code, reason, detail) for reason, detail in outcome.cases

@@ -55,9 +55,20 @@ function aliasCounts(values) {
 }
 
 /**
+ * The old names a merge cannot keep, each with the server's reason, as a
+ * sentence in `tense` ("will no longer" before, "no longer" after); ''
+ * when every name is kept.
+ */
+function namesLost(result, tense) {
+  const lost = result.names_not_kept ?? []
+  return lost.length ? ` These names ${tense} find it -- ${lost.join('; ')}.` : ''
+}
+
+/**
  * What merging `value` into `target` would do, in a sentence, from the
  * preview `result`: the items that move, those that already hold the target
- * and so only lose this value, and the names that become its aliases.
+ * and so only lose this value, the names that become its aliases, and the
+ * names that cannot.
  */
 function describe(result, value, target) {
   const items = `${result.items} item${result.items === 1 ? '' : 's'}`
@@ -69,7 +80,8 @@ function describe(result, value, target) {
     : ''
   return (
     `Moves ${items} to ${target.label}${dropped}, then removes ` +
-    `${value.label}.${names} This cannot be undone.`
+    `${value.label}.${names}${namesLost(result, 'will no longer')} ` +
+    'This cannot be undone.'
   )
 }
 
@@ -161,6 +173,14 @@ function MergePanel({ table, value, active, onMerged, onCancel }) {
         <button type="button" className="link" onClick={onCancel}>
           Cancel
         </button>
+        {/* Why Merge is held back, said beside it. */}
+        {!preview && !error && (
+          <span className="muted">
+            {into
+              ? 'Working out what would move...'
+              : 'Choose the value to merge into, to see what would move.'}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -523,7 +543,7 @@ export default function Vocabularies() {
   function merged(result) {
     setNotice(
       `Merged ${result.code} into ${result.into}: ${result.items} ` +
-        `item${result.items === 1 ? '' : 's'} moved.`,
+        `item${result.items === 1 ? '' : 's'} moved.${namesLost(result, 'no longer')}`,
     )
     setReloads((n) => n + 1)
     context?.invalidate(table)

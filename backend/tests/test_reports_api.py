@@ -15,6 +15,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, build_purchase_order, code_id
+from tests.test_reports_performance import _build_modest_collection
 
 _ENDPOINTS = (
     "/api/reports",
@@ -329,15 +330,52 @@ def test_the_workbook_filenames_date_equals_run_ats_date(
 
 @pytest.mark.parametrize("report_id", list(REPORTS))
 def test_every_registered_report_exports_a_readable_workbook(
-    report_id: str, client: TestClient, admin_headers: dict[str, str]
+    report_id: str, client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """Every report, with its default parameters, exports a workbook that opens."""
+    """Every report, with its default parameters, exports a workbook that opens.
+
+    Over a collection with rows for the reports to write: the workbook
+    refuses a cell whose value does not fit its column's kind, which an
+    empty table never asks it to check.
+    """
+    _build_modest_collection(db)
+
+    json_res = client.get(f"/api/reports/{report_id}", headers=admin_headers)
+    assert json_res.status_code == 200, (report_id, json_res.text)
+    body = json_res.json()
+
     res = client.get(f"/api/reports/{report_id}/workbook", headers=admin_headers)
     assert res.status_code == 200, (report_id, res.text)
     book = load_workbook(BytesIO(res.content))
     sheet = book.worksheets[0]
     assert sheet.cell(row=1, column=1).value == REPORTS[report_id].title
-    _header_row(sheet, "Run at")
+    # The table's header sits a blank row below "Run at" -- found from there,
+    # since a parameter may carry the same label as the first column.
+    header_row = _header_row(sheet, "Run at") + 2
+    assert sheet.cell(row=header_row, column=1).value == body["columns"][0]["label"]
+
+    # One sheet row per result row, directly below the header.
+    for offset, json_row in enumerate(body["rows"], start=1):
+        first = json_row[body["columns"][0]["key"]]
+        cell = sheet.cell(row=header_row + offset, column=1).value
+        if body["columns"][0]["kind"] == "text":
+            assert cell == (first if first != "" else None), (report_id, offset)
+
+
+def test_the_collection_the_workbooks_are_exported_over_gives_most_reports_rows(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The export test above means little if the reports it runs are empty."""
+    _build_modest_collection(db)
+
+    empty = set()
+    for report_id in REPORTS:
+        res = client.get(f"/api/reports/{report_id}", headers=admin_headers)
+        if not res.json()["rows"]:
+            empty.add(report_id)
+    # Nothing in that collection is dated outside its series, left for a
+    # person to classify, or filled by a rule.
+    assert empty <= {"dq_series_years", "dq_series_review", "dq_derived"}
 
 
 def test_a_date_range_reports_bounds_are_date_cells_and_an_absent_one_is_any(

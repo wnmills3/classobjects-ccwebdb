@@ -780,6 +780,8 @@ def test_sources_vendor_row_aggregates_across_its_purchases(db: Session) -> None
     vendor = _vendor(db, "Vendor SO1")
     order1 = _order_for(db, vendor, order_number="SO-1", ordered_on=date(2026, 1, 10))
     _item(db, order1, "received", Decimal("10.00"))
+    # A second item on the first purchase: one more item, not one more purchase.
+    _item(db, order1, "received", Decimal("5.00"))
     order2 = _order_for(db, vendor, order_number="SO-2", ordered_on=date(2026, 3, 5))
     _item(db, order2, "received", Decimal("20.00"))
     db.commit()
@@ -789,8 +791,8 @@ def test_sources_vendor_row_aggregates_across_its_purchases(db: Session) -> None
         r for r in result.rows if r["vendor"] == "Vendor SO1" and r["seller"] == ""
     )
     assert row["purchases"] == 2
-    assert row["items"] == 2
-    assert row["total_spent"] == Decimal("30.00")
+    assert row["items"] == 3
+    assert row["total_spent"] == Decimal("35.00")
     assert row["first_order"] == date(2026, 1, 10)
     assert row["last_order"] == date(2026, 3, 5)
 

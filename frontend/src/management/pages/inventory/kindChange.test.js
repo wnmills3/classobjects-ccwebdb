@@ -49,6 +49,15 @@ describe('clearedByKind', () => {
     expect(attributes).toEqual({ keep: ['error'], dropped: ['first_strike'] })
   })
 
+  it("empties a bar's bullion form for a note, whose form offers none", () => {
+    const bar = from({ bullion_form: 'bar', set_form: 'proof_set' })
+
+    expect(clearedByKind('currency', bar, vocab).fields).toEqual({
+      bullion_form: 'bar',
+      set_form: 'proof_set',
+    })
+  })
+
   it("empties a note's own fields for a coin, its serial above all", () => {
     const note = from({
       serial_number: 'F06566560R',

@@ -32,6 +32,14 @@ its column's scale on import. Computed columns (`total_cost`, `sales_tax`,
 ...) are written for reading, headed "(computed)", and ignored on import --
 the database recomputes them.
 
+**What a cell cannot hold is refused, not altered.** A cell keeps at most
+32,767 characters and no carriage return or control character; text that is
+only blank reads back as NULL, and the text `""` as an empty string. An
+export that meets such a value stops, names its table, row and column, and
+writes no workbook: change the value, then export again. The whole export
+reads one snapshot of the database, so a row saved while it runs is in every
+sheet or in none.
+
 **Importing** needs an empty database at the same migration revision:
 create one and run `alembic upgrade head` against it. Any rows the
 migrations put there are removed first, the tables are loaded in
@@ -39,7 +47,9 @@ foreign-key order (a column that points at its own table, or at one loaded
 later, is filled in a second pass), and every id sequence is moved past the
 highest id. It refuses the live database -- identified by the server, not
 by how the URL is spelled -- and any database that already holds inventory
-items: restore into a new one, compare it, then switch to it.
+items: restore into a new one, compare it, then switch to it. A workbook
+with a sheet the database has no table for is refused too, rather than
+loaded without it.
 
 **A broken link is refused, all of them at once.** Every foreign key is
 checked against the workbook's own rows before anything is written, and the
@@ -65,6 +75,7 @@ them; a sheet it finds widths on replaces that sheet's entry, the rest stay.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from collections.abc import Iterable, Iterator, Sequence
@@ -76,6 +87,7 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell import WriteOnlyCell
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy import (
@@ -126,6 +138,8 @@ __all__ = [
 
 #: How an empty string is written: an empty cell reads back as NULL.
 EMPTY_STRING = '""'
+#: The most characters a cell holds; a longer text is cut to this.
+_CELL_LIMIT = 32767
 #: The header suffix of a computed column, written for reading only.
 COMPUTED = " (computed)"
 #: Sheets that describe the workbook rather than hold a table.
@@ -372,8 +386,69 @@ def export_workbook(
     meta = reflect(engine)
     tables = _tables(meta)
     book = Workbook(write_only=True)
+    try:
+        counts = _write_sheets(engine, book, tables, sizes)
+    except BaseException:
+        _abandon(book)
+        raise
+    path.parent.mkdir(parents=True, exist_ok=True)
+    book.save(path)
+    return counts
+
+
+def _abandon(book: Workbook) -> None:
+    """Close the sheets of a workbook that will not be saved.
+
+    Each write-only sheet holds a temporary file open until it is closed;
+    left to be collected, it is closed in no particular order and complains.
+    """
+    for sheet in book.worksheets:
+        # The export has already failed, and its own error is the one to
+        # raise: a sheet that will not close cleanly adds nothing to it.
+        with contextlib.suppress(Exception):
+            sheet.close()
+
+
+def _unkept(value: object, column: Column[Any]) -> str | None:
+    """Why a cell would not give `value` back on import, or None when it would.
+
+    A cell holds at most `_CELL_LIMIT` characters -- more is cut off without
+    a word -- and no carriage return or control character. Text that is
+    only blank reads back as NULL, and `EMPTY_STRING` itself as the empty
+    string; JSON is exempt from those two, being read back as JSON.
+    """
+    if not isinstance(value, str):
+        return None
+    if len(value) > _CELL_LIMIT:
+        return f"its {len(value):,} characters are more than a cell's {_CELL_LIMIT:,}"
+    if "\r" in value:
+        return "it holds a carriage return, which a cell does not keep"
+    if ILLEGAL_CHARACTERS_RE.search(value):
+        return "it holds a control character, which a cell cannot hold"
+    if _is_json(column.type):
+        return None
+    if value == EMPTY_STRING:
+        return f"it is the text {EMPTY_STRING}, which reads back as an empty string"
+    if value != "" and value.strip() == "":
+        return "it is only blank characters, which read back as no value"
+    return None
+
+
+def _write_sheets(
+    engine: Engine, book: Workbook, tables: list[Table], sizes: Widths
+) -> dict[str, int]:
+    """Fill `book` with every table's rows; the rows written, per table.
+
+    Read in one snapshot (REPEATABLE READ): a row saved while the export
+    runs is in every sheet or in none, so no sheet holds a link to a row
+    another sheet was read too early to hold.
+
+    Raises `WorkbookError`, naming the table, row and column, for a value a
+    cell would not give back (`_unkept`).
+    """
     counts: dict[str, int] = {}
-    with engine.connect() as conn:
+    snapshot = engine.connect().execution_options(isolation_level="REPEATABLE READ")
+    with snapshot as conn:
         revision = _revision(conn)
         about = book.create_sheet(ABOUT)
         _size(about, ABOUT_HEADER, sizes.get(ABOUT, {}))
@@ -416,7 +491,22 @@ def export_workbook(
             result = conn.execution_options(yield_per=CHUNK).execute(
                 select(*(_as_read(c) for c in everything)).order_by(*_order(table))
             )
+            # Where the row's key is in what was read, to name a refused row.
+            read = [c.name for c in everything]
+            keys = [
+                (c.name, read.index(c.name))
+                for c in list(table.primary_key.columns) or everything[:1]
+            ]
             for row in result:
+                # Only what an import reads: a computed column is recomputed.
+                for value, column in zip(row, stored, strict=False):
+                    reason = _unkept(value, column)
+                    if reason is not None:
+                        named = ", ".join(f"{name} {row[at]}" for name, at in keys)
+                        raise WorkbookError(
+                            f"{table.name} {named}, {column.name}: the workbook "
+                            f"would not give this value back -- {reason}"
+                        )
                 cells = [
                     _text_cell(sheet, to_cell(value, kind))
                     for value, kind in zip(row, kinds, strict=True)
@@ -441,8 +531,6 @@ def export_workbook(
         about.append(["table", "rows"])
         for name, n in counts.items():
             about.append([name, n])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    book.save(path)
     return counts
 
 
@@ -765,6 +853,17 @@ def _load(engine: Engine, book: Workbook, *, unknown_for_missing: bool) -> Impor
     """Replace every table's rows with the workbook's, in one transaction."""
     about = _about(book)
     tables = _tables(reflect(engine))
+    # Every sheet is the workbook's own description or a table's rows. Rows
+    # under a name the database has no table for would be left out without
+    # a word, and the load would still say it had loaded the workbook.
+    known = {ABOUT, COLUMNS, *(t.name for t in tables)}
+    stray = [name for name in book.sheetnames if name not in known]
+    if stray:
+        raise WorkbookError(
+            f"no table in the database for the sheet(s) {', '.join(stray)}: their "
+            "rows would not be loaded -- remove a sheet that is not a table's, or "
+            "bring the database to the workbook's migration revision"
+        )
     for table in tables:
         for column in table.columns:
             if _is_json(column.type):
@@ -852,7 +951,10 @@ def _second_pass(conn: Connection, part: _Loaded) -> None:
 
 @dataclass(frozen=True)
 class Difference:
-    """A table whose contents differ between two databases."""
+    """A table whose contents differ between two databases.
+
+    A side that does not have the table at all counts -1 rows.
+    """
 
     table: str
     left_rows: int
@@ -877,20 +979,32 @@ def _digest(conn: Connection, table: Table) -> tuple[int, str]:
 
 
 def compare(left: Engine, right: Engine) -> list[Difference]:
-    """Every table whose rows differ, compared cell by cell through a digest."""
+    """Every table whose rows differ, compared cell by cell through a digest.
+
+    A table only one side has is a difference too, whichever side that is.
+    Each side is read in one snapshot, so a row saved while the comparison
+    runs is not seen in one table and missed in another.
+    """
     out: list[Difference] = []
     tables = _tables(reflect(left))
-    with left.connect() as a, right.connect() as b:
+    others = {table.name: table for table in _tables(reflect(right))}
+    snapshot = {"isolation_level": "REPEATABLE READ"}
+    with (
+        left.connect().execution_options(**snapshot) as a,
+        right.connect().execution_options(**snapshot) as b,
+    ):
         if _revision(a) != _revision(b):
             out.append(Difference(VERSION_TABLE, 1, 1))
-        present = set(reflect(right).tables)
         for table in tables:
-            if table.name not in present:
+            other = others.pop(table.name, None)
+            if other is None:
                 out.append(Difference(table.name, _digest(a, table)[0], -1))
                 continue
             left_digest, right_digest = _digest(a, table), _digest(b, table)
             if left_digest != right_digest:
                 out.append(Difference(table.name, left_digest[0], right_digest[0]))
+        for name, other in sorted(others.items()):
+            out.append(Difference(name, -1, _digest(b, other)[0]))
     return out
 
 
@@ -908,8 +1022,9 @@ def _print_counts(counts: dict[str, int]) -> None:
 def _lines(differences: Iterable[Difference]) -> Iterator[str]:
     """One printed line per table that differs, with each side's row count."""
     for d in differences:
+        left = "missing" if d.left_rows < 0 else f"{d.left_rows:,} rows"
         right = "missing" if d.right_rows < 0 else f"{d.right_rows:,}"
-        yield f"  DIFFERS {d.table}: {d.left_rows:,} rows vs {right}"
+        yield f"  DIFFERS {d.table}: {left} vs {right}"
 
 
 def main(argv: Sequence[str] | None = None) -> int:

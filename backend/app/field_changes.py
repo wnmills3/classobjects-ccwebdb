@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from .models import ErrorType, ItemError, ItemFieldChange, User, utcnow
 
 __all__ = [
+    "NUMERIC_FIELDS",
     "LatestChange",
     "error_set",
     "latest",
@@ -40,13 +41,35 @@ class LatestChange:
     at: datetime
 
 
-def same_value(a: object, b: object) -> bool:
-    """Whether two field values say the same thing.
+#: The fields whose values are numbers, and so compare as numbers. Every
+#: other field is text: an identifier `0123` is not `123`, and a title that
+#: happens to read as a number is still a title.
+NUMERIC_FIELDS: frozenset[str] = frozenset(
+    {
+        "item_cost",
+        "shipping_cost",
+        "tax_rate",
+        "numismatic_value",
+        "fineness",
+        "gross_weight_ozt",
+        "fine_weight_ozt",
+        "year_start",
+        "year_end",
+        "series_year",
+        "piece_count",
+        "storage_location_id",
+    }
+)
 
-    Blank and null are the same; numbers compare as numbers, so a cost typed
-    "84" is not a change from a stored "84.00"; lists (attribute codes)
-    compare as sets. The edit's field-by-field merge and this log both use
-    it, so they agree on what counts as a change.
+
+def same_value(a: object, b: object, *, numeric: bool = False) -> bool:
+    """Whether two values of one field say the same thing.
+
+    Blank and null are the same; lists (attribute codes) compare as sets.
+    With `numeric` -- a field in `NUMERIC_FIELDS` -- numbers compare as
+    numbers, so a cost typed "84" is not a change from a stored "84.00".
+    Anything else compares as text. The edit's field-by-field merge and
+    this log both use it, so they agree on what counts as a change.
     """
     if a in (None, "") and b in (None, ""):
         return True
@@ -54,10 +77,14 @@ def same_value(a: object, b: object) -> bool:
         return sorted(map(str, a)) == sorted(map(str, b))
     if isinstance(a, bool) or isinstance(b, bool):
         return a == b
-    try:
-        return Decimal(str(a)) == Decimal(str(b))
-    except (ArithmeticError, ValueError):
-        return a == b
+    if numeric:
+        try:
+            return Decimal(str(a)) == Decimal(str(b))
+        except (ArithmeticError, ValueError):
+            return a == b
+    if a is None or b is None:
+        return False
+    return str(a) == str(b)
 
 
 def sorted_errors(errors: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -97,8 +124,9 @@ def record(
 
     Returns how many rows it logged. `at` stamps every row with one moment --
     a pass that changes many items at once passes its start -- and defaults
-    to now. A field in `text_fields` is compared as text rather than by
-    `same_value`: an identifier such as an order number `0123` is not `123`.
+    to now. A field in `NUMERIC_FIELDS` is compared as a number and every
+    other as text (`same_value`); one in `text_fields` is text whatever its
+    name, for a caller logging a field this module does not know.
     """
     logged = 0
     for field in fields:
@@ -106,7 +134,7 @@ def record(
         if field in text_fields:
             if (old or None) == (new or None):
                 continue
-        elif same_value(old, new):
+        elif same_value(old, new, numeric=field in NUMERIC_FIELDS):
             continue
         logged += 1
         db.add(

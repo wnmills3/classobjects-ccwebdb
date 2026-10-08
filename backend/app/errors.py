@@ -1,9 +1,10 @@
 """Errors that mean the database is missing reference data it needs.
 
 `ReferenceDataMissing` is what a migrated-but-unseeded database raises when a
-writer needs a row from a closed vocabulary that `app.seeding.seed_all` (or,
-for the one platform the migration itself does not create on a database built
-from the models, `app.sales_venues.ensure_store_venue`) is what seeds it.
+writer needs a row that is not there yet: a value of a closed vocabulary,
+which `app.seeding.seed_all` loads, or the web store platform, which the
+baseline migration creates (and `app.sales_venues.ensure_store_venue`, on a
+database built from the models).
 That state is real and expected -- the migrations build the schema and the
 seed load is a separate step -- so it is told to the person who hit it, not
 left to look like an ordinary crash.
@@ -19,7 +20,7 @@ it would hand `str(exc)` verbatim to whoever asked, and because
 `ServerErrorMiddleware` -- no traceback logged, no re-raise in `TestClient`
 -- so a genuine bug that happened to be a `RuntimeError` would be a tidy
 JSON 500 labelled a server precondition. A class that means exactly one
-thing avoids that: its three raise sites (`app.auctions.consign`,
+thing avoids that: its three raise sites (`app.auctions._consigned_location`,
 `app.sales_venues.ensure_store_venue`, `app.sales_venues.store_venue_id`)
 answer the operator with a message, and everything else crashes loudly, the
 way a bug should.

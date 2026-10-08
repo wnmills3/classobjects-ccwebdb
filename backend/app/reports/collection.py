@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import cast
 from urllib.parse import urlencode
 
@@ -60,6 +60,7 @@ from ..models import (
     Series,
     StrikeType,
 )
+from ..models.valuation import melt_value
 from .base import Column, Report, ReportResult
 from .live_params import (
     NOTHING_MATCHES,
@@ -853,7 +854,6 @@ _BF = BullionForm.__table__.alias("bf")
 
 _NO_METAL = "No metal"
 _NO_BULLION_FORM = "No bullion form"
-_CENTS = Decimal("0.01")
 
 #: The latest quote for a metal, matching how `item_valuation`
 #: (`models/views.py`) reads the spot price -- the newest `quoted_at` --
@@ -1044,11 +1044,7 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
         # Rounded once per row (to the row's own total ounces), not once per
         # item and then summed -- a row's melt may therefore differ from the
         # sum of `item_valuation.melt_value` over its items by a cent.
-        melt = (
-            (ounces * price).quantize(_CENTS, rounding=ROUND_HALF_UP)
-            if price is not None
-            else None
-        )
+        melt = melt_value(ounces, price) if price is not None else None
         metal_label = cast("str | None", row["metal_label"]) or _NO_METAL
         if price is None:
             unpriced_labels.add(metal_label)

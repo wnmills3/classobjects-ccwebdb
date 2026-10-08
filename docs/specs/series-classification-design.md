@@ -32,7 +32,13 @@ design they decide:
   name is counted *contradicted* and stays unclassified, for
   `series_classify` to list as a conflict. A range of years rules nothing
   out. "Franklin" followed by "Mint" names the private mint, not the half
-  dollar.
+  dollar. A bar, round, medal or token (kinds `bullion`, `medal`, `token`)
+  with no denomination recorded is not assigned a design that has one: a
+  "Buffalo" round is not an Indian Head nickel, while a Silver Eagle, whose
+  design records no denomination, is still matched. It reads every title and description as the item's own: the
+  lot-text rule below is `series_classify`'s alone, so a design a lot's
+  shared listing names, and the piece's year and denomination allow, is
+  assigned here.
 - `app.series_classify` assigns from the facts -- denomination, year and, for
   a note, series letter -- and is the only pass that classifies notes.
 
@@ -112,7 +118,9 @@ Rules that keep it honest:
   title longer than a face value, shared within the order, is lot text
   whatever the descriptions say. Lot text can still send a piece to review -- "Lot of 3
   Washington/Carver Commemorative Half Dollars" sends a 1952 half to review
-  rather than to Franklin -- but never assigns it.
+  rather than to Franklin -- but never assigns it in this pass. `series_match`
+  has no such rule, and run first it assigns that half the commemorative
+  design from the same words.
 - **A conflict needs the text to name only impossible designs.** It is judged
   only against designs whose ranges are known, so text naming a bullion design
   is never a conflict; nor is text that names a candidate as well ("Abraham

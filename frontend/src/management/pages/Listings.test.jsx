@@ -334,6 +334,14 @@ describe('Listings', () => {
       'Control+S',
     )
     expect(new Set(letters).size).toBe(letters.length)
+    // Each letter is underlined in its own field's label: a letter the label
+    // does not hold is a shortcut nobody can find.
+    for (const control of dialog.querySelectorAll('[accesskey]')) {
+      const underlined = control.closest('label').querySelector('u')
+      expect(underlined?.textContent.toLowerCase()).toBe(
+        control.getAttribute('accesskey'),
+      )
+    }
     // Chrome and Edge keep D, E and F for the address bar and menus.
     expect(letters.filter((l) => 'def'.includes(l))).toEqual([])
   })

@@ -38,6 +38,17 @@ from .models import AddressKind, UserRole
 #: PostgreSQL as a `DataError` that nothing turns into a 422.
 Money = Annotated[Decimal, Field(ge=Decimal("0"), max_digits=12, decimal_places=2)]
 
+#: A weight in troy ounces, held to the `NUMERIC(12,6)` columns it is stored
+#: in for the reason `Money` is held to its own.
+Weight = Annotated[Decimal, Field(ge=Decimal("0"), max_digits=12, decimal_places=6)]
+
+#: A fee rate as a fraction of the sale -- 0.1325 is 13.25% -- held to the
+#: `NUMERIC(6,4)` columns it is stored in: a fifth decimal place would be
+#: rounded away by PostgreSQL while the response reported what was sent.
+Rate = Annotated[
+    Decimal, Field(ge=Decimal("0"), le=Decimal("1"), max_digits=6, decimal_places=4)
+]
+
 #: The bounds of a banknote's series year, wherever one is sent. 1690 is the
 #: first paper money issued in America, and the collection holds notes back
 #: to 1801; 2200 is the same far bound the item years use.
@@ -238,6 +249,8 @@ class ImageLinkOut(BaseModel):
 class ImageLinkUpdate(BaseModel):
     """What may change about a filed photograph."""
 
+    model_config = ConfigDict(extra="forbid")
+
     image_role: str | None = None
     is_primary: bool | None = None
     #: Set after a refusal (app.sale_state).
@@ -269,6 +282,8 @@ class ImageFromUrl(BaseModel):
 
 class ImageLinkIn(BaseModel):
     """Filing a photograph against an item."""
+
+    model_config = ConfigDict(extra="forbid")
 
     inventory_item_id: int
     image_role: str | None = None
@@ -464,6 +479,18 @@ class CustomerUpdate(BaseModel):
     phone: str | None = None
     notes: str | None = None
 
+    @field_validator("display_name")
+    @classmethod
+    def _named(cls, value: str | None) -> str | None:
+        """A name sent is trimmed and may not be blank.
+
+        It is how the customer is shown on every order and picked from
+        every list; a blank one is a row nobody can find.
+        """
+        if value is None:
+            return None
+        return _name_or_refuse(value)
+
     @field_validator("phone")
     @classmethod
     def _e164(cls, value: str | None) -> str | None:
@@ -642,6 +669,8 @@ class OrderRevision(BaseModel):
 class OrderStatusUpdate(BaseModel):
     """Advance an order to another status, by `sales_order_status` code."""
 
+    model_config = ConfigDict(extra="forbid")
+
     #: A `sales_order_status` code: pending, paid, packed, shipped,
     #: delivered, cancelled, refunded.
     status: str = Field(min_length=1, max_length=64)
@@ -733,6 +762,8 @@ class ReferenceTableOut(BaseModel):
 class SplitPieceIn(BaseModel):
     """One piece to create when breaking a lot apart."""
 
+    model_config = ConfigDict(extra="forbid")
+
     source_title: str = Field(min_length=1, max_length=500)
     piece_count: int = Field(default=1, ge=1)
     #: The value of ONE piece, on whatever basis the caller chose -- face
@@ -756,6 +787,8 @@ class SplitPieceIn(BaseModel):
 
 class SplitRequest(BaseModel):
     """How to break a lot into pieces, and how to divide its cost."""
+
+    model_config = ConfigDict(extra="forbid")
 
     #: `equal` divides the cost evenly per piece; `relative` divides it in
     #: proportion to each piece's `relative_value`.
@@ -1073,9 +1106,11 @@ class InventoryItemUpdate(BaseModel):
     #: leaves "No year recorded". A year sent later clears it. Refused beside
     #: a year in the same request, and on a note (its year is its series year).
     no_date: bool | None = None
-    fineness: Decimal | None = Field(default=None, ge=0, le=1, decimal_places=4)
-    gross_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
-    fine_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
+    #: Above zero, as `ck_inventory_item_fineness_fraction` requires: a piece
+    #: with no precious metal has no fineness, not a fineness of nought.
+    fineness: Decimal | None = Field(default=None, gt=0, le=1, decimal_places=4)
+    gross_weight_ozt: Weight | None = None
+    fine_weight_ozt: Weight | None = None
     #: The weight as written, where it is not one number ("1 oz each").
     weight_note: str | None = Field(default=None, max_length=200)
     piece_count: int | None = Field(default=None, ge=1)
@@ -1256,8 +1291,8 @@ class ItemCreate(BaseModel):
     #: Weight, per piece, in troy ounces, and the fraction of it that is the
     #: metal. A fine weight left out is worked out from the other two.
     fineness: Decimal | None = Field(default=None, gt=0, le=1, decimal_places=4)
-    gross_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
-    fine_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
+    gross_weight_ozt: Weight | None = None
+    fine_weight_ozt: Weight | None = None
     weight_note: str | None = Field(default=None, max_length=200)
     #: null -> `single`.
     storage_form: str | None = Field(default=None, max_length=64)
@@ -1377,6 +1412,8 @@ RECEIVE_OUTCOMES: frozenset[str] = frozenset(
 class ReceiveRequest(BaseModel):
     """One receipt, applied to one or many items at once."""
 
+    model_config = ConfigDict(extra="forbid")
+
     item_ids: list[int] = Field(min_length=1)
     outcome: str
     arrived_on: date | None = None
@@ -1390,6 +1427,8 @@ class ReceiveRequest(BaseModel):
 
 class ItemErrorIn(BaseModel):
     """One mint or printing error, as part of an item's whole set."""
+
+    model_config = ConfigDict(extra="forbid")
 
     error_type: str = Field(max_length=64)
     #: Free text, per error -- so miscut and overprint on the same bill each
@@ -1418,6 +1457,8 @@ class ItemErrorsRequest(BaseModel):
     A replace, not an add/remove pair: `PUT /inventory/{item_id}/errors`
     stores exactly this list and discards whatever was recorded before.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     errors: list[ItemErrorIn] = Field(default_factory=list)
     #: Set after a refusal to say the caller knows the item is for sale
@@ -1516,10 +1557,14 @@ class ReferenceValueCreate(BaseModel):
     shipped catalog and are excluded from an export by default.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     #: Left out, the value is given one: named for its label, or for what it
-    #: is where the vocabulary's codes say that (a denomination's).
+    #: is where the vocabulary's codes say that (a denomination's). No `/`:
+    #: a code is a segment of the value's own address, `/{table}/{code}`,
+    #: and one holding a slash could never be reached there.
     code: str | None = Field(
-        default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_+./-]+$"
+        default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_+.-]+$"
     )
     label: str = Field(min_length=1, max_length=255)
     #: Bounded to the column's own range, as a move's is.
@@ -1530,16 +1575,19 @@ class ReferenceValueCreate(BaseModel):
 
 
 class ReferenceValueRename(BaseModel):
-    """Change what a value is *called*.
+    """Change a value: what it is called, where it sorts, whether it is offered.
 
-    Only the label. The code is the API contract -- it appears in saved
-    filters, bookmarked searches and any integration -- so it is immutable,
-    and renaming is exactly the operation that lets a badly-worded label be
-    fixed without breaking those.
+    The label always travels; `sort_order`, `is_active` and `extra` change
+    only when sent. Never the code. The code is the API contract -- it
+    appears in saved filters, bookmarked searches and any integration -- so
+    it is immutable, and renaming is exactly the operation that lets a
+    badly-worded label be fixed without breaking those.
 
     Because every record refers to the value by foreign key, a rename takes
     effect everywhere at once. There is nothing to migrate.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     label: str = Field(min_length=1, max_length=255)
     #: Bounded to the column's own range: a larger number would overflow the
@@ -1553,6 +1601,8 @@ class ReferenceValueRename(BaseModel):
 
 class ReferenceMergeIn(BaseModel):
     """The value to merge into, and whether only to say what would happen."""
+
+    model_config = ConfigDict(extra="forbid")
 
     into: str = Field(min_length=1, max_length=64)
     #: True: report what the merge would move, and change nothing.
@@ -1577,6 +1627,9 @@ class ReferenceMergeOut(BaseModel):
     dropped: int
     #: Names the kept value gains (or would gain).
     aliases: list[str]
+    #: Old names the kept value cannot take, each with the reason: one over
+    #: the length an alias may be, or one that is another value's own name.
+    names_not_kept: list[str] = Field(default_factory=list)
     #: Item codes among those moved that are for sale, at most ten.
     for_sale: list[str] = Field(default_factory=list)
     #: How many are for sale in total, however many are named above.
@@ -1585,6 +1638,8 @@ class ReferenceMergeOut(BaseModel):
 
 class ReferenceAliasIn(BaseModel):
     """Another name for a value: what people write instead of its label."""
+
+    model_config = ConfigDict(extra="forbid")
 
     alias: str = Field(min_length=1, max_length=64)
 
@@ -1719,8 +1774,8 @@ class VendorUpdate(BaseModel):
     @field_validator("url")
     @classmethod
     def _blank_url(cls, value: str | None) -> str | None:
-        """A blank link is no link."""
-        return _strip_or_none(value)
+        """A blank link is no link; any other is `http://` or `https://`."""
+        return _require_http_url(_strip_or_none(value))
 
 
 class VendorCreate(BaseModel):
@@ -1792,10 +1847,10 @@ class _SalesVenueFields(BaseModel):
 
     account_handle: str | None = Field(default=None, max_length=255)
     listing_url_template: str | None = Field(default=None, max_length=500)
-    commission_rate: Decimal | None = Field(default=None, ge=0, le=1)
-    processing_rate: Decimal | None = Field(default=None, ge=0, le=1)
-    processing_fixed: Decimal | None = Field(default=None, ge=0)
-    listing_fee: Decimal | None = Field(default=None, ge=0)
+    commission_rate: Rate | None = None
+    processing_rate: Rate | None = None
+    processing_fixed: Money | None = None
+    listing_fee: Money | None = None
     terms_as_of: date | None = None
     notes: str | None = None
     vendor_id: int | None = None
@@ -1935,9 +1990,10 @@ class ListingOut(BaseModel):
 
     `external_url` is **computed for this response** from the platform's
     `listing_url_template` when the listing has an external id and no URL of
-    its own; it is never written back to the row. The
-    column holds what a person typed, and a derived value stored there would
-    go stale the day a platform changes its URLs.
+    its own; it is never written back to the row. Nothing in the application
+    writes `listing.external_url` -- a row holds one only if it was put
+    there directly -- and a derived value stored there would go stale the
+    day a platform changes its URLs.
 
     **A listing offers an item or a lot, never both** (`ck_listing_item_xor_lot`),
     so the two pairs below are mutually exclusive and both are optional:
@@ -2285,9 +2341,10 @@ class AuctionListOut(BaseModel):
 class SettlementLineIn(BaseModel):
     """One lot's outcome, as the settlement grid enters it.
 
-    `hammer_price` and `buyer_username` matter only when `result` is `sold`;
-    `app.auctions.settle` refuses either one given alongside an `unsold` or
-    `withdrawn` result.
+    `hammer_price` and `buyer_username` matter only when `result` is `sold`.
+    Beside an `unsold` or `withdrawn` result, `app.auctions.settle` refuses a
+    `hammer_price` and does not read a `buyer_username`: nothing is recorded
+    against that buyer.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -2431,8 +2488,12 @@ class PurchaseOrderCreate(BaseModel):
     @field_validator("source_url")
     @classmethod
     def _http_url(cls, value: str | None) -> str | None:
-        """Only `http://` or `https://`, as `PurchaseOrderDetailOut` requires."""
-        return _require_http_url(value)
+        """Trimmed, blank is none; otherwise `http://` or `https://`.
+
+        The same reading `PurchaseOrderUpdate` gives it, and the rule
+        `PurchaseOrderDetailOut` offers it as a link by.
+        """
+        return _require_http_url(_strip_or_none(value))
 
 
 class PurchaseOrderOut(BaseModel):
@@ -2494,7 +2555,8 @@ class PurchaseOrderDetailOut(BaseModel):
     #: The stored text itself, link or not, for the form that edits it.
     source_text: str | None = None
     #: Who sold it: the seller's id and name, and their store or profile
-    #: page (always a web address) -- all None when no seller is named.
+    #: page (a web address or a `mailto:` address) -- all None when no
+    #: seller is named.
     seller_id: int | None = None
     seller: str | None = None
     seller_url: str | None = None
@@ -2677,6 +2739,8 @@ class FriedbergNumberCreate(BaseModel):
     for a catalog built by hand as notes arrive.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     fr_number: str = Field(min_length=1, max_length=32)
     note_type: str | None = None
     denomination: str | None = None
@@ -2691,7 +2755,21 @@ class FriedbergNumberCreate(BaseModel):
     series_letter: str | None = Field(default=None, max_length=4)
     seal_color: str | None = None
     signature_combination: str | None = None
+    #: The Federal Reserve district's letter, A (Boston) to L (San
+    #: Francisco), stored in capitals.
     district_letter: str | None = Field(default=None, min_length=1, max_length=1)
+
+    @field_validator("district_letter")
+    @classmethod
+    def _district_in_capitals(cls, value: str | None) -> str | None:
+        """Upper-cased, and one of the twelve districts' letters."""
+        if value is None:
+            return None
+        letter = value.upper()
+        if letter not in "ABCDEFGHIJKL":
+            raise ValueError("district_letter must be a letter from A to L")
+        return letter
+
     size_class: str | None = Field(default=None, pattern="^(large|small|fractional)$")
     web_press: bool | None = None
     printing_facility: str | None = Field(default=None, pattern="^(dc|fw)$")
@@ -2721,8 +2799,11 @@ class SignatureChoicesOut(BaseModel):
 class FriedbergAttachIn(BaseModel):
     """Attach a catalog row to a currency item's `currency_detail`."""
 
+    model_config = ConfigDict(extra="forbid")
+
     friedberg_id: int
-    #: A `friedberg_status` value: unknown, proposed, confirmed, conflicting.
+    #: The `friedberg_status` to attach with: proposed, confirmed or
+    #: conflicting. `unknown` is a note with no number, so it is refused.
     status: str
 
 
@@ -2768,7 +2849,8 @@ class MetalPriceOut(BaseModel):
     quoted_at: datetime | None
     #: Where the quote came from: `manual` for one typed in.
     source: str | None
-    #: Fine troy ounces held across live items; null when none has a weight.
+    #: Fine troy ounces in hand: live items received and held or listed.
+    #: Null when none of them has a weight.
     fine_ozt_held: Decimal | None
     #: The ounces at the newest quote; null without both.
     melt_value: Decimal | None

@@ -17,7 +17,9 @@ kept, and deletes it:
   those rows have rules of their own that a blind remap could break.
 - **The old names stay findable.** The old label, code and aliases become
   aliases of the kept value, so a rating or a search that uses the old word
-  still finds it.
+  still finds it. One that cannot be an alias -- longer than an alias may
+  be, or another value's own label or code -- is reported in
+  `names_not_kept`, by the preview and by the merge alike.
 - **It stays merged.** `reference_merge` records it; a seed load skips the
   old code and reads a seed row naming it as naming the kept one.
 
@@ -86,6 +88,8 @@ class MergePlan:
     dropped: int = 0
     #: Names the kept value gains.
     aliases: list[str] = field(default_factory=list)
+    #: Old names it cannot take, each with the reason.
+    names_not_kept: list[str] = field(default_factory=list)
     #: Item codes among `items` that are for sale, at most ten of them.
     for_sale: list[str] = field(default_factory=list)
     #: How many are for sale in total, however many are named above.
@@ -184,12 +188,48 @@ def plan(
         ).all()
         result.for_sale_count = len(codes)
         result.for_sale = list(codes[:10])
-    result.aliases = [
-        name
-        for name in _new_names(db, model, source)
-        if name.lower() not in {target.label.lower(), target.code.lower()}
-    ]
+    result.aliases, result.names_not_kept = _names_kept(db, model, source, target)
     return result, source, target
+
+
+def _names_kept(
+    db: Session,
+    model: type[ReferenceMixin],
+    source: ReferenceMixin,
+    target: ReferenceMixin,
+) -> tuple[list[str], list[str]]:
+    """The old names the kept value gains, and those it cannot take, with why.
+
+    The same refusals `aliases.add_alias` makes once the merged value is
+    gone, worked out beforehand so the preview promises only what the merge
+    keeps. A name the kept value already goes by is in neither list.
+    """
+    already = {target.label.lower(), target.code.lower()}
+    held = aliases.aliases_by_row(db, model).get(target.id, [])
+    already |= {name.lower() for name in held}
+    kept: list[str] = []
+    lost: list[str] = []
+    for name in _new_names(db, model, source):
+        if name.lower() in already:
+            continue
+        if len(name) > aliases.MAX_ALIAS:
+            lost.append(
+                f"{name!r}: longer than the {aliases.MAX_ALIAS} characters an "
+                "alias holds"
+            )
+            continue
+        other = db.scalar(
+            select(model.label).where(
+                model.id != source.id,
+                (func.lower(model.label) == name.lower())
+                | (func.lower(model.code) == name.lower()),
+            )
+        )
+        if other is not None:
+            lost.append(f"{name!r}: already the name of {other}")
+            continue
+        kept.append(name)
+    return kept, lost
 
 
 def merge(

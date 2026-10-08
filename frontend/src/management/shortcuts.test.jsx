@@ -1,26 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { AccessLabel } from './AccessLabel'
 import { accel, useSaveShortcut } from './shortcuts'
 
 function Probe({ onSave, enabled }) {
   useSaveShortcut(onSave, enabled)
   return <p>probe</p>
 }
-
-describe('AccessLabel', () => {
-  it('underlines the access key letter and keeps the full text', () => {
-    const { container } = render(<AccessLabel text="Shipping" accessKey="h" />)
-    expect(container.textContent).toBe('Shipping')
-    expect(container.querySelector('u').textContent).toBe('h')
-  })
-
-  it('renders plain text when the letter is absent', () => {
-    const { container } = render(<AccessLabel text="Grade" accessKey="z" />)
-    expect(container.querySelector('u')).toBeNull()
-  })
-})
 
 describe('accel', () => {
   it('gives a control its access key and announces it', () => {

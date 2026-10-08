@@ -207,6 +207,48 @@ def test_deactivating_an_account_is_stored_and_keeps_its_role(
     assert stored.role is UserRole.customer
 
 
+def test_deactivating_an_account_ends_the_sessions_it_already_has(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    customer_user: User,
+) -> None:
+    """Deactivation stands in for deletion, so it has to revoke as well.
+
+    Refusing only the *next* sign-in would leave a deactivated account
+    working from every browser already signed in, for as long as its refresh
+    token kept minting access tokens.
+    """
+    before = _login(client, customer_user.email, "customerpassword")
+    assert before is not None
+    old_access = {"Authorization": f"Bearer {before['access_token']}"}
+    assert client.get("/api/auth/me", headers=old_access).status_code == 200
+
+    off = client.patch(
+        f"/api/users/{customer_user.id}",
+        headers=admin_headers,
+        json={"is_active": False},
+    )
+    assert off.status_code == 200, off.text
+
+    # The access token it holds is refused...
+    assert client.get("/api/auth/me", headers=old_access).status_code == 403
+    assert client.get("/api/orders", headers=old_access).status_code == 403
+    # ...and its refresh token cannot buy another.
+    again = client.post(
+        "/api/auth/refresh", json={"refresh_token": before["refresh_token"]}
+    )
+    assert again.status_code == 401
+
+    # Reactivated, the same tokens work again: nothing was revoked for good.
+    on = client.patch(
+        f"/api/users/{customer_user.id}",
+        headers=admin_headers,
+        json={"is_active": True},
+    )
+    assert on.status_code == 200, on.text
+    assert client.get("/api/auth/me", headers=old_access).status_code == 200
+
+
 @pytest.fixture
 def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
     """Real, committing sessions; removes the accounts it made."""

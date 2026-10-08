@@ -14,29 +14,44 @@ import { money } from '../../shared/format'
  * number of at least one. Passed straight through, clearing the box to type
  * a new number would be a quantity of zero -- a removal -- and "1.5" would be
  * a quantity. Leaving the box shows the cart's quantity again; Remove is the
- * way to drop a line.
+ * way to drop a line. A number past the stock on hand is taken as the stock,
+ * which the box then shows, and the line says how many there are.
  */
 function QuantityInput({ coin, quantity, onChange }) {
   const [draft, setDraft] = useState(null)
+  // Whether the last number typed was more than the stock on hand.
+  const [capped, setCapped] = useState(false)
 
   function change(event) {
     const text = event.target.value
-    setDraft(text)
-    if (/^\d+$/.test(text) && Number(text) >= 1) onChange(Number(text))
+    const whole = /^\d+$/.test(text) && Number(text) >= 1
+    // The cart holds a line to the stock. A number past it is not kept in
+    // the box, which then shows what the cart took, with the reason beside.
+    const over = whole && Number(text) > coin.quantity_available
+    setCapped(over)
+    setDraft(over ? null : text)
+    if (whole) onChange(Number(text))
   }
 
   return (
-    <input
-      type="number"
-      min="1"
-      step="1"
-      max={coin.quantity_available}
-      value={draft ?? quantity}
-      onChange={change}
-      onBlur={() => setDraft(null)}
-      className="qty"
-      aria-label={`Quantity of ${coin.title}`}
-    />
+    <>
+      <input
+        type="number"
+        min="1"
+        step="1"
+        max={coin.quantity_available}
+        value={draft ?? quantity}
+        onChange={change}
+        onBlur={() => setDraft(null)}
+        className="qty"
+        aria-label={`Quantity of ${coin.title}`}
+      />
+      {capped && (
+        <span className="muted small" role="status">
+          Only {coin.quantity_available} available.
+        </span>
+      )}
+    </>
   )
 }
 

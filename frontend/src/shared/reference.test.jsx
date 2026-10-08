@@ -601,6 +601,69 @@ describe('ReferenceProvider', () => {
   })
 })
 
+describe('ReferenceSelect over a vocabulary that could not be fetched', () => {
+  function Picker() {
+    const [chosen, setChosen] = useState('')
+    return (
+      <ReferenceSelect
+        table="series"
+        value={chosen}
+        onChange={(e) => setChosen(e.target.value)}
+      />
+    )
+  }
+
+  it('says it could not load, and still takes typed text', async () => {
+    // A text box with no word said reads as a field that was always free
+    // text; what is typed into it is then refused on save as an unknown code.
+    const user = userEvent.setup()
+    api.getReference.mockRejectedValue(new Error('offline'))
+    render(
+      <ReferenceProvider>
+        <Picker />
+      </ReferenceProvider>,
+    )
+
+    expect(await screen.findByText('Could not load series.')).toBeInTheDocument()
+    const box = screen.getByRole('textbox', { name: 'series' })
+    await user.type(box, 'morgan')
+    expect(box).toHaveValue('morgan')
+  })
+
+  it('says nothing of the kind while a vocabulary is loading or simply empty', async () => {
+    api.getReference.mockResolvedValue({ values: [] })
+    render(
+      <ReferenceProvider>
+        <Picker />
+      </ReferenceProvider>,
+    )
+
+    await waitFor(() => expect(api.getReference).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('textbox', { name: 'series' })).toBeInTheDocument()
+    expect(screen.queryByText(/could not load/i)).toBeNull()
+  })
+
+  it('stops saying so once a later fetch succeeds', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    api.getReference
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ values: [value('a', 'A')] })
+    render(
+      <ReferenceProvider>
+        <Picker />
+      </ReferenceProvider>,
+    )
+    expect(await screen.findByText('Could not load series.')).toBeInTheDocument()
+
+    now.mockReturnValue(1_000_000 + 120_000)
+    window.dispatchEvent(new Event('focus'))
+
+    expect(await screen.findByRole('combobox', { name: 'series' })).toBeInTheDocument()
+    expect(screen.queryByText(/could not load/i)).toBeNull()
+    now.mockRestore()
+  })
+})
+
 describe('useReference', () => {
   function Show({ includeRetired }) {
     const values = useReference('series', { includeRetired }) ?? []

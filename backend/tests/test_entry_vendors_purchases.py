@@ -146,6 +146,57 @@ def test_a_non_http_vendor_url_is_a_422(
     assert res.status_code == 422
 
 
+def test_a_vendors_link_is_corrected_only_to_a_web_address(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A correction meets the rule a new vendor does: http(s) or nothing."""
+    vendor = Vendor(
+        name="Linked Dealer", url="https://dealer.example", host="dealer.example"
+    )
+    db.add(vendor)
+    db.commit()
+
+    for link in ("javascript:alert(1)", "ftp://example.com", "dealer.example"):
+        refused = client.patch(
+            f"/api/vendors/{vendor.id}", json={"url": link}, headers=admin_headers
+        )
+        assert refused.status_code == 422, link
+    db.refresh(vendor)
+    assert (vendor.url, vendor.host) == ("https://dealer.example", "dealer.example")
+
+    cleared = client.patch(
+        f"/api/vendors/{vendor.id}", json={"url": "  "}, headers=admin_headers
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["url"] is None
+
+
+@pytest.mark.parametrize(
+    ("url", "host"),
+    [
+        ("https://www.ebay.com?ref=1", "www.ebay.com"),
+        ("https://www.ebay.com#top", "www.ebay.com"),
+        ("https://Shop.Example:8443/coins", "shop.example"),
+        ("https://buyer@shop.example/coins", "shop.example"),
+    ],
+)
+def test_a_vendors_host_is_the_host_name_alone(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    url: str,
+    host: str,
+) -> None:
+    """No query, fragment, port or user name: one site is one host."""
+    res = client.post(
+        "/api/vendors", json={"name": "Host Vendor", "url": url}, headers=admin_headers
+    )
+    assert res.status_code == 201, res.text
+    vendor = db.get(Vendor, res.json()["id"])
+    assert vendor is not None
+    assert vendor.host == host
+
+
 def test_a_concurrent_duplicate_vendor_name_is_a_409_not_a_500(
     client: TestClient,
     admin_headers: dict[str, str],
@@ -321,6 +372,28 @@ def test_a_non_http_source_url_is_a_422(
         headers=admin_headers,
     )
     assert res.status_code == 422
+
+
+def test_a_source_url_is_trimmed_and_a_blank_one_is_none(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Surrounding space is not part of an address; nothing left is none."""
+    vendor = _vendor(db, "Padded URL Vendor")
+    padded = client.post(
+        "/api/purchase-orders",
+        json={"vendor_id": vendor.id, "source_url": "  https://example.com/a  "},
+        headers=admin_headers,
+    )
+    assert padded.status_code == 201, padded.text
+    assert padded.json()["source_text"] == "https://example.com/a"
+
+    blank = client.post(
+        "/api/purchase-orders",
+        json={"vendor_id": vendor.id, "source_url": "   "},
+        headers=admin_headers,
+    )
+    assert blank.status_code == 201, blank.text
+    assert blank.json()["source_text"] is None
 
 
 def test_a_concurrent_duplicate_order_number_is_a_409_not_a_500(

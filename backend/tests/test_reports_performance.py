@@ -4,9 +4,11 @@ A guard, not a benchmark (`docs/specs/reporting-design.md`, *Testing*):
 `REPORTS` is parametrized directly, so a report added later is
 covered the moment its module is registered, with no test of its own to
 write. The data set is modest -- enough that a report's query touches more
-than a handful of rows at every join, so an accidental N+1 (a Python loop
-issuing one query per row rather than one query per report) would show up
-as a slow test, not enough to make building it itself slow.
+than a handful of rows at every join, not enough to make building it itself
+slow. At that size the time budget catches an unindexed scan or a runaway
+join, but not an accidental N+1 (a Python loop issuing one query per row
+rather than one query per report), which costs only milliseconds here; that
+is caught by counting the queries sent as the collection doubles.
 """
 
 from __future__ import annotations
@@ -47,6 +49,7 @@ from app.models import (
     utcnow,
 )
 from app.reports import REPORTS
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, build_purchase_order, code_id, usd_id
@@ -109,7 +112,7 @@ def _listing(
     return listing
 
 
-def _build_modest_collection(db: Session) -> None:
+def _build_modest_collection(db: Session, tag: str = "") -> None:
     """A few dozen items, purchases and listings -- not the collection's thousands.
 
     One of each shape a report groups by: coins and notes across several
@@ -118,6 +121,9 @@ def _build_modest_collection(db: Session) -> None:
     orders with items still `ordered` or `missing`, some old enough to be
     overdue; and a spread of listings -- active and paused, an item and a
     lot -- so `sl_offered` walks both of its row sources.
+
+    `tag` is added to every name that must be unique, so a second call with
+    another tag builds the same collection again beside the first.
     """
     currency_id = usd_id(db)
 
@@ -157,8 +163,8 @@ def _build_modest_collection(db: Session) -> None:
     for index in range(10):
         order = build_purchase_order(
             db,
-            vendor_name=f"Vendor {index}",
-            order_number=f"ORD-{index}",
+            vendor_name=f"Vendor {index}{tag}",
+            order_number=f"ORD-{index}{tag}",
             ordered_on=today - timedelta(days=5 + index * 8),
             commit=False,
         )
@@ -181,8 +187,8 @@ def _build_modest_collection(db: Session) -> None:
     for index in range(4):
         order = build_purchase_order(
             db,
-            vendor_name=f"Receiving Vendor {index}",
-            order_number=f"RCV-{index}",
+            vendor_name=f"Receiving Vendor {index}{tag}",
+            order_number=f"RCV-{index}{tag}",
             ordered_on=today - timedelta(days=3 + index),
             commit=False,
         )
@@ -210,7 +216,7 @@ def _build_modest_collection(db: Session) -> None:
         )
         db.commit()
 
-    venue = _venue(db, "test_venue")
+    venue = _venue(db, f"test_venue{tag}")
     listing_items = [
         build_bare_item(
             db,
@@ -253,15 +259,15 @@ def _build_modest_collection(db: Session) -> None:
     # Cheap to add here so the performance guard exercises both paths too.
     location = StorageLocation(
         storage_location_kind_id=code_id(db, StorageLocationKind, "home"),
-        identifier="Perf test box",
+        identifier=f"Perf test box{tag}",
     )
     db.add(location)
     db.flush()
     listing_items[0].storage_location_id = location.id
     db.add(
         Image(
-            sha256="0" * 64,
-            storage_key="orig/unfiled-perf.jpg",
+            sha256=f"{tag:0>64}",
+            storage_key=f"orig/unfiled-perf{tag}.jpg",
             media_type="image/jpeg",
             byte_size=10,
         )
@@ -291,7 +297,7 @@ def _build_modest_collection(db: Session) -> None:
     # `sl_sales` and `sl_fulfilment` read `sales_order_item_share`;
     # `sl_auctions` reads `auction`. Cheap to add one of each here so the
     # performance guard exercises both paths too.
-    customer = Customer(display_name="Perf Customer", email=None)
+    customer = Customer(display_name=f"Perf Customer{tag}", email=None)
     db.add(customer)
     db.flush()
     order_item = build_bare_item(
@@ -339,8 +345,53 @@ def _build_modest_collection(db: Session) -> None:
             amount=Decimal("5.00"),
         )
     )
-    db.add(Auction(sales_venue_id=venue.id, title="Perf test auction"))
+    db.add(Auction(sales_venue_id=venue.id, title=f"Perf test auction{tag}"))
     db.commit()
+
+
+def _statements(db: Session, report_id: str) -> int:
+    """How many queries one run of the report sends, at its default parameters."""
+    sent: list[str] = []
+
+    def _record(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        """Keep each query's text; a savepoint the session opens is not one."""
+        if statement.lstrip().upper().startswith(("SELECT", "WITH")):
+            sent.append(statement)
+
+    report = REPORTS[report_id]
+    bind = db.get_bind()
+    event.listen(bind, "before_cursor_execute", _record)
+    try:
+        report.run(db, report.params())
+    finally:
+        event.remove(bind, "before_cursor_execute", _record)
+    return len(sent)
+
+
+@pytest.mark.parametrize("report_id", sorted(REPORTS))
+def test_report_sends_no_more_queries_when_the_collection_doubles(
+    report_id: str, db: Session
+) -> None:
+    """A report's query count is a property of the report, not of its data.
+
+    The elapsed-time budget below cannot see one query per row at this size:
+    a few dozen extra queries cost milliseconds. Counted instead, on the
+    statements actually sent: the same collection built a second time beside
+    the first doubles every row a report reads and must add no query.
+    """
+    _build_modest_collection(db)
+    once = _statements(db, report_id)
+    _build_modest_collection(db, tag="b")
+
+    assert once > 0
+    assert _statements(db, report_id) == once
 
 
 @pytest.mark.parametrize("report_id", sorted(REPORTS))

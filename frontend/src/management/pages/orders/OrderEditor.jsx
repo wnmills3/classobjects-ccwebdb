@@ -70,7 +70,19 @@ export default function OrderEditor({ order, onSaved, onClose }) {
             ),
           )
         })
-        .catch(() => {})
+        .catch((err) => {
+          if (cancelled) return
+          // A listing the shop no longer shows -- ended, or set aside for an
+          // offer elsewhere -- cannot be read. The line stays; its
+          // availability says why it is not known.
+          setLines((current) =>
+            current.map((line) =>
+              line.listing_id === item.listing_id
+                ? { ...line, unavailable: err.message }
+                : line,
+            ),
+          )
+        })
     }
     return () => {
       cancelled = true
@@ -182,27 +194,30 @@ export default function OrderEditor({ order, onSaved, onClose }) {
       {error && <p className="error">{error}</p>}
 
       <div className="row">
-        <input
-          type="search"
-          aria-label="Find customer"
-          placeholder="Find customer"
-          value={find}
-          onChange={(e) => setFind(e.target.value)}
-          {...accel('n')}
-        />
-        <select
-          aria-label="Customer"
-          value={customerKey}
-          onChange={(e) => setCustomerKey(e.target.value)}
-          {...accel('c')}
-        >
-          <option value="">Choose a customer</option>
-          {shown.map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <label>
+          <AccessLabel text="Find customer" accessKey="n" />
+          <input
+            type="search"
+            value={find}
+            onChange={(e) => setFind(e.target.value)}
+            {...accel('n')}
+          />
+        </label>
+        <label>
+          <AccessLabel text="Customer" accessKey="c" />
+          <select
+            value={customerKey}
+            onChange={(e) => setCustomerKey(e.target.value)}
+            {...accel('c')}
+          >
+            <option value="">Choose a customer</option>
+            {shown.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <table className="table">
@@ -245,7 +260,10 @@ export default function OrderEditor({ order, onSaved, onClose }) {
                     </div>
                   )}
               </td>
-              <td className="muted">{line.available ?? '-'}</td>
+              <td className="muted">
+                {line.available ??
+                  (line.unavailable ? `not known: ${line.unavailable}` : '-')}
+              </td>
               <td>
                 <button
                   className="link"
@@ -263,14 +281,15 @@ export default function OrderEditor({ order, onSaved, onClose }) {
       </table>
 
       <div className="row">
-        <input
-          type="search"
-          aria-label="Find item"
-          placeholder="Find item"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          {...accel('i')}
-        />
+        <label>
+          <AccessLabel text="Find item" accessKey="i" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            {...accel('i')}
+          />
+        </label>
         <button onClick={search} {...accel('h')}>
           <AccessLabel text="Search" accessKey="h" />
         </button>

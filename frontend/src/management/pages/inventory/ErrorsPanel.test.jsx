@@ -258,6 +258,40 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
   })
 })
 
+describe('ErrorsPanel, when its errors could not be read', () => {
+  it('offers no editing, since a set built from nothing would replace the real one', async () => {
+    api.getItemErrors.mockRejectedValue(new Error('Server unavailable'))
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: vocabularies,
+    })
+
+    expect(
+      await screen.findByText(/errors could not be read: Server unavailable/i),
+    ).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Add error' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'error_type' })).toBeNull()
+    expect(api.setItemErrors).not.toHaveBeenCalled()
+  })
+
+  it('reads them again on Try again, and is then editable', async () => {
+    const user = userEvent.setup()
+    api.getItemErrors.mockRejectedValueOnce(new Error('Server unavailable'))
+    api.getItemErrors.mockResolvedValue({
+      inventory_item_id: 12,
+      errors: [{ error_type: 'miscut', details: 'top edge' }],
+    })
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: vocabularies,
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Try again' }))
+
+    expect(await screen.findByDisplayValue('top edge')).toBeVisible()
+    expect(screen.queryByText(/could not be read/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add error' })).toBeInTheDocument()
+  })
+})
+
 describe('ErrorsPanel, controlled (itemId null)', () => {
   it('never calls the API and reports changes through onChange', async () => {
     const user = userEvent.setup()

@@ -8,6 +8,9 @@ vi.mock('../../api', () => ({
     getItemSales: vi.fn(),
     getItemHistory: vi.fn(),
     updateInventoryItem: vi.fn(),
+    // Asked a moment after every change; see ItemEditForm.entry.test.jsx
+    // for what the form does with the answer.
+    previewItem: vi.fn(),
     getItemErrors: vi.fn(),
     setItemErrors: vi.fn(),
     // OffersPanel's own calls: it reads the item's offers on mount, and its
@@ -67,6 +70,8 @@ beforeEach(() => {
   api.getInventoryItem.mockResolvedValue(item)
   api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
   api.listItemImages.mockResolvedValue([])
+  // Never answers unless a test says what the facts decide.
+  api.previewItem.mockReturnValue(new Promise(() => {}))
 })
 
 describe('ItemEditForm', () => {
@@ -1291,6 +1296,53 @@ describe('ItemEditForm keyboard accelerators', () => {
       expect(element).toHaveAttribute('aria-keyshortcuts', `Alt+${key.toUpperCase()}`)
     }
   })
+
+  it.each([
+    ['a coin', { item_kind: 'coin', tax_rate: '0.0635', sales_tax: '1.00' }],
+    ['a note', { item_kind: 'currency', tax_rate: '0.0635', sales_tax: '1.00' }],
+  ])(
+    'gives %s letters used once each, never D, E or F, each underlined in its label',
+    async (_what, fields) => {
+      const user = userEvent.setup()
+      api.getInventoryItem.mockResolvedValue({
+        ...item,
+        year_start: 1878,
+        year_end: 1878,
+        ...fields,
+      })
+      const { container } = renderWithProviders(
+        <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+        {
+          reference: emptyReference({
+            tables: {
+              item_kind: [
+                { code: 'coin', label: 'Coin', source: 'seeded', extra: {} },
+                { code: 'currency', label: 'Currency', source: 'seeded', extra: {} },
+              ],
+            },
+          }),
+        },
+      )
+      await screen.findByDisplayValue('Mercury Dime')
+      // The end year has a letter of its own, shown only for a range.
+      const range = screen.queryByRole('checkbox', { name: 'Range of years' })
+      if (range) await user.click(range)
+
+      const keyed = [...container.querySelectorAll('[accesskey]')]
+      const letters = keyed.map((control) => control.getAttribute('accesskey'))
+      expect(letters.length).toBeGreaterThan(10)
+      expect(new Set(letters).size).toBe(letters.length)
+      expect(letters.filter((letter) => 'def'.includes(letter))).toEqual([])
+      // The underlined letter in a control's own row is its access key.
+      for (const control of keyed) {
+        const row = control.closest('.field, label')
+        const underlined = [...row.querySelectorAll('u')].map((u) =>
+          u.textContent.toLowerCase(),
+        )
+        expect(underlined).toContain(control.getAttribute('accesskey'))
+      }
+    },
+  )
 
   it('names Ctrl+S on its Save button', async () => {
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)

@@ -21,7 +21,7 @@ from pydantic import BaseModel, ValidationError
 REQUIRED: dict[type[BaseModel], dict[str, Any]] = {
     ItemCreate: {"purchase_order_id": 1, "item_kind": "currency", "source_title": "x"},
     InventoryItemUpdate: {},
-    FriedbergNumberCreate: {"fr_number": "1617"},
+    FriedbergNumberCreate: {"fr_number": "9917"},
 }
 
 

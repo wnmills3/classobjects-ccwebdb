@@ -30,7 +30,7 @@ import io
 from dataclasses import dataclass
 from datetime import datetime
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .config import settings
 
@@ -53,6 +53,12 @@ _EXIF_GPS_IFD = 0x8825
 
 #: Pillow's own bomb guard. Set from configuration so one limit governs.
 Image.MAX_IMAGE_PIXELS = settings.max_image_pixels
+
+#: The formats a photograph arrives in, and the only ones decoded. The bytes
+#: are whatever a person picked or a web address returned, and every decoder
+#: is code run on them; Pillow would otherwise try each one it has. A phone's
+#: multi-picture JPEG (MPO) is read by the JPEG decoder and so is covered.
+_FORMATS = ("JPEG", "PNG", "WEBP", "GIF", "TIFF", "BMP")
 
 
 class ImageRejected(ValueError):
@@ -85,8 +91,8 @@ class CleansedImage:
 def _open(raw: bytes) -> Image.Image:
     """The bytes decoded as an image, or `ImageRejected`.
 
-    Refuses an upload over the size limit, one whose pixel count is
-    implausible, and anything that is not a readable image.
+    Refuses an upload over the size limit, one with more pixels than the
+    limit, and anything that is not a readable image in one of `_FORMATS`.
     """
     if len(raw) > settings.max_upload_bytes:
         raise ImageRejected(
@@ -94,12 +100,26 @@ def _open(raw: bytes) -> Image.Image:
             f"{settings.max_upload_bytes} byte limit"
         )
     try:
-        image = Image.open(io.BytesIO(raw))
+        image = Image.open(io.BytesIO(raw), formats=_FORMATS)
+        # Pillow only warns until a picture is twice over its limit; the
+        # limit configured is the one meant.
+        pixels, limit = image.width * image.height, Image.MAX_IMAGE_PIXELS
+        if limit is not None and pixels > limit:
+            raise ImageRejected(
+                f"image is implausibly large: {pixels} pixels, over the "
+                f"{limit} pixel limit"
+            )
         image.load()
     except Image.DecompressionBombError as exc:
         raise ImageRejected(f"image is implausibly large: {exc}") from exc
-    # UnidentifiedImageError derives from OSError, so OSError alone covers
-    # both the not-an-image case and an unreadable file.
+    # Pillow's own message names the buffer it was handed by its address in
+    # memory, which tells a person nothing and differs on every call.
+    except UnidentifiedImageError as exc:
+        raise ImageRejected(
+            "not a readable image: it is not a picture in a format that is taken "
+            f"({', '.join(_FORMATS)})"
+        ) from exc
+    # A picture in one of those formats that cannot be read through.
     except OSError as exc:
         raise ImageRejected(f"not a readable image: {exc}") from exc
     return image

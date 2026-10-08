@@ -12,7 +12,7 @@ import { useReference } from '../../shared/reference-context'
  *
  * Each grows by inline entry while something else is being done, and this
  * page is where a slip made there is corrected -- a Friedberg number pasted
- * as `3007-` for `3007-L`. One table serves
+ * as `9907-` for `9907-L`. One table serves
  * all four, driven by a small description of each (`lists` below): its
  * columns, which of them can be edited, how it is read and written, and how
  * many records use a row -- only a row nothing uses offers Delete, and the
@@ -285,6 +285,12 @@ function CatalogTable({ config }) {
         setError(problem)
         return
       }
+      // A name sent as null is left as it was by the server, which would
+      // read here as a save that took.
+      if (value === '' && key === 'name') {
+        setError(`${field.label} cannot be blank.`)
+        return
+      }
       if (value !== (row[key] ?? '')) body[key] = value === '' ? null : value
     }
     if (Object.keys(body).length === 0) {
@@ -314,7 +320,9 @@ function CatalogTable({ config }) {
       </label>
       {error && <p className="error">{error}</p>}
       {shown.length === 0 ? (
-        <p className="muted">Nothing here yet.</p>
+        <p className="muted">
+          {needle ? `Nothing matches ${search.trim()}.` : 'Nothing here yet.'}
+        </p>
       ) : (
         <table>
           <thead>
@@ -416,15 +424,23 @@ function CatalogTable({ config }) {
   )
 }
 
-/** A text box, or a picker when the field has options. */
+/**
+ * A text box, or a picker when the field has options.
+ *
+ * A value the options do not hold -- none at all, or a retired one -- is
+ * offered as itself, first: a picker with no option for its value shows its
+ * first option, which nobody chose and which a save would not send.
+ */
 function Field({ field, value, onChange }) {
   if (field.options) {
+    const offered = field.options.some((option) => option.code === value)
     return (
       <select
         aria-label={field.label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       >
+        {!offered && <option value={value}>{value === '' ? '--' : value}</option>}
         {field.options.map((option) => (
           <option key={option.code} value={option.code}>
             {option.label}

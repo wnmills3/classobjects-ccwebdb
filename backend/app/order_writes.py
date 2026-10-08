@@ -37,6 +37,7 @@ from typing import NoReturn
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -112,16 +113,27 @@ def _change(
 
 
 def customer_for_user(db: Session, user: User) -> Customer:
-    """Find or create the customer record behind a login."""
-    customer = db.scalar(select(Customer).where(Customer.user_id == user.id))
+    """Find or create the customer record behind a login.
+
+    Two first requests for one account each look before either has written,
+    and `uq_customer_user` stops the second insert. The insert sits in a
+    savepoint so that losing it costs only the insert: the loser reads the
+    row the winner wrote and carries on in the same transaction.
+    """
+    by_user = select(Customer).where(Customer.user_id == user.id)
+    customer = db.scalar(by_user)
     if customer is None:
         customer = Customer(
             user_id=user.id,
             display_name=user.full_name or user.email,
             email=user.email,
         )
-        db.add(customer)
-        db.flush()
+        try:
+            with db.begin_nested():
+                db.add(customer)
+                db.flush()
+        except IntegrityError:
+            customer = db.execute(by_user).scalar_one()
     return customer
 
 
@@ -317,8 +329,9 @@ def _sync_shares(
     `new_line=True` says the caller created this line in this call, so it
     provably has no shares yet and the lookup below must be skipped. Reading
     `line.shares` for such a line would emit a SELECT that can only come back
-    empty -- one per line, inside the `FOR UPDATE` window `_lock_listings`'
-    own docstring asks callers not to widen -- and, worse, would leave the
+    empty -- one per line, inside the `FOR UPDATE` window
+    `offering_writes._lock_listing_rows`' docstring says not to lengthen --
+    and, worse, would leave the
     collection **cached empty** for the rest of the session: adding the share
     with `db.add` does not invalidate a relationship collection an earlier
     read already populated. With the flag, a checkout line's shares are
@@ -601,6 +614,9 @@ def revise_order(
     Every check runs before anything changes, so a refused save changes no
     line and no stock. Returns whether anything changed.
 
+    An order that records a sale made on another platform takes no stock:
+    adding or growing a line on it is refused, 409.
+
     A line added here that buys a lot listing outright ends it as sold, the
     same as a checkout does (`_settle_sold_lots`). A line **removed** whose
     listing has already ended is refused instead, because its stock has
@@ -641,6 +657,28 @@ def revise_order(
     current = {item.listing_id: item for item in order.items}
     desired = {line.listing_id: line for line in lines}
     ids = set(current) | set(desired)
+
+    # An order that records a sale made on another platform takes no stock
+    # here. The only listing a line could grow from is the shop's
+    # (`_refuse_unless_on_sale_in_shop`), and such an order can never be
+    # cancelled (`routers.orders._no_stock_to_return`), so shop stock added
+    # to it would be held with no way to release it. Its prices, customer
+    # and notes may still be corrected.
+    if order.sales_venue_id != store_venue_id(db):
+        growing = sorted(
+            listing_id
+            for listing_id, line in desired.items()
+            if line.quantity
+            > (current[listing_id].quantity if listing_id in current else 0)
+        )
+        if growing:
+            _refuse(
+                db,
+                status.HTTP_409_CONFLICT,
+                f"Order #{order_id} records a sale on {order.sales_venue.name}, "
+                "so it cannot take stock from the web store "
+                f"(listing {', '.join(f'#{listing_id}' for listing_id in growing)}).",
+            )
 
     changes: list[SalesOrderChange] = []
     try:

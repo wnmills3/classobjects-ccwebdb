@@ -184,6 +184,7 @@ class FriedbergNumber(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     fr_number: Mapped[str] = mapped_column(String(32), nullable=False)
+    #: Unused scaffolding: nothing writes or reads it.
     base_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     district_letter: Mapped[str | None] = mapped_column(String(1), nullable=True)
 
@@ -208,9 +209,9 @@ class FriedbergNumber(TimestampMixin, Base):
     #: two printings of one series, district and denomination are different
     #: types with different numbers, so this is part of the identity below.
     web_press: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    #: Where it was printed, `dc` or `fw`; None when not known. A 2017-A $1
-    #: is 3005-A from Washington and 3006-A from Fort Worth, so this is part
-    #: of the identity below, as `web_press` is.
+    #: Where it was printed, `dc` or `fw`; None when not known. Washington's
+    #: and Fort Worth's printings of one series carry different numbers, so
+    #: this is part of the identity below, as `web_press` is.
     printing_facility: Mapped[str | None] = mapped_column(String(2), nullable=True)
     #: A star note's number (`3006-A*`) and a mule's (`3007-Em`), read from
     #: `fr_number`, past any seal shade (`3006-A* LGS`) -- the same rule as
@@ -289,6 +290,9 @@ class PcgsType(TimestampMixin, Base):
 
     The coin-side complement to a Friedberg number: it identifies the type, so
     every 1881-S Morgan shares one PCGS number regardless of grade.
+
+    Unused scaffolding: the table exists and `coin_detail.pcgs_type_id`
+    points at it, but nothing writes a row or reads one.
     """
 
     __tablename__ = "pcgs_type"

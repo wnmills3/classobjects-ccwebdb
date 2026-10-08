@@ -160,12 +160,21 @@ def _shown_errors(value: object, labels: Mapping[str, str]) -> object:
 def _field_events(
     db: Session, item_id: int, classifiers: Mapping[str, type[ReferenceMixin]]
 ) -> list[HistoryEvent]:
-    """The item's logged field edits; an error set shown entry by entry."""
+    """The item's logged field edits; an error set shown entry by entry.
+
+    Not `status`: an edit's status move goes through
+    `lifecycle_writes.set_status`, so the status history already holds it,
+    and listing the field log's copy would show one move twice. The field
+    log keeps its row for the editor's "who changed this".
+    """
     rows = list(
         db.execute(
             select(ItemFieldChange, User.full_name, User.email)
             .outerjoin(User, User.id == ItemFieldChange.changed_by_id)
-            .where(ItemFieldChange.inventory_item_id == item_id)
+            .where(
+                ItemFieldChange.inventory_item_id == item_id,
+                ItemFieldChange.field_name != "status",
+            )
         ).tuples()
     )
     labels = _labels(db, [change for change, _, _ in rows], classifiers)

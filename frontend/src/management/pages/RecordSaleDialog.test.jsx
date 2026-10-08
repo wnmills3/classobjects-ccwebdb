@@ -256,6 +256,14 @@ describe('RecordSaleDialog', () => {
     )
     expect(letters.length).toBeGreaterThan(0)
     expect(new Set(letters).size).toBe(letters.length)
+    // Each letter is underlined in its own field's label, or in the button
+    // itself: a letter neither holds is a shortcut nobody can find.
+    for (const control of dialog.querySelectorAll('[accesskey]')) {
+      const underlined = (control.closest('label') ?? control).querySelector('u')
+      expect(underlined?.textContent.toLowerCase()).toBe(
+        control.getAttribute('accesskey'),
+      )
+    }
     expect(letters.filter((l) => 'def'.includes(l))).toEqual([])
   })
 })

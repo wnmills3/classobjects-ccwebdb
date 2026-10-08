@@ -199,12 +199,27 @@ describe('ItemEditForm: entering an item', () => {
 
   it('keeps what is shown when the facts typed so far cannot be saved', async () => {
     const user = await open({ note_type: 'frn' })
-    api.previewItem.mockRejectedValue(new Error('series_year: out of range'))
+    // The first facts decide a class other than the stored one; the next
+    // keystrokes are refused. What the first decided is what stays shown.
+    api.previewItem.mockResolvedValueOnce({
+      ...NOTE,
+      series_year: 1957,
+      note_type: 'silver_certificate',
+      derived: { note_type_id: 'note_issue' },
+    })
+    const year = screen.getByRole('spinbutton', { name: 'Series year' })
+    const noteClass = screen.getByRole('combobox', { name: 'note_type' })
+    await user.type(year, '1957')
+    await waitFor(() => expect(noteClass).toHaveValue('silver_certificate'))
 
-    await user.type(screen.getByRole('spinbutton', { name: 'Series year' }), '19')
+    api.previewItem.mockRejectedValue(
+      Object.assign(new Error('series_year: out of range'), { status: 422 }),
+    )
+    await user.type(year, '9')
 
-    await waitFor(() => expect(api.previewItem).toHaveBeenCalled())
-    expect(screen.getByRole('combobox', { name: 'note_type' })).toHaveValue('frn')
+    await waitFor(() => expect(api.previewItem).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(api.previewItem.mock.results[1].value).rejects.toThrow())
+    expect(noteClass).toHaveValue('silver_certificate')
     expect(screen.queryByText(/out of range/)).toBeNull()
   })
 

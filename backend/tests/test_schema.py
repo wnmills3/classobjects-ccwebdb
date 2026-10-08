@@ -202,7 +202,7 @@ def test_composition_resolves_a_silver_dime_by_year(db: Session) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_coin_and_currency_views_partition_the_inventory(db: Session) -> None:
+def test_coin_and_currency_views_keep_coins_and_notes_apart(db: Session) -> None:
     coin = build_bare_item(
         db, item_kind_id=code_id(db, ItemKind, "coin"), source_title="a coin"
     )
@@ -217,6 +217,34 @@ def test_coin_and_currency_views_partition_the_inventory(db: Session) -> None:
     assert coin.id not in note_ids
     assert note.id in note_ids
     assert note.id not in coin_ids
+
+
+@pytest.mark.parametrize("kind", ["bullion", "set", "medal", "token"])
+def test_the_coin_view_holds_every_kind_it_names(db: Session, kind: str) -> None:
+    item = build_bare_item(db, item_kind_id=code_id(db, ItemKind, kind))
+
+    coin_ids = {r[0] for r in db.execute(text("select id from coin_inventory"))}
+    note_ids = {r[0] for r in db.execute(text("select id from currency_inventory"))}
+
+    assert item.id in coin_ids
+    assert item.id not in note_ids
+
+
+@pytest.mark.parametrize("kind", ["other", "unknown"])
+def test_an_item_of_no_settled_kind_is_in_neither_view(db: Session, kind: str) -> None:
+    """The two views do not divide the whole inventory between them.
+
+    `coin_inventory` names its kinds, and `other` and `unknown` are not
+    among them. Anything built on the views must not take their union for
+    the collection.
+    """
+    item = build_bare_item(db, item_kind_id=code_id(db, ItemKind, kind))
+
+    coin_ids = {r[0] for r in db.execute(text("select id from coin_inventory"))}
+    note_ids = {r[0] for r in db.execute(text("select id from currency_inventory"))}
+
+    assert item.id not in coin_ids
+    assert item.id not in note_ids
 
 
 def test_item_valuation_computes_melt_from_the_latest_spot_price(db: Session) -> None:
@@ -278,6 +306,8 @@ def test_public_catalog_never_exposes_private_columns(db: Session) -> None:
             )
         )
     }
+    # An absent view has no columns, and would pass everything below.
+    assert {"listing_id", "listing_price", "title"} <= columns
     leaked = columns & PUBLIC_CATALOG_FORBIDDEN_COLUMNS
     assert not leaked, f"public_catalog exposes private columns: {sorted(leaked)}"
 
@@ -445,12 +475,18 @@ def test_the_code_survives_being_sold_and_returned(db: Session) -> None:
     assert item.item_code == original
 
 
-def test_concurrent_inserts_cannot_collide_on_a_code(db: Session) -> None:
-    """Concurrent inserts cannot compute the same code.
+def test_a_code_is_issued_by_the_database_sequence(db: Session) -> None:
+    """The database assigns the code, from a sequence, so inserts cannot collide.
 
-    Assigned by a sequence rather than by the application, so two inserts
-    in the same instant cannot compute the same value.
+    Two inserts in the same instant cannot compute the same value only
+    because neither computes it: the column's default is `nextval`, and the
+    application sends no code. Twenty in a row, from one session, show the
+    default at work but not the concurrency -- that rests on the sequence.
     """
+    default = InventoryItem.__table__.c.item_code.server_default
+    assert "nextval('item_code_seq'" in str(getattr(default, "arg", ""))
+    assert InventoryItem.__table__.c.item_code.default is None
+
     codes = {build_bare_item(db).item_code for _ in range(20)}
     assert len(codes) == 20
 

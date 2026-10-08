@@ -36,7 +36,14 @@ has a particular catalog number is one publisher's numbering scheme.
   `frontend/src/management/friedberg-format.js`) restates no mapping.
 - **Tests use synthetic numbers.** Friedberg numbers in tests and fixtures are
   in the 9900s, past any real number.
-- **A seed file says where its figures came from.** Each file under
-  `backend/data/reference/` carries a `_comment` naming the source.
+- **A seed file of retrieved facts says where they came from**, in its
+  `_comment`: `composition.json`, `issuer.json`, `banknote.json`,
+  `condition.json`, `note_issue.json`, `signatures.json`, and `series.json`
+  (which names the specification that lists its sources). `attribute.json`
+  and `error_type.json` hold terms, and `classification.json` and
+  `operations.json` mostly the product's own vocabulary; the source of the
+  two sets of retrieved figures in those -- the bullion products' weights
+  and finenesses, and the carriers' tracking addresses -- is not recorded.
+  The loader reads no `_comment`, so nothing checks this but a reader.
 - **A garbled retrieval is not a source.** Partial and correct beats complete
   and invented; a vocabulary is seeded with what is known and extended by hand.

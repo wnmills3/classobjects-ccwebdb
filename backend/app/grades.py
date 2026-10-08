@@ -119,7 +119,8 @@ def split(text: str) -> Split | None:
 
     ``MS65`` -> business, 65; ``PR69+`` -> proof, 69+; ``GEM_BU`` ->
     business, 65; ``BU+`` -> business, 63; ``AU+`` -> business, 55+;
-    ``N_UNC`` -> no strike, N60; ``65`` -> no strike, 65.
+    ``N_UNC`` -> no strike, N60; ``65`` -> no strike, 65. A number its
+    business prefix does not cover -- ``AU65``, ``MS55`` -- is not a grade.
     """
     code = text.strip().upper().replace(" ", "_")
     if not code:
@@ -132,6 +133,11 @@ def split(text: str) -> Split | None:
         return Split(None, NOTE_ADJECTIVAL[code])
     if match := _COMPOUND.match(code):
         prefix, number, pluses = match.groups()
+        # A business prefix names a stretch of the scale. Outside it the
+        # text is no grade: split, AU65 would be stored 65 and shown MS65.
+        low, high = _PREFIX_RANGES.get(prefix, (0, 99))
+        if not low <= int(number) <= high:
+            return None
         return Split(_PREFIX_STRIKE[prefix], number_code(int(number), bool(pluses)))
 
     base = code.rstrip("+")

@@ -117,13 +117,26 @@ def test_a_dry_run_reports_what_a_committing_run_does(
     """The counts are the point of a dry run, so they must match the real one.
 
     The same library is reported and then applied: every bucket has to agree,
-    or the report the owner watches is not the run they then authorize.
+    or the report the owner watches is not the run they then authorize. The
+    library puts something in each bucket, so none of them agrees only by
+    being empty on both sides.
     """
     monkeypatch.setattr(settings, "media_root", tmp_path / "media")
     item = build_item(db)
     other = build_item(db)
+    third = build_item(db)
+    # `other`'s first photograph, at slot 1: its `_01` finds the slot taken.
     image_links.attach(
         db, image=_stored_image(db, "e" * 64), item=other, role=None, is_primary=True
+    )
+    # `third`'s primary at slot 2: its `_01` is filed and the primary kept.
+    image_links.attach(
+        db,
+        image=_stored_image(db, "f" * 64),
+        item=third,
+        role=None,
+        is_primary=True,
+        sort_order=2,
     )
     db.commit()
     root = _library(
@@ -132,6 +145,10 @@ def test_a_dry_run_reports_what_a_committing_run_does(
             f"{item.item_code}_01.jpg": _jpeg((10, 20, 30)),
             f"{item.item_code}_02.jpg": _jpeg((40, 50, 60)),
             f"{other.item_code}_01.jpg": _jpeg((70, 80, 90)),
+            f"{third.item_code}_01.jpg": _jpeg((71, 81, 91)),
+            f"a/{item.item_code}_05.jpg": _jpeg((1, 2, 3)),
+            f"b/{item.item_code}_05.jpg": _jpeg((4, 5, 6)),
+            f"{item.item_code}_06.jpg": b"not an image",
             "IMG_0001.jpg": _jpeg((11, 12, 13)),
         },
     )
@@ -139,6 +156,12 @@ def test_a_dry_run_reports_what_a_committing_run_does(
     dry = photo_import.run(db, root, commit=False)
     wet = photo_import.run(db, root, commit=True)
 
+    assert dry.linked == 3
+    assert len(dry.unmatched) == 1
+    assert len(dry.collisions) == 2
+    assert len(dry.occupied) == 1
+    assert len(dry.primary_kept) == 1
+    assert len(dry.rejected) == 1
     assert (dry.linked, dry.already) == (wet.linked, wet.already)
     assert dry.unmatched == wet.unmatched
     assert dry.collisions == wet.collisions
@@ -282,10 +305,10 @@ def test_an_existing_primary_is_never_demoted_silently(
 ) -> None:
     """A hand-attached photograph keeps the primary, and the report says so.
 
-    A console upload files after the item's last photograph, not at the
-    `_01` slot (0 here), so a hand-attached primary can be invisible to the
-    occupied check -- the import files its
-    `_01` at sequence 1 and, without this rule, `attach(is_primary=True)`
+    The occupied check sees only a photograph at the file's own slot. The
+    primary here sits at slot 2 -- where it is left when the photograph
+    uploaded before it is removed -- so that check passes, the import files
+    its `_01` at sequence 1 and, without this rule, `attach(is_primary=True)`
     would take the primary away from it with no line in any bucket.
     """
     monkeypatch.setattr(settings, "media_root", tmp_path / "media")
@@ -296,7 +319,7 @@ def test_an_existing_primary_is_never_demoted_silently(
         item=item,
         role="obverse",
         is_primary=True,
-        sort_order=0,
+        sort_order=2,
     )
     db.commit()
     root = _library(tmp_path / "library", {f"{item.item_code}_01.jpg": _jpeg()})

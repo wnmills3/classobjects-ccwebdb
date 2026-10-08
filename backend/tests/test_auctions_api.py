@@ -40,7 +40,8 @@ from app.models import (
     User,
 )
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from tests.builders import ItemFactory, ListingFactory, priced_item
@@ -209,6 +210,29 @@ def test_an_unknown_venue_code_is_unprocessable(
         json={"venue": "no-such-platform", "title": "Whatever"},
     )
     assert response.status_code == 422, response.text
+
+
+def test_an_auction_on_the_web_store_is_unprocessable(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """The shop sells at a fixed price through checkout; it runs no auctions.
+
+    A sale recorded on the store has no order status to start at
+    (`sales_writes._STATUS_BY_VENUE_KIND` has no `own_store` key), so an
+    auction there could take lots -- pulling their coins out of the shop --
+    and then never settle one as sold. Refused when the auction is created.
+    """
+    store_code = db.scalars(
+        select(SalesVenue.code).where(SalesVenue.is_own_store)
+    ).one()
+    response = client.post(
+        "/api/auctions",
+        headers=admin_headers,
+        json={"venue": store_code, "title": "A sale the shop cannot run"},
+    )
+    assert response.status_code == 422, response.text
+    assert "store" in response.json()["detail"]
+    assert db.scalars(select(Auction.id)).all() == []
 
 
 def test_auction_list_filtered_by_venue_and_status(
@@ -426,6 +450,47 @@ def test_adding_a_lot_with_a_repeated_lot_number_is_a_conflict(
     assert "1" in again.json()["detail"]
 
 
+def test_a_lost_race_adding_a_lot_is_not_blamed_on_the_lot_number(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    draft_auction: Auction,
+    make_item: ItemFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only `uq_auction_lot_auction_lot_number` means a repeated lot number.
+
+    Adding a lot can also lose to another unique index -- the same coin
+    entering a lot or an offer elsewhere at that moment
+    (`uq_sales_lot_item_open`, `uq_offer_claim_active`). Telling the operator
+    to pick another lot number for that sends them to change the one thing
+    that was not in the way. The writer is patched to raise what the losing
+    insert raises, since a single session cannot lose a race to itself.
+    """
+    item = make_item()
+
+    def _lose_the_race(*args: object, **kwargs: object) -> None:
+        """Fail as the second of two inserts of one open lot membership does."""
+        raise IntegrityError(
+            "INSERT INTO sales_lot_item ...",
+            {},
+            Exception(
+                "duplicate key value violates unique constraint "
+                '"uq_sales_lot_item_open"'
+            ),
+        )
+
+    monkeypatch.setattr(auctions, "add_lot", _lose_the_race)
+    response = client.post(
+        f"/api/auctions/{draft_auction.id}/lots",
+        headers=admin_headers,
+        json={"lot_number": "7", "item_id": item.id, "price": "1.00"},
+    )
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert "lot_number" not in detail
+    assert "'7'" not in detail
+
+
 def test_removing_a_lot_resumes_a_paused_store_listing(
     client: TestClient,
     db: Session,
@@ -526,6 +591,53 @@ def test_renumbering_a_lot_in_a_closed_auction_is_refused(
 
     db.expire_all()
     assert db.get_one(AuctionLot, lot.id).lot_number == lot.lot_number
+
+
+def test_renumbering_is_decided_on_the_auction_as_it_is_not_as_it_was_read(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    scheduled_auction: Auction,
+    make_item: ItemFactory,
+) -> None:
+    """A close that landed after this request read the auction still refuses.
+
+    The other operator's close is simulated rather than threaded, the way
+    `test_a_second_sale_of_the_same_listing_is_refused_as_not_on_offer`
+    simulates a sale: the row says `closed` while the session's instance
+    still says `scheduled`, and `synchronize_session=False` is what keeps it
+    stale. A gate that answers from the instance in hand lets the lot be
+    renumbered on a closed auction; one that takes the auction row and
+    re-reads it refuses.
+    """
+    item = make_item()
+    added = client.post(
+        f"/api/auctions/{scheduled_auction.id}/lots",
+        headers=admin_headers,
+        json={"lot_number": "1", "item_id": item.id, "price": "1.00"},
+    )
+    assert added.status_code == 201, added.text
+    lot_id = added.json()["lots"][0]["id"]
+
+    # Loaded before the row changes, so the identity map holds `scheduled`.
+    assert scheduled_auction.status is AuctionStatus.scheduled
+    db.execute(
+        update(Auction)
+        .where(Auction.id == scheduled_auction.id)
+        .values(status=AuctionStatus.closed)
+        .execution_options(synchronize_session=False)
+    )
+    assert scheduled_auction.status is AuctionStatus.scheduled
+
+    response = client.patch(
+        f"/api/auctions/{scheduled_auction.id}/lots/{lot_id}",
+        headers=admin_headers,
+        json={"lot_number": "1A"},
+    )
+    assert response.status_code == 409, response.text
+    assert "closed" in response.json()["detail"]
+    db.expire_all()
+    assert db.get_one(AuctionLot, lot_id).lot_number == "1"
 
 
 def test_renumbering_a_lot_while_scheduled(
@@ -1028,6 +1140,127 @@ def test_settlement_refusal_lists_every_problem_lot(
         assert row.lot_number in reasons
     # `detail` still carries the whole message, not just the first problem.
     assert body["detail"].count(";") >= 1
+
+
+def test_two_fee_groups_for_one_buyer_are_unprocessable(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    closed_auction_of_two_lots: Auction,
+) -> None:
+    """Neither group may vanish: the same spelling twice is refused whole.
+
+    The router keys the fee groups by `buyer_username`, so an exact repeat
+    would leave only the second group's fees on the order. Both lots sell to
+    the buyer and both groups carry a real fee, so a request that got through
+    would settle the auction with 5.00 of fees where 15.00 was entered.
+    """
+    lots = _auction_lots(db, closed_auction_of_two_lots)
+    response = client.post(
+        f"/api/auctions/{closed_auction_of_two_lots.id}/settle",
+        headers=admin_headers,
+        json={
+            "lines": [
+                {
+                    "auction_lot_id": row.id,
+                    "result": "sold",
+                    "hammer_price": "100.00",
+                    "buyer_username": "amy",
+                }
+                for row in lots
+            ],
+            "fees": [
+                {
+                    "buyer_username": "amy",
+                    "fees": [{"kind": "commission", "amount": "10.00"}],
+                },
+                {
+                    "buyer_username": "amy",
+                    "fees": [{"kind": "processing", "amount": "5.00"}],
+                },
+            ],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "fees given twice" in response.text
+    assert "amy" in response.text
+    db.expire_all()
+    assert (
+        db.get_one(Auction, closed_auction_of_two_lots.id).status
+        is AuctionStatus.closed
+    )
+    assert db.scalar(select(func.count()).select_from(SalesOrder)) == 0
+
+
+def test_settling_brings_an_unsold_consigned_lot_back_to_the_chosen_location(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    admin_user: User,
+    scheduled_auction: Auction,
+    make_item: ItemFactory,
+) -> None:
+    """`returned_to_location_id` reaches `settle`, and so does who settled."""
+    item, lot_id = _consigned_item(client, admin_headers, scheduled_auction, make_item)
+    closed = client.post(
+        f"/api/auctions/{scheduled_auction.id}/close", headers=admin_headers
+    )
+    assert closed.status_code == 200, closed.text
+    home = _home(db)
+
+    response = client.post(
+        f"/api/auctions/{scheduled_auction.id}/settle",
+        headers=admin_headers,
+        json={
+            "lines": [{"auction_lot_id": lot_id, "result": "unsold"}],
+            "fees": [],
+            "returned_to_location_id": home.id,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["auction"]["status"] == "settled"
+    assert body["auction"]["consigned_on"] is None
+    assert body["orders"] == []
+    move = _last_move(db, item)
+    assert move.storage_location_id == home.id
+    assert move.moved_by_id == admin_user.id
+    assert db.get_one(InventoryItem, item.id).storage_location_id == home.id
+
+
+def test_settling_with_an_unknown_return_location_is_unprocessable(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    scheduled_auction: Auction,
+    make_item: ItemFactory,
+) -> None:
+    """An id no location wears is bad input, refused before anything moves."""
+    item, lot_id = _consigned_item(client, admin_headers, scheduled_auction, make_item)
+    closed = client.post(
+        f"/api/auctions/{scheduled_auction.id}/close", headers=admin_headers
+    )
+    assert closed.status_code == 200, closed.text
+    db.expire_all()
+    consigned_location_id = db.get_one(InventoryItem, item.id).storage_location_id
+    assert consigned_location_id is not None
+
+    response = client.post(
+        f"/api/auctions/{scheduled_auction.id}/settle",
+        headers=admin_headers,
+        json={
+            "lines": [{"auction_lot_id": lot_id, "result": "unsold"}],
+            "fees": [],
+            "returned_to_location_id": 999_999_999,
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "Unknown returned_to_location_id" in response.json()["detail"]
+    db.expire_all()
+    assert db.get_one(Auction, scheduled_auction.id).status is AuctionStatus.closed
+    assert (
+        db.get_one(InventoryItem, item.id).storage_location_id == consigned_location_id
+    )
 
 
 def test_a_marketplace_lot_must_name_its_buyer(

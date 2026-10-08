@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { AccessLabel } from '../../AccessLabel'
 import HelpScope from '../../HelpScope'
@@ -39,9 +39,17 @@ const helpFor = (param) => HELP_FOR[param] ?? param
  * example is written into it directly before being applied; otherwise the
  * results would change while the box still showed the old text.
  *
- * Every field has an Alt+letter accelerator, underlined in its label. The
- * search box has a visible "Search" label for that reason: an underline
- * needs somewhere to be.
+ * The typed boxes are uncontrolled, and two things keep them true to the
+ * filters in force (`current`). Leaving a box applies it only if its text
+ * differs from the filter it shows: applying returns to the first page, so
+ * a box merely passed through must change nothing. And when the filters
+ * change from elsewhere -- Clear filters, Back -- each box takes the new
+ * value, except the one being typed in: text left behind in a box would be
+ * applied again the next time it lost focus.
+ *
+ * Nearly every field has an Alt+letter accelerator, underlined in its label;
+ * a filter whose spec gives no letter has none. The search box has a visible
+ * "Search" label for that reason: an underline needs somewhere to be.
  */
 export default function FilterPanel({
   config,
@@ -55,7 +63,26 @@ export default function FilterPanel({
   clear,
 }) {
   const box = useRef(null)
+  const panel = useRef(null)
   const examples = config.searchExamples ?? []
+
+  // The filters in force, as one string: the effect below runs when they
+  // change, not on every render.
+  const inForce = JSON.stringify(current)
+  useEffect(() => {
+    const applied = JSON.parse(inForce)
+    for (const input of panel.current.querySelectorAll('input[data-param]')) {
+      const value = applied[input.dataset.param] ?? ''
+      if (input !== document.activeElement && input.value !== value) {
+        input.value = value
+      }
+    }
+  }, [inForce])
+
+  /** Apply a box's text on leaving it, unless it already is the filter. */
+  const applyOnLeaving = (param) => (e) => {
+    if (e.target.value !== (current[param] ?? '')) apply({ [param]: e.target.value })
+  }
 
   function tryExample(term) {
     box.current.value = term
@@ -64,7 +91,7 @@ export default function FilterPanel({
 
   return (
     <HelpScope>
-      <div className="search-panel">
+      <div className="search-panel" ref={panel}>
         <label className="search-row" data-help="search_text">
           <span className="search-label">
             <AccessLabel text="Search" accessKey={SHARED_KEYS.search} />
@@ -73,11 +100,12 @@ export default function FilterPanel({
             ref={box}
             className="search-text"
             placeholder={config.searchPlaceholder ?? DEFAULT_PLACEHOLDER}
+            data-param="q"
             defaultValue={current.q ?? ''}
             onKeyDown={(e) => {
               if (e.key === 'Enter') apply({ q: e.target.value })
             }}
-            onBlur={(e) => apply({ q: e.target.value })}
+            onBlur={applyOnLeaving('q')}
             {...accel(SHARED_KEYS.search)}
           />
         </label>
@@ -108,8 +136,8 @@ export default function FilterPanel({
             </ul>
             <p className="muted">
               Case is ignored. Click an example to run it. The dropdowns and year boxes
-              below narrow whatever the search finds. Every field has an Alt+letter
-              shortcut: the underlined letter in its label.
+              below narrow whatever the search finds. A field with an underlined letter
+              in its label has an Alt+letter shortcut.
             </p>
           </details>
         )}
@@ -159,11 +187,12 @@ export default function FilterPanel({
               <input
                 type="text"
                 placeholder={placeholder}
+                data-param={param}
                 defaultValue={current[param] ?? ''}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') apply({ [param]: e.target.value })
                 }}
-                onBlur={(e) => apply({ [param]: e.target.value })}
+                onBlur={applyOnLeaving(param)}
                 {...accel(letter)}
               />
             </label>
@@ -173,8 +202,9 @@ export default function FilterPanel({
             <AccessLabel text="Year from" accessKey={SHARED_KEYS.yearFrom} />
             <input
               type="number"
+              data-param="year_min"
               defaultValue={current.year_min ?? ''}
-              onBlur={(e) => apply({ year_min: e.target.value })}
+              onBlur={applyOnLeaving('year_min')}
               {...accel(SHARED_KEYS.yearFrom)}
             />
           </label>
@@ -182,8 +212,9 @@ export default function FilterPanel({
             <AccessLabel text="Year to" accessKey={SHARED_KEYS.yearTo} />
             <input
               type="number"
+              data-param="year_max"
               defaultValue={current.year_max ?? ''}
-              onBlur={(e) => apply({ year_max: e.target.value })}
+              onBlur={applyOnLeaving('year_max')}
               {...accel(SHARED_KEYS.yearTo)}
             />
           </label>

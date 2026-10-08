@@ -153,8 +153,16 @@ export default function SettlementGrid({
     const line = lineFor(lot)
     return line.result === 'sold' ? sum + centsOrZero(line.hammer_price) : sum
   }, 0)
-  const feesCents = Object.values(feeAmounts).reduce(
-    (sum, kinds) => sum + Object.values(kinds).reduce((s, v) => s + centsOrZero(v), 0),
+  // Over `buyers` and `feeKinds`, as the request is built: an amount typed
+  // for a buyer who is no longer on a sold lot is not sent, so it is not
+  // counted either.
+  const feesCents = buyers.reduce(
+    (sum, buyer) =>
+      sum +
+      feeKinds.reduce(
+        (s, kind) => s + centsOrZero(feeAmounts[buyer.key]?.[kind.code]),
+        0,
+      ),
     0,
   )
   const netCents = grossCents - feesCents

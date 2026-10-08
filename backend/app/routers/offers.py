@@ -113,10 +113,14 @@ def _eager(stmt: Select[tuple[Listing]]) -> Select[tuple[Listing]]:
 def external_url(listing: Listing, venue: SalesVenue) -> str | None:
     """The listing's page on its platform, stored or derived.
 
-    A URL someone typed wins, because a platform that moved one listing is
-    exactly the case the column exists for. Otherwise it is built from the
-    platform's template, and **not written back**: a derived value saved to
-    the row would outlive the template it came from.
+    A stored URL wins, because a platform that moved one listing is exactly
+    the case the column exists for. Otherwise it is built from the platform's
+    template, and **not written back**: a derived value saved to the row
+    would outlive the template it came from.
+
+    Nothing in this application writes `listing.external_url`: neither
+    `OfferIn` nor `ListingUpdate` carries it, so the stored branch answers
+    only for a row given one directly in the database.
     """
     if listing.external_url:
         return listing.external_url
@@ -325,6 +329,36 @@ def create_offers(
     """
     venue = venue_by_code(db, payload.venue)
     listing_format = enum_member(ListingFormat, payload.format, "format")
+    # Off the store a listing is one unit. An outside sale is recorded as a
+    # line of one that ends the listing (`sales_writes.SaleLine`), so a
+    # listing of several would end with units still on it and its item
+    # still `listed` behind a sale.
+    if payload.quantity > 1 and not venue.is_own_store:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"quantity must be 1 on {venue.name}: only the web store "
+                "sells an item a unit at a time"
+            ),
+        )
+
+    # A lot offered in the shop is named to buyers by this title and nothing
+    # else: an item listing left untitled is named by its item, but a lot has
+    # no item, and its own title is the group's working name, which the
+    # catalog does not show (`routers.catalog._lot_entry`).
+    if (
+        payload.lot_id is not None
+        and venue.is_own_store
+        and listing_format is ListingFormat.fixed_price
+        and not payload.title.strip()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "title is required to offer a lot in the web store: it is "
+                "the only name a buyer sees"
+            ),
+        )
 
     listing_ids: list[int] = []
     refusals: list[OfferRefusalOut] = []

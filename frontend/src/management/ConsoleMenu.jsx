@@ -79,6 +79,13 @@ function MenuGroup({ name, links, open, onOpen, onClose }) {
   }, [open])
 
   function onButtonKey(event) {
+    // A list opened with the mouse leaves focus on the button, so Escape
+    // arrives here and not at the list.
+    if (event.key === 'Escape' && open) {
+      event.stopPropagation()
+      onClose()
+      return
+    }
     if (event.key !== 'ArrowDown') return
     event.preventDefault()
     focusFirst.current = true

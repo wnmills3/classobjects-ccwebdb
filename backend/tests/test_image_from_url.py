@@ -10,13 +10,15 @@ from __future__ import annotations
 import io
 import socket
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 from app import image_fetch
+from app.config import settings
 from app.image_fetch import ImageFetchRefused, fetch_image
-from app.models import Image, ItemImage
+from app.models import Image, ItemImage, Listing
 from fastapi.testclient import TestClient
 from PIL import Image as PILImage
 from sqlalchemy import select
@@ -178,6 +180,49 @@ def test_a_file_over_the_limit_is_refused(monkeypatch: pytest.MonkeyPatch) -> No
         )
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://public.example:abc/a.jpg",
+        "http://public.example:99999/a.jpg",
+        "http://[::1/a.jpg",
+    ],
+)
+def test_an_address_that_cannot_be_read_is_refused_not_an_error(url: str) -> None:
+    """A port that is no number, or a bracket never closed, is a refusal.
+
+    The caller turns `ImageFetchRefused` into a message for the person who
+    typed the address; any other exception reaches them as a server error.
+    """
+    with pytest.raises(ImageFetchRefused):
+        image_fetch.fetch_full_size(
+            url,
+            fetch=lambda address: fetch_image(
+                address,
+                client=_client(lambda _r: httpx.Response(200, content=b"x")),
+                resolve=_resolver({"public.example": "93.184.216.34"}),
+            ),
+        )
+
+
+def test_a_fetch_that_outlasts_its_time_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole fetch has a limit, not only each read of it.
+
+    A host that sends a little at a time never trips the per-read timeout.
+    The limit is put in the past here, so the first chunk read is already
+    late.
+    """
+    monkeypatch.setattr(image_fetch, "_MAX_SECONDS", -1.0, raising=False)
+    with pytest.raises(ImageFetchRefused, match="took longer"):
+        fetch_image(
+            "https://public.example/slow.jpg",
+            client=_client(lambda _r: httpx.Response(200, content=b"x" * 64)),
+            resolve=_resolver({"public.example": "93.184.216.34"}),
+        )
+
+
 # -- the endpoint ------------------------------------------------------------
 
 
@@ -263,6 +308,71 @@ def test_a_refused_fetch_stores_nothing(
     assert res.status_code == 422
     assert "not a public" in res.json()["detail"]
     assert db.scalar(select(Image.id).order_by(Image.id.desc()).limit(1)) == before
+
+
+def test_fetching_onto_an_item_for_sale_is_refused_until_acknowledged(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    listing: Listing,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shop shows the item's photographs, so adding one is acknowledged."""
+    asked: list[str] = []
+
+    def fetch(url: str) -> bytes:
+        """Answer with a picture, noting that the address was fetched."""
+        asked.append(url)
+        return _webp("teal")
+
+    monkeypatch.setattr(image_fetch, "fetch_image", fetch)
+    body = {
+        "url": "https://public.example/a.webp",
+        "inventory_item_id": listing.inventory_item_id,
+    }
+
+    refused = _from_url(client, admin_headers, **body)
+    assert refused.status_code == 409, refused.text
+    assert "For sale" in refused.json()["detail"]
+    # Refused before anything is fetched or filed.
+    assert asked == []
+    assert (
+        db.scalar(
+            select(ItemImage.id).where(
+                ItemImage.inventory_item_id == listing.inventory_item_id
+            )
+        )
+        is None
+    )
+
+    made = _from_url(client, admin_headers, **body, acknowledge_for_sale=True)
+    assert made.status_code == 201, made.text
+    assert asked == ["https://public.example/a.webp"]
+
+
+def test_a_fetch_naming_an_unknown_role_stores_nothing(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The role is refused before the bytes are written, so no file is orphaned."""
+    monkeypatch.setattr(image_fetch, "fetch_image", lambda _url: _webp("maroon"))
+    item = make_item()
+
+    res = _from_url(
+        client,
+        admin_headers,
+        url="https://public.example/a.webp",
+        inventory_item_id=item.id,
+        image_role="no-such-role",
+    )
+
+    assert res.status_code == 422, res.text
+    assert "image_role" in res.json()["detail"]
+    root = Path(settings.media_root)
+    assert [p for p in root.rglob("*") if p.is_file()] == []
 
 
 def test_fetching_needs_an_item_and_a_manager(

@@ -94,8 +94,8 @@ class SaleInputInvalid(SaleRefused):
     """The request itself is malformed, not merely in conflict with the state.
 
     A negative or sub-cent price or fee, and a listing with nothing left to
-    divide money among (`_shared_items`, which answers empty for a lot whose
-    members have already been released), are bad input -- 422 at the HTTP
+    divide money among (`_shared_items`, which says why no caller can reach
+    that through the writers), are bad input -- 422 at the HTTP
     boundary, per the
     spec's own split between "bad input" and "conflicts with other work ... or
     a stale version". "Not on offer" and an unmapped venue kind stay the base
@@ -194,10 +194,13 @@ def _shared_items(db: Session, listing: Listing) -> list[InventoryItem]:
     listing, up front, so a two-line order's second listing is read while it
     is still whole rather than after the first one's ending has run.
 
-    An empty answer stays `SaleInputInvalid` -- 422, the spec's empty-lot
-    case. It is still reachable here even though `offering_writes.offer` now
-    refuses to create such a listing: a lot whose members were released by an
-    earlier ending would answer this way.
+    An empty answer is `SaleInputInvalid` -- 422, the spec's empty-lot case.
+    It guards an invariant rather than a path a caller can take:
+    `record_sale_lines` has already refused every listing that is not
+    `active`, `offering_writes.offer` refuses to offer an empty lot, and
+    `offering_writes._end` releases a lot's memberships only as it ends the
+    listing. So an active listing with nothing to divide money among means
+    something wrote around those writers.
     """
     items = offering_writes.offered_items(db, listing)
     if not items:

@@ -111,7 +111,8 @@ def _subtotal(result: ReportResult, kind_label: str) -> dict[str, object]:
 
 def test_rows_grouped_by_kind_then_denomination(db: Session) -> None:
     _coin(db, _CENT, Decimal("1.00"))
-    _coin(db, _CENT, Decimal("2.00"))
+    # A lot of three: pieces are added up, not counted one per item.
+    _coin(db, _CENT, Decimal("2.00"), piece_count=3)
     _coin(db, _DOLLAR, Decimal("50.00"))
     _note(db, _NOTE_1, Decimal("10.00"))
 
@@ -119,8 +120,11 @@ def test_rows_grouped_by_kind_then_denomination(db: Session) -> None:
 
     cent_row = _row(result, "Coin", "Cent")
     assert cent_row["items"] == 2
-    assert cent_row["pieces"] == 2
+    assert cent_row["pieces"] == 4
     assert cent_row["total_cost"] == Decimal("3.00")
+    assert _subtotal(result, "Coin")["pieces"] == 5
+    assert result.totals is not None
+    assert result.totals["pieces"] == 6
 
     dollar_row = _row(result, "Coin", "Dollar")
     assert dollar_row["items"] == 1
@@ -1054,11 +1058,21 @@ def test_metal_ounces_is_fine_weight_times_piece_count(db: Session) -> None:
         item_cost=Decimal("100.00"),
         tax_rate=Decimal("0"),
     )
+    # A second lot in the same row, of another weight and count: each
+    # lot's weight is multiplied by its own pieces before the two are added.
+    build_bare_item(
+        db,
+        metal_id=code_id(db, Metal, "silver"),
+        fine_weight_ozt=Decimal("1.000000"),
+        piece_count=3,
+        item_cost=Decimal("100.00"),
+        tax_rate=Decimal("0"),
+    )
 
     result = CB_METAL.run(db, MetalParams())
     row = _metal_row(result, "Silver", "Coin")
-    assert row["items"] == 1
-    assert row["ounces"] == Decimal("1.000000")
+    assert row["items"] == 2
+    assert row["ounces"] == Decimal("4.000000")
 
 
 def test_metal_form_is_coin_bullion_form_label_or_kind_label(db: Session) -> None:
@@ -1123,18 +1137,21 @@ def test_metal_melt_uses_the_latest_price_and_missing_price_is_a_note(
         item_cost=Decimal("500.00"),
         tax_rate=Decimal("0"),
     )
-    db.add(
-        MetalPrice(
-            metal_id=code_id(db, Metal, "silver"),
-            quoted_at=datetime(2026, 1, 1, tzinfo=UTC),
-            price_per_ozt=Decimal("20.0000"),
-        )
-    )
+    # The later quote is recorded first: "latest" is by `quoted_at`, not by
+    # which row was written last.
     db.add(
         MetalPrice(
             metal_id=code_id(db, Metal, "silver"),
             quoted_at=datetime(2026, 6, 1, tzinfo=UTC),
             price_per_ozt=Decimal("30.0000"),
+        )
+    )
+    db.flush()
+    db.add(
+        MetalPrice(
+            metal_id=code_id(db, Metal, "silver"),
+            quoted_at=datetime(2026, 1, 1, tzinfo=UTC),
+            price_per_ozt=Decimal("20.0000"),
         )
     )
     db.commit()

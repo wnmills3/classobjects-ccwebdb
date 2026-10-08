@@ -88,7 +88,7 @@ def _out(lot: SalesLot) -> SalesLotOut:
     decides for the whole system, so the console shows a lot in the same
     sequence its shares and its snapshot use.
     """
-    members = sorted(lot.members, key=lambda row: row.inventory_item_id)
+    members = lot_writes.members_held(lot)
     values = [row.item.numismatic_value for row in members]
     return SalesLotOut(
         id=lot.id,
@@ -201,11 +201,15 @@ def update_sales_lot(
     """Change an assembling lot's wording or its coins. All or nothing.
 
     `version` is the version the form loaded; a mismatch is a 409, as
-    everywhere else in the console. It is checked **twice**, and neither
-    check is redundant. The comparison below catches the ordinary case and
-    answers before anything is written. `StaleDataError` from the commit
-    catches the narrow race where another request moved the version between
-    that comparison and this one's UPDATE.
+    everywhere else in the console. It is compared **twice**, and neither
+    comparison is redundant. The first, against the lot as loaded, catches
+    the ordinary case and answers before any row is locked. The second runs
+    after `lot_writes.edit_lot` has taken the lot's row `FOR UPDATE` and
+    re-read it: a request that loaded the lot while another save still held
+    that row read the version both forms carry, and the re-read then hands it
+    the *new* version, so its own UPDATE would match and only a comparison
+    against the locked row can tell it the lot has changed. The row is held
+    from there to the commit, so nothing can move the version after that.
 
     Removals run before additions, so a request that swaps one coin for
     another never has to hold both at once -- which matters the day the two
@@ -243,6 +247,10 @@ def update_sales_lot(
             lot_writes.edit_lot(
                 db, lot, title=payload.title, description=payload.description
             )
+            # Against the row `edit_lot` has just locked and re-read: the
+            # comparison above saw the lot as loaded, which a save still in
+            # flight may since have moved.
+            refuse_stale_version(payload.version, lot.version, _STALE)
             for item_id in removed:
                 lot_writes.remove_member(db, lot, item_by_id(db, item_id))
             for item_id in added:

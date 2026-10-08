@@ -127,11 +127,29 @@ describe('SplitDialog', () => {
     const pieces = screen.getByRole('spinbutton')
     await user.clear(pieces)
     await user.type(pieces, '6')
+    await user.tab()
     expect(descriptions()).toHaveLength(6)
     await user.clear(pieces)
-    await user.type(pieces, '3')
+    await user.type(pieces, '3{Enter}')
     expect(descriptions()).toHaveLength(3)
     expect(screen.getByRole('button', { name: 'Split into 3 pieces' })).toBeEnabled()
+  })
+
+  it('keeps what the rows hold while a longer count is being typed', async () => {
+    const user = userEvent.setup()
+    open()
+    await user.clear(descriptions()[8])
+    await user.type(descriptions()[8], '1988 US Mint Set')
+
+    // Nine to twelve passes through "1": no row may go on the way.
+    const pieces = screen.getByRole('spinbutton')
+    await user.clear(pieces)
+    await user.type(pieces, '12')
+    expect(descriptions()).toHaveLength(9)
+    await user.tab()
+
+    expect(descriptions()).toHaveLength(12)
+    expect(descriptions()[8]).toHaveValue('1988 US Mint Set')
   })
 
   it('refuses one piece', async () => {
@@ -140,6 +158,7 @@ describe('SplitDialog', () => {
     const pieces = screen.getByRole('spinbutton')
     await user.clear(pieces)
     await user.type(pieces, '1')
+    await user.tab()
     expect(screen.getByRole('button', { name: 'Split into 1 pieces' })).toBeDisabled()
     expect(screen.getByText(/at least two pieces/)).toBeInTheDocument()
   })

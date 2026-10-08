@@ -2,7 +2,7 @@
 rem ---------------------------------------------------------------------------
 rem  Start the local SonarQube server (Community Build) and its PostgreSQL.
 rem
-rem    ccweb_sonar_start
+rem    .\scripts\ccweb_sonar_start.cmd
 rem
 rem  Pure cmd - no PowerShell. Uses curl for readiness (curl.exe ships with
 rem  Windows 10 1803 and later).
@@ -105,14 +105,18 @@ echo First login is admin / admin - you will be forced to change it.
 exit /b 0
 
 rem ---------------------------------------------------------------------------
-rem  :waitup <status url> <max seconds>  - poll until the body reports UP.
-rem  Statuses are STARTING, UP, DOWN, RESTARTING and DB_MIGRATION_*; only UP
-rem  contains the letters "UP", so a plain findstr is unambiguous here.
+rem  :waitup <status url> <max tries>  - poll until the body reports UP. A
+rem  try that gets no answer takes up to three seconds, and a second passes
+rem  before the next.
+rem  The match is on the status field, not on the letters "UP" anywhere: the
+rem  body also carries the server's id and version, and an id is free to
+rem  contain them. Each dot stands for one of the quotes around the colon in
+rem  "status":"UP", which spares findstr a quoted quote.
 rem ---------------------------------------------------------------------------
 :waitup
 set "_tries=0"
 :waitup_loop
-curl -s --max-time 3 "%~1" 2>nul | findstr "UP" >nul 2>&1
+curl -s --max-time 3 "%~1" 2>nul | findstr /R /C:"status.:.UP" >nul 2>&1
 if not errorlevel 1 exit /b 0
 set /a _tries+=1
 if !_tries! GEQ %~2 exit /b 1

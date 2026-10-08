@@ -262,6 +262,67 @@ def test_a_rename_leaves_an_unrelated_host_and_url_alone(db: Session) -> None:
     assert renamed.url == "https://shop.example.com/store"
 
 
+@pytest.mark.parametrize(
+    ("old_name", "new_name"),
+    [
+        # A name that is a fragment of every address, not a site's own.
+        (".", "unknown.example"),
+        ("ex", "exchange"),
+        # The site's name, but what replaces it is no host name.
+        ("shop.example.com", "The Coin Shop"),
+    ],
+)
+def test_a_rename_rewrites_an_address_only_as_one_host_name_for_another(
+    db: Session, old_name: str, new_name: str
+) -> None:
+    """The address follows the name only when both are the site's host name.
+
+    Replacing a fragment wherever it occurs, or putting words where a host
+    belongs, would leave an address that names no site.
+    """
+    vendor = Vendor(
+        name=old_name,
+        host="shop.example.com",
+        url="https://shop.example.com/store",
+    )
+    db.add(vendor)
+    db.commit()
+
+    run(
+        db,
+        merges=[],
+        kinds=[],
+        deletes=[],
+        renames=[(vendor.id, new_name)],
+        commit=True,
+    )
+
+    db.expire_all()
+    renamed = db.get_one(Vendor, vendor.id)
+    assert renamed.name == new_name
+    assert renamed.host == "shop.example.com"
+    assert renamed.url == "https://shop.example.com/store"
+
+
+def test_a_rename_to_nothing_is_refused(db: Session) -> None:
+    """A vendor is found by its name, so it always has one."""
+    vendor = _vendor(db, "named.example")
+
+    for nothing in ("", "   "):
+        with pytest.raises(CleanupError, match="name"):
+            run(
+                db,
+                merges=[],
+                kinds=[],
+                deletes=[],
+                renames=[(vendor.id, nothing)],
+                commit=True,
+            )
+
+    db.expire_all()
+    assert db.get_one(Vendor, vendor.id).name == "named.example"
+
+
 def test_a_rename_to_an_existing_name_is_refused(db: Session) -> None:
     """`uq_vendor_name` is case-sensitive and would allow it; this names both."""
     vendor = _vendor(db, "one.example")

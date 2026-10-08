@@ -7,7 +7,7 @@ from app.models import Vendor
 from app.routers._tx import commit_unique
 from fastapi import HTTPException
 from sqlalchemy import func, select
-from sqlalchemy.exc import DataError
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 
 TAKEN = "A vendor named Apmex already exists"
@@ -54,8 +54,24 @@ def test_the_session_is_usable_again_after_a_refusal(db: Session) -> None:
 
 
 def test_another_database_error_is_not_dressed_up_as_a_duplicate(db: Session) -> None:
-    """Only a constraint's refusal is the 409: a value too long is its own error."""
+    """Only a unique index's refusal is the 409: a value too long is its own error."""
     db.add(Vendor(name="x" * 5000))
     with pytest.raises(DataError):
         commit_unique(db, TAKEN)
     db.rollback()
+
+
+def test_another_constraint_s_refusal_is_not_dressed_up_as_a_duplicate(
+    db: Session,
+) -> None:
+    """A foreign key naming nothing is not "already exists".
+
+    It is an integrity error like a duplicate, so only what the database
+    says it refused tells the two apart.
+    """
+    db.add(Vendor(name="Apmex", vendor_kind_id=999_999_999))
+    with pytest.raises(IntegrityError):
+        commit_unique(db, TAKEN)
+
+    # Rolled back all the same: the session is usable.
+    assert _vendors(db) == []

@@ -239,6 +239,38 @@ def _locked_tables(db: Session) -> Iterator[list[str]]:
         event.remove(bind, "before_cursor_execute", _record)
 
 
+@contextmanager
+def _lock_statements(db: Session, table: str) -> Iterator[list[str]]:
+    """Record the text of each `FOR UPDATE` on one table, in order.
+
+    `_captured_locks` keeps what a lock asks for and `_locked_tables` which
+    kind it is; neither keeps the statement, and the `ORDER BY` that makes
+    one pass a *sorted* pass is visible nowhere else. The rows a lock returns
+    cannot stand in for it: listings come back in id order from a fresh table
+    whether or not the statement asks for that.
+    """
+    seen: list[str] = []
+
+    def _record(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        """Keep the text of each locking select against `table`."""
+        if f"FROM {table}" in statement and "FOR UPDATE" in statement:
+            seen.append(" ".join(statement.split()))
+
+    bind = db.get_bind()
+    event.listen(bind, "before_cursor_execute", _record)
+    try:
+        yield seen
+    finally:
+        event.remove(bind, "before_cursor_execute", _record)
+
+
 def _claim_states(db: Session, item: InventoryItem) -> dict[int, ClaimState]:
     """Every claim on one item, by the listing it holds it for."""
     return {
@@ -728,9 +760,9 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
 ) -> None:
     """Ending the offer must not undo an administrator's withdrawal.
 
-    The catalog API's retired `PATCH .../is_active` withdrew a listing
-    without clearing `paused_by_listing_id`, so the pointer outlived the
-    pause -- and old rows can still carry that shape. Resuming on the pointer
+    Nothing forbids an `ended` row that still carries `paused_by_listing_id`:
+    `offering_writes._end` clears the pointer, but a row ended any other way
+    keeps it, and stored rows can have that shape. Resuming on the pointer
     alone would put a listing someone deliberately took down back in the
     public shop, claiming the item again with it.
 
@@ -748,9 +780,9 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
     elsewhere = _offer_on(db, item, ebay)
     db.commit()
 
-    # Exactly what the catalog API's retired PATCH wrote for is_active=False,
-    # through `_set_status` so the listing's history records it -- the shape
-    # being simulated is the stale pointer, not a history written around.
+    # Ended without clearing the pointer, through `_set_status` so the
+    # listing's history records it -- the shape being built is the stale
+    # pointer, not a history written around.
     offering_writes._set_status(db, listing, ListingStatus.ended, "withdrawn")
     listing.ended_at = utcnow()
     db.commit()
@@ -831,7 +863,7 @@ def test_ending_a_listing_releases_the_items_it_claimed(
     reason=(
         "attaches gone's claim to listing.id for an item other than "
         "listing's own -- the lot-member shape which offering_writes.offer "
-        "now writes for a real lot, though not with this test's "
+        "writes for a real lot, though not with this test's "
         "deliberately mismatched state -- specifically to prove a released "
         "claim from a different member is not revived by pausing the "
         "listing for a current one"
@@ -1055,16 +1087,17 @@ def test_every_listing_a_lot_offer_locks_is_taken_in_one_pass(
     the other waits for. `_lock_listing_rows` takes them all in one
     ascending statement.
 
-    The assertion is that the **first** listing lock covers every member, not
-    just the first one -- which is exactly what one ascending statement means
-    and what a per-member first lock cannot satisfy. It measures the
-    acquisition, not the collision: a real deadlock needs two connections and
-    this suite may not open one.
+    Two assertions, one per half of "one ascending statement". The **first**
+    listing lock covers every member, not just the first one -- what a
+    per-member first lock cannot satisfy. And that statement is ordered by
+    listing id, read from its text: the rows it returns would not show it,
+    since two listings come back in id order from a small table whether or
+    not the statement asks. It measures the acquisition, not the collision:
+    a real deadlock needs two connections and this suite may not open one.
 
-    The members' shop listings are built in reverse item order on purpose, so
-    listing ids descend as item ids ascend. That is the arrangement in which
-    an unsorted union actually inverts; built in order, a broken
-    implementation would take them ascending by luck and the test would pass.
+    The members' shop listings are built in reverse item order, so listing
+    ids descend as item ids ascend -- the arrangement in which a per-member
+    acquisition takes the higher listing first.
     """
     store = db.get(SalesVenue, store_venue_id(db))
     assert store is not None
@@ -1075,7 +1108,10 @@ def test_every_listing_a_lot_offer_locks_is_taken_in_one_pass(
     for item in items:
         lot_writes.add_member(db, lot, item)
 
-    with _captured_locks(db, "listing") as locks:
+    with (
+        _captured_locks(db, "listing") as locks,
+        _lock_statements(db, "listing") as statements,
+    ):
         offering_writes.offer(
             db,
             lot=lot,
@@ -1090,6 +1126,7 @@ def test_every_listing_a_lot_offer_locks_is_taken_in_one_pass(
     assert locks, "no listing was locked at all"
     first = set(locks[0].values())
     assert {item.id for item in items} <= first
+    assert "ORDER BY listing.id" in statements[0], statements[0]
 
 
 def test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order(

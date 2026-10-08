@@ -7,9 +7,10 @@
  * field opts in with `data-help="<key>"` on its label.
  *
  * Public numismatic fact -- what is printed where on a note, and what it
- * means -- and never a price guide's values. Two entries, `printing_facility`
- * and `fr_number`, quote a Friedberg number as an example of its form;
- * `docs/reference-data.md` is the rule on a catalog's numbering.
+ * means -- and never a price guide's values, nor which catalog number
+ * belongs to which note. One entry, `fr_number`, shows the form a Friedberg
+ * number takes, with a number past any real one; `docs/reference-data.md`
+ * is the rule on a catalog's numbering.
  */
 export const FIELD_HELP = {
   // -- the purchase ---------------------------------------------------------
@@ -214,13 +215,6 @@ export const FIELD_HELP = {
       'The company that graded and sealed it in a holder ("slab") -- PCGS, NGC, ' +
       'PMG and others. Leave blank for an ungraded ("raw") item.',
   },
-  cert_number: {
-    title: 'Certificate number',
-    text:
-      "The grading company's certification number, printed on the slab's label; " +
-      "it identifies this one item on the company's website. Check it against the " +
-      "label: numbers copied from a seller's listing are sometimes wrong.",
-  },
   metal: {
     title: 'Metal',
     text:
@@ -248,12 +242,6 @@ export const FIELD_HELP = {
   year_end: {
     title: 'Year to',
     text: 'The last year of the range.',
-  },
-  new_item_status: {
-    title: 'Status',
-    text:
-      'Ordered: bought but not yet in hand -- record its arrival later in ' +
-      'Receiving. Received: already in hand.',
   },
   set_form: {
     title: 'Set form',
@@ -330,13 +318,6 @@ export const FIELD_HELP = {
     text:
       "Change this purchase's order number, date, web address or notes. Clear the " +
       'order number to give it the next generated one (Order-0001, Order-0002, ...).',
-  },
-  suggest_description: {
-    title: 'Suggest description',
-    text:
-      'Writes a description from what is entered, in your usual order: the grade ' +
-      'and what makes the piece special first (fancy serial, errors), then what it ' +
-      'is. It replaces the Description box; edit it before saving.',
   },
   rating: {
     title: 'Rating',
@@ -455,7 +436,8 @@ export const FIELD_HELP = {
       'Where the note was printed: Washington, DC or Fort Worth, TX. Read from the ' +
       'face plate when there is one (FW before it is Fort Worth); choose it here ' +
       'only for a note whose face plate is not recorded. It tells some Friedberg ' +
-      'numbers apart -- a 2017-A $1 is 3005-A from Washington, 3006-A from Fort Worth.',
+      'numbers apart: the two printings of one series and denomination can ' +
+      'each have a number of their own.',
   },
   series_letter: {
     title: 'Series letter',
@@ -502,7 +484,7 @@ export const FIELD_HELP = {
   fr_number: {
     title: 'Friedberg number',
     text:
-      'The Friedberg catalog number for this type of note, such as 1901-B: a ' +
+      'The Friedberg catalog number for this type of note, in the form 9901-B: a ' +
       'number for the type and, on a Federal Reserve Note, the Reserve Bank ' +
       'letter. Read it off the slab or holder or a reference, or copy it from a ' +
       'match in your own catalog.',
@@ -623,6 +605,75 @@ export const FIELD_HELP = {
     text:
       'Tick items to act on them together: review them one after another, edit ' +
       'them in bulk, or offer them for sale.',
+  },
+  // -- acting on a selection: one field, a lot, an offer ----------------------
+  bulk_field: {
+    title: 'Field to change',
+    text:
+      'Which one field to set on every selected item. The value beside it ' +
+      'replaces what each item holds. All of them are changed or none: if any ' +
+      'one is refused, nothing is.',
+  },
+  lot_target: {
+    title: 'Lot',
+    text:
+      'Where the selected items go: a new lot, or one still being assembled. A ' +
+      'lot is offered and sold as one thing. Grouping changes nothing else ' +
+      'about an item, which stays in stock.',
+  },
+  lot_title: {
+    title: 'Lot title',
+    text:
+      'What the new lot is called: the Lots page lists it by this, and its ' +
+      'offer starts from it.',
+  },
+  offer_platform: {
+    title: 'Platform',
+    text:
+      'Where these are offered: the web store, or an outside platform. One ' +
+      'platform for everything in this window. An item is offered in one place ' +
+      'at a time: offering one that is in the web store pauses its store ' +
+      'listing until this offer ends.',
+  },
+  offer_format: {
+    title: 'Format',
+    text:
+      'Fixed price, or Auction for a listing sold by bidding. The bidding is ' +
+      'run where it is listed, never here. One format for everything in this ' +
+      'window.',
+  },
+  offer_margin: {
+    title: 'Margin after fees',
+    text:
+      "The share of the price to be left once the platform's recorded fees and " +
+      'the cost are taken out, as a percentage. Fill blank prices sets each ' +
+      'empty price to the lowest that leaves it. A price already typed is not ' +
+      'touched, and one with no cost recorded is left blank.',
+  },
+  offer_price: {
+    title: 'Price',
+    text:
+      "What it is offered for. Beside it are the platform's recorded fees on " +
+      'that price, what is left after them, and the margin over cost.',
+  },
+  offer_title: {
+    title: 'Title',
+    text:
+      'What a buyer sees it called. An item starts with a title written from ' +
+      "its record, not the seller's wording from the purchase; a lot starts " +
+      'with its own. Change it here before offering.',
+  },
+  offer_description: {
+    title: 'Description',
+    text:
+      'The wording that goes with the title. It starts as the description on ' +
+      'record, and may be left empty.',
+  },
+  offer_listing_number: {
+    title: 'Listing number',
+    text:
+      "The platform's own number for this listing, where it has one. Leave it " +
+      'empty if there is none yet.',
   },
   // -- the Reports page -------------------------------------------------------
   // A report's parameter is explained by `report_<name>`; one with no entry of

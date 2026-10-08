@@ -340,6 +340,22 @@ describe('OfferDialog', () => {
     )
   })
 
+  it('fills nothing before a platform is chosen, and says why on the press', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await screen.findByRole('option', { name: 'eBay' })
+    const fill = screen.getByRole('button', { name: 'Fill blank prices' })
+    expect(fill).toBeEnabled()
+
+    await user.click(fill)
+
+    // A margin after fees is no margin at all with no platform's fees.
+    expect(screen.getByLabelText('Price for CC-000007')).toHaveValue('')
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Choose a platform first: the margin is worked out after its fees.',
+    )
+  })
+
   it('never replaces a price that was typed', async () => {
     const user = userEvent.setup()
     renderDialog()
@@ -548,6 +564,72 @@ describe('OfferDialog', () => {
 // The arithmetic itself, against its own table of cases. Whole cents
 // throughout: a float cannot hold them, and these numbers decide what the
 // owner thinks a sale is worth.
+describe('OfferDialog: a lot offered with no title', () => {
+  const LOT = { id: 3, title: 'Three dollars', description: '', cost_basis: '50.00' }
+
+  async function openLot(user, venue) {
+    renderWithProviders(<OfferDialog lot={LOT} onOffered={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByRole('option', {
+      name: VENUES.find((v) => v.code === venue).name,
+    })
+    await user.selectOptions(screen.getByLabelText('Platform'), venue)
+    await user.type(screen.getByLabelText('Price for Three dollars'), '75.00')
+    await user.clear(screen.getByLabelText('Title for Three dollars'))
+  }
+
+  const offerLot = () => screen.getByRole('button', { name: 'Offer the lot for sale' })
+
+  it('sends nothing to the web store, and says a buyer sees only the title', async () => {
+    const user = userEvent.setup()
+    await openLot(user, 'store')
+    await user.click(offerLot())
+
+    expect(
+      screen.getByText('Give the lot a title: it is the only name a buyer sees.'),
+    ).toBeVisible()
+    expect(api.createOffers).not.toHaveBeenCalled()
+    // Live, to be pressed again once the title is in.
+    expect(offerLot()).toBeEnabled()
+
+    await user.type(screen.getByLabelText('Title for Three dollars'), 'Three Morgans')
+    await user.click(offerLot())
+    await waitFor(() =>
+      expect(api.createOffers).toHaveBeenCalledWith(
+        expect.objectContaining({ venue: 'store', lot_id: 3, title: 'Three Morgans' }),
+      ),
+    )
+  })
+
+  it('leaves an outside platform to take the lot untitled', async () => {
+    const user = userEvent.setup()
+    await openLot(user, 'ebay')
+    await user.click(offerLot())
+    await waitFor(() =>
+      expect(api.createOffers).toHaveBeenCalledWith(
+        expect.objectContaining({ venue: 'ebay', lot_id: 3, title: '' }),
+      ),
+    )
+  })
+
+  it('leaves a web store auction of the lot to the server', async () => {
+    const user = userEvent.setup()
+    await openLot(user, 'store')
+    await user.selectOptions(screen.getByLabelText('Format'), 'auction')
+    await user.click(offerLot())
+    await waitFor(() => expect(api.createOffers).toHaveBeenCalled())
+  })
+
+  it('asks no title of an item offered in the web store', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await fillIn(user, { venue: 'store' })
+    await user.clear(screen.getByLabelText('Title for CC-000007'))
+    await user.click(offerButton())
+    await waitFor(() => expect(api.createOffers).toHaveBeenCalled())
+    expect(screen.queryByText(/Give the lot a title/)).toBeNull()
+  })
+})
+
 describe('platform fees', () => {
   const ebay = VENUES[1]
   const store = VENUES[0]

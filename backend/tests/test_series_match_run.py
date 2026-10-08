@@ -113,9 +113,53 @@ def test_a_seeded_item_becomes_derived_once_classified(
 
 def test_counts_cover_every_item_examined(db: Session, make_item: ItemFactory) -> None:
     make_item(title="1881-S Morgan Silver Dollar", description="a")
-    make_item(title="Cartwheel", description="b")
+    # Dated 1921, when both the designs it names were struck.
+    make_item(title="Cartwheel", description="b", year_start=1921)
+    # Names a design not struck in the item's year.
+    make_item(title="Franklin Half Dollar", description="c")
     make_item(**UNRECOGNISABLE)
 
     stats = run(db, commit=False)
 
-    assert stats["matched"] + stats["ambiguous"] + stats["no_match"] >= 3
+    # Each item under exactly one outcome: none dropped, none counted twice.
+    assert dict(stats) == {
+        "matched": 1,
+        "ambiguous": 1,
+        "contradicted": 1,
+        "no_match": 1,
+    }
+
+
+def test_a_round_or_medal_is_not_a_coin_design_for_sharing_its_name(
+    db: Session, make_item: ItemFactory
+) -> None:
+    # A bar, round or medal has no denomination or year to check a name
+    # against, so a design struck at one face value is not believed of it;
+    # a bullion design, which has none recorded, still is.
+    buffalo = make_item(
+        kind="bullion",
+        title="1 oz Silver Buffalo Round",
+        description="Generic round.",
+        year_start=None,
+    )
+    medal = make_item(
+        kind="medal",
+        title="Abraham Lincoln Medal",
+        description="Bronze.",
+        year_start=None,
+    )
+    eagle = make_item(
+        kind="bullion",
+        title="American Silver Eagle 1 oz",
+        description="In a capsule.",
+        year_start=None,
+    )
+
+    stats = run(db, commit=True)
+
+    for item in (buffalo, medal, eagle):
+        db.refresh(item)
+    assert buffalo.series_id is None
+    assert medal.series_id is None
+    assert eagle.series_id == _series_id(db, "american_silver_eagle")
+    assert stats["contradicted"] == 2
