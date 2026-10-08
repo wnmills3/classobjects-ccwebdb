@@ -546,9 +546,10 @@ fieldset.identify {
    its fourteen links set a floor of about 1000px under the whole page: below
    that the window scrolls sideways and the menu's end is off screen. */
 .console-app .nav {
+  align-items: flex-start;
   flex-wrap: wrap;
+  gap: 12px 0;
   min-width: 0;
-  row-gap: 6px;
 }
 .console-app > .content {
   flex: 1 1 auto;
@@ -602,14 +603,24 @@ fieldset.identify {
   gap: 0.5rem;
 }
 
-/* The nav's Selling group: Listings, Lots and Auctions, set apart. */
+/* The menu's groups: each a small label over its own pages, with a rule
+   between one group and the next. */
 .nav-group {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 0 12px;
+  align-items: flex-start;
   border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 16px;
+}
+.nav-group:first-child {
+  border-left: none;
+  padding-left: 0;
+}
+.nav-group-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
 }
 
 .nav-group-label {

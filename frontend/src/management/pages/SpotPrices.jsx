@@ -6,21 +6,25 @@ import { dateTime, money } from '../../shared/format'
 import { useRequest } from '../../shared/useRequest'
 
 //: A spot price as it may be typed: an amount with up to four decimal places
-//: (copper is quoted in cents an ounce), which is what the column holds.
-const PRICE = /^\d{1,8}(\.\d{1,4})?$/
+//: (copper is quoted in cents an ounce), which is what the column holds. The
+//: digits before the point may be left out -- `.4553` -- and so may those
+//: after it -- `31.` -- but not both.
+const PRICE = /^(\d{1,8}(\.\d{0,4})?|\.\d{1,4})$/
 
 /**
  * A price as a person types it, in the form the server takes: `$4,012.50`
- * is `4012.50`. A dollar sign in front and commas between thousands are how
- * a price is written and copied from a quote, and are not part of the
- * number. '' for text that is not a price.
+ * is `4012.50` and `.4553` is `0.4553`. A dollar sign in front, commas
+ * between thousands and a bare decimal point are how a price is written and
+ * copied from a quote, and are not what makes it a number. '' for text that
+ * is not a price.
  */
 function priceOf(text) {
   const plain = text
     .trim()
     .replace(/^\$\s*/, '')
     .replace(/,/g, '')
-  return PRICE.test(plain) ? plain : ''
+  if (!PRICE.test(plain)) return ''
+  return plain.replace(/^\./, '0.').replace(/\.$/, '')
 }
 
 /**
