@@ -99,7 +99,7 @@ already searched for that order.
 The receipt dialog opens with the facts that identify the piece -- a note's
 series, denomination, serial and plate numbers, a coin's year, mint and
 denomination -- saved with Receive, and says what they decide. It also takes
-a note, field reviews and, for a single item, photographs (chosen,
+a note and, for a single item, photographs (chosen,
 dropped or pasted). For a banknote it records the Friedberg number: the owner
 reads it off the note or looks it up (the dialog can open a Google search
 with the note's facts in a window beside it), and types it in; nothing is
@@ -140,13 +140,12 @@ The inventory pages (**Coins**, `/management/inventory/coins`, and
 **Currency**, `/management/inventory/currency`) are the tools:
 
 - **Search and diagnostics.** Named diagnostics (`app/issues.py`: no year, no
-  grade, no country, no denomination, zero cost, `Mixed` marker, unreviewed,
+  grade, no country, no denomination, zero cost, `Mixed` marker,
   and for notes star mismatch, malformed serial, repeated identity and
   others) are filters with counts and row badges.
 - **Bulk edit.** Select rows and set what they share in one action.
 - **Review.** Walk a result one item at a time. The queue is frozen at entry,
   so fixing an item does not shift the positions and skip the next one.
-- **Field reviews** record that a person confirmed a field against the object.
 - **The item editor** also records errors (mint and printing errors), offers
   **Suggest description** (a description composed from the record), and
   shows the item's history: its edits, status moves and location moves in

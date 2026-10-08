@@ -121,19 +121,6 @@ const MONEY_FIELDS = [
   ['Shipping', 'shipping_cost', 'h'],
 ]
 
-//: Form field -> the column a review record names. Only these can be
-//: confirmed; the rest have no review box.
-const REVIEWABLE = {
-  year_start: 'year_start',
-  year_end: 'year_end',
-  piece_count: 'piece_count',
-  grade: 'grade_id',
-  strike_type: 'strike_type_id',
-  denomination: 'denomination_id',
-  country: 'country_id',
-  metal: 'metal_id',
-}
-
 const CLASSIFIERS = [
   // A coin's grade is a number; its strike type says whether 65 is MS65 or
   // PR65. A note has no strike type, so the box is not shown for one.
@@ -246,7 +233,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   const [refreshedAt, setRefreshedAt] = useState(null)
   const draftRef = useRef(draft)
   const versionRef = useRef(null)
-  const [reviewed, setReviewed] = useState([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   // Photographs added in the Photos panel, held until Save files them with
@@ -328,7 +314,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   const adopt = useCallback((body) => {
     setItem(body)
     setBaseItem(body)
-    setReviewed(body.reviewed ?? [])
     setRanged(isRange(body.year_start, body.year_end))
     setDraft({})
     setPreview(null)
@@ -394,7 +379,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           if (cancelled || versionRef.current == null) return
           if (fresh.version === versionRef.current) return
           setItem(fresh)
-          setReviewed(fresh.reviewed ?? [])
           setBaseItem((previous) => rebase(fresh, previous, draftRef.current))
           setRefreshedAt(new Date())
         })
@@ -429,7 +413,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       .getInventoryItem(itemId)
       .then((body) => {
         setItem(body)
-        setReviewed(body.reviewed ?? [])
         // Edited fields keep their base: a change made elsewhere to one of
         // them shows as a conflict, never silently adopted.
         setBaseItem((previous) => rebase(body, previous, draftRef.current))
@@ -573,27 +556,8 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     setDraft(next)
   }
 
-  // One column or several: one year is confirmed as both of its ends at once,
-  // since a person looking at the coin confirmed the one year it shows.
-  function toggleReview(columns) {
-    const cols = [].concat(columns)
-    const before = reviewed
-    const next = cols.every((c) => reviewed.includes(c))
-      ? reviewed.filter((c) => !cols.includes(c))
-      : [...new Set([...reviewed, ...cols])]
-    setReviewed(next)
-    // replace:true, so unticking removes the record rather than leaving a
-    // confirmation nobody stands behind any more.
-    api.setItemReview(itemId, next, true).catch((err) => {
-      // Put the box back. This mark is the record that a person examined the
-      // coin, so a tick the server never accepted is worse than no tick.
-      setReviewed(before)
-      setError(err.message)
-    })
-  }
-
   function claimed(text) {
-    // An empty cell rather than nothing: `.field` is a four-column grid, and a
+    // An empty cell rather than nothing: `.field` is a three-column grid, and a
     // missing child shifts everything after it into the wrong column.
     if (text === undefined || text === null) return <span />
     return (
@@ -637,26 +601,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     const start = item.lot_claims?.year_start
     const end = item.lot_claims?.year_end
     return claimed(isRange(start, end) ? `${start}-${end}` : (start ?? end))
-  }
-
-  function review(columns) {
-    if (!columns) return <span />
-    const cols = [].concat(columns)
-    return (
-      <label
-        className="review-mark"
-        title="I have confirmed this by examination"
-        data-help="reviewed"
-      >
-        <input
-          type="checkbox"
-          checked={cols.every((c) => reviewed.includes(c))}
-          onChange={() => toggleReview(cols)}
-        />
-        {/* */}
-        confirmed
-      </label>
-    )
   }
 
   // No date: the piece carries none at all (a gold bar), as distinct from a
@@ -910,7 +854,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       <AccessLabel text={label} accessKey={letter} />
       <input type="text" value={value(key)} onChange={set(key)} {...accel(letter)} />
       {claim(key)}
-      {review(REVIEWABLE[key])}
     </label>
   )
 
@@ -947,7 +890,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           {...accel(letter)}
         />
         {side(key, columnOf(key, true))}
-        {review(REVIEWABLE[key])}
       </label>
     ))
 
@@ -1007,7 +949,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               {rangeToggle}
             </span>
             {ranged ? claim('year_start') : yearClaim()}
-            {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
           </div>
           {yearWarning && (
             <p className="notice" role="status">
@@ -1035,7 +976,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
                 {...accel('o')}
               />
               {claim('year_end')}
-              {review('year_end')}
             </div>
           )}
         </>
@@ -1220,12 +1160,10 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               {...accel(letter)}
             />
             {/* No lot ever claims a cost -- a piece's cost is allocated at
-              split time, not inherited -- but `.field` is a four-column grid
-              and every other row fills this slot, so an empty one is called
-              for explicitly rather than left to shift the review box into
-              its neighbour's column. */}
+              split time, not inherited -- but `.field` is a three-column
+              grid and every other row fills this slot, so an empty one is
+              called for explicitly. */}
             {claim(key)}
-            {review(REVIEWABLE[key])}
           </label>
         ))}
 
@@ -1316,7 +1254,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               {...accel(letter)}
             />
             {claim(key)}
-            {review(REVIEWABLE[key])}
           </label>
         ))}
 

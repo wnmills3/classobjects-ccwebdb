@@ -87,21 +87,6 @@ def test_zero_cost_catches_null_and_zero_alike(
     assert [r["id"] for r in rows] == [zero.id]
 
 
-def test_unreviewed_is_the_default_state(
-    client: TestClient, admin_headers: dict[str, str], db: Session
-) -> None:
-    """Absent means unconfirmed, which is right for an item nobody examined."""
-    item = build_bare_item(db)
-    assert search(client, admin_headers, "issue=unreviewed")["total"] == 1
-
-    client.post(
-        f"/api/inventory/{item.id}/reviewed",
-        json={"fields": ["grade_id"]},
-        headers=admin_headers,
-    )
-    assert search(client, admin_headers, "issue=unreviewed")["total"] == 0
-
-
 def test_a_near_duplicate_serial_is_found_within_one_order(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

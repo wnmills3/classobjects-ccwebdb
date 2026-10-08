@@ -77,11 +77,6 @@ SHARED_ISSUES: dict[str, Issue] = {
         # fill in the field.
         description="Known to vary: the row stands for several different items",
     ),
-    "unreviewed": Issue(
-        "NOT EXISTS (SELECT 1 FROM item_field_review r "
-        "WHERE r.inventory_item_id = i.id)",
-        description="Nobody has confirmed any field by examination",
-    ),
 }
 
 

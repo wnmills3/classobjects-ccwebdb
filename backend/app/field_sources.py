@@ -9,8 +9,8 @@ The rule (docs/specs/classifier-defaults-design.md, *Per-field provenance*):
 - A person emptying a field records it as `held`: it stays empty, and no pass
   fills it, until someone sets it again.
 
-Field names are columns (`note_type_id`, `fineness`), as `item_field_review`
-uses, whether the column lives on the item or on its currency detail.
+Field names are columns (`note_type_id`, `fineness`), whether the column
+lives on the item or on its currency detail.
 """
 
 from __future__ import annotations

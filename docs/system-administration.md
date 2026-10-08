@@ -100,7 +100,7 @@ On someone else's account (`PATCH /api/users/{id}`), exactly three fields:
 The schema is `extra="forbid"`, so a request naming any other field is
 refused. **Email is not editable** -- it is the account's identity, and the
 audit trail on `item_status_history`, `location_history` and
-`item_field_review` points at the user id behind it.
+`item_field_change` points at the user id behind it.
 
 `POST /api/users/{id}/customer` returns the customer record behind an account,
 creating it if the account has never bought anything, so an order can be
@@ -519,7 +519,6 @@ relisting, because a returned item resumes its own history.
 | `PATCH /api/inventory/{id}` | one item, any editable field |
 | `POST /api/inventory/bulk` | the same change across many items, one transaction, all or nothing. A `storage_location_id` moves each item there and records the move in its location history; the Coins and Currency pages' bulk bar offers it as **Location**, with the item editor's picker |
 | `POST /api/inventory/receive` | record what arrived -- see *Receiving* |
-| `POST /api/inventory/{id}/reviewed` | mark fields as confirmed by a person looking at the object |
 | `PUT /api/inventory/{id}/errors` | replace the item's recorded errors -- see *Errors* |
 
 **Editable scalars:** `source_title`, `description`, `rating`, `sellers_item_id`,
@@ -1131,7 +1130,7 @@ parameters and its table. Groups appear in the order the API lists them:
 | `dq_issues` | Data quality | Open issues | Every named data-quality check, counted across coins and currency | none |
 | `dq_completeness` | Data quality | Field completeness | Percent of live items with each field filled in, by kind | none |
 | `dq_photos` | Data quality | Photographs | Live items with no photograph, by kind and status, plus photographs filed against no item | none |
-| `dq_derived` | Data quality | Filled by a rule, not yet confirmed | Fields a machine pass filled in, and the rule that filled each one, that nobody has confirmed | none |
+| `dq_derived` | Data quality | Filled by a rule | Fields that still hold what a machine pass filled in, and the rule that filled each one | none |
 | `dq_purchases` | Data quality | Purchases with gaps | Purchases with a placeholder number, a missing or implausible order date, no web address, a zero-cost item, or no items | none |
 | `dq_locations` | Data quality | Where items are | Live items by storage location, with items and total cost | none |
 | `dq_series_years` | Data quality | Coins dated outside their series | Coins whose year falls outside their design series' years -- a typo, a tribute piece, or the wrong series; each row opens that coin | none |

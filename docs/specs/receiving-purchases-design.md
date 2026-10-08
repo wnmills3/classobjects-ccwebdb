@@ -24,8 +24,7 @@ a row that already exists**, so the design problem is *finding the right
 row*, not typing anything in.
 
 It is also the first moment a person holds the object, so the receipt dialog
-offers field confirmation (`item_field_review`: "one field of one item,
-confirmed by a person looking at the object").
+opens the item's fields for correction.
 
 ## Status and location have one door each
 
@@ -102,7 +101,7 @@ All admin-only.
 | `GET /api/purchase-orders/{id}` | the purchase a `?order=` link names: order number, vendor, date, vendor page, seller |
 | `GET /api/storage-locations`, `POST /api/storage-locations` | the *Storage location* choices, and adding one inline |
 | `GET /api/inventory/{id}` | the item being received (kind, sale state) |
-| `POST /api/inventory/{id}/reviewed`, `PATCH /api/inventory/{id}`, `PUT /api/inventory/{id}/errors` | save Identify, confirm or correct fields, record errors |
+| `PATCH /api/inventory/{id}`, `PUT /api/inventory/{id}/errors` | save Identify, confirm or correct fields, record errors |
 | `GET /api/defaults/note`, `GET /api/defaults/coin` | what the facts typed in Identify decide, shown beside them |
 | `GET /api/friedberg`, `GET /api/friedberg/signatures`, `POST /api/friedberg`, `PATCH /api/friedberg/{id}`, `POST /api/inventory/{id}/friedberg` | a banknote's catalog-number lookup |
 | `POST /api/images` | photographs of the item being received |
@@ -181,8 +180,7 @@ error belongs to that order and clears when the address changes.
   parcel of twenty into one location is not twenty identical picks. The note
   is not carried over: it describes one object.
 - **Confirm or correct fields** opens `ReviewPane`, the inventory
-  page's own review component: *confirm* writes `.../reviewed`, editing
-  writes `PATCH`. It is disabled while Identify has unsaved changes; Identify
+  page's own review component; editing writes `PATCH`. It is disabled while Identify has unsaved changes; Identify
   is hidden while it is open and reads the item again when it closes. While it is closed, `ErrorsPanel` records mint or printing
   errors; only one of the two is mounted at a time, because each replaces the
   item's whole error set (the editor's on its Save, this one on every change).

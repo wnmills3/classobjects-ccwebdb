@@ -23,7 +23,7 @@ const FIELDS = [
  * one -- null for an emptied box, so a save clears the field rather than
  * sending "". `className` is the row's class in the form it sits in, and
  * `aside(key)` renders whatever that form shows beside a field (a
- * "suggested" mark, a review box).
+ * "suggested" mark).
  */
 export default function WeightFields({ get, set, className, aside }) {
   const base = useId()

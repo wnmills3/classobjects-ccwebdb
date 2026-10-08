@@ -39,7 +39,7 @@ way and records its results in the same table. The rules live in
 
 One row per (item, field) holding a derived default, with `derived_by` naming
 the rule (`app/field_sources.py`). Field names are column names
-(`note_type_id`, `fineness`), as in `item_field_review`, whether the column is
+(`note_type_id`, `fineness`), whether the column is
 on the item or its currency detail.
 
 | `derived_by` | Written by |

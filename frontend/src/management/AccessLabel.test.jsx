@@ -16,7 +16,7 @@ describe('AccessLabel', () => {
   })
 
   it('renders the label as ONE element, not loose text around the letter', () => {
-    // The callers put this straight inside `.field`, which is a four-column
+    // The callers put this straight inside `.field`, which is a three-column
     // CSS grid. As a bare fragment its three children would each become a
     // grid item and the word be torn apart across the columns -- "T      i
     // tle". One element is the layout contract, not a detail.

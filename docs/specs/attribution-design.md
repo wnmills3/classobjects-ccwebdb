@@ -8,7 +8,7 @@ unknown cannot be listed, described or valued.
 It is staff work in the management console's inventory pages
 (`/management/inventory/coins` and `/management/inventory/currency`): search
 for a named problem, walk the results one at a time or fix a selection in
-bulk, and record which values a person has confirmed by examining the object.
+bulk.
 
 The worked case: a lot of fifty Morgan dollars bought as "supposed to be BU".
 After splitting, each of the fifty needs its own year, mint mark, grade and
@@ -17,8 +17,7 @@ requirements:
 
 1. Every item is editable, whether or not it is on offer.
 2. A piece created by a split has a detail row to hold a mint mark or serial.
-3. It is visible which values are the seller's claim about the lot and which a
-   person has confirmed.
+3. It is visible which values are the seller's claim about the lot.
 
 ## Editing any item
 
@@ -62,38 +61,13 @@ A piece inherits its lot's values -- all fifty Morgans say BU -- and that is
 the seller's claim, not a verified grade for coin 37. The row-level
 `source = derived` says only that the row was produced by a split.
 
-Confirmation is recorded in `item_field_review`:
-
-```
-item_field_review
-  inventory_item_id  -> inventory_item, cascade
-  field_name         the column confirmed, e.g. 'grade_id'
-  reviewed_at        timestamptz
-  reviewed_by_id     -> users
-  unique (inventory_item_id, field_name)
-```
-
-One row per field a person has confirmed by examining the object; absent
-means unconfirmed, the correct default for an item nobody has examined. Per
-field, not per item, because attributing fifty coins means confirming grade
-on all fifty, then year on all fifty, and a half-done coin is the normal
-state. It is a table, not a key in the `attributes` JSONB, because that column
-holds the long tail awaiting promotion to real columns.
-
-- `GET /api/inventory/{id}/reviewed` lists the confirmed fields.
-- `POST /api/inventory/{id}/reviewed` records fields (idempotent; `replace`
-  sets the whole set). Only the columns in `REVIEWABLE_FIELDS`
-  (`routers/inventory.py`) are accepted; anything else is a 422 listing the
-  allowed names.
-
-The lot's claim is the complementary half. `GET /api/inventory/{id}` returns,
+`GET /api/inventory/{id}` returns,
 beside the item, `lot_claims` -- for each field in `LOT_CLAIM_FIELDS`, what the
-parent holds, omitted where the parent says nothing -- and `reviewed`,
-`derived` (fields a pass filled, `classifier-defaults-design.md`) and
-`last_changes`. The edit form shows the claim beside the field
+parent holds, omitted where the parent says nothing -- and `derived`
+(fields a pass filled, `classifier-defaults-design.md`) and `last_changes`.
+The edit form shows the claim beside the field
 (`Grade [AU58] · lot says BU`). The claim is derived from the parent every
-time, so it cannot go stale; the review record answers "has anyone checked?".
-Neither derives the other.
+time, so it cannot go stale.
 
 ## Repair operations
 
@@ -156,7 +130,6 @@ the available ones for that view.
 | `no_denomination` | both | a coin or banknote with no denomination |
 | `zero_cost` | both | cost missing or zero |
 | `mixed_marker` | both | `mixed` in the rating or description |
-| `unreviewed` | both | no field confirmed by anyone |
 | `kind_unknown` | coin | its kind is not recorded (`unknown`) |
 | `no_weight_bullion` | coin | bullion with no fine weight |
 | `year_outside_series` | coin | dated outside its design series' years |
@@ -232,7 +205,7 @@ specs.js                coin and currency column and filter specifications
 BulkEditBar.jsx         appears with a selection
 ReviewPane.jsx          one item at a time, previous/next
 ItemEditDialog.jsx      the editor, opened over the results
-ItemEditForm.jsx        fields, lot claims, review marks, suggested marks
+ItemEditForm.jsx        fields, lot claims, suggested marks
 kindChange.js           what a change of kind empties
 NoteFields.jsx          a note's own classifiers and printing facts
 AttributesField.jsx     the item's attributes, with where each was read

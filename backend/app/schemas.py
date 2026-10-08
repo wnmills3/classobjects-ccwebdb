@@ -897,11 +897,9 @@ class ItemHistoryEventOut(BaseModel):
 class ItemDetailOut(InventoryItemOut):
     """One item, with everything the edit form needs in one round trip.
 
-    The two provenance mechanisms answer different questions and both appear
-    here. `lot_claims` is *derived* by comparing the item to its parent and
-    says what the lot claimed -- it cannot drift out of sync because it is
-    recomputed. `reviewed` is *asserted* and says a person looked -- it cannot
-    be computed from anything. Neither replaces the other.
+    `lot_claims` is *derived* by comparing the item to its parent and says
+    what the lot claimed -- it cannot drift out of sync because it is
+    recomputed.
     """
 
     #: The lot this piece came out of, if any. Only a split lot's pieces
@@ -913,8 +911,6 @@ class ItemDetailOut(InventoryItemOut):
     #: these beside the item's own values, so it is always visible what is
     #: being overridden and what is still only the seller's word.
     lot_claims: dict[str, object] = Field(default_factory=dict)
-    #: Fields a person has confirmed by examination.
-    reviewed: list[str] = Field(default_factory=list)
     #: Fields holding a default filled from known facts, as column to the rule
     #: that filled it (`note_type_id`: `note_issue`). The form marks them as
     #: suggestions; saving one by hand makes it the person's.
@@ -1390,25 +1386,6 @@ class ReceiveRequest(BaseModel):
     #: (app.sale_state). Only the outcomes that are not `received` can be
     #: refused: an item that has not been received cannot be offered.
     acknowledge_for_sale: bool = False
-
-
-class ReviewRequest(BaseModel):
-    """Which fields of an item a person has confirmed by looking at it."""
-
-    #: Column names, e.g. `grade_id`. Checked against the reviewable set, so a
-    #: typo is a 422 rather than a record nobody can ever query for.
-    fields: list[str] = Field(default_factory=list)
-    #: False adds to what is already recorded, which is the normal case --
-    #: confirming the grade says nothing about the year. True makes the given
-    #: list the whole truth, which is how a mistaken confirmation is undone.
-    replace: bool = False
-
-
-class ItemReviewOut(BaseModel):
-    """Which fields of one item stand confirmed."""
-
-    inventory_item_id: int
-    reviewed: list[str]
 
 
 class ItemErrorIn(BaseModel):

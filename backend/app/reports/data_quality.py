@@ -9,7 +9,7 @@ filter (`inventory_search.MISSING_FIELDS`) uses to find a field empty, so a
 report cell and its drill-down search agree by construction, not only by
 test. `dq_photos` finds live items with no photograph, by kind and status,
 plus photographs nobody has filed against any item. `dq_derived` finds
-fields a machine pass filled in that nobody has confirmed by examination.
+fields that still hold what a machine pass filled in.
 `dq_purchases` finds purchases with a data gap -- a placeholder order
 number, a missing or implausible order date, no web address, a zero-cost
 item, or no items at all. `dq_locations` totals live items by where they
@@ -54,7 +54,6 @@ from ..models import (
     CurrencyDetail,
     Denomination,
     Image,
-    ItemFieldReview,
     ItemFieldSource,
     ItemImage,
     ItemStatus,
@@ -410,14 +409,13 @@ DQ_PHOTOS = register(
 
 
 class DqDerivedParams(BaseModel):
-    """No parameters: every live item's derived, unconfirmed field, every time."""
+    """No parameters: every live item's derived field, every time."""
 
 
-#: `item_field_source` and `item_field_review`, aliased for the same reason
+#: `item_field_source`, aliased for the same reason
 #: `.tables` aliases `inventory_item` and `item_kind`: so the join below reads
 #: as what it is rather than restating the base table names.
 _IFS = ItemFieldSource.__table__.alias("ifs")
-_IFR = ItemFieldReview.__table__.alias("ifr")
 
 #: A reader's title for the columns `item_field_source.field_name` actually
 #: holds (`app.classifier_defaults`' `NOTE_COLUMNS`/`COMPOSITION_COLUMNS`,
@@ -454,25 +452,12 @@ _RULE_TITLES: dict[str, str] = {
 
 
 def _dq_derived(db: Session, _params: DqDerivedParams) -> ReportResult:
-    """Field x rule: `item_field_source` rows a person has not confirmed.
+    """Field x rule: the fields that still hold what a rule filled in.
 
-    "Confirmed" means an `item_field_review` row for the *same item and the
-    same field* -- the pairing `item_field_review`'s own docstring describes
-    (per field, not per item) and the one `ItemFieldSource`/`item_field_review`
-    both key on (`inventory_item_id`, `field_name`). `HELD` rows are excluded:
-    a field a person emptied on purpose is not "filled by a rule" at all.
-
-    This is a different, finer question than `issue=unreviewed`
-    (`app.issues`), which asks only whether an item carries *any* review row,
-    regardless of field. An item reviewed on one field (say, grade) and
-    derived but unconfirmed on another (say, series) is counted here, on its
-    series row -- but it does *not* trip `issue=unreviewed` at all, since it
-    does have a review row, just not one for series. The reverse also
-    happens: an item with no review rows at all trips `issue=unreviewed` but
-    contributes nothing here unless some rule has also derived one of its
-    fields. Because the two measures disagree in both directions, a row's
-    count here cannot be relied on to equal what `issue=unreviewed` would
-    return, so no row links to it.
+    An `item_field_source` row is a value a pass derived; saving the field
+    by hand removes its row, so what is counted here is what nobody has
+    typed over. `HELD` rows are excluded: a field a person emptied on
+    purpose is not "filled by a rule" at all.
     """
     stmt = (
         select(
@@ -482,14 +467,7 @@ def _dq_derived(db: Session, _params: DqDerivedParams) -> ReportResult:
         )
         .select_from(_IFS)
         .join(_I, _I.c.id == _IFS.c.inventory_item_id)
-        .outerjoin(
-            _IFR,
-            and_(
-                _IFR.c.inventory_item_id == _IFS.c.inventory_item_id,
-                _IFR.c.field_name == _IFS.c.field_name,
-            ),
-        )
-        .where(_LIVE, _IFS.c.derived_by != HELD, _IFR.c.id.is_(None))
+        .where(_LIVE, _IFS.c.derived_by != HELD)
         .group_by(_IFS.c.field_name, _IFS.c.derived_by)
         .order_by(_IFS.c.field_name, _IFS.c.derived_by)
     )
@@ -516,10 +494,9 @@ def _dq_derived(db: Session, _params: DqDerivedParams) -> ReportResult:
         drills=[None] * len(rows),
         notes=[
             "Each row counts one field and the rule that filled it; an "
-            "item with two such fields still needing confirmation counts "
-            "once for each. That is a different question from how many "
-            "items have nothing confirmed at all, so no row opens a "
-            "search."
+            "item with two such fields counts once for each, so no row "
+            "opens a search. Saving a field by hand takes it off this "
+            "report."
         ],
     )
 
@@ -528,9 +505,9 @@ DQ_DERIVED = register(
     Report(
         id="dq_derived",
         group="Data quality",
-        title="Filled by a rule, not yet confirmed",
-        purpose="Fields a machine pass filled in, and the rule that filled "
-        "each one, that nobody has confirmed by examination.",
+        title="Filled by a rule",
+        purpose="Fields that still hold what a machine pass filled in, and "
+        "the rule that filled each one.",
         params=DqDerivedParams,
         run=_dq_derived,
     )
