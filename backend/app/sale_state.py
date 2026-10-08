@@ -121,6 +121,42 @@ def _offering(db: Session, item_ids: Collection[int]) -> dict[int, set[int]]:
     return wanted
 
 
+def _described_listings(db: Session, listing_ids: Collection[int]) -> dict[int, str]:
+    """What a person reads for each of these listings that is on offer with stock.
+
+    Keyed by listing id: "listing #3 at 120.00", with the platform's name
+    when it is not the web store and "(paused)" when it is set aside. A
+    listing that has ended, or has no stock left, is not in the answer, and
+    no ids at all asks the database nothing.
+    """
+    described: dict[int, str] = {}
+    if not listing_ids:
+        return described
+    rows = db.execute(
+        select(
+            Listing.id,
+            Listing.price,
+            Listing.status,
+            SalesVenue.name,
+            SalesVenue.is_own_store,
+        )
+        .join(SalesVenue, SalesVenue.id == Listing.sales_venue_id)
+        .where(
+            Listing.id.in_(listing_ids),
+            Listing.status.in_(offering_writes.ON_OFFER),
+            Listing.quantity_available > 0,
+        )
+    ).tuples()
+    for listing_id, price, listing_status, venue_name, own_store in rows:
+        text = f"listing #{listing_id} at {price}"
+        if not own_store:
+            text += f" on {venue_name}"
+        if listing_status is ListingStatus.paused:
+            text += " (paused)"
+        described[listing_id] = text
+    return described
+
+
 def for_sale(db: Session, item_ids: Collection[int]) -> dict[int, list[SaleUse]]:
     """The items among `item_ids` that are for sale, and why."""
     ids = list(item_ids)
@@ -129,30 +165,7 @@ def for_sale(db: Session, item_ids: Collection[int]) -> dict[int, list[SaleUse]]
         return found
     wanted = _offering(db, ids)
     all_listing_ids = {listing_id for ids_ in wanted.values() for listing_id in ids_}
-    described: dict[int, str] = {}
-    if all_listing_ids:
-        rows = db.execute(
-            select(
-                Listing.id,
-                Listing.price,
-                Listing.status,
-                SalesVenue.name,
-                SalesVenue.is_own_store,
-            )
-            .join(SalesVenue, SalesVenue.id == Listing.sales_venue_id)
-            .where(
-                Listing.id.in_(all_listing_ids),
-                Listing.status.in_(offering_writes.ON_OFFER),
-                Listing.quantity_available > 0,
-            )
-        ).tuples()
-        for listing_id, price, listing_status, venue_name, own_store in rows:
-            text = f"listing #{listing_id} at {price}"
-            if not own_store:
-                text += f" on {venue_name}"
-            if listing_status is ListingStatus.paused:
-                text += " (paused)"
-            described[listing_id] = text
+    described = _described_listings(db, all_listing_ids)
     for item_id, listing_ids in wanted.items():
         for listing_id in sorted(listing_ids):
             if listing_id in described:

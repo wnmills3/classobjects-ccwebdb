@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -170,61 +170,96 @@ def copy_rows(
     """
     with Session(source) as read, Session(target) as write:
         for table in tables if tables is not None else all_tables(source):
-            columns = stored_columns(table)
-            names = [c.name for c in columns]
-            jsons = [c for c in columns if isinstance(c.type, JSON)]
-            keys = list(table.primary_key.columns)
-            # Without a key there is no saying which row to fill in later.
-            own = sorted(
-                {f.parent.name for f in table.foreign_keys if f.column.table is table}
-                if keys
-                else ()
-            )
-            statement = insert(table).values(
-                {
-                    c.name: bindparam(
-                        _JSON_PARAMETER + c.name, type_=type(c.type)(none_as_null=True)
-                    )
-                    for c in jsons
-                    if isinstance(c.type, JSON)
-                }
-            )
-            links: list[tuple[list[Any], dict[str, Any]]] = []
-            total = 0
-            offset = 0
-            while True:
-                rows = read.execute(
-                    select(*columns, *(c.is_(None) for c in jsons))
-                    .order_by(*keys)
-                    .limit(CHUNK)
-                    .offset(offset)
-                ).all()
-                if not rows:
-                    break
-                records = []
-                for row in rows:
-                    record = dict(zip(names, row[: len(names)], strict=True))
-                    for column, is_sql_null in zip(
-                        jsons, row[len(names) :], strict=True
-                    ):
-                        value = record.pop(column.name)
-                        record[_JSON_PARAMETER + column.name] = (
-                            JSON.NULL if value is None and not is_sql_null else value
-                        )
-                    held = {n: record[n] for n in own if record[n] is not None}
-                    if held:
-                        links.append(([record[k.name] for k in keys], held))
-                        record.update(dict.fromkeys(held))
-                    records.append(record)
-                write.execute(statement, records)
-                total += len(rows)
-                offset += CHUNK
-            for key_values, held in links:
-                matches = [k == v for k, v in zip(keys, key_values, strict=True)]
-                write.execute(update(table).where(*matches).values(**held))
+            total = _copy_table(read, write, table)
             write.commit()
             _resync_sequences(write, table)
             yield table.name, total
+
+
+def _copy_table(read: Session, write: Session, table: Table) -> int:
+    """Write one table's rows, a chunk at a time, then its own links; how many rows.
+
+    The caller commits.
+    """
+    columns = stored_columns(table)
+    names = [c.name for c in columns]
+    jsons = [c for c in columns if isinstance(c.type, JSON)]
+    keys = list(table.primary_key.columns)
+    own = _own_links(table, keys)
+    statement = insert(table).values(
+        {
+            c.name: bindparam(
+                _JSON_PARAMETER + c.name, type_=type(c.type)(none_as_null=True)
+            )
+            for c in jsons
+            if isinstance(c.type, JSON)
+        }
+    )
+    links: list[tuple[list[Any], dict[str, Any]]] = []
+    total = 0
+    offset = 0
+    while True:
+        rows = read.execute(
+            select(*columns, *(c.is_(None) for c in jsons))
+            .order_by(*keys)
+            .limit(CHUNK)
+            .offset(offset)
+        ).all()
+        if not rows:
+            break
+        records = [_as_written(row, names, jsons) for row in rows]
+        for record in records:
+            _hold_own_links(record, own, keys, links)
+        write.execute(statement, records)
+        total += len(rows)
+        offset += CHUNK
+    for key_values, held in links:
+        matches = [k == v for k, v in zip(keys, key_values, strict=True)]
+        write.execute(update(table).where(*matches).values(**held))
+    return total
+
+
+def _own_links(table: Table, keys: list[Column[Any]]) -> list[str]:
+    """The columns that point at the table's own rows, by name, in order.
+
+    None for a table without a key: there is no saying which row to fill in
+    later.
+    """
+    if not keys:
+        return []
+    return sorted(
+        {f.parent.name for f in table.foreign_keys if f.column.table is table}
+    )
+
+
+def _as_written(
+    row: Sequence[Any], names: list[str], jsons: list[Column[Any]]
+) -> dict[str, Any]:
+    """One row as read -- its columns, then each JSON column's "is SQL NULL".
+
+    Each JSON value moves to the parameter that writes it, and one that read
+    as None without being SQL NULL goes as JSON's own null.
+    """
+    record = dict(zip(names, row[: len(names)], strict=True))
+    for column, is_sql_null in zip(jsons, row[len(names) :], strict=True):
+        value = record.pop(column.name)
+        record[_JSON_PARAMETER + column.name] = (
+            JSON.NULL if value is None and not is_sql_null else value
+        )
+    return record
+
+
+def _hold_own_links(
+    record: dict[str, Any],
+    own: list[str],
+    keys: list[Column[Any]],
+    links: list[tuple[list[Any], dict[str, Any]]],
+) -> None:
+    """Empty a row's links to its own table, keeping them in `links` to fill later."""
+    held = {n: record[n] for n in own if record[n] is not None}
+    if held:
+        links.append(([record[k.name] for k in keys], held))
+        record.update(dict.fromkeys(held))
 
 
 def _resync_sequences(session: Session, table: Table) -> None:
@@ -346,58 +381,67 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.list:
-        with admin_engine(settings.database_url).connect() as conn:
-            rows = conn.execute(
-                text(
-                    "SELECT datname, pg_size_pretty(pg_database_size(datname)) "
-                    "FROM pg_database WHERE datname LIKE 'ccwebdb_bak%' "
-                    "ORDER BY datname DESC"
-                )
-            ).all()
-        for datname, size in rows:
-            print(f"  {datname:<32}{size}")
-        if not rows:
-            print("  no backups yet")
-        return 0
-
+        return _list_copies()
     if args.verify:
-        # render_as_string(False) keeps the password. `str(url)` masks it as
-        # ***, producing a URL that looks right and cannot authenticate --
-        # the same trap conftest.py documents for the test database.
-        url = (
-            make_url(settings.database_url)
-            .set(database=args.verify)
-            .render_as_string(hide_password=False)
-        )
-        differences = [
-            row
-            for row in compare(create_engine(settings.database_url), create_engine(url))
-            if row[1] != row[2]
-        ]
-        if differences:
-            absent = [row for row in differences if row[2] == MISSING]
-            if absent:
-                print(
-                    f"OLDER SCHEMA -- {args.verify} has no "
-                    f"{', '.join(t for t, _, _ in absent)}."
-                )
-                print("It predates a migration, so it cannot be compared table")
-                print("for table. It is not a usable backup of the collection now.")
-            print("MISMATCH -- this backup is not a faithful copy:")
-            for table, left, right in differences:
-                shown = "absent" if right == MISSING else f"{right:>8,}"
-                print(f"  {table:<28}source {left:>8,}   copy {shown:>8}")
-            return 1
-        # Counts are all this compares: a copy with the right number of rows
-        # and a wrong value in one of them is not found here.
-        print(f"{args.verify}: row counts match the source on every table")
-        return 0
+        return _verify(args.verify)
 
     print("copying...")
     url, written = run(args.to, name=args.name)
     print(f"\n{written:,} rows -> {make_url(url).database}")
     print("\nverify with:  python -m app.backup --verify <name>")
     return 0
+
+
+def _list_copies() -> int:
+    """`--list`: print each local copy and its size, newest first; exit 0."""
+    with admin_engine(settings.database_url).connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT datname, pg_size_pretty(pg_database_size(datname)) "
+                "FROM pg_database WHERE datname LIKE 'ccwebdb_bak%' "
+                "ORDER BY datname DESC"
+            )
+        ).all()
+    for datname, size in rows:
+        print(f"  {datname:<32}{size}")
+    if not rows:
+        print("  no backups yet")
+    return 0
+
+
+def _verify(name: str) -> int:
+    """`--verify NAME`: compare the copy's row counts with the source's.
+
+    Exits 1, naming each table that differs, when any does. Counts are all
+    this compares: a copy with the right number of rows and a wrong value in
+    one of them is not found here.
+    """
+    # render_as_string(False) keeps the password. `str(url)` masks it as
+    # ***, producing a URL that looks right and cannot authenticate --
+    # the same trap conftest.py documents for the test database.
+    url = (
+        make_url(settings.database_url)
+        .set(database=name)
+        .render_as_string(hide_password=False)
+    )
+    differences = [
+        row
+        for row in compare(create_engine(settings.database_url), create_engine(url))
+        if row[1] != row[2]
+    ]
+    if not differences:
+        print(f"{name}: row counts match the source on every table")
+        return 0
+    absent = [row for row in differences if row[2] == MISSING]
+    if absent:
+        print(f"OLDER SCHEMA -- {name} has no {', '.join(t for t, _, _ in absent)}.")
+        print("It predates a migration, so it cannot be compared table")
+        print("for table. It is not a usable backup of the collection now.")
+    print("MISMATCH -- this backup is not a faithful copy:")
+    for table, left, right in differences:
+        shown = "absent" if right == MISSING else f"{right:>8,}"
+        print(f"  {table:<28}source {left:>8,}   copy {shown:>8}")
+    return 1
 
 
 if __name__ == "__main__":

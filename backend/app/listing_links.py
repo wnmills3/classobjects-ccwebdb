@@ -43,7 +43,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import Row, select
 from sqlalchemy.orm import Session
 
 from . import field_changes, pass_cli
@@ -136,37 +136,84 @@ def plan(db: Session) -> Plan:
             named.setdefault(order.id, set()).add(item.listing_url)
 
     for item, order, vendor in rows:
-        url = item.listing_url
-        if url is None:
-            own = _web_address(order.source_url)
-            lots = named.get(order.id, set())
-            if (
-                own is not None
-                and not is_marketplace(vendor)
-                # Only a page that is recognisably a lot's: a shop's location
-                # page is the purchase's, but no listing.
-                and listing_id_from(own) is not None
-                and lots <= {own}  # one lot: no item names another
-            ):
-                url = own
-            elif is_ebay(vendor) and _EBAY_ID.match(item.sellers_item_id or ""):
-                url = ebay_listing_url(item.sellers_item_id or "")
-            if url is not None:
-                todo.listing_urls[item.id] = url
-        if item.sellers_item_id is None:
-            found = listing_id_from(url)
-            if found is not None:
-                todo.listing_ids[item.id] = found
+        _plan_item(todo, item, order, vendor, named.get(order.id, set()))
 
     for _item, order, vendor in rows:
-        lots = named.get(order.id, set())
-        if order.source_url is None and not is_marketplace(vendor) and len(lots) == 1:
-            (only,) = lots
-            if _web_address(only):
-                todo.order_urls[order.id] = only
+        _plan_order_url(todo, order, vendor, named.get(order.id, set()))
 
     # The listings each purchase's items carry, as recorded or as planned
     # above: a listing page on an eBay purchase gives way only to these.
+    carried = _carried_listings(todo, rows)
+    seen: set[int] = set()
+    for _item, order, vendor in rows:
+        if order.id in seen:
+            continue
+        seen.add(order.id)
+        _plan_order_page(todo, order, vendor, carried.get(order.id, set()))
+    return todo
+
+
+def _address_for(
+    item: InventoryItem, order: PurchaseOrder, vendor: Vendor, lots: set[str]
+) -> str | None:
+    """The listing address an item with none can be given, or None.
+
+    Its purchase's, where that is one lot's page; failing that, the address
+    its eBay item number rebuilds. `lots` is the addresses the purchase's
+    items already name.
+    """
+    own = _web_address(order.source_url)
+    if (
+        own is not None
+        and not is_marketplace(vendor)
+        # Only a page that is recognisably a lot's: a shop's location
+        # page is the purchase's, but no listing.
+        and listing_id_from(own) is not None
+        and lots <= {own}  # one lot: no item names another
+    ):
+        return own
+    if is_ebay(vendor) and _EBAY_ID.match(item.sellers_item_id or ""):
+        return ebay_listing_url(item.sellers_item_id or "")
+    return None
+
+
+def _plan_item(
+    todo: Plan,
+    item: InventoryItem,
+    order: PurchaseOrder,
+    vendor: Vendor,
+    lots: set[str],
+) -> None:
+    """Plan the listing address and the seller's item id one item lacks."""
+    url = item.listing_url
+    if url is None:
+        url = _address_for(item, order, vendor, lots)
+        if url is not None:
+            todo.listing_urls[item.id] = url
+    if item.sellers_item_id is None:
+        found = listing_id_from(url)
+        if found is not None:
+            todo.listing_ids[item.id] = found
+
+
+def _plan_order_url(
+    todo: Plan, order: PurchaseOrder, vendor: Vendor, lots: set[str]
+) -> None:
+    """Plan a purchase with no web address taking the one its items share.
+
+    Not a marketplace's, whose order holds many listings, and not where the
+    items name several lots or none.
+    """
+    if order.source_url is None and not is_marketplace(vendor) and len(lots) == 1:
+        (only,) = lots
+        if _web_address(only):
+            todo.order_urls[order.id] = only
+
+
+def _carried_listings(
+    todo: Plan, rows: Sequence[Row[tuple[InventoryItem, PurchaseOrder, Vendor]]]
+) -> dict[int, set[str]]:
+    """The listing ids each purchase's items hold, recorded or planned, by purchase."""
     carried: dict[int, set[str]] = {}
     for item, order, _vendor in rows:
         for listing in (
@@ -177,28 +224,34 @@ def plan(db: Session) -> Plan:
         ):
             if listing:
                 carried.setdefault(order.id, set()).add(listing)
-    seen: set[int] = set()
-    for _item, order, vendor in rows:
-        if order.id in seen:
-            continue
-        seen.add(order.id)
-        if not is_ebay(vendor):
-            continue
-        if not _EBAY_ORDER_NUMBER.match(order.order_number or ""):
-            continue
-        current = (order.source_url or "").strip()
-        if _EBAY_ORDER_PAGE.search(current):
-            continue
-        listing = listing_id_from(current)
-        if (
-            not current
-            or _EBAY_PURCHASES.search(current)
-            or (listing is not None and listing in carried.get(order.id, set()))
-        ):
-            todo.order_pages[order.id] = ORDER_PAGE.format(order.order_number)
-        else:
-            todo.kept.append((order.id, current))
-    return todo
+    return carried
+
+
+def _plan_order_page(
+    todo: Plan, order: PurchaseOrder, vendor: Vendor, carried: set[str]
+) -> None:
+    """Decide whether an eBay purchase takes its order page or keeps its address.
+
+    Nothing is planned for another vendor's purchase, for one without an eBay
+    order number, or for one already at its order page. `carried` is the
+    listings the purchase's items hold.
+    """
+    if not is_ebay(vendor):
+        return
+    if not _EBAY_ORDER_NUMBER.match(order.order_number or ""):
+        return
+    current = (order.source_url or "").strip()
+    if _EBAY_ORDER_PAGE.search(current):
+        return
+    listing = listing_id_from(current)
+    if (
+        not current
+        or _EBAY_PURCHASES.search(current)
+        or (listing is not None and listing in carried)
+    ):
+        todo.order_pages[order.id] = ORDER_PAGE.format(order.order_number)
+    else:
+        todo.kept.append((order.id, current))
 
 
 def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:

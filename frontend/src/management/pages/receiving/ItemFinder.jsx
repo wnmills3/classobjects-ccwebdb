@@ -38,35 +38,61 @@ const EMPTY_FILTERS = {
 }
 
 /**
+ * The statuses one search asks for, a request each: the one chosen, both
+ * that mean "not yet arrived" when none is, and `null` -- no status filter
+ * -- for "Any status".
+ */
+function statusesFor(filters) {
+  if (filters.status === ANY_STATUS) return [null]
+  if (filters.status) return [filters.status]
+  return OUTSTANDING_STATUSES
+}
+
+/**
+ * The filters every request of one search carries, whichever view it asks:
+ * the denomination, and the order -- by id for a linked order, else by the
+ * part of a number typed.
+ */
+function sharedParams(filters, orderId) {
+  const shared = {}
+  if (filters.denomination) shared.denomination = filters.denomination
+  if (orderId != null) shared.purchase_order_id = orderId
+  else if (filters.orderNumber.trim()) shared.order_number = filters.orderNumber.trim()
+  return shared
+}
+
+/**
+ * The filters only one kind has. Sent only once that kind is chosen: they
+ * are shown only then, and the other view would refuse them as unknown
+ * filters.
+ */
+function kindParams(kind, filters) {
+  const params = {}
+  if (kind === 'coins') {
+    if (filters.year) {
+      params.year_min = filters.year
+      params.year_max = filters.year
+    }
+    if (filters.mint) params.mint = filters.mint
+  } else if (kind === 'currency') {
+    if (filters.serialNumber) params.serial_number = filters.serialNumber
+    if (filters.seriesYear) params.series_year = filters.seriesYear
+  }
+  return params
+}
+
+/**
  * The requests one search makes: every view the kind covers, times every
  * status it asks for. The search endpoint filters one view and one status
  * value per request, so "any kind, not yet arrived" is four, merged.
  */
 async function runSearch({ kind, filters, orderId = null }) {
   const views = kind === 'any' ? ['coins', 'currency'] : [kind]
-  let statuses = OUTSTANDING_STATUSES
-  if (filters.status === ANY_STATUS) statuses = [null]
-  else if (filters.status) statuses = [filters.status]
-  const shared = {}
-  if (filters.denomination) shared.denomination = filters.denomination
-  if (orderId != null) shared.purchase_order_id = orderId
-  else if (filters.orderNumber.trim()) shared.order_number = filters.orderNumber.trim()
+  const statuses = statusesFor(filters)
+  const params = { ...sharedParams(filters, orderId), ...kindParams(kind, filters) }
 
   const requests = []
   for (const view of views) {
-    const params = { ...shared }
-    // Kind-specific fields only once that kind is chosen: they are shown
-    // only then, and the other view would refuse them as unknown filters.
-    if (kind === 'coins') {
-      if (filters.year) {
-        params.year_min = filters.year
-        params.year_max = filters.year
-      }
-      if (filters.mint) params.mint = filters.mint
-    } else if (kind === 'currency') {
-      if (filters.serialNumber) params.serial_number = filters.serialNumber
-      if (filters.seriesYear) params.series_year = filters.seriesYear
-    }
     for (const status of statuses) {
       const page = { ...params, limit: PAGE }
       requests.push(api.searchInventory(view, status ? { ...page, status } : page))

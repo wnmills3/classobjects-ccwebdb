@@ -26,6 +26,36 @@ describe('normalizeFr', () => {
   })
 })
 
+// The edges of the two cleanings: space of every kind round a hyphen, runs
+// of hyphens, and where a seal shade is and is not one.
+describe('normalizeFr at its edges', () => {
+  it.each([
+    ['', ''],
+    ['   ', ''],
+    ['-', '-'],
+    [' - ', '-'],
+    ['9907\t-\tl', '9907-L'],
+    ['9907  -\n l', '9907-L'],
+    ['9907 - - l', '9907--L'],
+    ['9907--l', '9907--L'],
+    ['- 9907', '-9907'],
+    ['9907 -', '9907-'],
+    ['99 07', '99 07'],
+    ['9908-b\tLgS', '9908-B LGS'],
+    ['9908-b \n dGs', '9908-B DGS'],
+    ['9908 - b  lgs', '9908-B LGS'],
+    // No space before the letters: not a shade, and cleaned as a district.
+    ['9908-blgs', '9908-BLGS'],
+    ['lgs', 'lgs'],
+    ['9908-b gs', '9908-B GS'],
+    // Only the letters at the very end are a shade.
+    ['9908-b lgs dgs', '9908-B LGS DGS'],
+    ['9908-b lgs x', '9908-B LGS X'],
+  ])('keeps %j as %j', (typed, kept) => {
+    expect(normalizeFr(typed)).toBe(kept)
+  })
+})
+
 describe('frProblem', () => {
   it.each([
     '1',

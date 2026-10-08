@@ -337,37 +337,64 @@ def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:
         if is_incomplete(serial):
             stats["incomplete_serial"] += 1
             incomplete.append((item_code, serial))
-        for code in earned:
-            attribute_id = attribute_ids.get(code)
-            if attribute_id is None:
-                stats[f"unknown_attribute:{code}"] += 1
-                continue
-            if (item_id, attribute_id) in existing:
-                stats[f"already:{code}"] += 1
-                continue
-            stats[f"missing:{code}"] += 1
-            to_add.append(
-                ItemAttributeLink(
-                    inventory_item_id=item_id,
-                    item_attribute_id=attribute_id,
-                    source=ProvenanceSource.derived,
-                    derived_by=RULE,
-                )
-            )
+        to_add += _missing_links(item_id, earned, attribute_ids, existing, stats)
 
     if commit and (to_add or to_remove):
-        for key in to_remove:
-            stale = db.get(ItemAttributeLink, key)
-            if stale is not None:
-                db.delete(stale)
-        db.add_all(to_add)
-        db.commit()
-        if to_add:
-            stats["written"] = len(to_add)
-        if to_remove:
-            stats["taken_back"] = len(to_remove)
+        _write(db, to_add, to_remove, stats)
 
     return stats, incomplete
+
+
+def _missing_links(
+    item_id: int,
+    earned: set[str],
+    attribute_ids: dict[str, int],
+    existing: set[tuple[int, int]],
+    stats: Counter,
+) -> list[ItemAttributeLink]:
+    """The links to add for the designations an item earns and lacks.
+
+    Each designation is counted in `stats`: unknown to the vocabulary,
+    already linked (a removed link included), or missing.
+    """
+    links: list[ItemAttributeLink] = []
+    for code in earned:
+        attribute_id = attribute_ids.get(code)
+        if attribute_id is None:
+            stats[f"unknown_attribute:{code}"] += 1
+            continue
+        if (item_id, attribute_id) in existing:
+            stats[f"already:{code}"] += 1
+            continue
+        stats[f"missing:{code}"] += 1
+        links.append(
+            ItemAttributeLink(
+                inventory_item_id=item_id,
+                item_attribute_id=attribute_id,
+                source=ProvenanceSource.derived,
+                derived_by=RULE,
+            )
+        )
+    return links
+
+
+def _write(
+    db: Session,
+    to_add: list[ItemAttributeLink],
+    to_remove: list[tuple[int, int]],
+    stats: Counter,
+) -> None:
+    """Delete the stale links, add the missing ones, commit, and count both."""
+    for key in to_remove:
+        stale = db.get(ItemAttributeLink, key)
+        if stale is not None:
+            db.delete(stale)
+    db.add_all(to_add)
+    db.commit()
+    if to_add:
+        stats["written"] = len(to_add)
+    if to_remove:
+        stats["taken_back"] = len(to_remove)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -172,45 +172,66 @@ def _read(
     """One column's value from what was sent for it, or a FieldError."""
     target = target_of(column)
     if target is not None and name != column.name:
-        found = db.scalar(select(target.id).where(target.code == value))
-        if found is None:
-            raise FieldError(f"{name}: {target.__tablename__} has no value {value!r}")
-        return found
+        return _read_reference(db, target, name, value)
     choices = _choices(table, column)
     if choices:
         if value not in choices:
             raise FieldError(f"{name}: {value!r} is not one of {', '.join(choices)}")
         return value
-    try:
-        if isinstance(column.type, Boolean):
-            if not isinstance(value, bool):
-                raise FieldError(f"{name}: {value!r} is not true or false")
-            return value
-        if isinstance(column.type, Integer):
-            # A bool is an int to Python; a fraction would be cut short.
-            if isinstance(value, bool) or (
-                isinstance(value, float) and not value.is_integer()
-            ):
-                raise FieldError(f"{name}: {value!r} is not a whole number")
-            whole = int(str(value).strip())
-            if not -_INTEGER_LIMIT <= whole < _INTEGER_LIMIT:
-                raise FieldError(f"{name}: {value!r} is too large to store")
-            return whole
-        if isinstance(column.type, Numeric):
-            number = Decimal(str(value).strip())
-            if not number.is_finite():
-                raise FieldError(f"{name}: {value!r} is not a number")
-            _refuse_overflow(name, column.type, number, value)
-            return number
-    except (InvalidOperation, ValueError) as exc:
-        if isinstance(exc, FieldError):
-            raise
-        raise FieldError(f"{name}: {value!r} is not a number") from exc
+    if isinstance(column.type, Boolean):
+        if not isinstance(value, bool):
+            raise FieldError(f"{name}: {value!r} is not true or false")
+        return value
+    if isinstance(column.type, Integer):
+        return _read_whole_number(name, value)
+    if isinstance(column.type, Numeric):
+        return _read_decimal(name, column.type, value)
     text = str(value).strip()
     length = getattr(column.type, "length", None)
     if length is not None and len(text) > length:
         raise FieldError(f"{name}: at most {length} characters")
     return text
+
+
+def _read_reference(
+    db: Session, target: type[ReferenceMixin], name: str, value: object
+) -> int:
+    """The id of the other vocabulary's value with this code, or a FieldError."""
+    found = db.scalar(select(target.id).where(target.code == value))
+    if found is None:
+        raise FieldError(f"{name}: {target.__tablename__} has no value {value!r}")
+    return found
+
+
+def _read_whole_number(name: str, value: object) -> int:
+    """A whole number an INTEGER column holds, or a FieldError."""
+    # A bool is an int to Python; a fraction would be cut short.
+    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+        raise FieldError(f"{name}: {value!r} is not a whole number")
+    try:
+        whole = int(str(value).strip())
+    except ValueError as exc:
+        raise FieldError(f"{name}: {value!r} is not a number") from exc
+    if not -_INTEGER_LIMIT <= whole < _INTEGER_LIMIT:
+        raise FieldError(f"{name}: {value!r} is too large to store")
+    return whole
+
+
+def _read_decimal(name: str, kind: Numeric[Any], value: object) -> Decimal:
+    """A finite decimal its column has the whole digits for, or a FieldError."""
+    try:
+        number = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError) as exc:
+        raise FieldError(f"{name}: {value!r} is not a number") from exc
+    if not number.is_finite():
+        raise FieldError(f"{name}: {value!r} is not a number")
+    _refuse_overflow(name, kind, number, value)
+    return number
+
+
+def _is_blank(value: object) -> bool:
+    """Whether what was sent for a column is nothing: null, or only spaces."""
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def column_values(
@@ -247,7 +268,7 @@ def column_values(
     values: dict[str, object] = {}
     for name, value in extra.items():
         column = by_name[name]
-        if value is None or (isinstance(value, str) and not value.strip()):
+        if _is_blank(value):
             if not changing:
                 continue
             if not column.nullable:

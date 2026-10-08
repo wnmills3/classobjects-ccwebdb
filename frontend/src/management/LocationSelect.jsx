@@ -45,7 +45,9 @@ export default function LocationSelect({ value, onChange, disabled = false }) {
 
   if (adding) {
     return (
-      <div className="add-reference" onKeyDown={onKeyDown}>
+      // A wrapper that only hears its boxes' Enter: it is nothing to a
+      // reader of the page, and says so.
+      <div className="add-reference" role="presentation" onKeyDown={onKeyDown}>
         <ReferenceSelect
           table="storage_location_kind"
           value={draft.kind}

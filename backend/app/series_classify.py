@@ -628,17 +628,21 @@ def _print(report: Report, *, commit: bool) -> None:
     }
     for reason, heading in headings.items():
         cases = [c for c in report.review if c.reason == reason]
-        if not cases:
-            continue
-        print(f"\n{heading} ({len(cases)}):")
-        by_designs = Counter(c.designs for c in cases)
-        for designs, n in by_designs.most_common():
-            codes = [c.item_code for c in cases if c.designs == designs]
-            sample = ", ".join(codes[:6]) + (" ..." if len(codes) > 6 else "")
-            print(f"  {' / '.join(designs):<50} {n:>4}  {sample}")
+        if cases:
+            _print_cases(heading, cases)
 
     if not commit:
         print("\n(dry run -- nothing written; pass --commit)")
+
+
+def _print_cases(heading: str, cases: list[Case]) -> None:
+    """One reason's cases, grouped by the designs in play, commonest first."""
+    print(f"\n{heading} ({len(cases)}):")
+    by_designs = Counter(c.designs for c in cases)
+    for designs, n in by_designs.most_common():
+        codes = [c.item_code for c in cases if c.designs == designs]
+        sample = ", ".join(codes[:6]) + (" ..." if len(codes) > 6 else "")
+        print(f"  {' / '.join(designs):<50} {n:>4}  {sample}")
 
 
 def main(argv: list[str] | None = None) -> int:

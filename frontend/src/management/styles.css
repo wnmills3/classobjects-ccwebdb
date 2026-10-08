@@ -611,7 +611,10 @@ fieldset.identify {
 .menu-button.current {
   border-bottom-color: var(--accent);
 }
+/* A fieldset, for the group it is: its box is all given here, the browser's
+   own margin for one included. */
 .menu-list {
+  margin: 0;
   position: absolute;
   top: calc(100% + 8px);
   left: -12px;
@@ -646,6 +649,14 @@ fieldset.identify {
   display: grid;
   gap: 1.5rem;
   grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr);
+}
+/* A group of the catalog is a fieldset for what it means, not for a frame:
+   nothing of the browser's own box for one is kept. */
+.report-catalog fieldset {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
 }
 .report-catalog h2 {
   color: var(--muted);
@@ -784,4 +795,19 @@ fieldset.identify {
     padding: 0;
     text-decoration: none;
   }
+}
+
+/* What the Identify facts decide is a status line, an <output>, which is
+   inline by itself: here it is the paragraph it reads as. `:where` keeps the
+   rule as weak as the browser's own for a paragraph, so a class's margin
+   (`.notice`) still wins. */
+:where(.identify-decided) output {
+  display: block;
+  margin: 1em 0;
+}
+/* The same for a page's own status line: how many purchases were found, and
+   what a recording did. */
+:where(output.status-line) {
+  display: block;
+  margin: 1em 0;
 }

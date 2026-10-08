@@ -101,15 +101,9 @@ function Decided({ item, values }) {
   return (
     <div className="identify-decided">
       {decided.length > 0 && (
-        <p className="muted" role="status">
-          From these facts: {decided.join(' · ')}
-        </p>
+        <output className="muted">From these facts: {decided.join(' · ')}</output>
       )}
-      {found.warning && (
-        <p className="notice" role="status">
-          {found.warning}
-        </p>
-      )}
+      {found.warning && <output className="notice">{found.warning}</output>}
     </div>
   )
 }

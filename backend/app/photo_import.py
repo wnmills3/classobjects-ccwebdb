@@ -108,6 +108,122 @@ def _holder_name(db: Session, link: ItemImage) -> str:
     return holder.source_ref if holder and holder.source_ref else "?"
 
 
+def _stored_and_hashed(
+    db: Session, raw: bytes, name: str, *, commit: bool
+) -> tuple[Image | None, str]:
+    """The row a committing run stores for these bytes, and their hash.
+
+    The row is None for every file of a dry run, which only validates and
+    hashes -- and that is what later keeps `attach` and its writes out of a
+    dry run entirely. Raises `ImageRejected` for bytes imaging refuses.
+    """
+    stored = image_store.ingest(db, raw, name) if commit else None
+    sha256 = stored.sha256 if stored is not None else cleanse(raw).sha256
+    return stored, sha256
+
+
+def _item_named(
+    db: Session,
+    name: str,
+    parsed: photo_names.ParsedName | None,
+    collided: bool,
+    report: ImportReport,
+) -> tuple[photo_names.ParsedName, InventoryItem] | None:
+    """What the filename says and the item it names, or None with the reason reported.
+
+    Not filed, in this order: a name outside the convention, a slot another
+    file of the run also claims, a code no item has, and an item that was
+    deleted or split.
+    """
+    if parsed is None:
+        report.unmatched.append(
+            (name, "does not match the CC-NNNNNN_NN naming convention")
+        )
+        return None
+    if collided:
+        report.collisions.append(name)
+        return None
+    item = db.scalar(
+        select(InventoryItem).where(InventoryItem.item_code == parsed.item_code)
+    )
+    if item is None:
+        report.unmatched.append((name, "no item has this code"))
+        return None
+    if item.deleted_at is not None:
+        report.unmatched.append((name, "item was deleted"))
+        return None
+    if item.split_at is not None:
+        report.unmatched.append((name, "item was split"))
+        return None
+    return parsed, item
+
+
+def _is_filed(
+    db: Session,
+    item: InventoryItem,
+    sha256: str,
+    stored: Image | None,
+    planned: set[tuple[int, str]],
+) -> bool:
+    """Whether the item already has this photograph, from this run or an earlier one.
+
+    The row for these bytes if any run has stored them -- this run or an
+    earlier one. A dry run stores nothing, so this lookup by hash is how it
+    still reports a photograph an earlier committed run already filed.
+    """
+    known = (
+        stored
+        if stored is not None
+        else db.scalar(select(Image).where(Image.sha256 == sha256))
+    )
+    return (item.id, sha256) in planned or (
+        known is not None
+        and db.scalar(
+            select(ItemImage).where(
+                ItemImage.inventory_item_id == item.id,
+                ItemImage.image_id == known.id,
+            )
+        )
+        is not None
+    )
+
+
+def _takes_the_primary(
+    db: Session,
+    item: InventoryItem,
+    parsed: photo_names.ParsedName,
+    name: str,
+    report: ImportReport,
+) -> bool:
+    """Whether the file is filed as the item's primary; a primary kept is reported.
+
+    An `_01` is the item's obverse and would be promoted, which demotes
+    whatever is primary now. The occupied check sees only a photograph at
+    the file's own slot: a primary filed at any other slot is invisible to
+    it, and promoting this file would take the primary away with no line in
+    any bucket.
+    """
+    if not parsed.is_primary:
+        return False
+    incumbent = db.scalar(
+        select(ItemImage).where(
+            ItemImage.inventory_item_id == item.id, ItemImage.is_primary
+        )
+    )
+    if incumbent is None:
+        return True
+    report.primary_kept.append((name, _holder_name(db, incumbent)))
+    return False
+
+
+def _codes_for_sale(db: Session, linked_items: dict[int, str]) -> list[str]:
+    """The codes of the items filed on that are for sale, in order; none filed, none."""
+    if not linked_items:
+        return []
+    uses = sale_state.for_sale(db, linked_items.keys())
+    return sorted(linked_items[item_id] for item_id in uses)
+
+
 def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
     """Import every photograph under `root`. Rolls back unless `commit`.
 
@@ -138,59 +254,20 @@ def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
         for path in files:
             name = path.relative_to(root).as_posix()
             try:
-                raw = path.read_bytes()
-                # `stored` is the row this run wrote, and is None for every
-                # file of a dry run -- which is what later keeps `attach` and
-                # its writes out of a dry run entirely.
-                stored = image_store.ingest(db, raw, name) if commit else None
-                sha256 = stored.sha256 if stored is not None else cleanse(raw).sha256
+                stored, sha256 = _stored_and_hashed(
+                    db, path.read_bytes(), name, commit=commit
+                )
             except ImageRejected as exc:
                 report.rejected.append((name, str(exc)))
                 continue
 
-            parsed = parsed_by_path[path]
-            if parsed is None:
-                report.unmatched.append(
-                    (name, "does not match the CC-NNNNNN_NN naming convention")
-                )
-                continue
-            if path in collided:
-                report.collisions.append(name)
-                continue
-
-            item = db.scalar(
-                select(InventoryItem).where(InventoryItem.item_code == parsed.item_code)
+            named = _item_named(
+                db, name, parsed_by_path[path], path in collided, report
             )
-            if item is None:
-                report.unmatched.append((name, "no item has this code"))
+            if named is None:
                 continue
-            if item.deleted_at is not None:
-                report.unmatched.append((name, "item was deleted"))
-                continue
-            if item.split_at is not None:
-                report.unmatched.append((name, "item was split"))
-                continue
-
-            # The row for these bytes if any run has stored them -- this run
-            # or an earlier one. A dry run stores nothing, so this lookup by
-            # hash is how it still reports a photograph an earlier committed
-            # run already filed.
-            known = (
-                stored
-                if stored is not None
-                else db.scalar(select(Image).where(Image.sha256 == sha256))
-            )
-            already = (item.id, sha256) in planned or (
-                known is not None
-                and db.scalar(
-                    select(ItemImage).where(
-                        ItemImage.inventory_item_id == item.id,
-                        ItemImage.image_id == known.id,
-                    )
-                )
-                is not None
-            )
-            if already:
+            parsed, item = named
+            if _is_filed(db, item, sha256, stored, planned):
                 report.already += 1
                 continue
 
@@ -204,23 +281,7 @@ def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
                 report.occupied.append((name, _holder_name(db, occupant)))
                 continue
 
-            is_primary = parsed.is_primary
-            if is_primary:
-                # An `_01` is the item's obverse and would be promoted, which
-                # demotes whatever is primary now. The occupied check above
-                # sees only a photograph at this file's own slot: a primary
-                # filed at any other slot is invisible to it, and promoting
-                # this file would take the primary away with no line in any
-                # bucket.
-                incumbent = db.scalar(
-                    select(ItemImage).where(
-                        ItemImage.inventory_item_id == item.id, ItemImage.is_primary
-                    )
-                )
-                if incumbent is not None:
-                    report.primary_kept.append((name, _holder_name(db, incumbent)))
-                    is_primary = False
-
+            is_primary = _takes_the_primary(db, item, parsed, name, report)
             if stored is not None:
                 image_links.attach(
                     db,
@@ -234,9 +295,7 @@ def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
             planned.add((item.id, sha256))
             linked_items[item.id] = item.item_code
 
-        if linked_items:
-            uses = sale_state.for_sale(db, linked_items.keys())
-            report.for_sale = sorted(linked_items[item_id] for item_id in uses)
+        report.for_sale = _codes_for_sale(db, linked_items)
     except Exception:
         # Any surprise here -- not just the exceptions this pass already
         # knows to catch -- must not leave a half-applied run sitting in the

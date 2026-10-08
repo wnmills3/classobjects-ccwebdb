@@ -371,7 +371,7 @@ describe('Reports page', () => {
     api.runReport.mockResolvedValueOnce(first).mockResolvedValueOnce(second)
     renderAt('/reports?report=pr_outstanding&overdue_days=30')
     const said = await screen.findByText(`Ran ${dateTime(first.run_at)}`)
-    expect(said).toHaveAttribute('role', 'status')
+    expect(said).toHaveRole('status')
 
     await user.click(screen.getByRole('button', { name: 'Run' }))
 

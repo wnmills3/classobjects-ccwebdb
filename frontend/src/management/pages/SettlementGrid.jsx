@@ -63,6 +63,57 @@ function SettleConfirm({ auction, busy, canSettle, onConfirm, onCancel }) {
 }
 
 /**
+ * Every buyer named on a lot currently marked sold, in the order first
+ * seen; `lineFor(lot)` is what the grid holds for a lot.
+ *
+ * Grouped the way `app.auctions._buyer_key` groups them server-side:
+ * casefolded, so `amy` on one lot and `Amy` on another are one buyer here
+ * too, not two fee sub-tables the owner has no way to reconcile. `key` is
+ * the fold, used for lookups and React keys; `raw` is the **first spelling
+ * seen**, in the lots' own ascending-id order -- the same "first spelling
+ * wins" rule `_BuyerGroup.username` uses for the customer record, so the
+ * spelling this sends back as `buyer_username` is the same one the backend
+ * would have kept had two spellings reached it. A blank buyer is only
+ * offered a fee row for an auction house, where blank is the standing
+ * undisclosed buyer rather than a form nobody finished filling in.
+ */
+function buyersOf(lots, lineFor, isAuctionHouse) {
+  const buyersByKey = new Map()
+  for (const lot of lots) {
+    const line = lineFor(lot)
+    if (line.result !== 'sold') continue
+    const raw = line.buyer_username.trim()
+    if (raw === '' && !isAuctionHouse) continue
+    const key = raw.toLowerCase()
+    if (!buyersByKey.has(key)) {
+      buyersByKey.set(key, { key, raw, label: raw === '' ? 'Undisclosed buyer' : raw })
+    }
+  }
+  return Array.from(buyersByKey.values())
+}
+
+/**
+ * The server's refusals, split by whether they name one lot in particular:
+ * `problemsByLot` holds each named lot's reasons by its lot number, and
+ * `generalProblems` the rest.
+ */
+function splitRefusals(refused) {
+  const problemsByLot = {}
+  const generalProblems = []
+  for (const row of refused) {
+    if (row.lot_number) {
+      problemsByLot[row.lot_number] = [
+        ...(problemsByLot[row.lot_number] ?? []),
+        row.reason,
+      ]
+    } else {
+      generalProblems.push(row.reason)
+    }
+  }
+  return { problemsByLot, generalProblems }
+}
+
+/**
  * The grid for a closed `auction`: a row per lot for its result, hammer
  * price and buyer, a fee table per buyer of a sold lot, and the totals.
  *
@@ -104,30 +155,7 @@ export default function SettlementGrid({
       [lot.id]: { ...(current[lot.id] ?? EMPTY_LINE), [field]: value },
     }))
 
-  // Every buyer named on a lot currently marked sold, grouped the way
-  // `app.auctions._buyer_key` groups them server-side: casefolded, so
-  // `amy` on one lot and `Amy` on another are one buyer here too, not two
-  // fee sub-tables the owner has no way to reconcile. `key` is the fold,
-  // used for lookups and React keys; `raw` is the **first spelling seen**,
-  // in `auction.lots`' own ascending-id order -- the same "first spelling
-  // wins" rule `_BuyerGroup.username` uses for the customer record, so the
-  // spelling this sends back as `buyer_username` is the same one the
-  // backend would have kept had two spellings reached it. A blank buyer is
-  // only offered a fee row for an auction house, where blank is the
-  // standing undisclosed buyer rather than a form nobody finished filling
-  // in.
-  const buyersByKey = new Map()
-  for (const lot of auction.lots) {
-    const line = lineFor(lot)
-    if (line.result !== 'sold') continue
-    const raw = line.buyer_username.trim()
-    if (raw === '' && !isAuctionHouse) continue
-    const key = raw.toLowerCase()
-    if (!buyersByKey.has(key)) {
-      buyersByKey.set(key, { key, raw, label: raw === '' ? 'Undisclosed buyer' : raw })
-    }
-  }
-  const buyers = Array.from(buyersByKey.values())
+  const buyers = buyersOf(auction.lots, lineFor, isAuctionHouse)
 
   const setFee = (buyerKey, kindCode) => (e) =>
     setFeeAmounts((current) => ({
@@ -135,19 +163,7 @@ export default function SettlementGrid({
       [buyerKey]: { ...current[buyerKey], [kindCode]: e.target.value },
     }))
 
-  // Refusals, split by whether they name one lot in particular.
-  const problemsByLot = {}
-  const generalProblems = []
-  for (const row of refused) {
-    if (row.lot_number) {
-      problemsByLot[row.lot_number] = [
-        ...(problemsByLot[row.lot_number] ?? []),
-        row.reason,
-      ]
-    } else {
-      generalProblems.push(row.reason)
-    }
-  }
+  const { problemsByLot, generalProblems } = splitRefusals(refused)
 
   const grossCents = auction.lots.reduce((sum, lot) => {
     const line = lineFor(lot)

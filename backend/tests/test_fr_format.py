@@ -37,6 +37,42 @@ def test_a_number_is_cleaned_before_it_is_kept(typed: str, kept: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("typed", "kept"),
+    [
+        # Space of every kind round a hyphen, and runs of hyphens.
+        ("", ""),
+        ("   ", ""),
+        ("-", "-"),
+        (" - ", "-"),
+        ("9907\t-\tl", "9907-L"),
+        ("9907  -\n l", "9907-L"),
+        ("9907\xa0-\u2003l", "9907-L"),
+        ("9907 - - l", "9907--L"),
+        ("9907--l", "9907--L"),
+        ("- 9907", "-9907"),
+        ("9907 -", "9907-"),
+        ("99 07", "99 07"),
+        # Where a seal shade is one: space of any kind, letters of any case.
+        ("9908-b\tLgS", "9908-B LGS"),
+        ("9908-b \n dGs", "9908-B DGS"),
+        ("9908-b\xa0lgs", "9908-B LGS"),
+        ("9908 - b  lgs", "9908-B LGS"),
+        # No space before the letters: not a shade, and cleaned as a district.
+        ("9908-blgs", "9908-BLGS"),
+        ("lgs", "lgs"),
+        ("9908-b gs", "9908-B GS"),
+        # Only the letters at the very end are a shade.
+        ("9908-b lgs dgs", "9908-B LGS DGS"),
+        ("9908-b lgs x", "9908-B LGS X"),
+        # The space before a digit after the label is any script's.
+        ("Fr.\xa09907", "9907"),
+    ],
+)
+def test_the_cleaning_at_its_edges(typed: str, kept: str) -> None:
+    assert normalize_fr(typed) == kept
+
+
+@pytest.mark.parametrize(
     "number",
     [
         "1",

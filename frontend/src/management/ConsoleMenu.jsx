@@ -129,20 +129,13 @@ function MenuGroup({ name, links, open, onOpen, onClose }) {
         <span aria-hidden="true"> ▾</span>
       </button>
       {open && (
-        <div
-          ref={list}
-          id={listId}
-          className="menu-list"
-          role="group"
-          aria-label={name}
-          onKeyDown={onListKey}
-        >
+        <fieldset ref={list} id={listId} className="menu-list" aria-label={name}>
           {links.map(([to, text]) => (
-            <NavLink key={to} to={to} onClick={onClose}>
+            <NavLink key={to} to={to} onClick={onClose} onKeyDown={onListKey}>
               {text}
             </NavLink>
           ))}
-        </div>
+        </fieldset>
       )}
     </div>
   )

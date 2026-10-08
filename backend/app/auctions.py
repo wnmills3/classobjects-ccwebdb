@@ -1017,47 +1017,71 @@ def _grid_problems(
     ]
     names_buyers = auction.sales_venue.kind.code != _AUCTION_HOUSE_KIND_CODE
     for row in lots:
-        line = by_lot.get(row.id)
-        if line is None:
-            problems.append(
-                _Problem(
-                    f"lot {row.lot_number} has no result", lot_number=row.lot_number
-                )
-            )
-            continue
-        if line.result is not AuctionLotResult.sold:
-            if line.hammer_price is not None:
-                problems.append(
-                    _Problem(
-                        f"lot {row.lot_number} is {line.result.value}, so it cannot "
-                        "have a hammer price",
-                        lot_number=row.lot_number,
-                    )
-                )
-            continue
-        if line.hammer_price is None:
-            problems.append(
-                _Problem(
-                    f"lot {row.lot_number} sold but has no hammer price",
-                    lot_number=row.lot_number,
-                )
-            )
-        else:
-            money = sales_writes.money_problem(
-                line.hammer_price, f"lot {row.lot_number}'s hammer price"
-            )
-            if money is not None:
-                problems.append(
-                    _Problem(money, bad_input=True, lot_number=row.lot_number)
-                )
-        if names_buyers and _buyer_key(line.buyer_username) is None:
-            problems.append(
-                _Problem(
-                    f"lot {row.lot_number} sold but names no buyer",
-                    lot_number=row.lot_number,
-                )
-            )
+        problems += _lot_problems(row, by_lot.get(row.id), names_buyers=names_buyers)
+    problems += _fee_problems(by_lot, fees)
+    problems += _custody_problems(auction, lots, by_lot, returned_to_location_id)
+    return problems
 
+
+def _lot_problems(
+    row: AuctionLot, line: SettlementLine | None, *, names_buyers: bool
+) -> list[_Problem]:
+    """What is wrong with one lot's line of the grid, each naming the lot.
+
+    No line at all is one problem and the end of it. A lot that did not sell
+    may carry no hammer price; a sold one must carry one that is money, and
+    -- where the platform names its buyers (`names_buyers`) -- a buyer.
+    """
+    if line is None:
+        return [
+            _Problem(f"lot {row.lot_number} has no result", lot_number=row.lot_number)
+        ]
+    if line.result is not AuctionLotResult.sold:
+        if line.hammer_price is None:
+            return []
+        return [
+            _Problem(
+                f"lot {row.lot_number} is {line.result.value}, so it cannot "
+                "have a hammer price",
+                lot_number=row.lot_number,
+            )
+        ]
+    problems: list[_Problem] = []
+    if line.hammer_price is None:
+        problems.append(
+            _Problem(
+                f"lot {row.lot_number} sold but has no hammer price",
+                lot_number=row.lot_number,
+            )
+        )
+    else:
+        money = sales_writes.money_problem(
+            line.hammer_price, f"lot {row.lot_number}'s hammer price"
+        )
+        if money is not None:
+            problems.append(_Problem(money, bad_input=True, lot_number=row.lot_number))
+    if names_buyers and _buyer_key(line.buyer_username) is None:
+        problems.append(
+            _Problem(
+                f"lot {row.lot_number} sold but names no buyer",
+                lot_number=row.lot_number,
+            )
+        )
+    return problems
+
+
+def _fee_problems(
+    by_lot: Mapping[int, SettlementLine],
+    fees: Mapping[str | None, Sequence[sales_writes.FeeLine]],
+) -> list[_Problem]:
+    """What is wrong with the fees the grid gives, buyer by buyer.
+
+    Fees given twice for one buyer -- two spellings that fold to one key --
+    are one problem and that group is read no further. Fees for someone who
+    bought nothing are another, and every amount that is not money is its
+    own, flagged `bad_input`.
+    """
+    problems: list[_Problem] = []
     bought: set[str | None] = {
         _buyer_key(line.buyer_username)
         for line in by_lot.values()
@@ -1081,22 +1105,35 @@ def _grid_problems(
             )
             if money is not None
         ]
-
-    if auction.consigned_on is not None and returned_to_location_id is None:
-        coming_home = [
-            row.lot_number
-            for row in lots
-            if row.id in by_lot and by_lot[row.id].result is not AuctionLotResult.sold
-        ]
-        if coming_home:
-            problems.append(
-                _Problem(
-                    _custody_away(
-                        auction, f" to bring back lot(s) {', '.join(coming_home)}"
-                    )
-                )
-            )
     return problems
+
+
+def _custody_problems(
+    auction: Auction,
+    lots: Sequence[AuctionLot],
+    by_lot: Mapping[int, SettlementLine],
+    returned_to_location_id: int | None,
+) -> list[_Problem]:
+    """The one problem of coins at the house with nowhere named to return to.
+
+    Only when the house still holds this auction's coins, no return location
+    was given, and at least one lot with a result did not sell: an auction
+    where everything sold needs nowhere to come back to.
+    """
+    if auction.consigned_on is None or returned_to_location_id is not None:
+        return []
+    coming_home = [
+        row.lot_number
+        for row in lots
+        if row.id in by_lot and by_lot[row.id].result is not AuctionLotResult.sold
+    ]
+    if not coming_home:
+        return []
+    return [
+        _Problem(
+            _custody_away(auction, f" to bring back lot(s) {', '.join(coming_home)}")
+        )
+    ]
 
 
 def _sold_by_buyer(
@@ -1130,6 +1167,129 @@ def _sold_by_buyer(
             grouped[key] = group
         group.lots.append((row, line.hammer_price))
     return list(grouped.values())
+
+
+def _place_lines(
+    lots: Sequence[AuctionLot], lines: Sequence[SettlementLine]
+) -> tuple[dict[int, SettlementLine], list[SettlementLine], list[str]]:
+    """Sort a grid's lines against this auction's lots.
+
+    Returns `(by_lot, unplaced, duplicated)`: the first line given for each
+    lot of this auction, keyed by `auction_lot.id`; the lines naming an id
+    that is no lot of this auction; and the lot number of every later line
+    for a lot that already had one. Nothing is refused here --
+    `_grid_problems` turns the last two into problems.
+    """
+    by_lot: dict[int, SettlementLine] = {}
+    unplaced: list[SettlementLine] = []
+    duplicated: list[str] = []
+    known = {row.id: row.lot_number for row in lots}
+    for line in lines:
+        if line.auction_lot_id not in known:
+            unplaced.append(line)
+        elif line.auction_lot_id in by_lot:
+            duplicated.append(known[line.auction_lot_id])
+        else:
+            by_lot[line.auction_lot_id] = line
+    return by_lot, unplaced, duplicated
+
+
+def _grid_refusal(auction: Auction, problems: Sequence[_Problem]) -> AuctionRefused:
+    """The one refusal a grid's problems make, of the class they call for.
+
+    The narrower `SettlementInputInvalid` only when *every* problem is bad
+    input. A message that also names a real conflict is not merely a badly
+    filled form, and 409 is the safer of the two answers to give about a
+    mixture -- see `SettlementInputInvalid`.
+    """
+    refusal = (
+        SettlementInputInvalid
+        if all(problem.bad_input for problem in problems)
+        else AuctionRefused
+    )
+    return refusal(
+        f"auction #{auction.id} cannot be settled: "
+        + "; ".join(problem.text for problem in problems),
+        refusals=[
+            AuctionRefusal(reason=problem.text, lot_number=problem.lot_number)
+            for problem in problems
+        ],
+    )
+
+
+def _record_sold_lots(
+    db: Session,
+    auction: Auction,
+    groups: Sequence[_BuyerGroup],
+    fee_lines: Mapping[str | None, Sequence[sales_writes.FeeLine]],
+    settled_by: User,
+) -> list[SalesOrder]:
+    """Record one order per buyer, in the groups' order, and name each lot's buyer.
+
+    `settle`'s step 4: one `sales_writes.record_sale_lines` call per buyer,
+    which ends each of that buyer's listings as sold. The caller holds every
+    coin in the auction already (`offering_writes.lock_for_sale`) and has
+    opened the savepoint these writes belong to.
+    """
+    orders: list[SalesOrder] = []
+    for group in groups:
+        order = sales_writes.record_sale_lines(
+            db,
+            [
+                sales_writes.SaleLine(listing_id=row.listing_id, price=price)
+                for row, price in group.lots
+            ],
+            # The first spelling the grid used, not the casefolded key:
+            # a customer record carries the name the owner typed
+            # (`_BuyerGroup`).
+            buyer_username=group.username,
+            # The sale number, and deliberately the same one on every
+            # buyer's order: it identifies the **sale**,
+            # which is what the owner reconciles an auction house's
+            # statement against, and the house's statement names the sale
+            # rather than one order per buyer inside it. Nothing
+            # constrains this column to be unique, so the repetition is
+            # the reconciliation key rather than a collision. If per-buyer
+            # invoice numbers are ever wanted they are a field on the
+            # settlement grid, entered from the statement -- never a value
+            # derived here, because nothing in this transaction knows
+            # them.
+            external_order_id=auction.external_id,
+            fees=fee_lines.get(group.key, ()),
+            recorded_by=settled_by,
+        )
+        for row, _ in group.lots:
+            row.buyer_customer_id = order.customer_id
+        orders.append(order)
+    return orders
+
+
+def _bring_home(
+    db: Session,
+    auction: Auction,
+    coming_home: Sequence[AuctionLot],
+    returned_to_location_id: int | None,
+    settled_by: User,
+) -> None:
+    """Move every unsold and withdrawn lot's coins back from the house, and flush.
+
+    The first half of `settle`'s step 5, for an auction the house still
+    holds coins of. Every return before any ending, never interleaved:
+    `_return_from_consignment` reads a lot's coins through `offered_items`,
+    which `end_offer` releases.
+
+    Flushed before the caller ends anything: `set_location` assigns without
+    flushing, and each `end_offer` re-reads its lot's item rows with
+    `populate_existing`, which discards a move still pending. The rows are
+    held already, by `settle`'s `lock_for_sale` pass.
+    """
+    if returned_to_location_id is None:  # pragma: no cover - refused by the grid
+        raise AuctionRefused(_custody_away(auction))
+    for row in coming_home:
+        _return_from_consignment(
+            db, row, returned_to_location_id, user_id=settled_by.id
+        )
+    db.flush()
 
 
 def settle(
@@ -1244,39 +1404,12 @@ def settle(
     _refuse_unless(auction, (AuctionStatus.closed,), "it cannot be settled")
     lots = _lots_of(db, auction)
 
-    by_lot: dict[int, SettlementLine] = {}
-    unplaced: list[SettlementLine] = []
-    duplicated: list[str] = []
-    known = {row.id: row.lot_number for row in lots}
-    for line in lines:
-        if line.auction_lot_id not in known:
-            unplaced.append(line)
-        elif line.auction_lot_id in by_lot:
-            duplicated.append(known[line.auction_lot_id])
-        else:
-            by_lot[line.auction_lot_id] = line
-
+    by_lot, unplaced, duplicated = _place_lines(lots, lines)
     problems = _grid_problems(
         auction, lots, by_lot, unplaced, duplicated, fees, returned_to_location_id
     )
     if problems:
-        # The narrower class only when *every* problem is bad input. A
-        # message that also names a real conflict is not merely a
-        # badly filled form, and 409 is the safer of the two answers to give
-        # about a mixture -- see `SettlementInputInvalid`.
-        refusal = (
-            SettlementInputInvalid
-            if all(problem.bad_input for problem in problems)
-            else AuctionRefused
-        )
-        raise refusal(
-            f"auction #{auction.id} cannot be settled: "
-            + "; ".join(problem.text for problem in problems),
-            refusals=[
-                AuctionRefusal(reason=problem.text, lot_number=problem.lot_number)
-                for problem in problems
-            ],
-        )
+        raise _grid_refusal(auction, problems)
 
     # Keyed the same casefolded way the lots are grouped, so a
     # fee entered against `COINFAN88` reaches the order built from lots that
@@ -1310,60 +1443,20 @@ def settle(
         ),
     )
 
-    orders: list[SalesOrder] = []
     with db.begin_nested():
         for row in lots:
             line = by_lot[row.id]
             row.result = line.result
             row.hammer_price = line.hammer_price
-        for group in _sold_by_buyer(lots, by_lot):
-            order = sales_writes.record_sale_lines(
-                db,
-                [
-                    sales_writes.SaleLine(listing_id=row.listing_id, price=price)
-                    for row, price in group.lots
-                ],
-                # The first spelling the grid used, not the casefolded key:
-                # a customer record carries the name the owner typed
-                # (`_BuyerGroup`).
-                buyer_username=group.username,
-                # The sale number, and deliberately the same one on every
-                # buyer's order: it identifies the **sale**,
-                # which is what the owner reconciles an auction house's
-                # statement against, and the house's statement names the sale
-                # rather than one order per buyer inside it. Nothing
-                # constrains this column to be unique, so the repetition is
-                # the reconciliation key rather than a collision. If per-buyer
-                # invoice numbers are ever wanted they are a field on the
-                # settlement grid, entered from the statement -- never a value
-                # derived here, because nothing in this transaction knows
-                # them.
-                external_order_id=auction.external_id,
-                fees=fee_lines.get(group.key, ()),
-                recorded_by=settled_by,
-            )
-            for row, _ in group.lots:
-                row.buyer_customer_id = order.customer_id
-            orders.append(order)
+        orders = _record_sold_lots(
+            db, auction, _sold_by_buyer(lots, by_lot), fee_lines, settled_by
+        )
 
         coming_home = [
             row for row in lots if by_lot[row.id].result is not AuctionLotResult.sold
         ]
         if coming_home and auction.consigned_on is not None:
-            if returned_to_location_id is None:  # pragma: no cover - refused above
-                raise AuctionRefused(_custody_away(auction))
-            # Every return before any ending, never interleaved:
-            # `_return_from_consignment` reads a lot's coins through
-            # `offered_items`, which `end_offer` releases.
-            for row in coming_home:
-                _return_from_consignment(
-                    db, row, returned_to_location_id, user_id=settled_by.id
-                )
-            # Written before any ending: `set_location` assigns without
-            # flushing, and each `end_offer` re-reads its lot's item rows
-            # with `populate_existing`, which discards a move still pending.
-            # The rows are held already, by the `lock_for_sale` pass above.
-            db.flush()
+            _bring_home(db, auction, coming_home, returned_to_location_id, settled_by)
         for row in coming_home:
             # Said as what it was: unsold, or withdrawn from the sale -- not
             # the bare "withdrawn" an End would record. This is the fact

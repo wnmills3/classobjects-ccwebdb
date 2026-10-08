@@ -23,7 +23,7 @@ drift from the rows a reader can already add up.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from decimal import Decimal
 from typing import cast
 from urllib.parse import urlencode
@@ -490,6 +490,69 @@ def _notes_query_string(
     return f"/inventory/currency?{urlencode(query)}"
 
 
+#: A `cb_notes` group: a note type's id and a series designation, either of
+#: which may be absent.
+_NoteGroup = tuple[int | None, str | None]
+
+
+def _seals_and_districts(
+    db: Session, src: FromClause, where: list[ColumnElement[bool]]
+) -> tuple[dict[_NoteGroup, set[str]], dict[_NoteGroup, set[str]]]:
+    """The seal colors and Federal Reserve districts present in each group.
+
+    One query over the same source and filters the report's own rows use,
+    widened by the two vocabularies, so a group's labels are drawn from
+    exactly the items that group counts. A group with no seal or no district
+    recorded has no entry.
+    """
+    label_rows = (
+        db.execute(
+            select(
+                _NT.c.id.label("note_type_id"),
+                _CUD.c.series_designation.label("series_designation"),
+                _SEAL.c.label.label("seal_label"),
+                _DISTRICT.c.letter.label("district_letter"),
+            )
+            .select_from(
+                src.outerjoin(_SEAL, _SEAL.c.id == _CUD.c.seal_color_id).outerjoin(
+                    _DISTRICT, _DISTRICT.c.id == _CUD.c.fed_district_id
+                )
+            )
+            .where(*where)
+            .distinct()
+        )
+        .mappings()
+        .all()
+    )
+    seals: dict[_NoteGroup, set[str]] = defaultdict(set)
+    districts: dict[_NoteGroup, set[str]] = defaultdict(set)
+    for lr in label_rows:
+        key = (lr["note_type_id"], lr["series_designation"])
+        if lr["seal_label"] is not None:
+            seals[key].add(lr["seal_label"])
+        if lr["district_letter"] is not None:
+            districts[key].add(lr["district_letter"])
+    return seals, districts
+
+
+def _note_group_row(
+    row: RowMapping, seals: Collection[str], districts: Collection[str]
+) -> dict[str, object]:
+    """One group's row, before its star-note and fancy-serial counts.
+
+    An absent note type or series designation reads as its own "No ..."
+    label; the seal colors and districts present are listed in order.
+    """
+    return {
+        "note_type": row["note_type_label"] or _NO_NOTE_TYPE,
+        "series_designation": row["series_designation"] or _NO_SERIES_YEAR,
+        "items": row["items"],
+        "seal_colors": ", ".join(sorted(seals)),
+        "fed_districts": ", ".join(sorted(districts)),
+        "total_cost": row["total_cost"],
+    }
+
+
 def _cb_notes(db: Session, params: NotesParams) -> ReportResult:
     """Note type x series designation: items, seal colors, districts, cost.
 
@@ -573,46 +636,13 @@ def _cb_notes(db: Session, params: NotesParams) -> ReportResult:
             columns=columns, rows=[], totals=None, drills=[], notes=[NOTHING_MATCHES]
         )
 
-    label_rows = (
-        db.execute(
-            select(
-                _NT.c.id.label("note_type_id"),
-                _CUD.c.series_designation.label("series_designation"),
-                _SEAL.c.label.label("seal_label"),
-                _DISTRICT.c.letter.label("district_letter"),
-            )
-            .select_from(
-                src.outerjoin(_SEAL, _SEAL.c.id == _CUD.c.seal_color_id).outerjoin(
-                    _DISTRICT, _DISTRICT.c.id == _CUD.c.fed_district_id
-                )
-            )
-            .where(*where)
-            .distinct()
-        )
-        .mappings()
-        .all()
-    )
-    seals: dict[tuple[int | None, str | None], set[str]] = defaultdict(set)
-    districts: dict[tuple[int | None, str | None], set[str]] = defaultdict(set)
-    for lr in label_rows:
-        key = (lr["note_type_id"], lr["series_designation"])
-        if lr["seal_label"] is not None:
-            seals[key].add(lr["seal_label"])
-        if lr["district_letter"] is not None:
-            districts[key].add(lr["district_letter"])
+    seals, districts = _seals_and_districts(db, src, where)
 
     rows: list[dict[str, object]] = []
     drills: list[str | None] = []
     for row in rows_data:
         key = (row["note_type_id"], row["series_designation"])
-        entry: dict[str, object] = {
-            "note_type": row["note_type_label"] or _NO_NOTE_TYPE,
-            "series_designation": row["series_designation"] or _NO_SERIES_YEAR,
-            "items": row["items"],
-            "seal_colors": ", ".join(sorted(seals.get(key, ()))),
-            "fed_districts": ", ".join(sorted(districts.get(key, ()))),
-            "total_cost": row["total_cost"],
-        }
+        entry = _note_group_row(row, seals.get(key, ()), districts.get(key, ()))
         if star_id is not None:
             entry["star_notes"] = row["star_notes"]
         if fancy_id is not None:

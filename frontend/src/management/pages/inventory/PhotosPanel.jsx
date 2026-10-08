@@ -9,6 +9,22 @@ import { useRequest } from '../../../shared/useRequest'
 import { useImageDrop } from '../../useImageDrop'
 
 /**
+ * The held changes (`edits`, by link id) with no photograph held as the new
+ * primary. An entry that held nothing else is dropped with it.
+ */
+function withoutHeldPrimary(edits) {
+  const next = { ...edits }
+  for (const id of Object.keys(next)) {
+    if (!next[id].is_primary) continue
+    const rest = { ...next[id] }
+    delete rest.is_primary
+    if (Object.keys(rest).length > 0) next[id] = rest
+    else delete next[id]
+  }
+  return next
+}
+
+/**
  * Every photograph filed against this item, and the place a new one is
  * attached -- from a file, or from a web address the server fetches,
  * converts and names for its place (`CC-000412_02.jpg`). A new photograph
@@ -143,23 +159,15 @@ export default function PhotosPanel({
    * A held failure is cleared by any new choice for that photograph.
    */
   function hold(row, change) {
-    const next = { ...edits }
-    const entry = { ...next[row.link_id], ...change }
+    const entry = { ...edits[row.link_id], ...change }
     delete entry.error
     if ('image_role' in entry && entry.image_role === row.image_role) {
       delete entry.image_role
     }
-    if (change.is_primary) {
-      // One primary: a primary held for another photograph gives way.
-      for (const id of Object.keys(next)) {
-        if (!next[id].is_primary) continue
-        const rest = { ...next[id] }
-        delete rest.is_primary
-        if (Object.keys(rest).length > 0) next[id] = rest
-        else delete next[id]
-      }
-      if (row.is_primary) delete entry.is_primary
-    }
+    // One primary: a primary held for another photograph gives way, and
+    // the saved primary made primary again is no change to hold.
+    const next = change.is_primary ? withoutHeldPrimary(edits) : { ...edits }
+    if (change.is_primary && row.is_primary) delete entry.is_primary
     if (Object.keys(entry).length > 0) next[row.link_id] = entry
     else delete next[row.link_id]
     onEditsChange(next)
@@ -213,9 +221,9 @@ export default function PhotosPanel({
                   ))}
                 </select>
                 {!entry.role && (
-                  <span className="notice" role="status">
+                  <output className="notice">
                     Choose what it shows before saving.
-                  </span>
+                  </output>
                 )}
                 {entry.error && <span className="error"> {entry.error}</span>}
                 <button

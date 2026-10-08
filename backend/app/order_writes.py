@@ -29,7 +29,7 @@ one is open, which is a caller concern this module does not otherwise track.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -591,6 +591,144 @@ def _revision_deltas(
     return deltas
 
 
+def _refuse_stock_for_an_outside_sale(
+    db: Session,
+    order: SalesOrder,
+    order_id: int,
+    current: Mapping[int, SalesOrderItem],
+    desired: Mapping[int, Line],
+) -> None:
+    """Refuse a line added or grown on an order that is not the store's. 409.
+
+    An order that records a sale made on another platform takes no stock
+    here. The only listing a line could grow from is the shop's
+    (`_refuse_unless_on_sale_in_shop`), and such an order can never be
+    cancelled (`routers.orders._no_stock_to_return`), so shop stock added
+    to it would be held with no way to release it. Its prices, customer
+    and notes may still be corrected.
+    """
+    if order.sales_venue_id == store_venue_id(db):
+        return
+    growing = sorted(
+        listing_id
+        for listing_id, line in desired.items()
+        if line.quantity
+        > (current[listing_id].quantity if listing_id in current else 0)
+    )
+    if growing:
+        _refuse(
+            db,
+            status.HTTP_409_CONFLICT,
+            f"Order #{order_id} records a sale on {order.sales_venue.name}, "
+            "so it cannot take stock from the web store "
+            f"(listing {', '.join(f'#{listing_id}' for listing_id in growing)}).",
+        )
+
+
+#: `revise_order`'s `record`: queues one history row for the save in hand,
+#: given the kind of change, then the listing, the old value and the new.
+_Record = Callable[..., None]
+
+#: A line whose shares `revise_order` must bring into agreement with its
+#: money once the save's inserts are flushed: the line, its listing, the
+#: line's money, and `_sync_shares`' `new_line`.
+_ToSync = list[tuple[SalesOrderItem, Listing, Decimal, bool]]
+
+
+def _requantify_and_reprice(
+    existing: SalesOrderItem,
+    line: Line,
+    listing: Listing,
+    delta: int,
+    *,
+    record: _Record,
+    to_sync: _ToSync,
+) -> None:
+    """Give a line the order keeps its wanted quantity and price.
+
+    Each difference is recorded and written, and a line whose money moved is
+    queued for its shares to follow. A line with no `unit_price` keeps the
+    price it was bought at.
+    """
+    money_changed = False
+    if delta:
+        record(
+            SalesOrderChangeKind.quantity,
+            listing.id,
+            str(existing.quantity),
+            str(line.quantity),
+        )
+        existing.quantity = line.quantity
+        money_changed = True
+    if line.unit_price is not None and line.unit_price != existing.unit_price:
+        record(
+            SalesOrderChangeKind.unit_price,
+            listing.id,
+            money(existing.unit_price),
+            money(line.unit_price),
+        )
+        existing.unit_price = line.unit_price
+        money_changed = True
+    if money_changed:
+        to_sync.append(
+            (existing, listing, existing.unit_price * existing.quantity, False)
+        )
+
+
+def _revise_line(
+    db: Session,
+    order: SalesOrder,
+    listing: Listing,
+    delta: int,
+    existing: SalesOrderItem | None,
+    line: Line | None,
+    *,
+    record: _Record,
+    to_sync: _ToSync,
+    sold_lots: list[Listing],
+) -> None:
+    """Bring one listing's line on the order to what is wanted of it.
+
+    `existing` is the line the order has for this listing and `line` the one
+    it should have; either may be None, for a line being added or removed.
+    Moves the listing's stock by `delta`, then adds, removes or changes the
+    line, recording each difference. A lot listing bought outright by the
+    move is noted in `sold_lots`.
+    """
+    added: tuple[SalesOrderItem, Decimal] | None = None
+    if existing is None and line is not None:
+        price = listing.price if line.unit_price is None else line.unit_price
+        # The snapshot before the stock change, as in `place_order`:
+        # the item as it was offered, not as this line's sale left it.
+        added = (_line(db, listing, line.quantity, price), price)
+    if delta:
+        before = listing.quantity_available
+        listing.quantity_available -= delta
+        _after_stock_change(db, listing, before)
+        if _lot_sold_out(listing, before):
+            sold_lots.append(listing)
+    if added is not None and line is not None:
+        new_item, price = added
+        order.items.append(new_item)
+        to_sync.append((new_item, listing, price * line.quantity, True))
+        record(
+            SalesOrderChangeKind.line_added,
+            listing.id,
+            after=f"{line.quantity} @ {money(price)}",
+        )
+    elif existing is not None and line is None:
+        order.items.remove(existing)
+        record(
+            SalesOrderChangeKind.line_removed,
+            listing.id,
+            before=f"{existing.quantity} @ {money(existing.unit_price)}",
+        )
+    elif existing is not None and line is not None:
+        _requantify_and_reprice(
+            existing, line, listing, delta, record=record, to_sync=to_sync
+        )
+
+
 def revise_order(
     db: Session,
     order: SalesOrder,
@@ -658,27 +796,7 @@ def revise_order(
     desired = {line.listing_id: line for line in lines}
     ids = set(current) | set(desired)
 
-    # An order that records a sale made on another platform takes no stock
-    # here. The only listing a line could grow from is the shop's
-    # (`_refuse_unless_on_sale_in_shop`), and such an order can never be
-    # cancelled (`routers.orders._no_stock_to_return`), so shop stock added
-    # to it would be held with no way to release it. Its prices, customer
-    # and notes may still be corrected.
-    if order.sales_venue_id != store_venue_id(db):
-        growing = sorted(
-            listing_id
-            for listing_id, line in desired.items()
-            if line.quantity
-            > (current[listing_id].quantity if listing_id in current else 0)
-        )
-        if growing:
-            _refuse(
-                db,
-                status.HTTP_409_CONFLICT,
-                f"Order #{order_id} records a sale on {order.sales_venue.name}, "
-                "so it cannot take stock from the web store "
-                f"(listing {', '.join(f'#{listing_id}' for listing_id in growing)}).",
-            )
+    _refuse_stock_for_an_outside_sale(db, order, order_id, current, desired)
 
     changes: list[SalesOrderChange] = []
     try:
@@ -724,70 +842,17 @@ def revise_order(
         # already refuse to add stock from a listing that is not the shop's.
         sold_lots: list[Listing] = []
         for listing_id in sorted(ids):
-            listing = listings[listing_id]
-            delta = deltas[listing_id]
-            existing = current.get(listing_id)
-            line = desired.get(listing_id)
-            added: tuple[SalesOrderItem, Decimal] | None = None
-            if existing is None and line is not None:
-                price = listing.price if line.unit_price is None else line.unit_price
-                # The snapshot before the stock change, as in `place_order`:
-                # the item as it was offered, not as this line's sale left it.
-                added = (_line(db, listing, line.quantity, price), price)
-            if delta:
-                before = listing.quantity_available
-                listing.quantity_available -= delta
-                _after_stock_change(db, listing, before)
-                if _lot_sold_out(listing, before):
-                    sold_lots.append(listing)
-            if added is not None and line is not None:
-                new_item, price = added
-                order.items.append(new_item)
-                to_sync.append((new_item, listing, price * line.quantity, True))
-                record(
-                    SalesOrderChangeKind.line_added,
-                    listing_id,
-                    after=f"{line.quantity} @ {money(price)}",
-                )
-            elif existing is not None and line is None:
-                order.items.remove(existing)
-                record(
-                    SalesOrderChangeKind.line_removed,
-                    listing_id,
-                    before=f"{existing.quantity} @ {money(existing.unit_price)}",
-                )
-            elif existing is not None and line is not None:
-                money_changed = False
-                if delta:
-                    record(
-                        SalesOrderChangeKind.quantity,
-                        listing_id,
-                        str(existing.quantity),
-                        str(line.quantity),
-                    )
-                    existing.quantity = line.quantity
-                    money_changed = True
-                if (
-                    line.unit_price is not None
-                    and line.unit_price != existing.unit_price
-                ):
-                    record(
-                        SalesOrderChangeKind.unit_price,
-                        listing_id,
-                        money(existing.unit_price),
-                        money(line.unit_price),
-                    )
-                    existing.unit_price = line.unit_price
-                    money_changed = True
-                if money_changed:
-                    to_sync.append(
-                        (
-                            existing,
-                            listing,
-                            existing.unit_price * existing.quantity,
-                            False,
-                        )
-                    )
+            _revise_line(
+                db,
+                order,
+                listings[listing_id],
+                deltas[listing_id],
+                current.get(listing_id),
+                desired.get(listing_id),
+                record=record,
+                to_sync=to_sync,
+                sold_lots=sold_lots,
+            )
 
         if customer.id != order.customer_id:
             record(

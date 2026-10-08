@@ -20,7 +20,14 @@ import ErrorsPanel from './ErrorsPanel'
 import LocationSelect from '../../LocationSelect'
 import AttributesField from './AttributesField'
 import ConflictList from './ConflictList'
-import { baseFor, conflictsOf, fieldName, rebase, shown } from './fieldMerge'
+import {
+  baseFor,
+  conflictsOf,
+  fieldName,
+  fieldValue,
+  rebase,
+  shown,
+} from './fieldMerge'
 import { clearedByKind } from './kindChange'
 import FriedbergPanel from './FriedbergPanel'
 import HelpScope from '../../HelpScope'
@@ -212,6 +219,153 @@ function errorsKey(rows) {
 }
 
 /**
+ * What Save sends for the edited fields. `base` makes the save field by
+ * field: a change made elsewhere since stops it only where it touched a
+ * field changed here (409 naming them). `version` goes too, for any caller
+ * without a base. `acknowledge` says a change to an item for sale is meant.
+ */
+function fieldsPayload(draft, item, baseItem, acknowledge) {
+  const payload = {
+    ...draft,
+    version: item.version,
+    base: baseFor(baseItem, draft),
+  }
+  if (Array.isArray(payload.cert_numbers)) {
+    payload.cert_numbers = payload.cert_numbers.filter(Boolean)
+  }
+  if (acknowledge) payload.acknowledge_for_sale = true
+  return payload
+}
+
+/**
+ * What was typed while a save was out: in the draft as it is `now`, and not
+ * in the one that was `sent`.
+ */
+const typedSinceSent = (now, sent) =>
+  Object.fromEntries(
+    Object.entries(now).filter(([key, held]) => !(key in sent) || sent[key] !== held),
+  )
+
+/** Whether the errors as edited differ from the set last read or recorded. */
+const errorsDiffer = (edited, saved) =>
+  edited !== null && errorsKey(edited) !== errorsKey(saved)
+
+/**
+ * The fields edited here that someone else has changed since (see
+ * `fieldMerge.js`); none until the item has been read.
+ */
+const conflictsSince = (item, baseItem, draft) =>
+  item && baseItem ? conflictsOf(item, baseItem, draft) : []
+
+/** Whether anything is held for Save: a field, a photograph, a number, errors. */
+function holdsAnything({
+  hasFields,
+  pendingPhotos,
+  photoEdits,
+  pendingFriedberg,
+  errorsChanged,
+}) {
+  return (
+    hasFields ||
+    pendingPhotos.length > 0 ||
+    Object.keys(photoEdits).length > 0 ||
+    pendingFriedberg !== null ||
+    errorsChanged
+  )
+}
+
+/**
+ * Whether what is held may be saved as it stands: a change to an item for
+ * sale has been acknowledged, every new photograph says what it shows, and
+ * no edited field waits for a choice between two values.
+ */
+function nothingInTheWay({ forSale, acknowledged, pendingPhotos, conflicts }) {
+  return (
+    (!forSale || acknowledged) &&
+    // A photograph filed without saying what it shows is one nobody finds.
+    pendingPhotos.every((entry) => entry.role) &&
+    conflicts.length === 0
+  )
+}
+
+/**
+ * Whether the seller's item id is an eBay item number: the listing's own
+ * address says so, and where none is recorded the vendor does.
+ */
+const boughtOnEbay = (item) =>
+  item.listing_url
+    ? /^https?:\/\/([^/]*\.)?ebay\./i.test(item.listing_url)
+    : /ebay/i.test(item.vendor ?? '')
+
+/** The seller's item id as the editor's heading shows it. */
+function sellersItemId(item) {
+  if (boughtOnEbay(item)) {
+    // The listing it was bought from, on eBay (app.ebay_orders).
+    return (
+      <a
+        href={`https://www.ebay.com/itm/${item.sellers_item_id}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-help="sellers_item_id"
+      >
+        eBay item {item.sellers_item_id}
+      </a>
+    )
+  }
+  // Another seller's id -- an auction house's lot number -- is no eBay item
+  // number: named, and reached by the listing link.
+  return (
+    <span data-help="sellers_item_id">
+      Seller&apos;s item id {item.sellers_item_id}
+    </span>
+  )
+}
+
+/**
+ * The end of a range of years as the form holds it: the one typed, else the
+ * stored end, and for an item stored with a start and no end, its start.
+ */
+const rangeEnd = (draft, item) =>
+  'year_end' in draft ? draft.year_end : (item.year_end ?? item.year_start ?? null)
+
+/** The Errors row while the item's errors have not been read. */
+function errorsNotRead(reason) {
+  return (
+    <div className="field errors-panel">
+      <span>Errors</span>
+      {reason ? (
+        <p className="error">The errors could not be read: {reason}</p>
+      ) : (
+        <p className="muted">Loading...</p>
+      )}
+      <span />
+      <span />
+    </div>
+  )
+}
+
+/**
+ * What to say of a year outside the item's design series, or ''. A coin
+ * dated outside its series' years is almost always a typo: an 1800 Morgan
+ * dollar. A note is not asked: its year is its series year.
+ */
+function seriesYearWarning(value, seriesEntries) {
+  if (isCurrencyKind(value('item_kind'))) return ''
+  return seriesYearProblem(
+    (seriesEntries ?? []).find((entry) => entry.code === value('series')),
+    value('year_start'),
+    value('year_end'),
+  )
+}
+
+/**
+ * What a kind's asked facts decide, shown after them (`FACTS_DECIDED`): none
+ * for a note, and never a fact the kind is already asked for.
+ */
+const factsDecidedFor = (kind, askedFacts) =>
+  isCurrencyKind(kind) ? [] : FACTS_DECIDED.filter((fact) => !askedFacts.includes(fact))
+
+/**
  * The editor for item `itemId`: its fields, photographs, Friedberg number,
  * errors, offers and history.
  *
@@ -290,20 +444,19 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   )
   // Fields edited here that someone else has changed since: each waits for a
   // choice before the form can be saved.
-  const conflicts = item && baseItem ? conflictsOf(item, baseItem, draft) : []
+  const conflicts = conflictsSince(item, baseItem, draft)
   const hasFields = Object.keys(draft).length > 0
-  const errorsChanged = errors !== null && errorsKey(errors) !== errorsKey(savedErrors)
+  const errorsChanged = errorsDiffer(errors, savedErrors)
   const canSave =
     !saving &&
-    (hasFields ||
-      pendingPhotos.length > 0 ||
-      Object.keys(photoEdits).length > 0 ||
-      pendingFriedberg !== null ||
-      errorsChanged) &&
-    (!forSale || acknowledged) &&
-    // A photograph filed without saying what it shows is one nobody finds.
-    pendingPhotos.every((entry) => entry.role) &&
-    conflicts.length === 0
+    holdsAnything({
+      hasFields,
+      pendingPhotos,
+      photoEdits,
+      pendingFriedberg,
+      errorsChanged,
+    }) &&
+    nothingInTheWay({ forSale, acknowledged, pendingPhotos, conflicts })
   // `save` is a function declaration below, hoisted for the whole component
   // scope, so it is safe to reference here even though it is defined later --
   // this hook must sit above every early return.
@@ -472,16 +625,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // from a preview once the draft it answered is gone.
   const shownItem = hasFields && preview ? preview : item
   const value = (key) => (key in draft ? draft[key] : shownItem[key]) ?? ''
-  // A coin dated outside its design series' years is almost always a typo:
-  // an 1800 Morgan dollar.
-  const yearWarning =
-    item && !isCurrencyKind(value('item_kind'))
-      ? seriesYearProblem(
-          (vocab.series ?? []).find((entry) => entry.code === value('series')),
-          value('year_start'),
-          value('year_end'),
-        )
-      : ''
+  const yearWarning = seriesYearWarning(value, vocab.series)
   const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
   // A picker set back to blank, or a box emptied, clears the field: null,
   // which the server holds empty. An empty string would clear it without
@@ -545,12 +689,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     setDraft(next)
     setKindCleared(cleared)
   }
-
-  // Whether the seller's item id is an eBay item number: the listing's own
-  // address says so, and where none is recorded the vendor does.
-  const boughtOnEbay = item.listing_url
-    ? /^https?:\/\/([^/]*\.)?ebay\./i.test(item.listing_url)
-    : /ebay/i.test(item.vendor ?? '')
 
   const kindLabel = (code) => kinds?.find((k) => k.code === code)?.label ?? code
   const leavingNote = item.item_kind === 'currency' && value('item_kind') !== 'currency'
@@ -666,9 +804,11 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // alone moves a single year's end with it, and the end on screen -- the
   // stored one, never typed -- would be lost.
   function setRangeStart(e) {
-    const shownEnd =
-      'year_end' in draft ? draft.year_end : (item.year_end ?? item.year_start ?? null)
-    setDraft({ ...draft, year_start: yearValue(e.target.value), year_end: shownEnd })
+    setDraft({
+      ...draft,
+      year_start: yearValue(e.target.value),
+      year_end: rangeEnd(draft, item),
+    })
   }
 
   const rangeToggle = (
@@ -813,62 +953,57 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   }
 
   /**
-   * Save everything held: a Friedberg number cleared first (the server
-   * refuses a note that stops being one while it has a number), then the
-   * fields, then a Friedberg number attached, then the errors, then the
-   * changes to filed photographs, then new photographs. What
-   * fails stays held with its reason; the editor closes only when all of it
-   * is saved.
+   * Clear a held Friedberg number before anything else is saved. Returns
+   * whether the save may go on: false when the clearing was refused, which
+   * is said and ends the save with nothing else written.
    */
-  async function save() {
-    setSaving(true)
-    const heldFriedberg = pendingFriedberg
+  async function clearedFirst(heldFriedberg) {
+    if (heldFriedberg?.action !== 'clear') return true
+    const failed = await applyFriedberg(heldFriedberg)
+    if (!failed) return true
+    setError(`The Friedberg number was not cleared: ${failed}. Nothing else was saved.`)
+    setSaving(false)
+    return false
+  }
+
+  /**
+   * Send the edited fields, if any. Returns whether the save may go on:
+   * false when they were refused, which is said and ends the save.
+   */
+  async function fieldsSaved(heldFriedberg) {
+    if (!hasFields) return true
+    try {
+      const acknowledge = forSale && acknowledged
+      await api.updateInventoryItem(
+        itemId,
+        fieldsPayload(draft, item, baseItem, acknowledge),
+      )
+      setError('')
+      return true
+    } catch (err) {
+      setError(err.message)
+      setSaving(false)
+      // Someone changed one of these fields between the last check and this
+      // save: read the item again, and the conflicts show for a choice.
+      // And after a number was cleared before this: that much was written,
+      // so the note is read again to show it gone, and the opener is told.
+      const cleared = heldFriedberg?.action === 'clear'
+      if (err.body?.conflicts || cleared) reloadItem()
+      if (cleared) {
+        setSaves((n) => n + 1)
+        onChanged?.()
+      }
+      return false
+    }
+  }
+
+  /**
+   * What follows the fields, in order: a Friedberg number attached, the
+   * errors, the changes to filed photographs, the new photographs. Each
+   * that fails stays held; returns what to say of those that did.
+   */
+  async function restSaved(heldFriedberg) {
     const problems = []
-
-    if (heldFriedberg?.action === 'clear') {
-      const failed = await applyFriedberg(heldFriedberg)
-      if (failed) {
-        setError(
-          `The Friedberg number was not cleared: ${failed}. Nothing else was saved.`,
-        )
-        setSaving(false)
-        return
-      }
-    }
-
-    if (hasFields) {
-      try {
-        // `base` makes the save field by field: a change made elsewhere since
-        // stops it only where it touched a field changed here (409 naming
-        // them). `version` goes too, for any caller without a base.
-        const payload = {
-          ...draft,
-          version: item.version,
-          base: baseFor(baseItem, draft),
-        }
-        if (Array.isArray(payload.cert_numbers)) {
-          payload.cert_numbers = payload.cert_numbers.filter(Boolean)
-        }
-        if (forSale && acknowledged) payload.acknowledge_for_sale = true
-        await api.updateInventoryItem(itemId, payload)
-        setError('')
-      } catch (err) {
-        setError(err.message)
-        setSaving(false)
-        // Someone changed one of these fields between the last check and this
-        // save: read the item again, and the conflicts show for a choice.
-        // And after a number was cleared above: that much was written, so
-        // the note is read again to show it gone, and the opener is told.
-        const cleared = heldFriedberg?.action === 'clear'
-        if (err.body?.conflicts || cleared) reloadItem()
-        if (cleared) {
-          setSaves((n) => n + 1)
-          onChanged?.()
-        }
-        return
-      }
-    }
-
     if (heldFriedberg?.action === 'attach') {
       const failed = await applyFriedberg(heldFriedberg)
       if (failed) problems.push(`the Friedberg number was not attached: ${failed}`)
@@ -889,22 +1024,22 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     }
     const failedPhotos = await filePhotos()
     if (failedPhotos.length > 0) problems.push(photosFailed(failedPhotos))
+    return problems
+  }
 
-    // Read the item back: the saved values, and the version the save made.
-    // A form that stays open after a save -- the last item of a review, or
-    // Receiving's one-item review -- would otherwise keep the old version and
-    // the spent draft, and its next save would be refused as a conflict with
-    // itself.
-    // What was typed while the save was out: in the draft now, and not in
-    // the one that was sent. It is kept, on top of the item read back.
+  /**
+   * Read the item back: the saved values, and the version the save made.
+   * A form that stays open after a save -- the last item of a review, or
+   * Receiving's one-item review -- would otherwise keep the old version and
+   * the spent draft, and its next save would be refused as a conflict with
+   * itself. What was typed while the save was out is kept on top of the item
+   * read back, and returned. A failure to read is added to `problems`.
+   */
+  async function readBack(problems) {
     let typedSince = {}
     try {
       const saved = await api.getInventoryItem(itemId)
-      typedSince = Object.fromEntries(
-        Object.entries(draftRef.current).filter(
-          ([key, held]) => !(key in draft) || draft[key] !== held,
-        ),
-      )
+      typedSince = typedSinceSent(draftRef.current, draft)
       adopt(saved)
       setDraft(typedSince)
     } catch (err) {
@@ -913,6 +1048,24 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       setSaving(false)
       setSaves((n) => n + 1)
     }
+    return typedSince
+  }
+
+  /**
+   * Save everything held: a Friedberg number cleared first (the server
+   * refuses a note that stops being one while it has a number), then the
+   * fields, then a Friedberg number attached, then the errors, then the
+   * changes to filed photographs, then new photographs. What
+   * fails stays held with its reason; the editor closes only when all of it
+   * is saved.
+   */
+  async function save() {
+    setSaving(true)
+    const heldFriedberg = pendingFriedberg
+    if (!(await clearedFirst(heldFriedberg))) return
+    if (!(await fieldsSaved(heldFriedberg))) return
+    const problems = await restSaved(heldFriedberg)
+    const typedSince = await readBack(problems)
     if (problems.length > 0) {
       setError(`Not all was saved -- ${problems.join('; ')}`)
       // Something may have been written all the same: whoever opened the
@@ -996,6 +1149,16 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       )}
     </Fragment>
   )
+  // The first year box is the one year, or the start of a range: its help
+  // topic, its label, what typing in it sets and the lot's claim beside it.
+  const yearBox = ranged
+    ? {
+        help: 'year_start',
+        label: 'Year from',
+        onChange: setRangeStart,
+        claim: claim('year_start'),
+      }
+    : { help: 'year', label: 'Year', onChange: setYear, claim: yearClaim() }
   const yearRows = (
     <Fragment key="year">
       {/* Divs, not labels: a <label> may not contain the range checkbox's
@@ -1009,9 +1172,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           the item's own years empty. */}
       {!isCurrencyKind(value('item_kind')) && (
         <>
-          <div className="field" data-help={ranged ? 'year_start' : 'year'}>
+          <div className="field" data-help={yearBox.help}>
             <label htmlFor={yearId}>
-              <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
+              <AccessLabel text={yearBox.label} accessKey="y" />
             </label>
             <span className="year-input">
               <input
@@ -1019,18 +1182,14 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
                 type="number"
                 disabled={noDate}
                 value={value('year_start')}
-                onChange={ranged ? setRangeStart : setYear}
+                onChange={yearBox.onChange}
                 {...accel('y')}
               />
               {rangeToggle}
             </span>
-            {ranged ? claim('year_start') : yearClaim()}
+            {yearBox.claim}
           </div>
-          {yearWarning && (
-            <p className="notice" role="status">
-              {yearWarning}
-            </p>
-          )}
+          {yearWarning && <output className="notice status-line">{yearWarning}</output>}
           {ranged && (
             <div className="field" data-help="year_end">
               <label htmlFor={yearEndId}>
@@ -1041,11 +1200,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
                 type="number"
                 // An item stored with a start and no end opens its range at the
                 // start year -- but only until someone types here.
-                value={
-                  'year_end' in draft
-                    ? (draft.year_end ?? '')
-                    : (item.year_end ?? item.year_start ?? '')
-                }
+                value={rangeEnd(draft, item) ?? ''}
                 onChange={(e) =>
                   setDraft({ ...draft, year_end: yearValue(e.target.value) })
                 }
@@ -1065,7 +1220,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           className="field"
           get={value}
           set={(key, next) => setDraft({ ...draft, [key]: next })}
-          aside={(key) => (
+          renderAside={(key) => (
             <>
               {side(key, key)}
               <span />
@@ -1079,9 +1234,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     ({ note: noteRows, year: yearRows, weights: weightRows })[fact] ??
     classifierRows((key) => key === fact)
   const askedFacts = FACTS_ASKED[value('item_kind')] ?? FACTS_ASKED.coin
-  const decidedFacts = isCurrencyKind(value('item_kind'))
-    ? []
-    : FACTS_DECIDED.filter((fact) => !askedFacts.includes(fact))
+  const decidedFacts = factsDecidedFor(value('item_kind'), askedFacts)
   const placedFacts = new Set([...askedFacts, ...decidedFacts])
 
   return (
@@ -1112,24 +1265,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               {item.vendor ? ` · ${item.vendor}` : ''} -- edit
             </a>
           )}
-          {item.sellers_item_id &&
-            (boughtOnEbay ? (
-              // The listing it was bought from, on eBay (app.ebay_orders).
-              <a
-                href={`https://www.ebay.com/itm/${item.sellers_item_id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-help="sellers_item_id"
-              >
-                eBay item {item.sellers_item_id}
-              </a>
-            ) : (
-              // Another seller's id -- an auction house's lot number -- is
-              // no eBay item number: named, and reached by the listing link.
-              <span data-help="sellers_item_id">
-                Seller&apos;s item id {item.sellers_item_id}
-              </span>
-            ))}
+          {item.sellers_item_id && sellersItemId(item)}
           {/^https?:\/\//i.test(item.listing_url ?? '') && (
             // Only a web address is offered as a link.
             <a
@@ -1149,11 +1285,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         </div>
 
         {error && <p className="error">{error}</p>}
-        {splitNote && (
-          <p className="muted" role="status">
-            {splitNote}
-          </p>
-        )}
+        {splitNote && <output className="muted status-line">{splitNote}</output>}
         {item.split_at && (
           <p className="muted">
             This lot has been split into its pieces. It is kept for its purchase and
@@ -1162,9 +1294,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         )}
 
         {refreshedAt && conflicts.length === 0 && (
-          <p className="muted" role="status">
+          <output className="muted status-line">
             Updated with changes made elsewhere at {refreshedAt.toLocaleTimeString()}.
-          </p>
+          </output>
         )}
         {conflicts.length > 0 && (
           <ConflictList
@@ -1285,13 +1417,13 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           <span />
         </label>
         {Object.keys(kindCleared).length > 0 && (
-          <p className="for-sale" role="status">
+          <output className="for-sale status-line">
             As {kindLabel(value('item_kind'))} it cannot keep{' '}
             {Object.entries(kindCleared)
               .map(([key, { was }]) => `${fieldName(key)} (${shown(was)})`)
               .join(', ')}
             : saving clears them. Choose {kindLabel(item.item_kind)} again to keep them.
-          </p>
+          </output>
         )}
         {leavingNote && item.friedberg_id && pendingFriedberg?.action !== 'clear' && (
           <p className="error">
@@ -1343,11 +1475,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         <AttributesField
           item={item}
           kind={value('item_kind')}
-          codes={
-            'attributes' in draft
-              ? draft.attributes
-              : (item.attributes ?? []).map((a) => a.code)
-          }
+          codes={draft.attributes ?? fieldValue(item, 'attributes')}
           onChange={(codes) => setDraft({ ...draft, attributes: codes })}
         />
 
@@ -1355,16 +1483,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           form. No sale state goes to the panel: this form's own notice
           above is the one acknowledgement, and it covers the errors too. */}
         {errors === null ? (
-          <div className="field errors-panel">
-            <span>Errors</span>
-            {errorsReadError ? (
-              <p className="error">The errors could not be read: {errorsReadError}</p>
-            ) : (
-              <p className="muted">Loading...</p>
-            )}
-            <span />
-            <span />
-          </div>
+          errorsNotRead(errorsReadError)
         ) : (
           <ErrorsPanel
             itemId={null}
@@ -1402,11 +1521,8 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         <label className="field" data-help="storage_location_id">
           <span>Storage location</span>
           <LocationSelect
-            value={
-              value('storage_location_id') == null
-                ? ''
-                : String(value('storage_location_id'))
-            }
+            // `value` gives '' for a location not recorded, never null.
+            value={String(value('storage_location_id'))}
             onChange={(id) =>
               setDraft({ ...draft, storage_location_id: id ? Number(id) : null })
             }

@@ -313,56 +313,81 @@ def plan(db: Session) -> Plan:
             continue
         todo.looked_at += 1
         before = len(todo.guesses)
-
-        def guess(
-            column: str,
-            value: Decimal,
-            rule: str,
-            why: str,
-            item: InventoryItem = item,
-            recorded: dict[str, str] = recorded,
-        ) -> None:
-            """Plan `value` for the item's column, if empty and not held empty."""
-            if getattr(item, column) is None and recorded.get(column) != HELD:
-                todo.guesses.append(
-                    Guess(item.id, item.item_code, column, value, rule, why)
-                )
-
-        words = " ".join(
-            part
-            for part in (item.source_title, item.description, item.weight_note)
-            if part
-        )
-        fineness = item.fineness
-        stated_fineness = fineness_in(words)
-        if fineness is None and stated_fineness is not None:
-            guess("fineness", stated_fineness, WEIGHT_TEXT, "its own words")
-            fineness = stated_fineness
-        gross = item.gross_weight_ozt
-        stated_weight = weight_in(words)
-        if gross is None and stated_weight is not None:
-            guess("gross_weight_ozt", stated_weight, WEIGHT_TEXT, "its own words")
-            gross = stated_weight
-
+        fineness, gross = _guess_from_words(todo, item, recorded)
         key = (item.bullion_form_id, item.metal_id)
         if gross is None and item.bullion_form_id is not None and key in peers:
-            peer_gross, peer_fineness, peer_fine, agreeing, total = peers[
-                (item.bullion_form_id, item.metal_id)
-            ]
-            why = f"{agreeing} of {total} items of its form and metal"
-            if _same_metal(fineness, peer_fineness):
-                if fineness is None and peer_fineness is not None:
-                    guess("fineness", peer_fineness, WEIGHT_PEERS, why)
-                    fineness = peer_fineness
-                if peer_gross is not None:
-                    guess("gross_weight_ozt", peer_gross, WEIGHT_PEERS, why)
-                # Without both a gross weight and a fineness nothing works
-                # the fine weight out, so the peers' own is taken.
-                if peer_gross is None or fineness is None:
-                    guess("fine_weight_ozt", peer_fine, WEIGHT_PEERS, why)
+            peer = peers[(item.bullion_form_id, item.metal_id)]
+            _guess_from_peers(todo, item, recorded, fineness, peer)
         if len(todo.guesses) == before:
             todo.no_guess.append(item.item_code)
     return todo
+
+
+def _guess(
+    todo: Plan,
+    item: InventoryItem,
+    recorded: dict[str, str],
+    column: str,
+    value: Decimal,
+    rule: str,
+    why: str,
+) -> None:
+    """Plan `value` for the item's column, if empty and not held empty."""
+    if getattr(item, column) is None and recorded.get(column) != HELD:
+        todo.guesses.append(Guess(item.id, item.item_code, column, value, rule, why))
+
+
+def _guess_from_words(
+    todo: Plan, item: InventoryItem, recorded: dict[str, str]
+) -> tuple[Decimal | None, Decimal | None]:
+    """Plan the fineness and gross weight the item's own words state.
+
+    Returns the fineness and gross weight the item then has to go on: its
+    own, else the stated one.
+    """
+    why = "its own words"
+    words = " ".join(
+        part for part in (item.source_title, item.description, item.weight_note) if part
+    )
+    fineness = item.fineness
+    stated_fineness = fineness_in(words)
+    if fineness is None and stated_fineness is not None:
+        _guess(todo, item, recorded, "fineness", stated_fineness, WEIGHT_TEXT, why)
+        fineness = stated_fineness
+    gross = item.gross_weight_ozt
+    stated_weight = weight_in(words)
+    if gross is None and stated_weight is not None:
+        _guess(
+            todo, item, recorded, "gross_weight_ozt", stated_weight, WEIGHT_TEXT, why
+        )
+        gross = stated_weight
+    return fineness, gross
+
+
+def _guess_from_peers(
+    todo: Plan,
+    item: InventoryItem,
+    recorded: dict[str, str],
+    fineness: Decimal | None,
+    peer: _Peers,
+) -> None:
+    """Plan what the item's peers hold, where their metal can stand for its own.
+
+    `fineness` is the item's, or the one its words state.
+    """
+    peer_gross, peer_fineness, peer_fine, agreeing, total = peer
+    if not _same_metal(fineness, peer_fineness):
+        return
+    why = f"{agreeing} of {total} items of its form and metal"
+    if fineness is None and peer_fineness is not None:
+        _guess(todo, item, recorded, "fineness", peer_fineness, WEIGHT_PEERS, why)
+        fineness = peer_fineness
+    if peer_gross is not None:
+        _guess(todo, item, recorded, "gross_weight_ozt", peer_gross, WEIGHT_PEERS, why)
+    # Without both a gross weight and a fineness nothing works
+    # the fine weight out, so the peers' own is taken.
+    if peer_gross is None or fineness is None:
+        _guess(todo, item, recorded, "fine_weight_ozt", peer_fine, WEIGHT_PEERS, why)
 
 
 def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:

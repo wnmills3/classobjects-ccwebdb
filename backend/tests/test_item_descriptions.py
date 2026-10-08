@@ -10,7 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from app.item_descriptions import _SERIAL_SUFFIX, suggested_description
+from app.item_descriptions import _without_serial, suggested_description
 from app.models import (
     CoinDetail,
     CurrencyDetail,
@@ -249,9 +249,16 @@ def test_the_route_writes_nothing(
         ("RadarSerial", "RadarSerial"),
         ("Radar serial", "Radar serial"),
         ("Low Serial Serial", "Low Serial"),
+        # A line break counts as space before the noun, and one closing the
+        # label is kept.
+        ("Radar\nSerial", "Radar"),
+        ("Radar \x0b\xa0Serial", "Radar"),
+        ("Radar Serial\n", "Radar\n"),
+        ("Serial\n", "Serial\n"),
+        ("Radar Serial\n\n", "Radar Serial\n\n"),
     ],
 )
 def test_a_serial_feature_s_label_loses_the_noun_it_ends_in(
     label: str, written: str
 ) -> None:
-    assert _SERIAL_SUFFIX.sub("", label) == written
+    assert _without_serial(label) == written

@@ -486,25 +486,30 @@ def _sent_values(
     without being sent them (`_MOVED_UNSENT`), are needed, so only those are
     read.
     """
+    return {field: _sent_value(db, item, field) for field in fields}
+
+
+def _sent_value(db: Session, item: InventoryItem, field: str) -> object:
+    """One field of an item as `_sent_values` reads it, from where it is kept.
+
+    A coin's mint and variety are on its coin detail and a note's fields on
+    its currency detail; an item with no such row holds none of them.
+    """
     detail = item.currency_detail
     coin = item.coin_detail
-    values: dict[str, Any] = {}
-    for field in fields:
-        if field == "mint":
-            values[field] = code_of(db, Mint, coin.mint_id) if coin else None
-        elif field == "variety":
-            values[field] = coin.variety if coin else None
-        elif field in ITEM_CLASSIFIERS:
-            fk = getattr(item, f"{field}_id")
-            values[field] = code_of(db, ITEM_CLASSIFIERS[field], fk)
-        elif field in NOTE_CLASSIFIERS:
-            fk = getattr(detail, f"{field}_id") if detail else None
-            values[field] = code_of(db, NOTE_CLASSIFIERS[field], fk)
-        elif field in NOTE_SCALARS:
-            values[field] = plain(getattr(detail, field)) if detail else None
-        else:
-            values[field] = plain(getattr(item, field, None))
-    return values
+    if field == "mint":
+        return code_of(db, Mint, coin.mint_id) if coin else None
+    if field == "variety":
+        return coin.variety if coin else None
+    if field in ITEM_CLASSIFIERS:
+        fk = getattr(item, f"{field}_id")
+        return code_of(db, ITEM_CLASSIFIERS[field], fk)
+    if field in NOTE_CLASSIFIERS:
+        fk = getattr(detail, f"{field}_id") if detail else None
+        return code_of(db, NOTE_CLASSIFIERS[field], fk)
+    if field in NOTE_SCALARS:
+        return plain(getattr(detail, field)) if detail else None
+    return plain(getattr(item, field, None))
 
 
 def _same(field: str, a: object, b: object) -> bool:
@@ -664,6 +669,78 @@ def _end_offers_holding(
         offering_writes.end_offer(db, live, note=f"item {verb} {codes[live.id]}")
 
 
+def _refuse_already_received(
+    db: Session, items: Sequence[InventoryItem], received_id: int
+) -> None:
+    """Refuse a receipt of items that are already received. 409.
+
+    Naming the status and the arrival date, not just the code, is what lets
+    an operator tell a double-submitted form (same date, moments apart) from
+    the wrong row (a date that means nothing to them) -- "already received"
+    alone answers neither question.
+    """
+    already = [i for i in items if i.status_id == received_id]
+    if not already:
+        return
+    arrival_rows = db.execute(
+        select(
+            ItemStatusHistory.inventory_item_id,
+            func.max(ItemStatusHistory.arrived_on),
+        )
+        .where(
+            ItemStatusHistory.inventory_item_id.in_([i.id for i in already]),
+            ItemStatusHistory.to_status_id == received_id,
+        )
+        .group_by(ItemStatusHistory.inventory_item_id)
+    ).all()
+    arrivals: dict[int, date | None] = {row[0]: row[1] for row in arrival_rows}
+
+    def _arrival_label(item_id: int) -> str:
+        """The day the item arrived, as ISO text, or "unknown date"."""
+        arrived = arrivals.get(item_id)
+        return arrived.isoformat() if arrived is not None else "unknown date"
+
+    detail_items = sorted(
+        f"{i.item_code} (received {_arrival_label(i.id)})" for i in already
+    )
+    raise HTTPException(
+        status_code=409,
+        detail=f"Already received: {detail_items}. "
+        "Use PATCH to correct a receipt rather than repeating it.",
+    )
+
+
+def _record_outcome(
+    db: Session,
+    item: InventoryItem,
+    payload: ReceiveRequest,
+    to_status: int,
+    user_id: int,
+) -> None:
+    """Write one item's receipt: its new status, and where it was put.
+
+    Only an arrival has an arrival date and a place: an item recorded
+    missing, returned or canceled takes the status alone.
+    """
+    arrived = payload.outcome == "received"
+    set_status(
+        db,
+        item,
+        to_status,
+        user_id=user_id,
+        note=payload.note,
+        arrived_on=payload.arrived_on if arrived else None,
+    )
+    if arrived and payload.storage_location_id is not None:
+        set_location(
+            db,
+            item,
+            payload.storage_location_id,
+            user_id=user_id,
+            note=payload.note,
+        )
+
+
 @router.post(
     "/receive",
     responses={
@@ -731,38 +808,8 @@ def receive_items(
         raise HTTPException(status_code=404, detail=f"Unknown item ids: {missing}")
 
     received_id = require_code(db, ItemStatus, "received", "status")
-    already = [i for i in items if i.status_id == received_id]
-    if already and payload.outcome == "received":
-        # Naming the status and the arrival date, not just the code, is what
-        # lets an operator tell a double-submitted form (same date, moments
-        # apart) from the wrong row (a date that means nothing to them) --
-        # "already received" alone answers neither question.
-        arrival_rows = db.execute(
-            select(
-                ItemStatusHistory.inventory_item_id,
-                func.max(ItemStatusHistory.arrived_on),
-            )
-            .where(
-                ItemStatusHistory.inventory_item_id.in_([i.id for i in already]),
-                ItemStatusHistory.to_status_id == received_id,
-            )
-            .group_by(ItemStatusHistory.inventory_item_id)
-        ).all()
-        arrivals: dict[int, date | None] = {row[0]: row[1] for row in arrival_rows}
-
-        def _arrival_label(item_id: int) -> str:
-            """The day the item arrived, as ISO text, or "unknown date"."""
-            arrived = arrivals.get(item_id)
-            return arrived.isoformat() if arrived is not None else "unknown date"
-
-        detail_items = sorted(
-            f"{i.item_code} (received {_arrival_label(i.id)})" for i in already
-        )
-        raise HTTPException(
-            status_code=409,
-            detail=f"Already received: {detail_items}. "
-            "Use PATCH to correct a receipt rather than repeating it.",
-        )
+    if payload.outcome == "received":
+        _refuse_already_received(db, items, received_id)
 
     # An item that has not been received cannot be offered
     # (`offering_writes.offer` refuses it) and an order can only hold a
@@ -856,27 +903,7 @@ def receive_items(
     # caller's conflict to retry, not a server error.
     with committing(db, _STALE_ITEMS):
         for item in items:
-            set_status(
-                db,
-                item,
-                to_status,
-                user_id=admin.id,
-                note=payload.note,
-                arrived_on=(
-                    payload.arrived_on if payload.outcome == "received" else None
-                ),
-            )
-            if (
-                payload.outcome == "received"
-                and payload.storage_location_id is not None
-            ):
-                set_location(
-                    db,
-                    item,
-                    payload.storage_location_id,
-                    user_id=admin.id,
-                    note=payload.note,
-                )
+            _record_outcome(db, item, payload, to_status, admin.id)
 
         # A coin that cannot be delivered must not stay offered: the flush,
         # the authoritative re-read under the locks, the refusals and the
@@ -906,6 +933,139 @@ def receive_items(
     return {"outcome": payload.outcome, "items": len(items)}
 
 
+def _entered_years(payload: ItemCreate) -> tuple[int | None, int | None]:
+    """The years a new item holds, refusing a range that ends before it starts.
+
+    A year given alone is a single year; an explicit end before the start is
+    refused rather than silently swapped. There is no existing item to name
+    in the message yet, so the title given stands in for it.
+    """
+    given_years = {
+        field: getattr(payload, field)
+        for field in YEAR_FIELDS
+        if getattr(payload, field) is not None
+    }
+    years = resolve_years((None, None), given_years)
+    if payload.item_kind == "currency":
+        # A note holds no year: its series year is its year (see
+        # `_refuse_note_year`; ItemCreate refuses one sent for a note).
+        years = None
+    if years is None:
+        return (None, None)
+    refuse_backwards(years, payload.source_title)
+    return years
+
+
+def _refuse_entered_denomination_of_the_other_kind(
+    db: Session, payload: ItemCreate
+) -> None:
+    """Raise a 422 if a new item's denomination belongs to the other kind.
+
+    No item row exists yet on this path, so the payload's own `item_kind` is
+    compared against the denomination's kind directly, rather than through
+    `_refuse_mismatched_denomination`.
+    """
+    if not payload.denomination:
+        return
+    denomination_kind = db.scalar(
+        select(Denomination.kind).where(Denomination.code == payload.denomination)
+    )
+    is_note_denomination = denomination_kind == DenominationKind.note
+    if (payload.item_kind == "currency") != is_note_denomination:
+        side = "banknotes" if is_note_denomination else "coins"
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"denomination {payload.denomination} belongs to {side}: "
+                f"item_kind {payload.item_kind!r} cannot take it."
+            ),
+        )
+
+
+def _detail_code_id(
+    db: Session,
+    model: type[ReferenceMixin],
+    code: str | None,
+    field: str,
+    *,
+    fits: bool,
+) -> int | None:
+    """A detail row's classifier id for a new item, or None where it has no such row.
+
+    A coin's mint is resolved only for what is not a note, and a note's
+    classifiers only for a note: the code of the other kind is not looked up
+    at all.
+    """
+    return code_to_id(db, model, code, field) if fits else None
+
+
+def _refuse_entered_fine_above_gross(payload: ItemCreate) -> None:
+    """Raise a 422 if a new item is said to hold more fine weight than gross."""
+    if (
+        payload.gross_weight_ozt is not None
+        and payload.fine_weight_ozt is not None
+        and payload.fine_weight_ozt > payload.gross_weight_ozt
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"fine_weight_ozt {payload.fine_weight_ozt} cannot be more than "
+                f"gross_weight_ozt {payload.gross_weight_ozt}."
+            ),
+        )
+
+
+def _entered_tax(payload: ItemCreate) -> dict[str, object]:
+    """The tax columns a new item is given; one left out takes the configured value."""
+    tax_kwargs: dict[str, object] = {}
+    if payload.tax_rate is not None:
+        tax_kwargs["tax_rate"] = payload.tax_rate
+    if payload.tax_includes_shipping is not None:
+        tax_kwargs["tax_includes_shipping"] = payload.tax_includes_shipping
+    return tax_kwargs
+
+
+def _entered_facility(payload: ItemCreate) -> str | None:
+    """Where a new note was printed: what its face plate names, else what was sent."""
+    if payload.face_plate_number:
+        return _facility(payload.face_plate_number, payload.printing_facility)
+    return payload.printing_facility
+
+
+def _set_entered_attributes(
+    db: Session, item: InventoryItem, codes: Sequence[str], user_id: int
+) -> None:
+    """Give a new item its attributes, by the same rules as an edit.
+
+    A code unknown, or of the other kind (a star on a coin), refuses the
+    whole entry (422) -- nothing has been committed yet.
+    """
+    if not codes:
+        return
+    try:
+        item_attributes.set_attributes(db, item, codes, user_id=user_id)
+    except item_attributes.AttributeRefused as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _take_listing_as_the_purchase_s_address(
+    db: Session, order: PurchaseOrder, listing_url: str | None
+) -> None:
+    """Give a purchase with no web address its first item's listing.
+
+    At an auction house or a shop the lot's page is the purchase's too; a
+    marketplace's order holds many listings, so it takes none.
+    """
+    vendor = db.get_one(Vendor, order.vendor_id)
+    if (
+        order.source_url is None
+        and listing_url
+        and not listing_links.is_marketplace(vendor)
+    ):
+        order.source_url = listing_url
+
+
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
@@ -932,23 +1092,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
         f"Unknown purchase_order_id: {payload.purchase_order_id}",
     )
 
-    # A year given alone is a single year; an explicit end before the start
-    # is refused rather than silently swapped. There is no existing item to
-    # name in the message yet, so the title given stands in for it.
-    given_years = {
-        field: getattr(payload, field)
-        for field in YEAR_FIELDS
-        if getattr(payload, field) is not None
-    }
-    years = resolve_years((None, None), given_years)
-    if payload.item_kind == "currency":
-        # A note holds no year: its series year is its year (see
-        # `_refuse_note_year`; ItemCreate refuses one sent for a note).
-        years = None
-    if years is not None:
-        refuse_backwards(years, payload.source_title)
-    else:
-        years = (None, None)
+    years = _entered_years(payload)
 
     # Every code resolved before anything is written -- the first unknown one
     # is the 422 the caller sees, and nothing has been added to the session
@@ -956,23 +1100,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     item_kind_id = require_code(db, ItemKind, payload.item_kind, "item_kind")
     country_id = code_to_id(db, Country, payload.country, "country")
     denomination_id = code_to_id(db, Denomination, payload.denomination, "denomination")
-    if payload.denomination:
-        # No item row exists yet on this path, so the payload's own
-        # `item_kind` is compared against the denomination's kind directly,
-        # rather than through `_refuse_mismatched_denomination`.
-        denomination_kind = db.scalar(
-            select(Denomination.kind).where(Denomination.code == payload.denomination)
-        )
-        is_note_denomination = denomination_kind == DenominationKind.note
-        if (payload.item_kind == "currency") != is_note_denomination:
-            side = "banknotes" if is_note_denomination else "coins"
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"denomination {payload.denomination} belongs to {side}: "
-                    f"item_kind {payload.item_kind!r} cannot take it."
-                ),
-            )
+    _refuse_entered_denomination_of_the_other_kind(db, payload)
     grade_code, strike_code = grades.split_fields(payload.grade, payload.strike_type)
     grade_id = code_to_id(db, Grade, grade_code, "grade")
     strike_type_id = code_to_id(db, StrikeType, strike_code, "strike_type")
@@ -995,31 +1123,22 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     status_id = require_code(db, ItemStatus, payload.status, "status")
 
     is_currency = payload.item_kind == "currency"
-    mint_id = None if is_currency else code_to_id(db, Mint, payload.mint, "mint")
-    note_type_id = (
-        code_to_id(db, NoteType, payload.note_type, "note_type")
-        if is_currency
-        else None
+    mint_id = _detail_code_id(db, Mint, payload.mint, "mint", fits=not is_currency)
+    note_type_id = _detail_code_id(
+        db, NoteType, payload.note_type, "note_type", fits=is_currency
     )
-    seal_color_id = (
-        code_to_id(db, SealColor, payload.seal_color, "seal_color")
-        if is_currency
-        else None
+    seal_color_id = _detail_code_id(
+        db, SealColor, payload.seal_color, "seal_color", fits=is_currency
     )
-    fed_district_id = (
-        code_to_id(db, FedDistrict, payload.fed_district, "fed_district")
-        if is_currency
-        else None
+    fed_district_id = _detail_code_id(
+        db, FedDistrict, payload.fed_district, "fed_district", fits=is_currency
     )
-    signature_combination_id = (
-        code_to_id(
-            db,
-            SignatureCombination,
-            payload.signature_combination,
-            "signature_combination",
-        )
-        if is_currency
-        else None
+    signature_combination_id = _detail_code_id(
+        db,
+        SignatureCombination,
+        payload.signature_combination,
+        "signature_combination",
+        fits=is_currency,
     )
     unknown_suggestions = sorted(set(payload.suggested) - SUGGESTABLE_FIELDS)
     if unknown_suggestions:
@@ -1034,24 +1153,9 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
         _require_location(db, payload.storage_location_id)
     # Likewise a piece said to hold more metal than it weighs, which the
     # database would refuse as the row is written.
-    if (
-        payload.gross_weight_ozt is not None
-        and payload.fine_weight_ozt is not None
-        and payload.fine_weight_ozt > payload.gross_weight_ozt
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"fine_weight_ozt {payload.fine_weight_ozt} cannot be more than "
-                f"gross_weight_ozt {payload.gross_weight_ozt}."
-            ),
-        )
+    _refuse_entered_fine_above_gross(payload)
 
-    tax_kwargs: dict[str, object] = {}
-    if payload.tax_rate is not None:
-        tax_kwargs["tax_rate"] = payload.tax_rate
-    if payload.tax_includes_shipping is not None:
-        tax_kwargs["tax_includes_shipping"] = payload.tax_includes_shipping
+    tax_kwargs = _entered_tax(payload)
 
     item = InventoryItem(
         purchase_order_id=order.id,
@@ -1106,11 +1210,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
                 serial_number=_serial_or_none(payload.serial_number),
                 face_plate_number=payload.face_plate_number,
                 back_plate_number=payload.back_plate_number,
-                printing_facility=(
-                    _facility(payload.face_plate_number, payload.printing_facility)
-                    if payload.face_plate_number
-                    else payload.printing_facility
-                ),
+                printing_facility=_entered_facility(payload),
             )
         )
     else:
@@ -1138,26 +1238,8 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
             note="entered in the console",
         )
 
-    # The same rules as an edit: a code unknown, or of the other kind (a star
-    # on a coin), refuses the whole entry -- nothing has been committed yet.
-    if payload.attributes:
-        try:
-            item_attributes.set_attributes(
-                db, item, payload.attributes, user_id=admin.id
-            )
-        except item_attributes.AttributeRefused as exc:
-            db.rollback()
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    # At an auction house or a shop the lot's page is the purchase's too: a
-    # purchase entered with no web address takes its first item's listing.
-    vendor = db.get_one(Vendor, order.vendor_id)
-    if (
-        order.source_url is None
-        and payload.listing_url
-        and not listing_links.is_marketplace(vendor)
-    ):
-        order.source_url = payload.listing_url
+    _set_entered_attributes(db, item, payload.attributes, admin.id)
+    _take_listing_as_the_purchase_s_address(db, order, payload.listing_url)
 
     record_initial_status(db, item, user_id=admin.id, note="entered in the console")
     # Only a suggestion that was actually filled is a derived default.
@@ -1211,70 +1293,19 @@ def item_detail(
         if parent is not None:
             parent_code = parent.item_code
         if parent is not None and editing:
-            # Every inherited field, not only the ones that now differ. A
-            # piece that still agrees with its lot is the important case, not
-            # the boring one: it agrees *because* it inherited the seller's
-            # claim and nobody has checked it yet. Reporting only the
-            # differences would drop exactly the fields that need the
-            # warning. What to do with an agreeing field is the form's call,
-            # not this endpoint's.
-            #
-            # A relationship may claim nothing at all -- a lot with no grade
-            # recorded says nothing about grade -- and that is omitted rather
-            # than sent as null, so the form can tell "the lot said nothing"
-            # from "the lot said none of these apply".
-            for name in LOT_CLAIM_FIELDS:
-                value: object
-                if name in ITEM_CLASSIFIERS:
-                    value = code_of(
-                        db, ITEM_CLASSIFIERS[name], getattr(parent, f"{name}_id")
-                    )
-                else:
-                    value = plain(getattr(parent, name))
-                if value is not None:
-                    claims[name] = value
+            claims = _lot_claims(db, parent)
 
     classifiers = {
         field: code_of(db, model, getattr(item, f"{field}_id"))
         for field, model in ITEM_CLASSIFIERS.items()
     }
-    coin: dict[str, object] = {}
-    if (struck := item.coin_detail) is not None:
-        coin = {
-            "mint": code_of(db, Mint, struck.mint_id),
-            "variety": struck.variety,
-        }
-    note: dict[str, object] = {}
-    if (detail := item.currency_detail) is not None:
-        note = {
-            field: code_of(db, model, getattr(detail, f"{field}_id"))
-            for field, model in NOTE_CLASSIFIERS.items()
-        }
-        note.update({field: getattr(detail, field) for field in NOTE_SCALARS})
-        friedberg = (
-            db.get(FriedbergNumber, detail.friedberg_id)
-            if detail.friedberg_id is not None
-            else None
-        )
-        note.update(
-            friedberg_id=detail.friedberg_id,
-            friedberg_number=friedberg.fr_number if friedberg else None,
-            friedberg_status=detail.friedberg_status,
-            friedberg_verified=(
-                friedberg.verified_at is not None if friedberg else None
-            ),
-        )
-
-    order = (
-        db.get(PurchaseOrder, item.purchase_order_id)
-        if item.purchase_order_id is not None
-        else None
-    )
-    vendor = db.get(Vendor, order.vendor_id) if order is not None else None
+    coin = _coin_fields(db, item)
+    note = _note_fields(db, item)
+    order_number, vendor_name = _purchase_named(db, item)
     return ItemDetailOut(
         purchase_order_id=item.purchase_order_id,
-        order_number=order.order_number if order is not None else None,
-        vendor=vendor.name if vendor is not None else None,
+        order_number=order_number,
+        vendor=vendor_name,
         sellers_item_id=item.sellers_item_id,
         listing_url=item.listing_url,
         storage_location_id=item.storage_location_id,
@@ -1325,6 +1356,82 @@ def item_detail(
             for held in item_attributes.held_attributes(db, item.id)
         ],
         **(_editing_fields(db, item, claims) if editing else {}),
+    )
+
+
+def _lot_claims(db: Session, parent: InventoryItem) -> dict[str, object]:
+    """What a piece's lot said of each inherited field, by API field.
+
+    Every inherited field, not only the ones that now differ. A piece that
+    still agrees with its lot is the important case, not the boring one: it
+    agrees *because* it inherited the seller's claim and nobody has checked
+    it yet. Reporting only the differences would drop exactly the fields
+    that need the warning. What to do with an agreeing field is the form's
+    call, not this endpoint's.
+
+    A relationship may claim nothing at all -- a lot with no grade recorded
+    says nothing about grade -- and that is omitted rather than sent as
+    null, so the form can tell "the lot said nothing" from "the lot said
+    none of these apply".
+    """
+    claims: dict[str, object] = {}
+    for name in LOT_CLAIM_FIELDS:
+        value: object
+        if name in ITEM_CLASSIFIERS:
+            value = code_of(db, ITEM_CLASSIFIERS[name], getattr(parent, f"{name}_id"))
+        else:
+            value = plain(getattr(parent, name))
+        if value is not None:
+            claims[name] = value
+    return claims
+
+
+def _coin_fields(db: Session, item: InventoryItem) -> dict[str, object]:
+    """A coin's own fields from its detail row; none for an item with no such row."""
+    struck = item.coin_detail
+    if struck is None:
+        return {}
+    return {
+        "mint": code_of(db, Mint, struck.mint_id),
+        "variety": struck.variety,
+    }
+
+
+def _note_fields(db: Session, item: InventoryItem) -> dict[str, object]:
+    """A note's own fields and its Friedberg number; none for what is not a note."""
+    detail = item.currency_detail
+    if detail is None:
+        return {}
+    note: dict[str, object] = {
+        field: code_of(db, model, getattr(detail, f"{field}_id"))
+        for field, model in NOTE_CLASSIFIERS.items()
+    }
+    note.update({field: getattr(detail, field) for field in NOTE_SCALARS})
+    friedberg = (
+        db.get(FriedbergNumber, detail.friedberg_id)
+        if detail.friedberg_id is not None
+        else None
+    )
+    note.update(
+        friedberg_id=detail.friedberg_id,
+        friedberg_number=friedberg.fr_number if friedberg else None,
+        friedberg_status=detail.friedberg_status,
+        friedberg_verified=(friedberg.verified_at is not None if friedberg else None),
+    )
+    return note
+
+
+def _purchase_named(db: Session, item: InventoryItem) -> tuple[str | None, str | None]:
+    """The order number and the vendor of the purchase an item came on, if any."""
+    order = (
+        db.get(PurchaseOrder, item.purchase_order_id)
+        if item.purchase_order_id is not None
+        else None
+    )
+    vendor = db.get(Vendor, order.vendor_id) if order is not None else None
+    return (
+        order.order_number if order is not None else None,
+        vendor.name if vendor is not None else None,
     )
 
 
@@ -1577,6 +1684,39 @@ def _attribute_labels(db: Session, codes: Sequence[str]) -> list[str]:
 _NOT_DRY_RUN = frozenset({"status", "disposition"})
 
 
+def _dry_run_classifiers(
+    db: Session, item: InventoryItem, data: dict[str, Any]
+) -> None:
+    """Set the item's classifiers a dry run applies, each code resolved as Save does.
+
+    Not status or disposition (`_NOT_DRY_RUN`). A value the item already
+    holds stays acceptable after it is retired (`keep`).
+    """
+    for field, model in ITEM_CLASSIFIERS.items():
+        if field not in data or field in _NOT_DRY_RUN:
+            continue
+        held = getattr(item, f"{field}_id")
+        if field in REQUIRED_CLASSIFIERS:
+            row_id: int | None = require_code(db, model, data[field], field, keep=held)
+        else:
+            row_id = code_to_id(db, model, data[field], field, keep=held)
+        setattr(item, f"{field}_id", row_id)
+
+
+def _dry_run_scalars(item: InventoryItem, data: dict[str, Any]) -> None:
+    """Set the plain fields a dry run applies; the years are set apart.
+
+    A required field sent empty is left as it was: the column cannot hold
+    nothing, and a dry run refuses nothing Save would name.
+    """
+    for field in EDITABLE_SCALARS:
+        if field not in data or field in YEAR_FIELDS:
+            continue
+        if field in REQUIRED_SCALARS and data[field] is None:
+            continue
+        setattr(item, field, data[field])
+
+
 def _dry_run_save(db: Session, item: InventoryItem, data: dict[str, Any]) -> None:
     """Apply an edit as Save does, defaults included, for the caller to roll back.
 
@@ -1602,25 +1742,12 @@ def _dry_run_save(db: Session, item: InventoryItem, data: dict[str, Any]) -> Non
     _split_grade(data)
     no_date = _no_date_after(item, data)
     worked_out = _refuse_fine_above_gross(db, [item], data)
-    for field, model in ITEM_CLASSIFIERS.items():
-        if field not in data or field in _NOT_DRY_RUN:
-            continue
-        held = getattr(item, f"{field}_id")
-        if field in REQUIRED_CLASSIFIERS:
-            row_id: int | None = require_code(db, model, data[field], field, keep=held)
-        else:
-            row_id = code_to_id(db, model, data[field], field, keep=held)
-        setattr(item, f"{field}_id", row_id)
+    _dry_run_classifiers(db, item, data)
     note_changes = _note_changes(db, data, item.currency_detail)
     _set_notes_and_detail(db, [item], note_changes, kind_changed="item_kind" in data)
     if coin_changes:
         _set_coin_detail(db, item, coin_changes)
-    for field in EDITABLE_SCALARS:
-        if field not in data or field in YEAR_FIELDS:
-            continue
-        if field in REQUIRED_SCALARS and data[field] is None:
-            continue
-        setattr(item, field, data[field])
+    _dry_run_scalars(item, data)
     _empty_worked_out_fine_weight(db, worked_out)
     if _is_note_after(item, data) or no_date:
         years: tuple[int | None, int | None] | None = (None, None)
@@ -1945,16 +2072,26 @@ def _note_changes(
             )
     for field in NOTE_SCALARS:
         if field in data:
-            value = data[field]
-            if field == "series_letter" and isinstance(value, str):
-                value = value.strip().upper() or None
-            if field == "serial_number":
-                value = _serial_or_none(value)
-            changes[field] = value
+            changes[field] = _note_scalar_as_stored(field, data)
     face = changes.get("face_plate_number")
     if isinstance(face, str):
         changes["printing_facility"] = _facility(face, data.get("printing_facility"))
     return changes
+
+
+def _note_scalar_as_stored(field: str, data: dict[str, Any]) -> object:
+    """A note's plain field as sent in `data`, in the form it is stored in.
+
+    A series letter is kept trimmed and in capitals, and one sent blank is
+    none; a serial sent blank is none (`_serial_or_none`). Every other field
+    is stored as sent.
+    """
+    value = data[field]
+    if field == "series_letter" and isinstance(value, str):
+        return value.strip().upper() or None
+    if field == "serial_number":
+        return _serial_or_none(value)
+    return value
 
 
 def _serial_or_none(serial: str | None) -> str | None:
@@ -2180,6 +2317,25 @@ def _set_coin_detail(
     item.updated_at = datetime.now(UTC)
 
 
+def _designation_of_the_other_kind(
+    sent: object, sides: dict[str, AppliesTo], *, is_currency: bool
+) -> str | None:
+    """Why a designation does not fit an item of this kind, or None if it does.
+
+    `sent` is the code the item holds once the edit is made. A blank clears
+    it, one that fits any kind fits, and an unknown code is `code_to_id`'s
+    422 to raise, not a mismatch.
+    """
+    code = sent if isinstance(sent, str) else None
+    side = sides.get(code) if code else None
+    if side is None or side == AppliesTo.any:
+        return None
+    if (side == AppliesTo.currency) == is_currency:
+        return None
+    owner = "banknotes" if side == AppliesTo.currency else "coins"
+    return f"{code} belongs to {owner}"
+
+
 def _refuse_mismatched_designation(
     data: dict[str, object], items: Sequence[InventoryItem], db: Session
 ) -> None:
@@ -2206,16 +2362,11 @@ def _refuse_mismatched_designation(
     wrong: list[str] = []
     for item in items:
         sent = data.get("grade_designation", codes.get(item.grade_designation_id or 0))
-        code = sent if isinstance(sent, str) else None
-        side = sides.get(code) if code else None
-        # A blank clears it; an unknown code is code_to_id's 422 to raise.
-        if side is None or side == AppliesTo.any:
-            continue
-        if (side == AppliesTo.currency) != _effective_is_currency(
-            data, item, currency_id
-        ):
-            owner = "banknotes" if side == AppliesTo.currency else "coins"
-            wrong.append(f"{item.item_code} ({code} belongs to {owner})")
+        mismatch = _designation_of_the_other_kind(
+            sent, sides, is_currency=_effective_is_currency(data, item, currency_id)
+        )
+        if mismatch is not None:
+            wrong.append(f"{item.item_code} ({mismatch})")
     if wrong:
         raise HTTPException(
             status_code=422,
@@ -2224,6 +2375,58 @@ def _refuse_mismatched_designation(
                 f"{', '.join(sorted(set(wrong)))}. Nothing was changed."
             ),
         )
+
+
+def _carried_denomination_kinds(
+    db: Session, items: Sequence[InventoryItem]
+) -> dict[int, DenominationKind]:
+    """The kind of every denomination one of these items already carries.
+
+    Read once for the set, so a bare `item_kind` edit can be checked against
+    what it would strand without a query per item.
+    """
+    carried_ids = {item.denomination_id for item in items if item.denomination_id}
+    if not carried_ids:
+        return {}
+    carried = db.scalars(
+        select(Denomination).where(Denomination.id.in_(carried_ids))
+    ).all()
+    return {d.id: d.kind for d in carried}
+
+
+def _split_from_their_denomination(
+    db: Session,
+    data: dict[str, object],
+    items: Sequence[InventoryItem],
+    currency_id: int | None,
+    sent_kind: DenominationKind | None,
+) -> list[str]:
+    """The codes of the items an edit leaves with the other kind's denomination.
+
+    Each item is judged by the denomination it holds once the edit is made:
+    the one sent (`sent_kind`; None when it is being cleared), else the one
+    it already carries. An item with none conflicts with neither kind.
+    """
+    sending_denomination = "denomination" in data
+    carried_kinds: dict[int, DenominationKind] = {}
+    if not sending_denomination:
+        carried_kinds = _carried_denomination_kinds(db, items)
+
+    split: list[str] = []
+    for item in items:
+        if sending_denomination:
+            effective_kind = sent_kind
+        elif item.denomination_id is not None:
+            effective_kind = carried_kinds.get(item.denomination_id)
+        else:
+            effective_kind = None
+        if effective_kind is None:
+            continue
+        is_note_denomination = effective_kind == DenominationKind.note
+        if _effective_is_currency(data, item, currency_id) == is_note_denomination:
+            continue
+        split.append(item.item_code)
+    return split
 
 
 def _refuse_mismatched_denomination(
@@ -2256,54 +2459,28 @@ def _refuse_mismatched_denomination(
         # A null or empty denomination clears it: `sent_kind` stays None,
         # which never conflicts with either item_kind below.
 
-    # The kind of every denomination one of these items already carries, so a
-    # bare `item_kind` edit can be checked against what it would strand
-    # without a query per item.
-    carried_kinds: dict[int, DenominationKind] = {}
-    if not sending_denomination:
-        carried_ids = {item.denomination_id for item in items if item.denomination_id}
-        if carried_ids:
-            carried = db.scalars(
-                select(Denomination).where(Denomination.id.in_(carried_ids))
-            ).all()
-            carried_kinds = {d.id: d.kind for d in carried}
-
-    sent_on: list[str] = []
-    carried_on: list[str] = []
-    for item in items:
-        if sending_denomination:
-            effective_kind = sent_kind
-        elif item.denomination_id is not None:
-            effective_kind = carried_kinds.get(item.denomination_id)
-        else:
-            effective_kind = None
-        if effective_kind is None:
-            continue
-        is_note_denomination = effective_kind == DenominationKind.note
-        if _effective_is_currency(data, item, currency_id) == is_note_denomination:
-            continue
-        (sent_on if sending_denomination else carried_on).append(item.item_code)
-
-    if sent_on:
+    split = _split_from_their_denomination(db, data, items, currency_id, sent_kind)
+    if not split:
+        return
+    if sending_denomination:
         side = "banknotes" if sent_kind == DenominationKind.note else "coins"
         raise HTTPException(
             status_code=422,
             detail=(
                 f"denomination {data['denomination']} belongs to {side}: "
-                f"{', '.join(sorted(set(sent_on)))} cannot take it. Nothing "
+                f"{', '.join(sorted(set(split)))} cannot take it. Nothing "
                 "was changed."
             ),
         )
-    if carried_on:
-        target = f" to {data['item_kind']!r}" if "item_kind" in data else ""
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"{', '.join(sorted(set(carried_on)))} already carries a "
-                f"denomination for the other kind; clear it before changing "
-                f"item_kind{target}. Nothing was changed."
-            ),
-        )
+    target = f" to {data['item_kind']!r}" if "item_kind" in data else ""
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"{', '.join(sorted(set(split)))} already carries a "
+            f"denomination for the other kind; clear it before changing "
+            f"item_kind{target}. Nothing was changed."
+        ),
+    )
 
 
 #: Fields of `InventoryItemUpdate` only a single edit writes: the flag and
@@ -2395,6 +2572,175 @@ def _empty_worked_out_fine_weight(db: Session, items: Sequence[InventoryItem]) -
             forget(db, [item.id], ["fine_weight_ozt"])
 
 
+def _refuse_single_edit_fields(data: dict[str, Any]) -> None:
+    """Raise a 422 naming the fields sent that only a single edit can set."""
+    if "attributes" in data:
+        # A whole set, per item: the same set across many items would wipe
+        # whatever each carried that the others do not.
+        raise HTTPException(
+            status_code=422,
+            detail="attributes are set one item at a time. Nothing was changed.",
+        )
+    # Refused by name rather than dropped: nothing in a bulk edit writes any
+    # of these, and a 200 would report a change that was never made.
+    single_only = sorted(field for field in _SINGLE_EDIT_ONLY if field in data)
+    if single_only:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{', '.join(single_only)}: set one item at a time. "
+            "Nothing was changed.",
+        )
+
+
+def _resolved_for_bulk(
+    db: Session, data: dict[str, Any]
+) -> tuple[dict[str, object], int | None]:
+    """The item columns a bulk edit sets, by column, and the status it moves to.
+
+    Every code is resolved here, before anything is set. Status is the one
+    classifier with a history table behind it, so it is returned apart from
+    the columns: it goes through `set_status` instead of a plain `setattr`,
+    the same reason `PATCH /{item_id}` special-cases it. The years are not
+    here either; they are worked out per item.
+    """
+    resolved: dict[str, object] = {}
+    status_id: int | None = None
+    for field, model in ITEM_CLASSIFIERS.items():
+        if field not in data:
+            continue
+        value = data[field]
+        value_id: int | None
+        if field in REQUIRED_CLASSIFIERS:
+            value_id = require_code(db, model, value, field)
+        else:
+            value_id = code_to_id(db, model, value, field)
+        if field == "status":
+            status_id = value_id
+        else:
+            resolved[f"{field}_id"] = value_id
+    for field in EDITABLE_SCALARS:
+        if field in data and field not in YEAR_FIELDS:
+            resolved[field] = data[field]
+    return resolved, status_id
+
+
+def _years_for_bulk(
+    items: Sequence[InventoryItem], data: dict[str, Any]
+) -> dict[int, tuple[int | None, int | None] | None]:
+    """The years each item holds after a bulk edit, by item id; None if untouched.
+
+    A note holds none. Raises a 422 naming every item the edit would leave
+    with a range that ends before it starts, before any is changed.
+    """
+    years = {
+        item.id: (None, None)
+        if _is_note_after(item, data)
+        else resolve_years((item.year_start, item.year_end), data)
+        for item in items
+    }
+    broken = sorted(
+        item.item_code
+        for item in items
+        if (pair := years[item.id]) is not None and backwards(pair)
+    )
+    if broken:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"That year would end a range before it starts on {broken}. "
+            "Nothing was changed.",
+        )
+    return years
+
+
+def _lock_offers_holding(
+    db: Session, item_ids: list[int]
+) -> offering_writes.LockedForSale | None:
+    """Lock the offers holding these items, and the items; None if none is offered.
+
+    For a caller about to change the standing of items that are on sale: the
+    rows are taken in the canonical order (`offering_writes.lock_for_sale`)
+    before its first write. The read of the offers here only chooses what to
+    lock; `_end_offers_holding` reads them again under the locks.
+    """
+    held_offers = offering_writes.offers_holding(db, item_ids) if item_ids else []
+    if not held_offers:
+        return None
+    return offering_writes.lock_for_sale(
+        db,
+        listing_ids=[live.id for live in held_offers],
+        item_ids=item_ids,
+        including_paused=True,
+    )
+
+
+def _set_resolved(items: Sequence[InventoryItem], resolved: dict[str, object]) -> None:
+    """Set the same resolved columns on every item."""
+    for item in items:
+        for column, value in resolved.items():
+            setattr(item, column, value)
+
+
+def _set_years_and_status(
+    db: Session,
+    item: InventoryItem,
+    data: dict[str, Any],
+    pair: tuple[int | None, int | None] | None,
+    status_id: int | None,
+    user_id: int,
+) -> None:
+    """Give one item of a bulk edit its years, then its status.
+
+    A year dates the piece, and a note never holds `no_date`: its year is
+    its series year. The status goes through `set_status`, which keeps the
+    move in its history.
+    """
+    if pair is not None:
+        item.year_start, item.year_end = pair
+        if pair != (None, None) or _is_note_after(item, data):
+            item.no_date = False
+    if status_id is not None:
+        set_status(db, item, status_id, user_id=user_id)
+
+
+def _move_if_elsewhere(
+    db: Session, item: InventoryItem, to_location: int | None, user_id: int
+) -> None:
+    """Move an item to where an edit puts it, unless it is already there.
+
+    Through `set_location`, one move in the item's location history. That
+    history is another table, so the item is touched: that is what moves its
+    version.
+    """
+    if item.storage_location_id != to_location:
+        set_location(
+            db,
+            item,
+            to_location,
+            user_id=user_id,
+            note="edited in the console",
+        )
+        item.updated_at = datetime.now(UTC)
+
+
+def _log_bulk_changes(
+    db: Session,
+    items: Sequence[InventoryItem],
+    before: dict[int, dict[str, Any]],
+    sent: list[str],
+    user_id: int,
+) -> None:
+    """Log, per item, each of `sent` whose value a bulk edit moved."""
+    for item in items:
+        field_changes.record(
+            db,
+            item.id,
+            before[item.id],
+            _sent_values(db, item, sent),
+            sent,
+            user_id=user_id,
+        )
+
+
 @router.post("/bulk", responses={422: unprocessable(_REFUSED_ITEM)})
 def bulk_edit(
     payload: BulkEditRequest, db: DbSession, admin: AdminUser
@@ -2414,22 +2760,7 @@ def bulk_edit(
     data = payload.changes.model_dump(exclude_unset=True)
     data.pop("version", None)  # Meaningless across a set of rows.
     acknowledged = data.pop("acknowledge_for_sale", False)
-    if "attributes" in data:
-        # A whole set, per item: the same set across many items would wipe
-        # whatever each carried that the others do not.
-        raise HTTPException(
-            status_code=422,
-            detail="attributes are set one item at a time. Nothing was changed.",
-        )
-    # Refused by name rather than dropped: nothing below writes any of these,
-    # and a 200 would report a change that was never made.
-    single_only = sorted(field for field in _SINGLE_EDIT_ONLY if field in data)
-    if single_only:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"{', '.join(single_only)}: set one item at a time. "
-            "Nothing was changed.",
-        )
+    _refuse_single_edit_fields(data)
     # Where the items are kept moves through `set_location`, one move in
     # each item's location history; it is not a field the writes below
     # set, and like the single edit it is not what the sale warning is for.
@@ -2471,94 +2802,35 @@ def bulk_edit(
 
     # Every code resolved before anything is set, so a typo in the last field
     # does not leave the first three applied.
-    resolved: dict[str, object] = {}
-    # Status is the one classifier with a history table behind it. Pulled out
-    # of `resolved` so it can go through set_status below instead of the
-    # plain setattr loop -- the same reason PATCH /{item_id} special-cases it.
-    status_id: int | None = None
-    for field, model in ITEM_CLASSIFIERS.items():
-        if field in data:
-            value = data[field]
-            value_id: int | None
-            if field in REQUIRED_CLASSIFIERS:
-                value_id = require_code(db, model, value, field)
-            else:
-                value_id = code_to_id(db, model, value, field)
-            if field == "status":
-                status_id = value_id
-            else:
-                resolved[f"{field}_id"] = value_id
-    for field in EDITABLE_SCALARS:
-        if field in data and field not in YEAR_FIELDS:
-            resolved[field] = data[field]
+    resolved, status_id = _resolved_for_bulk(db, data)
     note_changes = _note_changes(db, data)
 
     # Per item, not once for the set: the same Year moves a single year's end
     # with it and leaves a range's end alone. Checked across every item before
     # any is changed, the same all-or-nothing as the codes above.
     _refuse_note_year(items, data)
-    years = {
-        item.id: (None, None)
-        if _is_note_after(item, data)
-        else resolve_years((item.year_start, item.year_end), data)
-        for item in items
-    }
-    broken = sorted(
-        item.item_code
-        for item in items
-        if (pair := years[item.id]) is not None and backwards(pair)
-    )
-    if broken:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"That year would end a range before it starts on {broken}. "
-            "Nothing was changed.",
-        )
+    years = _years_for_bulk(items, data)
 
     # As in `update_item`: a new status or disposition on an offered item
     # ends its offer, the guard above having had the caller acknowledge the
     # sale. Locked before the first write, in the canonical order.
     standing = {item.id: code for item in items if (code := _standing_code(item, data))}
     changing = sorted(standing)
-    held_offers = offering_writes.offers_holding(db, changing) if changing else []
-    locked = None
-    if held_offers:
-        locked = offering_writes.lock_for_sale(
-            db,
-            listing_ids=[live.id for live in held_offers],
-            item_ids=changing,
-            including_paused=True,
-        )
+    locked = _lock_offers_holding(db, changing)
 
     # No version is sent for a set of rows, so one that moves between this
     # request's read and its UPDATE is found only by the database: that is
     # the caller's conflict to retry, with nothing applied.
     with committing(db, _STALE_ITEMS):
-        for item in items:
-            for column, value in resolved.items():
-                setattr(item, column, value)
+        _set_resolved(items, resolved)
         _empty_worked_out_fine_weight(db, worked_out)
         _set_notes_and_detail(
             db, list(items), note_changes, kind_changed="item_kind" in data
         )
         for item in items:
-            if (pair := years[item.id]) is not None:
-                item.year_start, item.year_end = pair
-                # A year dates the piece, and a note never holds the flag:
-                # its year is its series year.
-                if pair != (None, None) or _is_note_after(item, data):
-                    item.no_date = False
-            if status_id is not None:
-                set_status(db, item, status_id, user_id=admin.id)
-            if moves and item.storage_location_id != to_location:
-                set_location(
-                    db,
-                    item,
-                    to_location,
-                    user_id=admin.id,
-                    note="edited in the console",
-                )
-                item.updated_at = datetime.now(UTC)
+            _set_years_and_status(db, item, data, years[item.id], status_id, admin.id)
+            if moves:
+                _move_if_elsewhere(db, item, to_location, admin.id)
 
         if locked is not None:
             _end_offers_holding(
@@ -2577,17 +2849,150 @@ def bulk_edit(
 
         # Who changed what, per item, in the same transaction -- see
         # update_item (`refresh_items` above has flushed).
-        for item in items:
-            field_changes.record(
-                db,
-                item.id,
-                before[item.id],
-                _sent_values(db, item, sent),
-                sent,
-                user_id=admin.id,
-            )
+        _log_bulk_changes(db, items, before, sent, admin.id)
 
     return {"updated": len(items)}
+
+
+def _refuse_null_set(
+    payload: InventoryItemUpdate, field: str, value: list[str] | None
+) -> None:
+    """Raise a 422 if a whole-set field was sent as null; `[]` is what clears it."""
+    if field in payload.model_fields_set and value is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field} may not be null; send [] to clear them.",
+        )
+
+
+def _sent_by_the_caller(
+    data: dict[str, Any], attributes: list[str] | None, certs: list[str] | None
+) -> dict[str, Any]:
+    """The fields an edit sent, in the editor's terms, with its two whole sets.
+
+    A copy of `data` as it stands when this is called, so what the
+    field-by-field merge and the change log compare is what the caller sent
+    and not what later steps reshape.
+    """
+    sent = dict(data)
+    if attributes is not None:
+        sent["attributes"] = attributes
+    if certs is not None:
+        sent["cert_numbers"] = certs
+    return sent
+
+
+def _refuse_lost_update(
+    db: Session,
+    item: InventoryItem,
+    before: dict[str, Any],
+    sent: dict[str, Any],
+    base: dict[str, Any] | None,
+    expected: int | None,
+) -> None:
+    """Refuse a save that would overwrite a change made since the form opened. 409.
+
+    This is what catches the ordinary lost-update case: two staff, each with
+    a form loaded at a different time, and the second one saving over the
+    first. The item is re-fetched fresh at the top of every request, so
+    nothing later in the request -- including the database's own
+    version_id_col check -- ever sees a token from an earlier request; only
+    this comparison, against the value the caller actually sent, does.
+
+    With a `base`, the save is merged field by field instead: a change made
+    since only stops it where it touched a field this save changes, so two
+    people editing different fields of one item both keep their work. The
+    version is then not compared -- the base is the finer check -- and the
+    version column still guards the narrow window between the request's read
+    and its commit.
+    """
+    if base is not None:
+        _refuse_field_conflicts(db, item, before, sent, base)
+        return
+    refuse_stale_version(
+        expected,
+        item.version,
+        f"{item.item_code} was changed by someone else (you have "
+        f"version {expected}, current is {item.version}). Reload and "
+        f"reapply your changes.",
+    )
+
+
+def _years_after(
+    item: InventoryItem, data: dict[str, Any], *, no_date: bool
+) -> tuple[int | None, int | None] | None:
+    """The years an item holds after an edit; None if the edit leaves them alone.
+
+    A note holds none, and neither does a piece with no date. Raises a 422
+    for a range that would end before it starts, before anything is set.
+    """
+    years = (
+        (None, None)
+        if _is_note_after(item, data) or no_date
+        else resolve_years((item.year_start, item.year_end), data)
+    )
+    if years is not None:
+        refuse_backwards(years, item.item_code)
+    return years
+
+
+def _set_classifiers(
+    db: Session, item: InventoryItem, data: dict[str, Any], user_id: int
+) -> None:
+    """Resolve and set the item classifiers an edit sends.
+
+    `keep`: a value this item already holds stays saveable after it is
+    retired, so the form can save back what it loaded; only a new use of one
+    is refused.
+
+    Status is the one classifier with a history table behind it. Going
+    through `set_status` is what keeps that table true; a plain setattr
+    would leave no history row. Status is a REQUIRED_CLASSIFIER, so
+    `require_code` has refused a null code and its id is never None.
+    """
+    for field, model in ITEM_CLASSIFIERS.items():
+        if field not in data:
+            continue
+        value = data[field]
+        resolved: int | None
+        held = getattr(item, f"{field}_id")
+        if field in REQUIRED_CLASSIFIERS:
+            resolved = require_code(db, model, value, field, keep=held)
+        else:
+            resolved = code_to_id(db, model, value, field, keep=held)
+        if field == "status":
+            assert resolved is not None
+            set_status(db, item, resolved, user_id=user_id)
+        else:
+            setattr(item, f"{field}_id", resolved)
+
+
+def _set_scalars(item: InventoryItem, data: dict[str, Any]) -> None:
+    """Set the plain fields an edit sends; the years are set apart."""
+    for field in EDITABLE_SCALARS:
+        if field in data and field not in YEAR_FIELDS:
+            setattr(item, field, data[field])
+
+
+def _set_attributes_sent(
+    db: Session, item: InventoryItem, attributes: list[str] | None, user_id: int
+) -> None:
+    """Make the item's attributes the set an edit sent; none sent changes none.
+
+    A code unknown or of the other kind refuses the edit (422). The links
+    are another table. Touching the item is what moves its version, so a
+    form opened before this save gets a 409 rather than putting the old set
+    back.
+    """
+    if attributes is None:
+        return
+    try:
+        changed = item_attributes.set_attributes(db, item, attributes, user_id=user_id)
+    except item_attributes.AttributeRefused as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if changed:
+        item.updated_at = datetime.now(UTC)
 
 
 @router.patch(
@@ -2616,24 +3021,12 @@ def update_item(
     base = data.pop("base", None)
     acknowledged = data.pop("acknowledge_for_sale", False)
     attributes = data.pop("attributes", None)
-    if "attributes" in payload.model_fields_set and attributes is None:
-        raise HTTPException(
-            status_code=422,
-            detail="attributes may not be null; send [] to clear them.",
-        )
+    _refuse_null_set(payload, "attributes", attributes)
     certs = data.pop("cert_numbers", None)
-    if "cert_numbers" in payload.model_fields_set and certs is None:
-        raise HTTPException(
-            status_code=422,
-            detail="cert_numbers may not be null; send [] to clear them.",
-        )
+    _refuse_null_set(payload, "cert_numbers", certs)
     # What the caller sent, before `_split_grade` below reshapes it: the
     # field-by-field merge compares these, in the editor's own terms.
-    sent = dict(data)
-    if attributes is not None:
-        sent["attributes"] = attributes
-    if certs is not None:
-        sent["cert_numbers"] = certs
+    sent = _sent_by_the_caller(data, attributes, certs)
     # The item as it stands, in those same terms: the merge compares against
     # it, and the change log records it as each changed field's old value.
     before = field_values(db, item)
@@ -2653,29 +3046,7 @@ def update_item(
     worked_out = _refuse_fine_above_gross(db, [item], data)
     _split_grade(data)
 
-    # This is what catches the ordinary lost-update case: two staff, each with
-    # a form loaded at a different time, and the second one saving over the
-    # first. The item is re-fetched fresh at the top of every request, so
-    # nothing later in this function -- including the database's own
-    # version_id_col check -- ever sees a token from an earlier request; only
-    # this comparison, against the value the caller actually sent, does.
-    #
-    # With a `base`, the save is merged field by field instead: a change made
-    # since only stops it where it touched a field this save changes, so two
-    # people editing different fields of one item both keep their work. The
-    # version is then not compared -- the base is
-    # the finer check -- and the version column still guards the narrow
-    # window between this read and the commit, below.
-    if base is not None:
-        _refuse_field_conflicts(db, item, before, sent, base)
-    else:
-        refuse_stale_version(
-            expected,
-            item.version,
-            f"{item.item_code} was changed by someone else (you have "
-            f"version {expected}, current is {item.version}). Reload and "
-            f"reapply your changes.",
-        )
+    _refuse_lost_update(db, item, before, sent, base, expected)
 
     # A change to an item on offer, or in an order that has not shipped,
     # shows to a buyer at once: the caller must say it knows. A coin's own
@@ -2688,13 +3059,7 @@ def update_item(
     # note holds none: its series year is its year.
     _refuse_note_year([item], data)
     no_date = _no_date_after(item, data)
-    years = (
-        (None, None)
-        if _is_note_after(item, data) or no_date
-        else resolve_years((item.year_start, item.year_end), data)
-    )
-    if years is not None:
-        refuse_backwards(years, item.item_code)
+    years = _years_after(item, data, no_date=no_date)
 
     # A new status or disposition on an item that is offered takes it off
     # sale: the guard above has already had the caller acknowledge that it is
@@ -2716,64 +3081,26 @@ def update_item(
 
     note_changes = _note_changes(db, data, item.currency_detail)
 
-    for field, model in ITEM_CLASSIFIERS.items():
-        if field in data:
-            value = data[field]
-            resolved: int | None
-            # `keep`: a value this item already holds stays saveable after it
-            # is retired, so the form can save back what it loaded; only a
-            # new use of one is refused.
-            held = getattr(item, f"{field}_id")
-            if field in REQUIRED_CLASSIFIERS:
-                resolved = require_code(db, model, value, field, keep=held)
-            else:
-                resolved = code_to_id(db, model, value, field, keep=held)
-            # Status is the one classifier with a history table behind it.
-            # Going through set_status is what keeps that table true; a plain
-            # setattr here would leave no history row. Status is
-            # a REQUIRED_CLASSIFIER, so require_code already refused a null
-            # code above and resolved is never None here.
-            if field == "status":
-                assert resolved is not None
-                set_status(db, item, resolved, user_id=admin.id)
-            else:
-                setattr(item, f"{field}_id", resolved)
+    _set_classifiers(db, item, data, admin.id)
 
     _set_notes_and_detail(db, [item], note_changes, kind_changed="item_kind" in data)
     if coin_changes:
         _set_coin_detail(db, item, coin_changes)
 
-    for field in EDITABLE_SCALARS:
-        if field in data and field not in YEAR_FIELDS:
-            setattr(item, field, data[field])
+    _set_scalars(item, data)
     _empty_worked_out_fine_weight(db, worked_out)
     if years is not None:
         item.year_start, item.year_end = years
     item.no_date = no_date
     # After the classifiers: a kind changed in this request decides which
     # attributes fit.
-    if attributes is not None:
-        try:
-            changed = item_attributes.set_attributes(
-                db, item, attributes, user_id=admin.id
-            )
-        except item_attributes.AttributeRefused as exc:
-            db.rollback()
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        if changed:
-            # The links are another table. Touching the item is what moves
-            # its version, so a form opened before this save gets a 409
-            # rather than putting the old set back.
-            item.updated_at = datetime.now(UTC)
+    _set_attributes_sent(db, item, attributes, admin.id)
     # After the classifiers, so a new certificate takes the grading service
     # this same save sets; another table, so touched like the links above.
     if certs is not None and _set_certifications(db, item, certs):
         item.updated_at = datetime.now(UTC)
-    if moves and item.storage_location_id != to_location:
-        set_location(
-            db, item, to_location, user_id=admin.id, note="edited in the console"
-        )
-        item.updated_at = datetime.now(UTC)
+    if moves:
+        _move_if_elsewhere(db, item, to_location, admin.id)
 
     try:
         # Inside the try: ending the offers and the refresh both flush, and a

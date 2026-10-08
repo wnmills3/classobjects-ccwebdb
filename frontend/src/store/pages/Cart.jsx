@@ -47,9 +47,9 @@ function QuantityInput({ coin, quantity, onChange }) {
         aria-label={`Quantity of ${coin.title}`}
       />
       {capped && (
-        <span className="muted small" role="status">
+        <output className="muted small">
           Only {coin.quantity_available} available.
-        </span>
+        </output>
       )}
     </>
   )

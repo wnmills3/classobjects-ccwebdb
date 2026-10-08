@@ -225,45 +225,67 @@ def search_term(text: str) -> GradeTerm | None:
 
     if match := _TERM.match(code):
         head, number, mark = match.groups()
-        value = int(number)
-        plus = None if mark == "%" else mark == "+"
-        low = value + (0.5 if plus else 0.0)
-        high = value + (0.0 if plus is False else 0.5)
-        if not head:
-            return GradeTerm(low, high, plus)
-        if head in _STRIKE_WORDS:
-            return GradeTerm(low, high, plus, _STRIKE_WORDS[head])
-        if head in _PREFIX_RANGES:
-            floor, top = _rank_span(*_PREFIX_RANGES[head])
-            if not floor <= low <= high <= top:
-                return None  # MS55: no mint-state grade is 55
-            return GradeTerm(low, high, plus, None)
-        return None
+        return _number_term(head, int(number), mark)
+    return _word_term(code)
 
+
+def _number_term(head: str, value: int, mark: str | None) -> GradeTerm | None:
+    """A number term, optionally prefixed and marked: 55, 55+, MS65, PR69%.
+
+    `head` is the letters before the number (empty for none) and `mark` the
+    ``+`` or ``%`` after it. None when the prefix is unknown or does not
+    cover the number.
+    """
+    plus = None if mark == "%" else mark == "+"
+    low = value + (0.5 if plus else 0.0)
+    high = value + (0.0 if plus is False else 0.5)
+    if not head:
+        return GradeTerm(low, high, plus)
+    if head in _STRIKE_WORDS:
+        return GradeTerm(low, high, plus, _STRIKE_WORDS[head])
+    if head not in _PREFIX_RANGES:
+        return None
+    floor, top = _rank_span(*_PREFIX_RANGES[head])
+    if not floor <= low <= high <= top:
+        return None  # MS55: no mint-state grade is 55
+    return GradeTerm(low, high, plus, None)
+
+
+def _word_term(code: str) -> GradeTerm | None:
+    """A word term with its pluses and ``%``: BU+, GEM, PROOF, AU%; None if unknown."""
     wild = code.endswith("%")
     base = code.rstrip("%")
     word = base.rstrip("+")
     pluses = len(base) - len(word)
     word = word.removesuffix("_UNC").removesuffix("_BU")
     if word in _LADDER_WORDS:
-        step = _LADDER_WORDS[word]
-        if step is not None:
-            if pluses:
-                return None
-            low, high = _rank_span(*_LADDER_STEPS[step])
-        elif wild:
-            low, high = _rank_span(_LADDER_STEPS[0][0], _LADDER_STEPS[-1][1])
-        elif pluses > 2:
-            return None
-        else:
-            low, high = _rank_span(*_LADDER_STEPS[pluses])
-        return GradeTerm(low, high, None, None)
+        return _ladder_term(_LADDER_WORDS[word], pluses, wild)
     if word in _STRIKE_WORDS and not pluses:
         return GradeTerm(prefix=_STRIKE_WORDS[word])
     if word in _PREFIX_RANGES and pluses <= 1:
         low, high = _rank_span(*_PREFIX_RANGES[word])
         return GradeTerm(low, high, True if pluses and not wild else None, None)
     return None
+
+
+def _ladder_term(step: int | None, pluses: int, wild: bool) -> GradeTerm | None:
+    """A word of the owner's ladder as the ranks its step spans.
+
+    `step` is the step a word names outright (Choice, Gem), which takes no
+    plus; None for UNC and BU, which climb a step per plus, or span all
+    three when `wild`. None for a plus the ladder has no step for.
+    """
+    if step is not None:
+        if pluses:
+            return None
+        low, high = _rank_span(*_LADDER_STEPS[step])
+    elif wild:
+        low, high = _rank_span(_LADDER_STEPS[0][0], _LADDER_STEPS[-1][1])
+    elif pluses > 2:
+        return None
+    else:
+        low, high = _rank_span(*_LADDER_STEPS[pluses])
+    return GradeTerm(low, high, None, None)
 
 
 def business_prefix(number: int) -> str:

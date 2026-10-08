@@ -231,6 +231,19 @@ export default function Lists() {
 }
 
 /**
+ * Why `value`, typed and cleaned for `field`, cannot be saved, or nothing
+ * when it can: the field's own check, and a name left blank.
+ */
+function refusalOf(field, value) {
+  const problem = field.check?.(value)
+  if (problem) return problem
+  // A name sent as null is left as it was by the server, which would read
+  // here as a save that took.
+  if (value === '' && field.key === 'name') return `${field.label} cannot be blank.`
+  return null
+}
+
+/**
  * One catalog's rows: search, edit in place, and delete what nothing uses.
  *
  * An edit sends only the fields changed, blank as null, and the list is read
@@ -280,15 +293,9 @@ function CatalogTable({ config }) {
       const key = field?.key
       if (!key || !(key in draft)) continue
       const value = field.clean ? field.clean(draft[key]) : draft[key].trim()
-      const problem = field.check?.(value)
+      const problem = refusalOf(field, value)
       if (problem) {
         setError(problem)
-        return
-      }
-      // A name sent as null is left as it was by the server, which would
-      // read here as a save that took.
-      if (value === '' && key === 'name') {
-        setError(`${field.label} cannot be blank.`)
         return
       }
       if (value !== (row[key] ?? '')) body[key] = value === '' ? null : value

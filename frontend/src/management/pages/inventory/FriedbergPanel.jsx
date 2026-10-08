@@ -35,7 +35,7 @@ export default function FriedbergPanel({
           <p className="muted">No number attached.</p>
         )}
         {pending && (
-          <p className="notice" role="status">
+          <output className="notice status-line">
             {pending.action === 'clear' ? (
               'The number will be cleared when you Save.'
             ) : (
@@ -47,7 +47,7 @@ export default function FriedbergPanel({
             <button type="button" className="link" onClick={onUndo}>
               Undo
             </button>
-          </p>
+          </output>
         )}
         {pending?.error && <p className="error">{pending.error}</p>}
         <div className="row">
