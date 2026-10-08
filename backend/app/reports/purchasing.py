@@ -1,6 +1,6 @@
 """Purchasing and receiving: what has been bought and has not yet arrived.
 
-Four reports. `pr_outstanding`: one row per purchase order carrying at least
+Five reports. `pr_outstanding`: one row per purchase order carrying at least
 one live item still `ordered` or `missing` -- the same outstanding
 definition Receiving's own order list (`GET /api/purchase-orders`) uses
 (`app.live.OUTSTANDING_STATUSES`), so this report and Receiving can never
@@ -9,7 +9,8 @@ spending, over purchases with a live item. `pr_sources`: every vendor with
 such a purchase, and every seller one has named, with what was bought from
 them.
 `pr_received`: arrival day x vendor, from the acquisition-status history
-itself.
+itself. `pr_received_items`: the same arrivals one item to a row, which is
+what a `pr_received` row opens.
 """
 
 from __future__ import annotations
@@ -17,15 +18,19 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import Any, cast
+from urllib.parse import urlencode
 
 from pydantic import BaseModel, Field
 from sqlalchemy import ColumnElement, RowMapping, and_, case, func, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 
+from ..inventory_search import view_path
 from ..live import OUTSTANDING_STATUSES, live_item
 from ..models import (
     InventoryItem,
+    ItemKind,
     ItemStatus,
     ItemStatusHistory,
     PurchaseOrder,
@@ -50,9 +55,11 @@ from .registry import register
 __all__ = [
     "PR_OUTSTANDING",
     "PR_RECEIVED",
+    "PR_RECEIVED_ITEMS",
     "PR_SOURCES",
     "PR_SPEND",
     "OutstandingParams",
+    "ReceivedItemsParams",
     "ReceivedParams",
     "SourcesParams",
     "SpendParams",
@@ -483,8 +490,10 @@ _OPENING_ROW_NOTE = (
 #: The vendor column's text for a received item recorded with no purchase.
 _NO_PURCHASE = "No purchase"
 
+_NOTHING_RECEIVED_NOTE = "Nothing was received in this range."
 
-def _received_prefilter(params: ReceivedParams) -> list[ColumnElement[bool]]:
+
+def _received_prefilter(params: DateRange) -> list[ColumnElement[bool]]:
     """A coarse, SQL-side narrowing of `pr_received`'s rows by date range.
 
     Never the final word -- `_pr_received` still runs the exact test
@@ -556,65 +565,119 @@ def _received_children_totals(
     }
 
 
-def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
-    """Arrival day x vendor, from `item_status_history` transitions to `received`.
+def _vendor_name() -> ColumnElement[str]:
+    """The vendor an arrival is counted under: its name, or `_NO_PURCHASE`.
+
+    Also the text `ReceivedItemsParams.vendor` is matched against, so a
+    row's vendor and the filter that asks for it are one expression.
+    """
+    return func.coalesce(Vendor.name, _NO_PURCHASE)
+
+
+def _arrivals(
+    db: Session,
+    params: DateRange,
+    *columns: InstrumentedAttribute[Any] | ColumnElement[Any],
+    vendor: str | None = None,
+) -> list[tuple[date, RowMapping]]:
+    """Every arrival in `params`' range, each paired with its own day.
+
+    The one reading of "what arrived, when, from whom" that `pr_received`
+    counts and `pr_received_items` lists, so a row of the first and the
+    items the second shows for it cannot disagree.
 
     Only a transition counts -- `from_status_id IS NOT NULL` -- never the
     opening row every new item gets (`_OPENING_ROW_NOTE`): that row means
-    "this item started out already received," not "it arrived."
-
-    A split parent (`InventoryItem.split_at IS NOT NULL`) keeps its own
-    transition even though it is no longer live itself, so its receipt is
-    attributed to its own live children instead of dropped: `items` and
-    `total_cost` come from `_received_children_totals`, on the parent's own
-    receipt day and vendor, since the pieces arrived with the parent, not
-    on some later day their own (opening-row-only) history would otherwise
-    never surface at all. A deleted item is excluded outright: a deleted
-    row should never have existed, so neither did its receipt.
+    "this item started out already received," not "it arrived." A deleted
+    item is excluded outright: a deleted row should never have existed, so
+    neither did its receipt. A split parent (`split_at` set) keeps its
+    transition and is returned with it; what its receipt stands for is the
+    caller's to resolve, from the parent's own live children.
 
     Fetched one transition at a time, not grouped in SQL: a row's day is
     `receipts.receipt_day` -- its own `arrived_on` when recorded, else
     `changed_at`'s local calendar date, a conversion SQL cannot do without
-    knowing the application server's own time zone -- so both the
-    bucketing and the exact date-range filter happen in Python, over the
-    rows `_received_prefilter` has already narrowed. The transitions
-    themselves come from `receipts.received_transitions`, the one query
-    `sl_aging` also reads, extended here with the item, purchase order and
-    vendor this report needs beyond it. The purchase and vendor are outer
-    joins: an item recorded with no purchase still arrived, so its receipt
-    is counted under `_NO_PURCHASE` rather than silently dropped.
+    knowing the application server's own time zone -- so the exact
+    date-range filter happens here, in Python, over the rows
+    `_received_prefilter` has already narrowed. The transitions themselves
+    come from `receipts.received_transitions`, the one query `sl_aging`
+    also reads. The purchase and vendor are outer joins: an item recorded
+    with no purchase still arrived, so its receipt is kept under
+    `_NO_PURCHASE` rather than silently dropped.
+
+    Every row carries `inventory_item_id`, `split_at` and `vendor_name`,
+    then `columns`. `vendor`, when given, keeps only that vendor's arrivals.
     """
     stmt = (
         received_transitions()
         .add_columns(
             InventoryItem.split_at,
-            InventoryItem.total_cost,
-            func.coalesce(Vendor.name, _NO_PURCHASE).label("vendor_name"),
+            _vendor_name().label("vendor_name"),
+            *columns,
         )
         .join(InventoryItem, InventoryItem.id == ItemStatusHistory.inventory_item_id)
+        .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
         .outerjoin(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
         .outerjoin(Vendor, Vendor.id == PurchaseOrder.vendor_id)
         .where(InventoryItem.deleted_at.is_(None), *_received_prefilter(params))
     )
-    transitions = db.execute(stmt).mappings().all()
+    if vendor is not None:
+        stmt = stmt.where(_vendor_name() == vendor)
+
+    arrivals: list[tuple[date, RowMapping]] = []
+    for row in db.execute(stmt).mappings().all():
+        day = receipt_day(row["arrived_on"], row["changed_at"])
+        if params.date_from is not None and day < params.date_from:
+            continue
+        if params.date_to is not None and day > params.date_to:
+            continue
+        arrivals.append((day, row))
+    return arrivals
+
+
+def _received_drill(day: date, vendor_name: str) -> str:
+    """One `pr_received` row's console path: that day's items from that vendor.
+
+    `pr_received_items`, asked for the one day and the one vendor: no
+    inventory search can be narrowed by arrival day, and a day's arrivals
+    mix coins and currency, which are searched on two different pages.
+    """
+    query = {
+        "report": "pr_received_items",
+        "date_from": day.isoformat(),
+        "date_to": day.isoformat(),
+        "vendor": vendor_name,
+    }
+    return f"/reports?{urlencode(query)}"
+
+
+def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
+    """Arrival day x vendor, newest day first, from `_arrivals`.
+
+    A split parent's receipt is attributed to its own live children instead
+    of dropped: `items` and `total_cost` come from
+    `_received_children_totals`, on the parent's own receipt day and
+    vendor, since the pieces arrived with the parent, not on some later day
+    their own (opening-row-only) history would otherwise never surface at
+    all.
+
+    Each row drills to `pr_received_items` for its own day and vendor
+    (`_received_drill`), which lists exactly the items the row counts.
+    """
+    arrivals = _arrivals(db, params, InventoryItem.total_cost)
 
     children_totals = _received_children_totals(
         db,
         {
             row["inventory_item_id"]
-            for row in transitions
+            for _day, row in arrivals
             if row["split_at"] is not None
         },
     )
 
     bucket_items: dict[tuple[date, str], int] = defaultdict(int)
     bucket_cost: dict[tuple[date, str], Decimal] = defaultdict(lambda: Decimal("0"))
-    for row in transitions:
-        day = receipt_day(row["arrived_on"], row["changed_at"])
-        if params.date_from is not None and day < params.date_from:
-            continue
-        if params.date_to is not None and day > params.date_to:
-            continue
+    for day, row in arrivals:
         key = (day, row["vendor_name"])
         if row["split_at"] is None:
             bucket_items[key] += 1
@@ -633,21 +696,21 @@ def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
             rows=[],
             totals=None,
             drills=[],
-            notes=["Nothing was received in this range."],
+            notes=[_NOTHING_RECEIVED_NOTE],
         )
 
     rows: list[dict[str, object]] = []
     drills: list[str | None] = []
     total_items = 0
     total_cost = Decimal("0")
-    for key in sorted(bucket_items):
+    for key in sorted(bucket_items, key=lambda k: (-k[0].toordinal(), k[1])):
         day, vendor_name = key
         items = bucket_items[key]
         cost_sum = bucket_cost[key]
         rows.append(
             {"day": day, "vendor": vendor_name, "items": items, "total_cost": cost_sum}
         )
-        drills.append(None)
+        drills.append(_received_drill(day, vendor_name))
         total_items += items
         total_cost += cost_sum
 
@@ -675,9 +738,177 @@ PR_RECEIVED = register(
         id="pr_received",
         group=_GROUP,
         title="Received",
-        purpose="Arrival day x vendor, from acquisition-status history: "
-        "items and total cost.",
+        purpose="Arrival day x vendor, newest first, from acquisition-status "
+        "history: items and total cost. A row opens the items it counts.",
         params=ReceivedParams,
         run=_pr_received,
+    )
+)
+
+
+#: `ReceivedItemsParams.vendor`'s no-filter value.
+ANY_VENDOR = "all"
+
+
+class ReceivedItemsParams(DateRange):
+    """`pr_received_items`: the arrival-day range, and one vendor or every one.
+
+    `vendor` is a vendor's name exactly as `pr_received` shows it --
+    `_NO_PURCHASE` for items recorded with no purchase -- or `ANY_VENDOR`.
+    A word rather than an empty default, because the console's form refuses
+    to run with a text parameter left empty.
+    """
+
+    vendor: str = Field(default=ANY_VENDOR, title="Vendor")
+
+
+_RECEIVED_ITEMS_COLUMNS = [
+    Column("day", "Day", "date"),
+    Column("item", "Item", "text"),
+    Column("title", "Title", "text"),
+    Column("vendor", "Vendor", "text"),
+    Column("order", "Order", "text"),
+    Column("total_cost", "Total cost", "money"),
+]
+
+_SPLIT_PIECES_NOTE = (
+    "The pieces of a lot that was split are listed on the day the lot arrived."
+)
+
+
+def _received_children(
+    db: Session, parent_ids: set[int]
+) -> dict[int, list[RowMapping]]:
+    """Each split parent's own live children: code, title, kind and cost.
+
+    One query over every parent the arrivals named, as
+    `_received_children_totals` is, and the same rows that one counts: a
+    `pr_received` row's `items` and the rows listed for it stay equal.
+    """
+    children: dict[int, list[RowMapping]] = defaultdict(list)
+    if not parent_ids:
+        return children
+    stmt = (
+        select(
+            InventoryItem.parent_item_id.label("parent_id"),
+            InventoryItem.item_code,
+            InventoryItem.source_title,
+            InventoryItem.total_cost,
+            ItemKind.code.label("kind_code"),
+        )
+        .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
+        .where(InventoryItem.parent_item_id.in_(parent_ids), live_item())
+    )
+    for row in db.execute(stmt).mappings().all():
+        children[row["parent_id"]].append(row)
+    return children
+
+
+def _order_text(row: RowMapping) -> str:
+    """An arrival's purchase as text: its number, a placeholder, or nothing."""
+    if row["order_id"] is None:
+        return ""
+    return row["order_number"] or _NO_NUMBER
+
+
+def _pr_received_items(db: Session, params: ReceivedItemsParams) -> ReportResult:
+    """One row per item received, newest day first, from `_arrivals`.
+
+    The items `pr_received` counts, and no others: an item received twice
+    is listed once for each receipt, and a split parent's receipt lists its
+    own live children (`_received_children`) on the parent's day, vendor
+    and order. Within a day, by vendor and then item code.
+
+    Each row drills to its own item, by its kind's search page.
+    """
+    vendor = None if params.vendor == ANY_VENDOR else params.vendor
+    arrivals = _arrivals(
+        db,
+        params,
+        InventoryItem.item_code,
+        InventoryItem.source_title,
+        InventoryItem.total_cost,
+        ItemKind.code.label("kind_code"),
+        PurchaseOrder.id.label("order_id"),
+        PurchaseOrder.order_number,
+        vendor=vendor,
+    )
+    children = _received_children(
+        db,
+        {
+            row["inventory_item_id"]
+            for _day, row in arrivals
+            if row["split_at"] is not None
+        },
+    )
+
+    # (day, vendor, order text, the item's own row)
+    listed: list[tuple[date, str, str, RowMapping]] = []
+    for day, row in arrivals:
+        pieces = (
+            [row] if row["split_at"] is None else children[row["inventory_item_id"]]
+        )
+        listed.extend(
+            (day, row["vendor_name"], _order_text(row), piece) for piece in pieces
+        )
+
+    if not listed:
+        return ReportResult(
+            columns=_RECEIVED_ITEMS_COLUMNS,
+            rows=[],
+            totals=None,
+            drills=[],
+            notes=[_NOTHING_RECEIVED_NOTE],
+            link_column="item",
+        )
+
+    listed.sort(
+        key=lambda entry: (-entry[0].toordinal(), entry[1], entry[3]["item_code"])
+    )
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    total_cost = Decimal("0")
+    for day, vendor_name, order_text, piece in listed:
+        rows.append(
+            {
+                "day": day,
+                "item": piece["item_code"],
+                "title": piece["source_title"],
+                "vendor": vendor_name,
+                "order": order_text,
+                "total_cost": piece["total_cost"],
+            }
+        )
+        query = urlencode({"item": piece["item_code"]})
+        drills.append(f"{view_path(piece['kind_code'])}?{query}")
+        total_cost += piece["total_cost"]
+
+    totals: dict[str, object] = {
+        "day": None,
+        "item": None,
+        "title": "All items",
+        "vendor": None,
+        "order": None,
+        "total_cost": total_cost,
+    }
+    return ReportResult(
+        columns=_RECEIVED_ITEMS_COLUMNS,
+        rows=rows,
+        totals=totals,
+        drills=drills,
+        notes=[_RECEIVED_NOTE, _OPENING_ROW_NOTE, _SPLIT_PIECES_NOTE],
+        link_column="item",
+    )
+
+
+PR_RECEIVED_ITEMS = register(
+    Report(
+        id="pr_received_items",
+        group=_GROUP,
+        title="Received items",
+        purpose="One row per item received, newest first: day, item, vendor, "
+        "order and total cost. Vendor is a vendor's name, or all.",
+        params=ReceivedItemsParams,
+        run=_pr_received_items,
     )
 )

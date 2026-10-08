@@ -5,7 +5,7 @@ as a whole: what is missing or wrong in the record, what the collection is
 made of, what has been bought and not yet arrived, what is on offer and what
 has sold, and what it all cost. They are for the owner and managers only,
 on the management console's **Reports** page (`/management/reports`), and
-the same 27 reports run from the command line and export to a workbook or
+the same 28 reports run from the command line and export to a workbook or
 print on paper.
 
 Reports read; they never write. Fixing what a report finds is done where it
@@ -74,7 +74,8 @@ or ever sold.
 | `pr_outstanding` | Not yet arrived | One row per purchase carrying at least one live item still `ordered` or `missing`, oldest ordered first: vendor, seller, order date, days waiting, items outstanding and their cost, and an `Overdue` text column holding the word "Overdue" once days waiting exceeds the parameter (empty otherwise). Parameter: `overdue_days` (default 21). A row drills to `/receiving?order=<id>`; an overall total. |
 | `pr_spend` | Spending | Period x vendor, over purchases with a live item (a purchase with none is not counted as a purchase at all, noted by name): purchases, items, item cost, shipping, sales tax, total, with a subtotal row per period (`All vendors`) and an overall total (`All periods`). Parameters: a date range (`date_from`/`date_to`, either or both empty meaning no bound on that side) filtering by the purchase's own order date, and `period` (`month`, default, `quarter` or `year`). No drills: a period x vendor cell has no single search page. A note counts purchases excluded for having no order date at all. |
 | `pr_sources` | Vendors and sellers | One row per vendor with a counted purchase (same live-item rule as `pr_spend`), and beneath it one row per seller that vendor's purchases have named: purchases, items, total spent, first and last order date. Totals are over vendor rows only -- a seller row is a further breakdown of purchases its vendor row already counts, not more purchases. No drills. |
-| `pr_received` | Received | Arrival day x vendor, from `item_status_history`'s own transitions *to* `received` (never the opening row a new item, a split child or a seed gets -- it is not an arrival, and a note says so): items and total cost; an item recorded with no purchase counts under the vendor "No purchase". A split parent's own receipt is attributed to its live children, on the parent's own day and vendor, since the pieces arrived with it. Parameter: a date range on the arrival day. No drills. An item received more than once counts once per receipt, noted. |
+| `pr_received` | Received | Arrival day x vendor, from `item_status_history`'s own transitions *to* `received` (never the opening row a new item, a split child or a seed gets -- it is not an arrival, and a note says so): items and total cost; an item recorded with no purchase counts under the vendor "No purchase". A split parent's own receipt is attributed to its live children, on the parent's own day and vendor, since the pieces arrived with it. Newest day first, then vendor; an overall total. Parameter: a date range on the arrival day. A row drills to `pr_received_items` for its own day and vendor (`/reports?report=pr_received_items&date_from=<day>&date_to=<day>&vendor=<name>`), which lists exactly the items the row counts: no inventory search can be narrowed by arrival day, and a day's arrivals mix coins and currency. An item received more than once counts once per receipt, noted. |
+| `pr_received_items` | Received items | One row per item received, read from the same arrivals `pr_received` counts (one shared query, so the two cannot disagree): day, item, title, vendor, order number and total cost, newest day first, then vendor, then item code; a total of the cost. A split lot's receipt lists its live pieces, on the lot's own day, vendor and order. Parameters: a date range on the arrival day, and `vendor` -- a vendor's name exactly as `pr_received` shows it ("No purchase" for items recorded with none), or `all` (the default; a word, because the console's form refuses a text parameter left empty). A row drills to its own item, which the Reports page opens in the editor. |
 
 ### Selling -- what is on offer and what has sold
 
@@ -129,7 +130,8 @@ or ever sold.
   the "Nothing matches these settings." note, shared by every Collection
   report and `mn_value`), `receipts.py` (one
   definition of "an item's receipt" -- a status transition *to* `received`,
-  never an opening row -- shared by `pr_received` and `sl_aging`), and
+  never an opening row -- shared by `pr_received`, `pr_received_items` and
+  `sl_aging`), and
   `live_purchases.py` (one definition of "a purchase" -- counted only when
   it carries a live item -- shared by `pr_spend`, `pr_sources` and
   `mn_tax`; and `period_by_vendor`, the one period-by-vendor table

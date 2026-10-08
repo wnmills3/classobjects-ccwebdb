@@ -1,14 +1,16 @@
-"""`pr_outstanding`, `pr_spend`, `pr_sources` and `pr_received`."""
+"""`pr_outstanding`, `pr_spend`, `pr_sources`, `pr_received`, `pr_received_items`."""
 
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import cast
+from urllib.parse import parse_qsl
 
 import pytest
 from app.models import (
     InventoryItem,
+    ItemKind,
     ItemStatus,
     ItemStatusHistory,
     PurchaseOrder,
@@ -19,9 +21,11 @@ from app.reports.base import period_label
 from app.reports.purchasing import (
     PR_OUTSTANDING,
     PR_RECEIVED,
+    PR_RECEIVED_ITEMS,
     PR_SOURCES,
     PR_SPEND,
     OutstandingParams,
+    ReceivedItemsParams,
     ReceivedParams,
     SourcesParams,
     SpendParams,
@@ -1146,7 +1150,7 @@ def test_received_totals_row_sums_the_rows(db: Session) -> None:
     )
 
 
-def test_received_rows_are_day_ascending_then_vendor(db: Session) -> None:
+def test_received_rows_are_newest_day_first_then_vendor(db: Session) -> None:
     vendor_z = _vendor(db, "Vendor REZ")
     order_z = _order_for(
         db, vendor_z, order_number="REZ-1", ordered_on=date(2026, 3, 1)
@@ -1170,9 +1174,9 @@ def test_received_rows_are_day_ascending_then_vendor(db: Session) -> None:
     result = PR_RECEIVED.run(db, ReceivedParams())
     keys = [(r["day"], r["vendor"]) for r in result.rows]
     assert keys == [
-        (date(2026, 2, 15), "Vendor REE"),
         (date(2026, 3, 1), "Vendor REA"),
         (date(2026, 3, 1), "Vendor REZ"),
+        (date(2026, 2, 15), "Vendor REE"),
     ]
 
 
@@ -1194,7 +1198,7 @@ def test_received_note_explains_repeated_receipts(db: Session) -> None:
     assert any("counts once" in note for note in result.notes)
 
 
-def test_received_drills_are_all_none(db: Session) -> None:
+def test_received_row_drills_to_its_own_day_and_vendor_of_items(db: Session) -> None:
     vendor = _vendor(db, "Vendor RED")
     order = _order_for(db, vendor, order_number="RED-1", ordered_on=date(2026, 3, 1))
     item = _item(db, order, "ordered", Decimal("1.00"))
@@ -1202,7 +1206,10 @@ def test_received_drills_are_all_none(db: Session) -> None:
     db.commit()
 
     result = PR_RECEIVED.run(db, ReceivedParams())
-    assert all(d is None for d in result.drills)
+    assert result.drills == [
+        "/reports?report=pr_received_items"
+        "&date_from=2026-03-01&date_to=2026-03-01&vendor=Vendor+RED"
+    ]
 
 
 def test_received_totals_row_labels_all_days_on_the_vendor_column(
@@ -1418,3 +1425,324 @@ def test_received_money_sums_are_exact_with_odd_cents(db: Session) -> None:
     result = PR_RECEIVED.run(db, ReceivedParams())
     row = next(r for r in result.rows if r["vendor"] == "Vendor REC1")
     assert row["total_cost"] == Decimal("18.10")
+
+
+# ---------------------------------------------------------------------------
+# pr_received_items
+# ---------------------------------------------------------------------------
+
+
+def _split_into(
+    db: Session, parent: InventoryItem, costs: list[Decimal]
+) -> list[InventoryItem]:
+    """Split `parent` into one live child per cost, each with an opening row."""
+    children = [
+        build_bare_item(
+            db,
+            parent_item_id=parent.id,
+            status_id=parent.status_id,
+            item_cost=cost,
+            tax_rate=Decimal("0"),
+            shipping_cost=Decimal("0"),
+        )
+        for cost in costs
+    ]
+    for child in children:
+        db.add(
+            ItemStatusHistory(
+                inventory_item_id=child.id,
+                from_status_id=None,
+                to_status_id=parent.status_id,
+                changed_at=datetime.now(UTC),
+            )
+        )
+    parent.split_at = datetime(2026, 3, 6, tzinfo=UTC)
+    db.commit()
+    return children
+
+
+def test_received_items_lists_one_row_per_item_with_its_purchase(
+    db: Session,
+) -> None:
+    vendor = _vendor(db, "Vendor RI1")
+    order = _order_for(db, vendor, order_number="RI-1", ordered_on=date(2026, 3, 1))
+    item = _item(db, order, "ordered", Decimal("25.00"))
+    item.source_title = "1881-S Morgan dollar"
+    _receive(db, item, arrived_on=date(2026, 3, 5))
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert result.rows == [
+        {
+            "day": date(2026, 3, 5),
+            "item": item.item_code,
+            "title": "1881-S Morgan dollar",
+            "vendor": "Vendor RI1",
+            "order": "RI-1",
+            "total_cost": Decimal("25.00"),
+        }
+    ]
+
+
+def test_received_items_are_newest_day_first_then_vendor_then_code(
+    db: Session,
+) -> None:
+    """Built middle day first, and the later vendor first, so no order is free."""
+    vendor_z = _vendor(db, "Vendor RIZ")
+    order_z = _order_for(db, vendor_z, order_number="RIZ-1", ordered_on=None)
+    vendor_a = _vendor(db, "Vendor RIA")
+    order_a = _order_for(db, vendor_a, order_number="RIA-1", ordered_on=None)
+
+    middle = _item(db, order_z, "ordered", Decimal("1.00"))
+    _receive(db, middle, arrived_on=date(2026, 3, 5))
+    newest_z = _item(db, order_z, "ordered", Decimal("1.00"))
+    _receive(db, newest_z, arrived_on=date(2026, 3, 9))
+    oldest = _item(db, order_a, "ordered", Decimal("1.00"))
+    _receive(db, oldest, arrived_on=date(2026, 3, 1))
+    newest_a_second = _item(db, order_a, "ordered", Decimal("1.00"))
+    newest_a_first = _item(db, order_a, "ordered", Decimal("1.00"))
+    newest_a_first.item_code, newest_a_second.item_code = (
+        "CC-900001",
+        "CC-900002",
+    )
+    _receive(db, newest_a_second, arrived_on=date(2026, 3, 9))
+    _receive(db, newest_a_first, arrived_on=date(2026, 3, 9))
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert [(r["day"], r["vendor"], r["item"]) for r in result.rows] == [
+        (date(2026, 3, 9), "Vendor RIA", "CC-900001"),
+        (date(2026, 3, 9), "Vendor RIA", "CC-900002"),
+        (date(2026, 3, 9), "Vendor RIZ", newest_z.item_code),
+        (date(2026, 3, 5), "Vendor RIZ", middle.item_code),
+        (date(2026, 3, 1), "Vendor RIA", oldest.item_code),
+    ]
+
+
+def test_received_items_vendor_keeps_only_that_vendors_items(db: Session) -> None:
+    wanted_vendor = _vendor(db, "Vendor RIW")
+    wanted_order = _order_for(db, wanted_vendor, order_number="RIW-1", ordered_on=None)
+    other_vendor = _vendor(db, "Vendor RIO")
+    other_order = _order_for(db, other_vendor, order_number="RIO-1", ordered_on=None)
+    wanted = _item(db, wanted_order, "ordered", Decimal("1.00"))
+    other = _item(db, other_order, "ordered", Decimal("1.00"))
+    _receive(db, other, arrived_on=date(2026, 3, 5))
+    _receive(db, wanted, arrived_on=date(2026, 3, 5))
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams(vendor="Vendor RIW"))
+    assert [r["item"] for r in result.rows] == [wanted.item_code]
+
+    everyone = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert {r["item"] for r in everyone.rows} == {wanted.item_code, other.item_code}
+
+
+def test_received_items_date_bounds_are_inclusive_on_the_arrival_day(
+    db: Session,
+) -> None:
+    vendor = _vendor(db, "Vendor RIB")
+    order = _order_for(db, vendor, order_number="RIB-1", ordered_on=None)
+    before = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, before, arrived_on=date(2026, 3, 4))
+    on_the_day = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, on_the_day, arrived_on=date(2026, 3, 5))
+    after = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, after, arrived_on=date(2026, 3, 6))
+
+    result = PR_RECEIVED_ITEMS.run(
+        db,
+        ReceivedItemsParams(date_from=date(2026, 3, 5), date_to=date(2026, 3, 5)),
+    )
+    assert [r["item"] for r in result.rows] == [on_the_day.item_code]
+
+
+def test_received_items_bounds_a_day_read_from_changed_at_exactly(
+    db: Session,
+) -> None:
+    """An arrival with no `arrived_on`, one day outside the range, is left out.
+
+    The query's own narrowing reaches a day past each bound for such a row
+    (its instant is stored in UTC), so only the exact test on its local
+    calendar day keeps it out -- on either side.
+    """
+    vendor = _vendor(db, "Vendor RIF")
+    order = _order_for(db, vendor, order_number="RIF-1", ordered_on=None)
+    inside = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, inside, changed_at=_local_noon(5))
+    day_after = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, day_after, changed_at=_local_noon(4))
+    day_before = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, day_before, changed_at=_local_noon(6))
+
+    the_day = _local_noon(5).date()
+    result = PR_RECEIVED_ITEMS.run(
+        db, ReceivedItemsParams(date_from=the_day, date_to=the_day)
+    )
+    assert [r["item"] for r in result.rows] == [inside.item_code]
+
+
+def test_received_items_lists_a_split_lots_pieces_not_the_lot(db: Session) -> None:
+    vendor = _vendor(db, "Vendor RIS")
+    order = _order_for(db, vendor, order_number="RIS-1", ordered_on=None)
+    parent = _item(db, order, "ordered", Decimal("100.00"))
+    _receive(db, parent, arrived_on=date(2026, 3, 5))
+    child_a, child_b = _split_into(db, parent, [Decimal("12.34"), Decimal("56.78")])
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert [
+        (r["day"], r["item"], r["vendor"], r["order"], r["total_cost"])
+        for r in result.rows
+    ] == [
+        (date(2026, 3, 5), code, "Vendor RIS", "RIS-1", cost)
+        for code, cost in sorted(
+            [
+                (child_a.item_code, Decimal("12.34")),
+                (child_b.item_code, Decimal("56.78")),
+            ]
+        )
+    ]
+    assert result.totals is not None
+    assert result.totals["total_cost"] == Decimal("69.12")
+
+
+def test_received_items_with_no_purchase_has_that_vendor_and_no_order(
+    db: Session,
+) -> None:
+    item = build_bare_item(
+        db,
+        status_id=code_id(db, ItemStatus, "ordered"),
+        item_cost=Decimal("5.00"),
+        tax_rate=Decimal("0"),
+        shipping_cost=Decimal("0"),
+    )
+    _receive(db, item, arrived_on=date(2026, 3, 5))
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams(vendor="No purchase"))
+    assert [(r["item"], r["vendor"], r["order"]) for r in result.rows] == [
+        (item.item_code, "No purchase", "")
+    ]
+
+
+def test_received_items_order_with_no_number_shows_a_placeholder(db: Session) -> None:
+    order = _order(db, "Vendor RIN", order_number=None)
+    db.commit()
+    item = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, item, arrived_on=date(2026, 3, 5))
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert [r["order"] for r in result.rows] == ["(no number)"]
+
+
+def test_received_items_excludes_a_deleted_item_and_an_opening_row(
+    db: Session,
+) -> None:
+    vendor = _vendor(db, "Vendor RIX")
+    order = _order_for(db, vendor, order_number="RIX-1", ordered_on=None)
+    kept = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, kept, arrived_on=date(2026, 3, 5))
+    deleted = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, deleted, arrived_on=date(2026, 3, 5))
+    deleted.deleted_at = datetime(2026, 3, 6, tzinfo=UTC)
+    entered_received = _item(db, order, "received", Decimal("1.00"))
+    db.add(
+        ItemStatusHistory(
+            inventory_item_id=entered_received.id,
+            from_status_id=None,
+            to_status_id=entered_received.status_id,
+            changed_at=datetime.now(UTC),
+        )
+    )
+    db.commit()
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert [r["item"] for r in result.rows] == [kept.item_code]
+
+
+def test_received_items_row_drills_to_its_own_item_on_its_kinds_page(
+    db: Session,
+) -> None:
+    vendor = _vendor(db, "Vendor RIK")
+    order = _order_for(db, vendor, order_number="RIK-1", ordered_on=None)
+    coin = _item(db, order, "ordered", Decimal("1.00"))
+    note = _item(db, order, "ordered", Decimal("1.00"))
+    note.item_kind_id = code_id(db, ItemKind, "currency")
+    coin.item_code, note.item_code = "CC-900011", "CC-900012"
+    _receive(db, note, arrived_on=date(2026, 3, 5))
+    _receive(db, coin, arrived_on=date(2026, 3, 5))
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert result.link_column == "item"
+    assert result.drills == [
+        "/inventory/coins?item=CC-900011",
+        "/inventory/currency?item=CC-900012",
+    ]
+
+
+def test_received_items_with_nothing_received_returns_no_rows(db: Session) -> None:
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert result.rows == []
+    assert result.totals is None
+    assert result.drills == []
+    assert result.notes == ["Nothing was received in this range."]
+
+
+def test_every_received_row_drills_to_exactly_the_items_it_counts(
+    db: Session,
+) -> None:
+    """Each `pr_received` drill, run as written, lists that row's own items.
+
+    Two vendors sharing a day, one vendor across two days, a split lot, an
+    item received twice, an item with no purchase and a deleted item: every
+    way a row's count is arrived at, so a drill that named the wrong day or
+    vendor, or listed a lot instead of its pieces, shows as a difference.
+    """
+    vendor_a = _vendor(db, "Vendor RPA & Sons")
+    order_a = _order_for(db, vendor_a, order_number="RPA-1", ordered_on=None)
+    vendor_b = _vendor(db, "Vendor RPB")
+    order_b = _order_for(db, vendor_b, order_number="RPB-1", ordered_on=None)
+
+    for cost in (Decimal("10.33"), Decimal("7.77")):
+        _receive(db, _item(db, order_a, "ordered", cost), arrived_on=date(2026, 3, 5))
+    _receive(
+        db, _item(db, order_b, "ordered", Decimal("3.00")), arrived_on=date(2026, 3, 5)
+    )
+    twice = _item(db, order_a, "ordered", Decimal("4.00"))
+    _receive(db, twice, arrived_on=date(2026, 3, 7))
+    twice.status_id = code_id(db, ItemStatus, "returned")
+    _receive(db, twice, arrived_on=date(2026, 3, 9))
+    lot = _item(db, order_b, "ordered", Decimal("100.00"))
+    _receive(db, lot, arrived_on=date(2026, 3, 7))
+    _split_into(db, lot, [Decimal("12.34"), Decimal("56.78"), Decimal("1.11")])
+    loose = build_bare_item(
+        db,
+        status_id=code_id(db, ItemStatus, "ordered"),
+        item_cost=Decimal("5.00"),
+        tax_rate=Decimal("0"),
+        shipping_cost=Decimal("0"),
+    )
+    _receive(db, loose, arrived_on=date(2026, 3, 7))
+    gone = _item(db, order_a, "ordered", Decimal("9.00"))
+    _receive(db, gone, arrived_on=date(2026, 3, 7))
+    gone.deleted_at = datetime(2026, 3, 8, tzinfo=UTC)
+    db.commit()
+
+    summary = PR_RECEIVED.run(db, ReceivedParams())
+    assert [(r["day"], r["vendor"], r["items"]) for r in summary.rows] == [
+        (date(2026, 3, 9), "Vendor RPA & Sons", 1),
+        (date(2026, 3, 7), "No purchase", 1),
+        (date(2026, 3, 7), "Vendor RPA & Sons", 1),
+        (date(2026, 3, 7), "Vendor RPB", 3),
+        (date(2026, 3, 5), "Vendor RPA & Sons", 2),
+        (date(2026, 3, 5), "Vendor RPB", 1),
+    ]
+
+    for row, drill in zip(summary.rows, summary.drills, strict=True):
+        assert drill is not None
+        path, _, query = drill.partition("?")
+        asked = dict(parse_qsl(query))
+        assert path == "/reports"
+        assert asked.pop("report") == PR_RECEIVED_ITEMS.id
+        listed = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams.model_validate(asked))
+        assert len(listed.rows) == row["items"], row
+        assert {(r["day"], r["vendor"]) for r in listed.rows} == {
+            (row["day"], row["vendor"])
+        }
+        costs = [cast("Decimal", r["total_cost"]) for r in listed.rows]
+        assert sum(costs) == row["total_cost"]
