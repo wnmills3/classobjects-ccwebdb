@@ -901,8 +901,10 @@ as `0%` or `$0.00`; a blank means nobody has looked the terms up.
 
 **Spot prices** (`/management/spot-prices`) lists every metal in use with the
 price a troy ounce of it is quoted at, when that was recorded, the fine
-ounces held across the live items, and what they melt for at that price. Type
-a price in a metal's **New price** box and press **Record** (or Enter):
+ounces held across the live items, and what they melt for at that price. The
+metal with the most fine ounces held is first and those with none held are
+last, so the prices that matter are at the top. Type a price in a metal's
+**New price** box and press **Record** (or Enter):
 
 - A price is dollars per troy ounce with up to four decimal places -- `31.50`
   for silver, `0.2875` for copper. A dollar sign in front and commas between
