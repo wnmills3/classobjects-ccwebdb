@@ -1654,9 +1654,7 @@ class ReferenceAliasIn(BaseModel):
 #: An http(s) address by how it begins, or `mailto:` and a whole mail address.
 #: Each alternative carries its own anchors: the end is the mail address's
 #: alone, since what follows `https://` is not judged here.
-_STORE_ADDRESS = re.compile(
-    r"(?:^https?://)|(?:^mailto:[^\s@]+@[^\s@]+$)", re.IGNORECASE
-)
+_STORE_ADDRESS = re.compile(r"^(?:https?://|mailto:[^\s@]+@[^\s@]+$)", re.IGNORECASE)
 _MAIL_ADDRESS = re.compile(r"^[^\s@:/]+@[^\s@:/]+$")
 
 

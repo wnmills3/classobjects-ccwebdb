@@ -46,7 +46,7 @@ def _printable(text: str) -> str:
     seller's title -- and a terminal obeys an escape sequence wherever it
     comes from, while a line break inside a cell starts a row nobody wrote.
     A character that is not printable is shown as its escape (`\x1b`,
-    `\n`, `‮`), so every row is one line of plain text. A space is
+    `\n`, `\u202e`), so every row is one line of plain text. A space is
     printable; a tab and the characters that reverse the reading order are
     not.
     """
