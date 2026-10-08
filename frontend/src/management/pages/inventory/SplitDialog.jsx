@@ -26,7 +26,7 @@ import { useMounted } from '../../useMounted'
 
 const MAX_PIECES = 200
 const WHOLE = /^\d+$/
-const VALUE = /^\d+(\.\d+)?$/
+const VALUE = /^(\d+(\.\d*)?|\.\d+)$/
 
 let nextKey = 0
 

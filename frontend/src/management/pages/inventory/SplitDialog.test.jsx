@@ -101,6 +101,26 @@ describe('SplitDialog', () => {
     expect(sent.pieces.map((piece) => piece.relative_value)).toEqual(['0.01', '0.50'])
   })
 
+  it('reads a value typed without the zero before its point', async () => {
+    const user = userEvent.setup()
+    open({ ...LOT, piece_count: 2, item_cost: '91.00' })
+    await user.selectOptions(screen.getByRole('combobox'), 'relative')
+
+    await user.type(screen.getByLabelText('Value of piece 1'), '.01')
+    await user.type(screen.getByLabelText('Value of piece 2'), '.5')
+
+    // The same 1:50 as 0.01 and 0.50.
+    expect(screen.getByText('1.78')).toBeInTheDocument()
+    expect(screen.getByText('89.21')).toBeInTheDocument()
+    const button = screen.getByRole('button', { name: 'Split into 2 pieces' })
+    expect(button).toBeEnabled()
+    await user.click(button)
+    expect(api.splitItem.mock.calls[0][1].pieces.map((p) => p.relative_value)).toEqual([
+      '.01',
+      '.5',
+    ])
+  })
+
   it('grows and shrinks the rows with Pieces, which can be retyped', async () => {
     const user = userEvent.setup()
     open({ ...LOT, piece_count: 2 })

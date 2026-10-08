@@ -9,11 +9,13 @@
  * Shared because both applications total money: the shop's cart, and the
  * console's order, sale and settlement figures.
  */
-const MONEY = /^\d+(\.\d{1,2})?$/
+const MONEY = /^(\d+(\.\d{1,2})?|\.\d{1,2})$/
 
 /**
  * Whether `text` is an amount that can be put into cents: digits with at
- * most two decimal places, no sign, blanks around it ignored.
+ * most two decimal places, no sign, blanks around it ignored. The digits
+ * before the point may be left out -- `.50`, as an amount under a dollar is
+ * typed -- and the server reads that as it reads `0.50`.
  */
 export const isMoney = (text) => MONEY.test(String(text).trim())
 

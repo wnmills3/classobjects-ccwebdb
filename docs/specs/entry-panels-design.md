@@ -87,8 +87,13 @@ serve the Lists page (`list-maintenance-design.md`).
   unknown vendor; 409 when that vendor already has that order number.
 - `PATCH /api/purchase-orders/{id}` -- the same fields; only what is sent
   changes, and a number sent blank is given the next generated one.
-- `GET /api/purchase-orders` and `GET /api/purchase-orders/{id}`, whose lines
-  carry `source_title` and `item_kind` for the page's items table.
+- `GET /api/purchase-orders` -- every purchase, newest first, each with its
+  `vendor` and `seller` by name, `total` (its items), `outstanding` (those
+  not yet received) and `total_cost` (the sum of its items' costs). The
+  Purchases page and Order lookup (`/management/order-lookup`) both narrow
+  this one list in the browser.
+- `GET /api/purchase-orders/{id}`, whose lines carry `source_title` and
+  `item_kind` for the page's items table.
 
 ### Items: `POST /api/inventory` (`ItemCreate`)
 

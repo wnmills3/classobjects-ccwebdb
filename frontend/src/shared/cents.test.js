@@ -22,6 +22,21 @@ describe('cents', () => {
     expect(isMoney('')).toBe(false)
   })
 
+  it('reads an amount typed without the zero before its point', () => {
+    // As an amount under a dollar is typed: fifty cents, seven cents.
+    expect(isMoney('.50')).toBe(true)
+    expect(isMoney(' .5 ')).toBe(true)
+    expect(toCents('.50')).toBe(50)
+    expect(toCents('.5')).toBe(50)
+    expect(toCents('.07')).toBe(7)
+    expect(centsOrZero('.25')).toBe(25)
+    // A point is not an amount, and neither is one with three places.
+    expect(isMoney('.')).toBe(false)
+    expect(isMoney('.123')).toBe(false)
+    expect(isMoney('..5')).toBe(false)
+    expect(isMoney('-.5')).toBe(false)
+  })
+
   it('refuses to read text that is not money', () => {
     expect(() => toCents('1.')).toThrow(RangeError)
     expect(() => toCents('')).toThrow(RangeError)

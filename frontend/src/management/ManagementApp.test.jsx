@@ -116,7 +116,7 @@ describe('management console shell', () => {
       'Procurement',
       'Selling',
       'Reports',
-      'Setup',
+      'Settings',
     ])
     // Buying, in the order it is done: entered, then received.
     expect(pages(screen.getByRole('group', { name: 'Procurement' }))).toEqual([
@@ -135,11 +135,12 @@ describe('management console shell', () => {
       ['Coins', '/inventory/coins'],
       ['Currency', '/inventory/currency'],
       ['Photos', '/photos'],
+      ['Order lookup', '/order-lookup'],
     ])
     expect(pages(screen.getByRole('group', { name: 'Reports' }))).toEqual([
       ['Reports', '/reports'],
     ])
-    expect(pages(screen.getByRole('group', { name: 'Setup' }))).toEqual([
+    expect(pages(screen.getByRole('group', { name: 'Settings' }))).toEqual([
       ['People', '/people'],
       ['Vocabularies', '/vocabularies'],
       ['Lists', '/lists'],
@@ -148,7 +149,17 @@ describe('management console shell', () => {
     const all = within(menu).getAllByRole('link')
     const grouped = groups.flatMap((group) => within(group).getAllByRole('link'))
     expect(grouped).toHaveLength(all.length)
-    expect(new Set(all.map((link) => link.getAttribute('href'))).size).toBe(15)
+    expect(new Set(all.map((link) => link.getAttribute('href'))).size).toBe(16)
+  })
+
+  it('routes /order-lookup to the order lookup page', async () => {
+    renderWithProviders(<ManagementApp />, {
+      auth: adminAuth(),
+      route: '/order-lookup',
+    })
+    expect(
+      await screen.findByRole('heading', { name: 'Order lookup', level: 1 }),
+    ).toBeInTheDocument()
   })
 
   it('routes /photos to the unattached-photographs page', async () => {

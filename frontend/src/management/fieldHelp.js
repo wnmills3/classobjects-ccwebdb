@@ -46,8 +46,29 @@ export const FIELD_HELP = {
   purchase_filter: {
     title: 'Filter',
     text:
-      'Type part of an order number or a vendor name to shorten the list, ' +
-      'or a purchase number (3974 or #3974) to find that one purchase.',
+      'Type part of an order number, a vendor name or a seller name to ' +
+      'shorten the list, or a purchase number (3974 or #3974) to find that ' +
+      'one purchase.',
+  },
+  order_lookup_text: {
+    title: 'Order number, vendor or seller',
+    text:
+      'Type any part of an order number, a vendor name or a seller name: ' +
+      'the list narrows to the purchases that have it. A purchase number ' +
+      '(3974 or #3974) finds that one purchase. Capitals do not matter.',
+  },
+  order_lookup_from: {
+    title: 'Ordered from',
+    text:
+      'The earliest order date to list, that day included. Leave it empty ' +
+      'for no earliest date. A purchase with no order date is listed only ' +
+      'while both date boxes are empty.',
+  },
+  order_lookup_to: {
+    title: 'Ordered to',
+    text:
+      'The latest order date to list, that day included. Leave it empty for ' +
+      'no latest date.',
   },
   purchase_open_only: {
     title: 'Only purchases with items not yet received',
