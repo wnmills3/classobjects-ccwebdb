@@ -87,7 +87,7 @@ Rating = Annotated[str | None, Field(max_length=2000), AfterValidator(_strip_or_
 def _web_address_or_none(value: str | None) -> str | None:
     """Trimmed; blank is None; otherwise it must be an http(s) address."""
     address = _strip_or_none(value)
-    if address is not None and not re.match(r"^https?://", address, re.IGNORECASE):
+    if address is not None and not _HTTP_URL.match(address):
         raise ValueError("must start with http:// or https://")
     return address
 
@@ -1651,8 +1651,6 @@ class ReferenceAliasIn(BaseModel):
 # Acquisitions: vendors, purchase orders and storage locations
 # --------------------------------------------------------------------------
 
-#: An http(s) address, judged by how it begins: what follows is not read here.
-_WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
 #: `mailto:` and a whole mail address.
 _MAILTO_ADDRESS = re.compile(r"^mailto:[^\s@]+@[^\s@]+$", re.IGNORECASE)
 _MAIL_ADDRESS = re.compile(r"^[^\s@:/]+@[^\s@:/]+$")
@@ -1668,7 +1666,7 @@ def _store_address_or_none(value: str | None) -> str | None:
         return None
     if _MAIL_ADDRESS.match(address):
         return f"mailto:{address}"
-    if not (_WEB_ADDRESS.match(address) or _MAILTO_ADDRESS.match(address)):
+    if not (_HTTP_URL.match(address) or _MAILTO_ADDRESS.match(address)):
         raise ValueError("must be a mail address, or start with http:// or https://")
     return address
 
