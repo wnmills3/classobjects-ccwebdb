@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from app.models import ItemKind, ItemStatus, PurchaseOrder
+from decimal import Decimal
+
+from app.models import ItemKind, ItemStatus, PurchaseOrder, Seller
 from app.models.base import utcnow
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -253,3 +255,58 @@ def test_a_customer_cannot_read_storage_locations(
         client.get("/api/storage-locations", headers=customer_headers).status_code
         == 403
     )
+
+
+def _costing(db: Session, order: PurchaseOrder, price: str, shipping: str) -> None:
+    """A live item on `order` at this price and shipping, untaxed."""
+    item = build_bare_item(
+        db,
+        item_cost=Decimal(price),
+        shipping_cost=Decimal(shipping),
+        tax_rate=Decimal("0"),
+    )
+    item.purchase_order_id = order.id
+
+
+def test_the_list_names_each_purchase_s_seller_and_what_it_cost(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    seller = Seller(name="drh9989")
+    db.add(seller)
+    db.flush()
+    sold_by = build_purchase_order(
+        db,
+        vendor_name="ebay.com",
+        order_number="27-0001",
+        seller_id=seller.id,
+        commit=False,
+    )
+    _costing(db, sold_by, "40.00", "5.25")
+    _costing(db, sold_by, "10.00", "0")
+    # Deleted: neither a line of the purchase nor part of what it cost.
+    gone = build_bare_item(db, item_cost=Decimal("999.00"), tax_rate=Decimal("0"))
+    gone.purchase_order_id = sold_by.id
+    gone.deleted_at = utcnow()
+    direct = build_purchase_order(
+        db, vendor_name="Coin show", order_number=None, commit=False
+    )
+    _costing(db, direct, "7.00", "0")
+    empty = build_purchase_order(
+        db, vendor_name="Nothing yet", order_number="E-1", commit=False
+    )
+    db.commit()
+
+    rows = {
+        row["id"]: row
+        for row in client.get("/api/purchase-orders", headers=admin_headers).json()
+    }
+
+    assert rows[sold_by.id]["seller"] == "drh9989"
+    assert Decimal(rows[sold_by.id]["total_cost"]) == Decimal("55.25")
+    assert rows[sold_by.id]["total"] == 2
+    # No seller recorded is null, not an empty name.
+    assert rows[direct.id]["seller"] is None
+    assert Decimal(rows[direct.id]["total_cost"]) == Decimal("7.00")
+    # A purchase with nothing on it yet is still listed, at no cost.
+    assert Decimal(rows[empty.id]["total_cost"]) == Decimal("0")
+    assert rows[empty.id]["total"] == 0

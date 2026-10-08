@@ -10,6 +10,7 @@ import Lists from './pages/Lists'
 import Login from './pages/Login'
 import Lots from './pages/Lots'
 import NewPurchase from './pages/NewPurchase'
+import OrderLookup from './pages/OrderLookup'
 import Orders from './pages/Orders'
 import Photos from './pages/Photos'
 import Platforms from './pages/Platforms'
@@ -32,6 +33,7 @@ const MENU = [
       ['/inventory/coins', 'Coins'],
       ['/inventory/currency', 'Currency'],
       ['/photos', 'Photos'],
+      ['/order-lookup', 'Order lookup'],
     ],
   ],
   [
@@ -54,7 +56,7 @@ const MENU = [
   ],
   ['Reports', [['/reports', 'Reports']]],
   [
-    'Setup',
+    'Settings',
     [
       ['/people', 'People'],
       ['/vocabularies', 'Vocabularies'],
@@ -134,6 +136,7 @@ function Console() {
             <Route path="/inventory/coins" element={<InventoryCoins />} />
             <Route path="/inventory/currency" element={<InventoryCurrency />} />
             <Route path="/photos" element={<Photos />} />
+            <Route path="/order-lookup" element={<OrderLookup />} />
             <Route path="/receiving" element={<Receiving />} />
             <Route path="/purchases" element={<NewPurchase />} />
             {/* The page's earlier address, kept for links and bookmarks. */}

@@ -216,7 +216,7 @@ and exits 2. Read-only, so no `--commit`.
 
 ### Console: the Reports page
 
-- A **Reports** item in the console menu, before Vocabularies.
+- A **Reports** group in the console menu, holding the one page.
 - The page lists the catalog by group; choosing a report shows its
   parameters (as the inventory filter panel does), its table with the totals
   row, its notes, and **Export workbook**.

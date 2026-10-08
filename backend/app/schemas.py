@@ -2470,9 +2470,14 @@ class PurchaseOrderOut(BaseModel):
     id: int
     order_number: str | None
     vendor: str
+    #: Who sold it on the marketplace the vendor names; null when none is
+    #: recorded.
+    seller: str | None = None
     ordered_on: date | None
     outstanding: int
     total: int
+    #: What its live items cost in all -- price, shipping and tax.
+    total_cost: Decimal = Decimal("0")
 
 
 class PurchaseOrderLineOut(BaseModel):

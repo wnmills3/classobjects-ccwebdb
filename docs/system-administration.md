@@ -42,9 +42,9 @@ is structured).
 **management console** at `/management`, a separate application from the shop
 (`docs/specs/management-console-separation-design.md`); none of it is
 reachable from the storefront. Its menu is grouped by what the work is for,
-each group a label over its pages: **Inventory** (Coins, Currency, Photos),
-**Procurement** (Purchases, Receive), **Selling** (Listings, Lots, Auctions,
-Sales, Platforms, Spot prices), **Reports**, and **Setup** (People,
+each group a label over its pages: **Inventory** (Coins, Currency, Photos,
+Order lookup), **Procurement** (Purchases, Receive), **Selling** (Listings, Lots, Auctions,
+Sales, Platforms, Spot prices), **Reports**, and **Settings** (People,
 Vocabularies, Lists). Command-line examples are cmd: `python -m`
 commands run from `backend\` with the `ccwebdb` conda environment active;
 `.\scripts\...` commands run from the repository root.
@@ -765,8 +765,18 @@ holding one item (`docs/specs/entry-panels-design.md`).
 
 - The page opens on **Start a new purchase**; **Add to an existing purchase**
   lists the purchases already recorded (`GET /api/purchase-orders`), filtered
-  by order number or vendor and, when ticked, to those with items not yet
-  received. Choosing one opens it for more items.
+  by order number, vendor or seller and, when ticked, to those with items not
+  yet received. Choosing one opens it for more items.
+- **Order lookup** (`/management/order-lookup`, in the Inventory group) finds
+  a purchase by what is remembered of it: part of an order number, a vendor
+  or a seller (or a purchase number, exactly, as `3974` or `#3974`); a range
+  of order dates, either end included; and whether anything on it has still
+  to arrive. It reads the same list, which gives each purchase its seller,
+  its item count, the count not yet received and `total_cost`, the sum of its
+  items' costs. The page says how many purchases match and what they cost
+  together, sorts by any column, and opens a purchase on the Purchases page
+  from its order number. A purchase with no order date is listed only while
+  both dates are empty.
 - **Vendors** are picked from a list (`GET /api/vendors`) or added inline
   (`POST /api/vendors`: web address, name, kind). Names are unique,
   case-insensitively.

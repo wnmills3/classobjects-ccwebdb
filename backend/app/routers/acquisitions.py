@@ -225,7 +225,7 @@ def delete_vendor(vendor_id: int, db: DbSession, _admin: AdminUser) -> Response:
 
 @purchase_orders_router.get("")
 def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrderOut]:
-    """Every purchase order, with how many of its lines have not yet arrived.
+    """Every purchase order: its seller, its cost, and what has not yet arrived.
 
     "Not yet arrived" is `ordered` or `missing` -- a line written off as
     missing is paid for, not cancelled, and sometimes turns up later, so it
@@ -247,6 +247,9 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
         case((ItemStatus.code.in_(OUTSTANDING_STATUSES), InventoryItem.id))
     )
     total = func.count(InventoryItem.id)
+    # The same live items the counts are over: a deleted line's cost is
+    # not part of what the purchase cost.
+    total_cost = func.coalesce(func.sum(InventoryItem.total_cost), 0)
 
     rows = db.execute(
         select(
@@ -254,10 +257,13 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
             PurchaseOrder.order_number,
             PurchaseOrder.ordered_on,
             Vendor.name,
+            Seller.name.label("seller"),
             outstanding.label("outstanding"),
             total.label("total"),
+            total_cost.label("total_cost"),
         )
         .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
+        .outerjoin(Seller, Seller.id == PurchaseOrder.seller_id)
         .outerjoin(
             InventoryItem,
             and_(InventoryItem.purchase_order_id == PurchaseOrder.id, live_item()),
@@ -268,6 +274,7 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
             PurchaseOrder.order_number,
             PurchaseOrder.ordered_on,
             Vendor.name,
+            Seller.name,
         )
         .order_by(PurchaseOrder.id.desc())
     ).all()
@@ -277,9 +284,11 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
             id=row.id,
             order_number=row.order_number,
             vendor=row.name,
+            seller=row.seller,
             ordered_on=row.ordered_on,
             outstanding=row.outstanding,
             total=row.total,
+            total_cost=row.total_cost,
         )
         for row in rows
     ]
