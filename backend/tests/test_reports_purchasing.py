@@ -1,4 +1,4 @@
-"""`pr_outstanding`, `pr_spend`, `pr_sources`, `pr_received`, `pr_received_items`."""
+"""The purchasing and receiving reports, `pr_outstanding` to `pr_received_items`."""
 
 from __future__ import annotations
 
@@ -23,10 +23,12 @@ from app.models import (
 from app.reports.base import period_label
 from app.reports.purchasing import (
     PR_OUTSTANDING,
+    PR_OUTSTANDING_ITEMS,
     PR_RECEIVED,
     PR_RECEIVED_ITEMS,
     PR_SOURCES,
     PR_SPEND,
+    OutstandingItemsParams,
     OutstandingParams,
     ReceivedItemsParams,
     ReceivedParams,
@@ -1882,3 +1884,174 @@ def test_every_received_row_drills_to_exactly_the_items_it_counts(
         }
         costs = [cast("Decimal", r["total_cost"]) for r in listed.rows]
         assert sum(costs) == row["total_cost"]
+
+
+# ---------------------------------------------------------------------------
+# pr_outstanding_items
+# ---------------------------------------------------------------------------
+
+
+def _status_label(db: Session, code: str) -> str:
+    """The label the `item_status` vocabulary gives `code`."""
+    label = db.scalar(select(ItemStatus.label).where(ItemStatus.code == code))
+    assert label
+    return label
+
+
+def test_outstanding_items_lists_each_outstanding_item_with_what_identifies_it(
+    db: Session,
+) -> None:
+    """A coin and a note outstanding; a received, a deleted and a split one not."""
+    order = _order(db, "Vendor OI1", order_number="OI-1", seller_name="Seller OI1")
+    order.ordered_on = date.today() - timedelta(days=9)
+    db.commit()
+    coin = _item(db, order, "ordered", Decimal("10.00"))
+    coin.year_start, coin.source_title = 1921, "Morgan dollar"
+    db.add(CoinDetail(inventory_item_id=coin.id, mint_id=code_id(db, Mint, "D")))
+    note = _item(db, order, "missing", Decimal("20.00"))
+    note.item_kind_id = code_id(db, ItemKind, "currency")
+    note.source_title = "Silver certificate"
+    db.add(
+        CurrencyDetail(
+            inventory_item_id=note.id,
+            series_year=1935,
+            series_letter="A",
+            serial_number="G03986163*",
+        )
+    )
+    _item(db, order, "received", Decimal("30.00"))
+    deleted = _item(db, order, "ordered", Decimal("99.00"))
+    deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    parent = _item(db, order, "ordered", Decimal("88.00"))
+    parent.split_at = datetime(2026, 1, 1, tzinfo=UTC)
+    coin.item_code, note.item_code = "CC-900041", "CC-900042"
+    db.commit()
+
+    assert _status_label(db, "ordered") != _status_label(db, "missing")
+    result = PR_OUTSTANDING_ITEMS.run(db, OutstandingItemsParams())
+    shared = {
+        "order": "OI-1",
+        "vendor": "Vendor OI1",
+        "seller": "Seller OI1",
+        "ordered": date.today() - timedelta(days=9),
+        "days_waiting": 9,
+    }
+    assert result.rows == [
+        {
+            **shared,
+            "item": "CC-900041",
+            "year": "1921",
+            "mint": _mint_label(db, "D"),
+            "serial": "",
+            "title": "Morgan dollar",
+            "status": _status_label(db, "ordered"),
+            "total_cost": Decimal("10.00"),
+        },
+        {
+            **shared,
+            "item": "CC-900042",
+            "year": "1935A",
+            "mint": "",
+            "serial": "G03986163*",
+            "title": "Silver certificate",
+            "status": _status_label(db, "missing"),
+            "total_cost": Decimal("20.00"),
+        },
+    ]
+    assert [column.key for column in result.columns] == list(result.rows[0])
+    assert result.totals is not None
+    assert result.totals["total_cost"] == Decimal("30.00")
+    assert result.link_column == "item"
+    assert result.drills == [
+        "/inventory/coins?item=CC-900041",
+        "/inventory/currency?item=CC-900042",
+    ]
+
+
+def test_outstanding_items_are_oldest_order_first_undated_last_then_code(
+    db: Session,
+) -> None:
+    """Built undated first and the oldest last, with codes against creation order."""
+    undated = _order(db, "Vendor OIU", order_number="OIU-1", ordered_on=None)
+    newer = _order(db, "Vendor OIN", order_number="OIN-1", ordered_on=date(2026, 3, 9))
+    older = _order(db, "Vendor OIO", order_number="OIO-1", ordered_on=date(2026, 3, 1))
+    db.commit()
+    undated_item = _item(db, undated, "ordered", Decimal("1.00"))
+    newer_item = _item(db, newer, "ordered", Decimal("1.00"))
+    older_second = _item(db, older, "ordered", Decimal("1.00"))
+    older_first = _item(db, older, "ordered", Decimal("1.00"))
+    older_first.item_code, older_second.item_code = "CC-900051", "CC-900052"
+    db.commit()
+
+    result = PR_OUTSTANDING_ITEMS.run(db, OutstandingItemsParams())
+    assert [(r["order"], r["item"]) for r in result.rows] == [
+        ("OIO-1", "CC-900051"),
+        ("OIO-1", "CC-900052"),
+        ("OIN-1", newer_item.item_code),
+        ("OIU-1", undated_item.item_code),
+    ]
+    assert [r["days_waiting"] for r in result.rows][-1] is None
+
+
+def test_outstanding_items_are_exactly_what_not_yet_arrived_counts(
+    db: Session,
+) -> None:
+    """Per purchase, the items listed equal that report's count and cost.
+
+    A purchase part received, one wholly received, one with a deleted and a
+    split line, an order with no number and seller, and an outstanding item
+    on no purchase at all: each a way the two could come apart.
+    """
+    part = _order(db, "Vendor OPA", order_number="OPA-1")
+    _item(db, part, "ordered", Decimal("10.33"))
+    _item(db, part, "missing", Decimal("7.77"))
+    _item(db, part, "received", Decimal("30.00"))
+    done = _order(db, "Vendor OPB", order_number="OPB-1")
+    _item(db, done, "received", Decimal("5.00"))
+    mixed = _order(db, "Vendor OPC", order_number=None)
+    _item(db, mixed, "ordered", Decimal("4.00"))
+    deleted = _item(db, mixed, "ordered", Decimal("99.00"))
+    deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    parent = _item(db, mixed, "missing", Decimal("88.00"))
+    parent.split_at = datetime(2026, 1, 1, tzinfo=UTC)
+    loose = build_bare_item(
+        db,
+        status_id=code_id(db, ItemStatus, "ordered"),
+        item_cost=Decimal("5.00"),
+        tax_rate=Decimal("0"),
+        shipping_cost=Decimal("0"),
+    )
+    db.commit()
+
+    summary = PR_OUTSTANDING.run(db, OutstandingParams())
+    items = PR_OUTSTANDING_ITEMS.run(db, OutstandingItemsParams())
+
+    assert loose.item_code not in {r["item"] for r in items.rows}
+    assert [(r["vendor"], r["order"], r["outstanding"]) for r in summary.rows] == [
+        ("Vendor OPA", "OPA-1", 2),
+        ("Vendor OPC", "(no number)", 1),
+    ]
+    for row in summary.rows:
+        listed = [r for r in items.rows if r["vendor"] == row["vendor"]]
+        assert len(listed) == row["outstanding"], row
+        assert {r["order"] for r in listed} == {row["order"]}
+        costs = [cast("Decimal", r["total_cost"]) for r in listed]
+        assert sum(costs) == row["outstanding_cost"]
+    assert summary.totals is not None
+    assert len(items.rows) == summary.totals["outstanding"]
+    assert items.totals is not None
+    assert items.totals["total_cost"] == summary.totals["outstanding_cost"]
+
+
+def test_outstanding_items_with_nothing_outstanding_returns_no_rows(
+    db: Session,
+) -> None:
+    order = _order(db, "Vendor OIE", order_number="OIE-1")
+    _item(db, order, "received", Decimal("1.00"))
+    db.commit()
+
+    result = PR_OUTSTANDING_ITEMS.run(db, OutstandingItemsParams())
+    assert result.rows == []
+    assert result.totals is None
+    assert result.drills == []
+    assert result.notes == ["Nothing is outstanding."]

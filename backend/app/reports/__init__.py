@@ -33,6 +33,7 @@ from .data_quality import (
 from .money import MN_BASIS, MN_TAX, MN_VALUE
 from .purchasing import (
     PR_OUTSTANDING,
+    PR_OUTSTANDING_ITEMS,
     PR_RECEIVED,
     PR_RECEIVED_ITEMS,
     PR_SOURCES,
@@ -67,6 +68,7 @@ __all__ = [
     "MN_TAX",
     "MN_VALUE",
     "PR_OUTSTANDING",
+    "PR_OUTSTANDING_ITEMS",
     "PR_RECEIVED",
     "PR_RECEIVED_ITEMS",
     "PR_SOURCES",

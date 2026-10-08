@@ -1,10 +1,11 @@
 """Purchasing and receiving: what has been bought and has not yet arrived.
 
-Five reports. `pr_outstanding`: one row per purchase order carrying at least
+Six reports. `pr_outstanding`: one row per purchase order carrying at least
 one live item still `ordered` or `missing` -- the same outstanding
 definition Receiving's own order list (`GET /api/purchase-orders`) uses
 (`app.live.OUTSTANDING_STATUSES`), so this report and Receiving can never
-disagree about what "not yet arrived" means. `pr_spend`: period x vendor
+disagree about what "not yet arrived" means. `pr_outstanding_items`: the
+items that report counts, one to a row. `pr_spend`: period x vendor
 spending, over purchases with a live item. `pr_sources`: every vendor with
 such a purchase, and every seller one has named, with what was bought from
 them.
@@ -57,10 +58,12 @@ from .registry import register
 
 __all__ = [
     "PR_OUTSTANDING",
+    "PR_OUTSTANDING_ITEMS",
     "PR_RECEIVED",
     "PR_RECEIVED_ITEMS",
     "PR_SOURCES",
     "PR_SPEND",
+    "OutstandingItemsParams",
     "OutstandingParams",
     "ReceivedItemsParams",
     "ReceivedParams",
@@ -223,6 +226,132 @@ PR_OUTSTANDING = register(
         "cost; oldest first.",
         params=OutstandingParams,
         run=_pr_outstanding,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# pr_outstanding_items
+# ---------------------------------------------------------------------------
+
+
+class OutstandingItemsParams(BaseModel):
+    """`pr_outstanding_items` takes no parameters."""
+
+
+_OUTSTANDING_ITEMS_COLUMNS = [
+    Column("order", "Order", "text"),
+    Column("vendor", "Vendor", "text"),
+    Column("seller", "Seller", "text"),
+    Column("ordered", "Ordered", "date"),
+    Column("days_waiting", "Days waiting", "count"),
+    Column("item", "Item", "text"),
+    Column("year", "Year", "text"),
+    Column("mint", "Mint", "text"),
+    Column("serial", "Serial number", "text"),
+    Column("title", "Title", "text"),
+    Column("status", "Status", "text"),
+    Column("total_cost", "Total cost", "money"),
+]
+
+
+def _pr_outstanding_items(db: Session, _params: OutstandingItemsParams) -> ReportResult:
+    """One row per live item still `ordered` or `missing`, on a purchase.
+
+    The items `pr_outstanding` counts as `outstanding`, purchase by
+    purchase and in its order -- oldest ordered first, undated last -- then
+    by item code: the same outstanding statuses, the same `live_item()`
+    rule, and only items on a purchase, since that report is one row per
+    purchase. Each carries what identifies it (`_item_identity`): a coin's
+    year and mint, a note's series and serial number.
+
+    Each row drills to its own item, by its kind's search page.
+    """
+    stmt = (
+        select(
+            InventoryItem.id,
+            InventoryItem.item_code,
+            InventoryItem.source_title,
+            InventoryItem.total_cost,
+            ItemKind.code.label("kind_code"),
+            ItemStatus.label.label("status_label"),
+            PurchaseOrder.order_number,
+            PurchaseOrder.ordered_on,
+            Vendor.name.label("vendor_name"),
+            Seller.name.label("seller_name"),
+        )
+        .join(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
+        .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
+        .outerjoin(Seller, Seller.id == PurchaseOrder.seller_id)
+        .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
+        .join(ItemStatus, ItemStatus.id == InventoryItem.status_id)
+        .where(live_item(), ItemStatus.code.in_(OUTSTANDING_STATUSES))
+        .order_by(
+            PurchaseOrder.ordered_on.asc().nulls_last(),
+            PurchaseOrder.id.asc(),
+            InventoryItem.item_code.asc(),
+        )
+    )
+    found = db.execute(stmt).mappings().all()
+    if not found:
+        return ReportResult(
+            columns=_OUTSTANDING_ITEMS_COLUMNS,
+            rows=[],
+            totals=None,
+            drills=[],
+            notes=["Nothing is outstanding."],
+            link_column="item",
+        )
+
+    identity = _item_identity(db, {row["id"] for row in found})
+    today = date.today()
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    total_cost = Decimal("0")
+    for row in found:
+        ordered_on = row["ordered_on"]
+        rows.append(
+            {
+                "order": row["order_number"] or _NO_NUMBER,
+                "vendor": row["vendor_name"],
+                "seller": row["seller_name"] or "",
+                "ordered": ordered_on,
+                "days_waiting": (today - ordered_on).days if ordered_on else None,
+                "item": row["item_code"],
+                **identity[row["id"]],
+                "title": row["source_title"],
+                "status": row["status_label"],
+                "total_cost": row["total_cost"],
+            }
+        )
+        query = urlencode({"item": row["item_code"]})
+        drills.append(f"{view_path(row['kind_code'])}?{query}")
+        total_cost += row["total_cost"]
+
+    totals: dict[str, object] = {
+        **dict.fromkeys((column.key for column in _OUTSTANDING_ITEMS_COLUMNS), None),
+        "title": "All items",
+        "total_cost": total_cost,
+    }
+    return ReportResult(
+        columns=_OUTSTANDING_ITEMS_COLUMNS,
+        rows=rows,
+        totals=totals,
+        drills=drills,
+        link_column="item",
+    )
+
+
+PR_OUTSTANDING_ITEMS = register(
+    Report(
+        id="pr_outstanding_items",
+        group=_GROUP,
+        title="Not yet arrived items",
+        purpose="One row per item still ordered or missing, oldest order "
+        "first: order, vendor, seller, days waiting, item, a coin's year "
+        "and mint, a note's serial number, and total cost.",
+        params=OutstandingItemsParams,
+        run=_pr_outstanding_items,
     )
 )
 
@@ -834,7 +963,7 @@ def _year_text(row: RowMapping) -> str:
     return str(start) if end in (None, start) else f"{start}-{end}"
 
 
-def _received_identity(db: Session, item_ids: set[int]) -> dict[int, dict[str, str]]:
+def _item_identity(db: Session, item_ids: set[int]) -> dict[int, dict[str, str]]:
     """What tells one listed piece from the next: its year, mint and serial.
 
     A coin's date and mint, a note's series and printed serial number --
@@ -842,6 +971,7 @@ def _received_identity(db: Session, item_ids: set[int]) -> dict[int, dict[str, s
     a piece with neither still has an (empty) entry. One query for every
     piece listed, a split lot's children included, rather than three more
     joins on the arrivals `pr_received` also reads and has no use for.
+    `pr_outstanding_items` reads the same entries for the items it lists.
     """
     if not item_ids:
         return {}
@@ -886,7 +1016,7 @@ def _pr_received_items(db: Session, params: ReceivedItemsParams) -> ReportResult
     is listed once for each receipt, and a split parent's receipt lists its
     own live children (`_received_children`) on the parent's day, vendor,
     seller and order. Within a day, by vendor and then item code. Each
-    piece carries what identifies it (`_received_identity`): a coin's year
+    piece carries what identifies it (`_item_identity`): a coin's year
     and mint, a note's series and serial number.
 
     Each row drills to its own item, by its kind's search page.
@@ -938,7 +1068,7 @@ def _pr_received_items(db: Session, params: ReceivedItemsParams) -> ReportResult
             entry[2]["item_code"],
         )
     )
-    identity = _received_identity(
+    identity = _item_identity(
         db, {piece["inventory_item_id"] for _day, _row, piece in listed}
     )
     rows: list[dict[str, object]] = []
