@@ -9,10 +9,13 @@ from urllib.parse import parse_qsl
 
 import pytest
 from app.models import (
+    CoinDetail,
+    CurrencyDetail,
     InventoryItem,
     ItemKind,
     ItemStatus,
     ItemStatusHistory,
+    Mint,
     PurchaseOrder,
     Seller,
     Vendor,
@@ -32,6 +35,7 @@ from app.reports.purchasing import (
 )
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, build_purchase_order, code_id
@@ -1465,7 +1469,13 @@ def test_received_items_lists_one_row_per_item_with_its_purchase(
     db: Session,
 ) -> None:
     vendor = _vendor(db, "Vendor RI1")
-    order = _order_for(db, vendor, order_number="RI-1", ordered_on=date(2026, 3, 1))
+    order = _order_for(
+        db,
+        vendor,
+        order_number="RI-1",
+        ordered_on=date(2026, 3, 1),
+        seller_name="Seller RI1",
+    )
     item = _item(db, order, "ordered", Decimal("25.00"))
     item.source_title = "1881-S Morgan dollar"
     _receive(db, item, arrived_on=date(2026, 3, 5))
@@ -1475,11 +1485,137 @@ def test_received_items_lists_one_row_per_item_with_its_purchase(
         {
             "day": date(2026, 3, 5),
             "item": item.item_code,
+            "year": "1881",
+            "mint": "",
+            "serial": "",
             "title": "1881-S Morgan dollar",
             "vendor": "Vendor RI1",
+            "seller": "Seller RI1",
             "order": "RI-1",
             "total_cost": Decimal("25.00"),
         }
+    ]
+    assert [column.key for column in result.columns] == list(result.rows[0])
+
+
+def _mint_label(db: Session, code: str) -> str:
+    """The label the `mint` vocabulary gives `code`."""
+    label = db.scalar(select(Mint.label).where(Mint.code == code))
+    assert label
+    return label
+
+
+def test_received_items_shows_a_coins_year_and_mint(db: Session) -> None:
+    """Three coins, each with a different year shape and its own mint.
+
+    Received in an order that differs from their codes, and no two alike, so
+    a year or mint read from the wrong item shows.
+    """
+    vendor = _vendor(db, "Vendor RIM")
+    order = _order_for(db, vendor, order_number="RIM-1", ordered_on=None)
+    denver = _item(db, order, "ordered", Decimal("1.00"))
+    denver.year_start, denver.year_end = 1921, None
+    db.add(CoinDetail(inventory_item_id=denver.id, mint_id=code_id(db, Mint, "D")))
+    ranged = _item(db, order, "ordered", Decimal("1.00"))
+    ranged.year_start, ranged.year_end = 1999, 2009
+    db.add(CoinDetail(inventory_item_id=ranged.id, mint_id=code_id(db, Mint, "S")))
+    undated = _item(db, order, "ordered", Decimal("1.00"))
+    undated.year_start, undated.year_end, undated.no_date = None, None, True
+    unknown = _item(db, order, "ordered", Decimal("1.00"))
+    unknown.year_start, unknown.year_end = None, None
+    denver.item_code, ranged.item_code = "CC-900021", "CC-900022"
+    undated.item_code, unknown.item_code = "CC-900023", "CC-900024"
+    for item in (unknown, undated, ranged, denver):
+        _receive(db, item, arrived_on=date(2026, 3, 5))
+
+    assert _mint_label(db, "D") != _mint_label(db, "S")
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert [(r["item"], r["year"], r["mint"], r["serial"]) for r in result.rows] == [
+        ("CC-900021", "1921", _mint_label(db, "D"), ""),
+        ("CC-900022", "1999-2009", _mint_label(db, "S"), ""),
+        ("CC-900023", "No date", "", ""),
+        ("CC-900024", "", "", ""),
+    ]
+
+
+def test_received_items_shows_a_notes_series_and_serial_number(db: Session) -> None:
+    """A note's year column is its series, never the item's own year."""
+    vendor = _vendor(db, "Vendor RIC")
+    order = _order_for(db, vendor, order_number="RIC-1", ordered_on=None)
+    lettered = _item(db, order, "ordered", Decimal("1.00"))
+    plain = _item(db, order, "ordered", Decimal("1.00"))
+    bare = _item(db, order, "ordered", Decimal("1.00"))
+    for note in (lettered, plain, bare):
+        note.item_kind_id = code_id(db, ItemKind, "currency")
+    db.add(
+        CurrencyDetail(
+            inventory_item_id=lettered.id,
+            series_year=1935,
+            series_letter="A",
+            serial_number="G03986163*",
+        )
+    )
+    db.add(
+        CurrencyDetail(
+            inventory_item_id=plain.id, series_year=1957, serial_number="00012345A"
+        )
+    )
+    lettered.item_code, plain.item_code, bare.item_code = (
+        "CC-900031",
+        "CC-900032",
+        "CC-900033",
+    )
+    for note in (bare, plain, lettered):
+        _receive(db, note, arrived_on=date(2026, 3, 5))
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert [(r["item"], r["year"], r["mint"], r["serial"]) for r in result.rows] == [
+        ("CC-900031", "1935A", "", "G03986163*"),
+        ("CC-900032", "1957", "", "00012345A"),
+        ("CC-900033", "", "", ""),
+    ]
+
+
+def test_received_items_seller_is_the_purchases_own_and_empty_without_one(
+    db: Session,
+) -> None:
+    vendor = _vendor(db, "Vendor RIL")
+    named = _order_for(
+        db, vendor, order_number="RIL-1", ordered_on=None, seller_name="Seller RIL"
+    )
+    unnamed = _order_for(db, vendor, order_number="RIL-2", ordered_on=None)
+    with_seller = _item(db, named, "ordered", Decimal("1.00"))
+    without = _item(db, unnamed, "ordered", Decimal("1.00"))
+    _receive(db, without, arrived_on=date(2026, 3, 5))
+    _receive(db, with_seller, arrived_on=date(2026, 3, 5))
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert {r["item"]: r["seller"] for r in result.rows} == {
+        with_seller.item_code: "Seller RIL",
+        without.item_code: "",
+    }
+
+
+def test_received_items_split_piece_shows_its_own_year_and_mint_and_the_lots_seller(
+    db: Session,
+) -> None:
+    """The lot is dated and minted one way, its piece another: the piece's shows."""
+    vendor = _vendor(db, "Vendor RIP")
+    order = _order_for(
+        db, vendor, order_number="RIP-1", ordered_on=None, seller_name="Seller RIP"
+    )
+    lot = _item(db, order, "ordered", Decimal("100.00"))
+    lot.year_start = 1900
+    db.add(CoinDetail(inventory_item_id=lot.id, mint_id=code_id(db, Mint, "S")))
+    _receive(db, lot, arrived_on=date(2026, 3, 5))
+    (piece,) = _split_into(db, lot, [Decimal("40.00")])
+    piece.year_start = 1921
+    db.add(CoinDetail(inventory_item_id=piece.id, mint_id=code_id(db, Mint, "D")))
+    db.commit()
+
+    result = PR_RECEIVED_ITEMS.run(db, ReceivedItemsParams())
+    assert [(r["item"], r["year"], r["mint"], r["seller"]) for r in result.rows] == [
+        (piece.item_code, "1921", _mint_label(db, "D"), "Seller RIP")
     ]
 
 
