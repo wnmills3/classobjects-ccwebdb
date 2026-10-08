@@ -142,7 +142,7 @@ export default function OfferDialog({
   // The margin "Fill blank prices" works to, and what the last fill did.
   const [margin, setMargin] = useState('20')
   const [filled, setFilled] = useState('')
-  const [offerError, setError] = useState('')
+  const [offerError, setOfferError] = useState('')
   const error = offerError || venuesError
   const [refused, setRefused] = useState([])
   const [offering, setOffering] = useState(false)
@@ -240,7 +240,7 @@ export default function OfferDialog({
 
   async function offer() {
     if (venue === '') {
-      setError('Choose a platform to offer these on.')
+      setOfferError('Choose a platform to offer these on.')
       return
     }
     // Said here rather than left to the API, whose refusal for a blank price
@@ -248,7 +248,7 @@ export default function OfferDialog({
     // who has not filled a row in yet.
     const unpriced = subjects.filter((subject) => !isMoney(rowFor(subject).price))
     if (unpriced.length > 0) {
-      setError(
+      setOfferError(
         `Price must be an amount like 189.00: ${unpriced
           .map((subject) => subject.label)
           .join(', ')}`,
@@ -264,11 +264,11 @@ export default function OfferDialog({
       format === 'fixed_price' &&
       rowFor(subjects[0]).title.trim() === ''
     ) {
-      setError('Give the lot a title: it is the only name a buyer sees.')
+      setOfferError('Give the lot a title: it is the only name a buyer sees.')
       return
     }
     setOffering(true)
-    setError('')
+    setOfferError('')
     setRefused([])
     try {
       // Exactly one subject, the way `OfferIn._one_subject` requires it. A
@@ -312,7 +312,7 @@ export default function OfferDialog({
       onOffered(batch.listings)
     } catch (err) {
       if (!mounted.current) return
-      setError(err.message)
+      setOfferError(err.message)
       // The per-item reasons, when the refusal has any. The race case is a
       // 409 with an empty list and a message that stands on its own, so this
       // must not insist on finding items to name.

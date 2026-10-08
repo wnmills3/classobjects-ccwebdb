@@ -67,6 +67,33 @@ def test_run_prints_the_table_for_a_built_purchase(
     assert "42.50" in out  # money, right-aligned as the Decimal prints
 
 
+def test_a_name_s_control_characters_are_printed_escaped_on_its_own_line(
+    db: Session, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A stored name is printed, never obeyed.
+
+    A name may hold an escape sequence that clears the screen or a line
+    break that starts a row of its own making. Each such character prints
+    as its escape, so the row stays one line and the terminal is sent
+    nothing but text.
+    """
+    _outstanding_purchase(db, "Escape\x1b[2J\r\nVendor‮", "ESC-1")
+
+    exit_code = main(["run", "pr_outstanding"], db=db)
+    out, _err = capsys.readouterr()
+
+    assert exit_code == 0
+    escaped = "Escape\\x1b[2J\\r\\nVendor\\u202e"
+    (line,) = [line for line in out.splitlines() if "ESC-1" in line]
+    assert escaped in line
+    for character in ("\x1b", "\r", "‮"):
+        assert character not in out
+    # The column is as wide as what is printed, so the next one still starts
+    # under its own header.
+    header = next(line for line in out.splitlines() if line.startswith("Order "))
+    assert header.index("Seller") == line.index(escaped) + len(escaped) + 2
+
+
 def test_a_param_is_passed_through(
     db: Session, capsys: pytest.CaptureFixture[str]
 ) -> None:

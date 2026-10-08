@@ -39,7 +39,10 @@ export function sameValue(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) {
     // Ordered by code unit, stated rather than left to the default: all that
     // matters is that both lists are put in the same order.
-    const byCodeUnit = (x, y) => (x < y ? -1 : x > y ? 1 : 0)
+    const byCodeUnit = (x, y) => {
+      if (x < y) return -1
+      return x > y ? 1 : 0
+    }
     const norm = (v) => [...v].map(String).sort(byCodeUnit).join('\u0000')
     return norm(a) === norm(b)
   }

@@ -21,6 +21,24 @@ from sqlalchemy.orm import Session
 from ..models import InventoryItem, SalesLot, SalesVenue
 
 
+def unprocessable(description: str) -> dict[str, Any]:
+    """The OpenAPI entry for a route's 422, said in the route's own words.
+
+    For a route's `responses={422: ...}`, where it refuses a request for a
+    reason beyond its shape. Restates FastAPI's generated content: passing
+    only a description replaces the whole 422 entry and drops the schema
+    reference.
+    """
+    return {
+        "description": description,
+        "content": {
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/HTTPValidationError"}
+            }
+        },
+    }
+
+
 def found_or_404[T](row: T | None, detail: str) -> T:
     """`row`, or a 404 with `detail` when the lookup that produced it found nothing."""
     if row is None:

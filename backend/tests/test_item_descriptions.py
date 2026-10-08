@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.item_descriptions import suggested_description
+import pytest
+from app.item_descriptions import _SERIAL_SUFFIX, suggested_description
 from app.models import (
     CoinDetail,
     CurrencyDetail,
@@ -231,3 +232,26 @@ def test_the_route_writes_nothing(
     item = db.get(InventoryItem, item_id)
     assert item is not None
     assert (item.version, item.description) == before
+
+
+@pytest.mark.parametrize(
+    ("label", "written"),
+    [
+        ("Radar Serial", "Radar"),
+        ("Super  Radar \t Serial", "Super  Radar"),
+        # All of a run of space goes with the noun, wherever the run begins.
+        ("  Serial", ""),
+        ("Radar" + " " * 200 + "Serial", "Radar"),
+        # Only the noun at the very end, and only after space.
+        ("Serial", "Serial"),
+        ("Serial Number", "Serial Number"),
+        ("Radar Serial ", "Radar Serial "),
+        ("RadarSerial", "RadarSerial"),
+        ("Radar serial", "Radar serial"),
+        ("Low Serial Serial", "Low Serial"),
+    ],
+)
+def test_a_serial_feature_s_label_loses_the_noun_it_ends_in(
+    label: str, written: str
+) -> None:
+    assert _SERIAL_SUFFIX.sub("", label) == written

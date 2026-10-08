@@ -20,9 +20,8 @@ const PRINTED_AT = { dc: 'printed in Washington DC', fw: 'printed in Fort Worth'
  */
 export function webSearchText(fields, labels = {}) {
   const label = (table, code) => (code ? (labels[table]?.[code] ?? code) : '')
-  const series = fields.seriesYear
-    ? `Series ${fields.seriesYear}${fields.seriesLetter ? `-${fields.seriesLetter}` : ''}`
-    : ''
+  const letter = fields.seriesLetter ? `-${fields.seriesLetter}` : ''
+  const series = fields.seriesYear ? `Series ${fields.seriesYear}${letter}` : ''
   const parts = [
     series,
     label('denomination', fields.denomination).replace(/ Bill$/, ''),

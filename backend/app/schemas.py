@@ -54,6 +54,9 @@ Rate = Annotated[
 #: to 1801; 2200 is the same far bound the item years use.
 SERIES_YEAR_MIN = 1690
 SERIES_YEAR_MAX = 2200
+
+#: Where a note was printed: `dc` (Washington) or `fw` (Fort Worth).
+_PRINTING_FACILITY = "^(dc|fw)$"
 SeriesYear = Annotated[int, Field(ge=SERIES_YEAR_MIN, le=SERIES_YEAR_MAX)]
 
 
@@ -1161,7 +1164,7 @@ class InventoryItemUpdate(BaseModel):
     #: Digits, as printed on the back.
     back_plate_number: BackPlate = None
     #: `dc` or `fw`; read from the face plate when that is sent.
-    printing_facility: str | None = Field(default=None, pattern="^(dc|fw)$")
+    printing_facility: str | None = Field(default=None, pattern=_PRINTING_FACILITY)
 
     #: Required, as true, to change an item that is up for sale: a listing
     #: offers it or an unshipped order holds it (app.sale_state).
@@ -1328,7 +1331,7 @@ class ItemCreate(BaseModel):
     #: Digits, as printed on the back.
     back_plate_number: BackPlate = None
     #: `dc` or `fw`; read from the face plate when that is sent.
-    printing_facility: str | None = Field(default=None, pattern="^(dc|fw)$")
+    printing_facility: str | None = Field(default=None, pattern=_PRINTING_FACILITY)
 
     #: Fields whose value is a suggestion the form filled from the facts and
     #: the person left as it was, by field name. They are recorded as derived
@@ -1648,7 +1651,12 @@ class ReferenceAliasIn(BaseModel):
 # Acquisitions: vendors, purchase orders and storage locations
 # --------------------------------------------------------------------------
 
-_STORE_ADDRESS = re.compile(r"^(https?://|mailto:[^\s@]+@[^\s@]+$)", re.IGNORECASE)
+#: An http(s) address by how it begins, or `mailto:` and a whole mail address.
+#: Each alternative carries its own anchors: the end is the mail address's
+#: alone, since what follows `https://` is not judged here.
+_STORE_ADDRESS = re.compile(
+    r"(?:^https?://)|(?:^mailto:[^\s@]+@[^\s@]+$)", re.IGNORECASE
+)
 _MAIL_ADDRESS = re.compile(r"^[^\s@:/]+@[^\s@:/]+$")
 
 
@@ -2772,7 +2780,7 @@ class FriedbergNumberCreate(BaseModel):
 
     size_class: str | None = Field(default=None, pattern="^(large|small|fractional)$")
     web_press: bool | None = None
-    printing_facility: str | None = Field(default=None, pattern="^(dc|fw)$")
+    printing_facility: str | None = Field(default=None, pattern=_PRINTING_FACILITY)
     description: str | None = None
 
 

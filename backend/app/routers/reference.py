@@ -51,7 +51,7 @@ from ..schemas import (
     ReferenceValueOut,
     ReferenceValueRename,
 )
-from ._resolve import found_or_404
+from ._resolve import found_or_404, unprocessable
 
 router = APIRouter(prefix="/reference", tags=["reference"])
 
@@ -383,7 +383,15 @@ def create_value(
     return _to_value(row, model)
 
 
-@router.patch("/{table}/{code}")
+@router.patch(
+    "/{table}/{code}",
+    responses={
+        422: unprocessable(
+            "Request validation failed, or the label holds no text, or the "
+            "change names a column the table does not have."
+        )
+    },
+)
 def rename_value(
     table: str,
     code: str,
@@ -466,7 +474,11 @@ def _row_or_404(
     return model, row
 
 
-@router.post("/{table}/{code}/aliases", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{table}/{code}/aliases",
+    status_code=status.HTTP_201_CREATED,
+    responses={409: {"description": "The alias cannot be added to this value."}},
+)
 def add_alias(
     table: str,
     code: str,
@@ -521,7 +533,13 @@ def remove_alias(
     return _value_with_aliases(db, row, model)
 
 
-@router.post("/{table}/{code}/merge")
+@router.post(
+    "/{table}/{code}/merge",
+    responses={
+        404: {"description": "The table or either of the two values is unknown."},
+        409: {"description": "The two values cannot be merged."},
+    },
+)
 def merge_value(
     table: str,
     code: str,

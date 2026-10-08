@@ -132,6 +132,9 @@ def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> Order
     neither, even though both fields stay in the response shape for every
     caller.
     """
+    placed_by_email: str | None = None
+    if for_admin and order.placed_by:
+        placed_by_email = order.placed_by.email
     return OrderOut(
         id=order.id,
         customer_id=order.customer_id,
@@ -157,9 +160,7 @@ def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> Order
         ],
         version=order.version,
         notes=order.notes if for_admin else None,
-        placed_by_email=(order.placed_by.email if order.placed_by else None)
-        if for_admin
-        else None,
+        placed_by_email=placed_by_email,
         payment_adjustment_due=payment_adjustment_due(status_code, order.changes),
     )
 

@@ -516,12 +516,11 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     if (kind === item.item_kind) delete next.item_kind
     else next.item_kind = kind
 
-    const current = (key) =>
-      key in next
-        ? next[key]
-        : key === 'attributes'
-          ? (item.attributes ?? []).map((a) => a.code)
-          : item[key]
+    const current = (key) => {
+      if (key in next) return next[key]
+      if (key === 'attributes') return (item.attributes ?? []).map((a) => a.code)
+      return item[key]
+    }
     const { fields, attributes } = clearedByKind(kind, current, vocab)
     const cleared = {}
     for (const [key, was] of Object.entries(fields)) {
@@ -936,6 +935,17 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     </label>
   )
 
+  // Which of a picker's values are offered for the item's kind: a grade by
+  // its scale, a denomination, designation or series by its side, and every
+  // value of any other picker.
+  const offeredFor = (key) => {
+    if (key === 'grade') return (grade) => gradeFitsKind(grade, value('item_kind'))
+    if (key === 'denomination' || key === 'grade_designation' || key === 'series') {
+      return (entry) => fitsKind(entry, value('item_kind'))
+    }
+    return undefined
+  }
+
   // A classifier's row, for those `wanted` that fit the item's kind.
   const classifierRows = (wanted) =>
     CLASSIFIERS.filter(
@@ -957,15 +967,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           // Status is NOT NULL on the item, so there is no blank to pick:
           // clearing it would be a 422 the operator cannot act on.
           allowBlank={key !== 'status'}
-          filter={
-            key === 'grade'
-              ? (grade) => gradeFitsKind(grade, value('item_kind'))
-              : key === 'denomination' ||
-                  key === 'grade_designation' ||
-                  key === 'series'
-                ? (entry) => fitsKind(entry, value('item_kind'))
-                : undefined
-          }
+          filter={offeredFor(key)}
           {...accel(letter)}
         />
         {side(key, columnOf(key, true))}
@@ -1250,7 +1252,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
 
         {item.tax_rate !== undefined && (
           <div className="field">
-            Sales tax
+            Sales tax{/* */}
             <span title="Recalculated by the database when saved">
               {money(item.sales_tax)}
             </span>

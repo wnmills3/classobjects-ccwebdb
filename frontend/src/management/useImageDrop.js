@@ -10,6 +10,15 @@ export function isImageFile(file) {
 }
 
 /**
+ * The drop target's `dragover`. Without this the browser's own default takes
+ * over: dropping an image on the page opens it in the tab instead of
+ * reaching the target.
+ */
+function onDragOver(e) {
+  e.preventDefault()
+}
+
+/**
  * A place photographs are added by choosing, dropping or pasting them: the
  * drop target's handlers, whether a drag is over it, and why a drop or a
  * paste was refused.
@@ -61,12 +70,6 @@ export function useImageDrop({ onImages, disabled = false }) {
     // earlier drop or paste -- and leaving a chosen file in place stops it
     // being chosen again.
     e.target.value = ''
-  }
-
-  function onDragOver(e) {
-    // Without this the browser's own default takes over: dropping an image
-    // on the page opens it in the tab instead of reaching this target.
-    e.preventDefault()
   }
 
   function onDragEnter(e) {

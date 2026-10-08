@@ -132,7 +132,7 @@ export default function SettlementGrid({
   const setFee = (buyerKey, kindCode) => (e) =>
     setFeeAmounts((current) => ({
       ...current,
-      [buyerKey]: { ...(current[buyerKey] ?? {}), [kindCode]: e.target.value },
+      [buyerKey]: { ...current[buyerKey], [kindCode]: e.target.value },
     }))
 
   // Refusals, split by whether they name one lot in particular.
@@ -338,7 +338,7 @@ export default function SettlementGrid({
 
       {isAuctionHouse && (
         <label>
-          Return unsold and withdrawn items to
+          Return unsold and withdrawn items to{/* */}
           <select
             aria-label="Return unsold and withdrawn items to"
             value={returnedToLocationId}

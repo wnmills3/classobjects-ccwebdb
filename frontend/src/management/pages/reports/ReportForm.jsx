@@ -37,6 +37,8 @@ export default function ReportForm({ report, values, error, busy, ranAt, onRun }
     onRun(draft)
   }
 
+  const ran = ranAt ? `Ran ${dateTime(ranAt)}` : ''
+
   return (
     <form className="search-panel report-form" onSubmit={submit}>
       {report.params.length > 0 && (
@@ -61,7 +63,7 @@ export default function ReportForm({ report, values, error, busy, ranAt, onRun }
         {/* The same rows often come back, so the time is what shows that
             pressing Run ran the report again. */}
         <span className="muted" role="status">
-          {busy ? 'Running...' : ranAt ? `Ran ${dateTime(ranAt)}` : ''}
+          {busy ? 'Running...' : ran}
         </span>
       </div>
     </form>

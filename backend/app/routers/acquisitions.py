@@ -48,7 +48,7 @@ from ..schemas import (
     VendorOut,
     VendorUpdate,
 )
-from ._resolve import found_or_404, get_or_404, refuse_future
+from ._resolve import found_or_404, get_or_404, refuse_future, unprocessable
 from ._tx import commit_unique
 
 vendors_router = APIRouter(prefix="/vendors", tags=["acquisitions"])
@@ -57,6 +57,7 @@ purchase_orders_router = APIRouter(prefix="/purchase-orders", tags=["acquisition
 storage_locations_router = APIRouter(prefix="/storage-locations", tags=["acquisitions"])
 
 _ORDER_NOT_FOUND = "Purchase order not found"
+_LOCATION_EXISTS = "That storage location already exists"
 
 #: A generated order number: `Order-0001`, `Order-0002`, ... A purchase
 #: with no number of its own cannot be found by one; this gives it one,
@@ -77,10 +78,8 @@ def next_order_number(db: Session) -> str:
             PurchaseOrder.order_number.op("~")(GENERATED.pattern)
         )
     ).all()
-    highest = max(
-        (int(m.group(1)) for n in issued if n and (m := GENERATED.match(n))),
-        default=0,
-    )
+    matches = (GENERATED.match(number) for number in issued if number)
+    highest = max((int(m.group(1)) for m in matches if m), default=0)
     return f"{_GENERATED_PREFIX}{highest + 1:04d}"
 
 
@@ -565,8 +564,18 @@ def _commit_order(db: Session, vendor: Vendor, number: str | None) -> None:
 #: picker.
 _MADE_ELSEWHERE = frozenset({"consigned", "sold"})
 
+#: The OpenAPI description of the 422 the storage-location writes answer.
+_LOCATION_REFUSED = (
+    "Request validation failed, or the kind is unknown, or it is one that is "
+    "not made or edited by hand."
+)
 
-@storage_locations_router.post("", status_code=status.HTTP_201_CREATED)
+
+@storage_locations_router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    responses={422: unprocessable(_LOCATION_REFUSED)},
+)
 def create_storage_location(
     payload: StorageLocationCreate, db: DbSession, _admin: AdminUser
 ) -> StorageLocationOut:
@@ -597,7 +606,7 @@ def create_storage_location(
     if exists is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="That storage location already exists",
+            detail=_LOCATION_EXISTS,
         )
     location = StorageLocation(
         storage_location_kind_id=kind_id,
@@ -606,7 +615,7 @@ def create_storage_location(
         notes=payload.notes,
     )
     db.add(location)
-    commit_unique(db, "That storage location already exists")
+    commit_unique(db, _LOCATION_EXISTS)
     db.refresh(location)
     return _location_out(db, location)
 
@@ -658,11 +667,13 @@ def _refuse_same_location(
     if clash is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="That storage location already exists",
+            detail=_LOCATION_EXISTS,
         )
 
 
-@storage_locations_router.patch("/{location_id}")
+@storage_locations_router.patch(
+    "/{location_id}", responses={422: unprocessable(_LOCATION_REFUSED)}
+)
 def update_storage_location(
     location_id: int, payload: StorageLocationUpdate, db: DbSession, _admin: AdminUser
 ) -> StorageLocationOut:
@@ -694,7 +705,7 @@ def update_storage_location(
     location.identifier = identifier
     if "notes" in sent:
         location.notes = payload.notes
-    commit_unique(db, "That storage location already exists")
+    commit_unique(db, _LOCATION_EXISTS)
     db.refresh(location)
     return _location_out(db, location)
 

@@ -31,13 +31,10 @@ export default function VocabularyAddForm({
     (field) => field.required && !filled(field, extra[field.name]),
   )
   // What Add is waiting for, said beside it; '' once it can be sent.
-  const waiting = !label.trim()
-    ? 'A label is needed first.'
-    : !/^\d*$/.test(order)
-      ? 'Position is a whole number.'
-      : missing
-        ? `${missing.label} is needed first.`
-        : ''
+  let waiting = ''
+  if (!label.trim()) waiting = 'A label is needed first.'
+  else if (!/^\d*$/.test(order)) waiting = 'Position is a whole number.'
+  else if (missing) waiting = `${missing.label} is needed first.`
   const ready = waiting === ''
 
   async function add(e) {

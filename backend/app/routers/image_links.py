@@ -38,7 +38,7 @@ def _guarded_link(db: Session, link_id: int, *, acknowledged: bool) -> ItemImage
     return link
 
 
-@router.patch("/{link_id}", response_model=ImageLinkOut)
+@router.patch("/{link_id}")
 def update_link(
     link_id: int, payload: ImageLinkUpdate, db: DbSession, _admin: AdminUser
 ) -> ImageLinkOut:
@@ -58,7 +58,7 @@ def update_link(
     return link_out(db, link)
 
 
-@router.post("/{link_id}/move", response_model=ImageLinkOut)
+@router.post("/{link_id}/move")
 def move_link(
     link_id: int, payload: ImageLinkMove, db: DbSession, _admin: AdminUser
 ) -> ImageLinkOut:

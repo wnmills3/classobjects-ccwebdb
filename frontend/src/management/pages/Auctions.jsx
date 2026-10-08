@@ -58,12 +58,12 @@ const AUCTION_STATUS_LABEL = {
 //: `app.auctions._LOTS_REMOVABLE` -- the identical boundary
 //: `refuse_unless_lot_editable` and `remove_lot` both use: a lot number, a
 //: reserve and the lot itself may all still change before the sale has run.
-const LOT_EDITABLE_STATUSES = ['draft', 'scheduled', 'consigned']
+const LOT_EDITABLE_STATUSES = new Set(['draft', 'scheduled', 'consigned'])
 
 //: `app.auctions.add_lot` accepts only these two -- a narrower window than
 //: `LOT_EDITABLE_STATUSES` above: a consigned auction's lots can still be
 //: renumbered or removed, but none can be added.
-const LOTS_ADDABLE_STATUSES = ['draft', 'scheduled']
+const LOTS_ADDABLE_STATUSES = new Set(['draft', 'scheduled'])
 
 const CREATE_KEYS = { venue: 'p', title: 't', externalId: 'n' }
 
@@ -142,31 +142,36 @@ function AuctionForm({ venues, onSaved, onClose }) {
           <input
             value={form.external_id}
             onChange={set('external_id')}
-            placeholder="the house's own number for the sale"
+            placeholder="the house's number"
             {...accel(CREATE_KEYS.externalId)}
           />
         </label>
         <label>
-          Starts
+          Starts{/* */}
           <input
             value={form.starts_at}
             onChange={set('starts_at')}
-            placeholder="date and time, as year-month-day hour:minute"
+            placeholder="date and time"
           />
         </label>
         <label>
-          Ends
+          Ends{/* */}
           <input
             value={form.ends_at}
             onChange={set('ends_at')}
-            placeholder="date and time, as year-month-day hour:minute"
+            placeholder="date and time"
           />
         </label>
         <label>
-          Notes
+          Notes{/* */}
           <textarea rows={2} value={form.notes} onChange={set('notes')} />
         </label>
       </div>
+      {/* Under the boxes, where it is read in full: a placeholder longer
+          than its box is cut off. */}
+      <p className="muted">
+        Starts and Ends are written year-month-day hour:minute, the hour out of 24.
+      </p>
       <div className="row">
         <SaveButton saving={saving} disabled={saving} onClick={save} />
         <button className="link" onClick={onClose}>
@@ -276,6 +281,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
             checked={mode === 'item'}
             onChange={() => setMode('item')}
           />
+          {/* */}
           Single item
         </label>
         <label className="checkbox">
@@ -286,6 +292,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
             checked={mode === 'lot'}
             onChange={() => setMode('lot')}
           />
+          {/* */}
           Assembled lot
         </label>
       </div>
@@ -300,7 +307,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
         </label>
         {mode === 'item' ? (
           <label>
-            Item code
+            Item code{/* */}
             <input
               value={itemCode}
               onChange={(e) => setItemCode(e.target.value)}
@@ -309,7 +316,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
           </label>
         ) : (
           <label>
-            Lot
+            Lot{/* */}
             <select value={lotId} onChange={(e) => setLotId(e.target.value)}>
               <option value="">Choose a lot</option>
               {assemblingLots.map((l) => (
@@ -321,7 +328,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
           </label>
         )}
         <label>
-          Reserve
+          Reserve{/* */}
           <input
             inputMode="decimal"
             value={reserve}
@@ -329,7 +336,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
           />
         </label>
         <label>
-          Starting bid
+          Starting bid{/* */}
           <input
             inputMode="decimal"
             value={price}
@@ -375,7 +382,7 @@ function ConsignDialog({ auction, onSaved, onClose }) {
       <h2>{label}</h2>
       {error && <p className="error">{error}</p>}
       <label>
-        Consigned on
+        Consigned on{/* */}
         <input type="date" value={onDate} onChange={(e) => setOnDate(e.target.value)} />
       </label>
       <div className="row">
@@ -430,7 +437,7 @@ function ReturnLocationConfirm({
       {children}
       {needsLocation && (
         <label>
-          Return items to
+          Return items to{/* */}
           <select
             aria-label="Return items to"
             value={locationId}
@@ -478,8 +485,8 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
 
   const venue = venues.find((v) => v.code === auction.venue) ?? null
   const isAuctionHouse = venue?.kind === 'auction_house'
-  const editable = LOT_EDITABLE_STATUSES.includes(auction.status)
-  const addable = LOTS_ADDABLE_STATUSES.includes(auction.status)
+  const editable = LOT_EDITABLE_STATUSES.has(auction.status)
+  const addable = LOTS_ADDABLE_STATUSES.has(auction.status)
   const cancellable = !['settled', 'cancelled'].includes(auction.status)
 
   /**

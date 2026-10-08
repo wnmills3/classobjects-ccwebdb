@@ -73,6 +73,17 @@ __all__ = [
 # any child removed from the collection.
 _CASCADE_ALL_DELETE_ORPHAN = "all, delete-orphan"
 
+# Foreign-key targets stay strings so SQLAlchemy resolves them at
+# mapper-configuration time; a column object would force an import
+# between model modules.
+_FK_INVENTORY_ITEM = "inventory_item.id"
+_FK_SALES_VENUE = "sales_venue.id"
+_FK_LISTING = "listing.id"
+_FK_SALES_ORDER = "sales_order.id"
+_FK_USERS = "users.id"
+
+_ON_DELETE_SET_NULL = "SET NULL"
+
 
 class AddressKind(enum.StrEnum):
     """What an address is for. A customer may have one of each."""
@@ -251,7 +262,7 @@ class Listing(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     inventory_item_id: Mapped[int | None] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="RESTRICT"),
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="RESTRICT"),
         index=True,
         nullable=True,
     )
@@ -270,7 +281,7 @@ class Listing(TimestampMixin, Base):
         Integer, default=1, server_default=text("1"), nullable=False
     )
     sales_venue_id: Mapped[int] = mapped_column(
-        ForeignKey("sales_venue.id", ondelete="RESTRICT"),
+        ForeignKey(_FK_SALES_VENUE, ondelete="RESTRICT"),
         index=True,
         nullable=False,
     )
@@ -299,7 +310,7 @@ class Listing(TimestampMixin, Base):
     #: The offer this store listing was set aside for, so settling that offer
     #: knows which listings to resume. Null unless `status` is `paused`.
     paused_by_listing_id: Mapped[int | None] = mapped_column(
-        ForeignKey("listing.id", ondelete="RESTRICT"), nullable=True
+        ForeignKey(_FK_LISTING, ondelete="RESTRICT"), nullable=True
     )
     title: Mapped[str] = mapped_column(
         String(500), default="", server_default=text("''"), nullable=False
@@ -369,7 +380,7 @@ class ListingStatusHistory(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     listing_id: Mapped[int] = mapped_column(
-        ForeignKey("listing.id", ondelete="CASCADE"), nullable=False
+        ForeignKey(_FK_LISTING, ondelete="CASCADE"), nullable=False
     )
     #: Null on the opening row -- a listing has no status before it has one.
     from_status: Mapped[ListingStatus | None] = mapped_column(
@@ -401,10 +412,10 @@ class OfferClaim(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="RESTRICT"), index=True, nullable=False
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="RESTRICT"), index=True, nullable=False
     )
     listing_id: Mapped[int] = mapped_column(
-        ForeignKey("listing.id", ondelete="RESTRICT"), index=True, nullable=False
+        ForeignKey(_FK_LISTING, ondelete="RESTRICT"), index=True, nullable=False
     )
     state: Mapped[ClaimState] = mapped_column(
         enum_column(ClaimState, "offer_claim_state"),
@@ -504,7 +515,7 @@ class SalesLotItem(TimestampMixin, Base):
         ForeignKey("sales_lot.id", ondelete="CASCADE"), index=True, nullable=False
     )
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="RESTRICT"),
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="RESTRICT"),
         index=True,
         nullable=False,
     )
@@ -543,7 +554,7 @@ class Customer(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
@@ -551,7 +562,7 @@ class Customer(TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: The platform this buyer is known on; null for a store customer.
     sales_venue_id: Mapped[int | None] = mapped_column(
-        ForeignKey("sales_venue.id", ondelete="RESTRICT"), nullable=True, index=True
+        ForeignKey(_FK_SALES_VENUE, ondelete="RESTRICT"), nullable=True, index=True
     )
     #: Their username there ("coinfan88"). Null on the platform's single
     #: undisclosed buyer, used by auction houses that do not name buyers.
@@ -645,7 +656,7 @@ class SalesOrder(TimestampMixin, Base):
         ForeignKey("customer.id", ondelete="RESTRICT"), index=True, nullable=False
     )
     sales_venue_id: Mapped[int] = mapped_column(
-        ForeignKey("sales_venue.id", ondelete="RESTRICT"),
+        ForeignKey(_FK_SALES_VENUE, ondelete="RESTRICT"),
         index=True,
         nullable=False,
     )
@@ -675,7 +686,7 @@ class SalesOrder(TimestampMixin, Base):
     #: The account that entered the order: the buyer, or a manager
     #: acting for them. Null for orders placed before this was recorded.
     placed_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
     #: Optimistic concurrency, as on Listing and InventoryItem.
     version: Mapped[int] = mapped_column(
@@ -724,10 +735,10 @@ class SalesOrderItem(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     sales_order_id: Mapped[int] = mapped_column(
-        ForeignKey("sales_order.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey(_FK_SALES_ORDER, ondelete="CASCADE"), index=True, nullable=False
     )
     listing_id: Mapped[int] = mapped_column(
-        ForeignKey("listing.id", ondelete="RESTRICT"), index=True, nullable=False
+        ForeignKey(_FK_LISTING, ondelete="RESTRICT"), index=True, nullable=False
     )
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
@@ -778,7 +789,7 @@ class SalesOrderFee(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     sales_order_id: Mapped[int] = mapped_column(
-        ForeignKey("sales_order.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey(_FK_SALES_ORDER, ondelete="CASCADE"), index=True, nullable=False
     )
     sales_fee_kind_id: Mapped[int] = mapped_column(
         ForeignKey("sales_fee_kind.id", ondelete="RESTRICT"), nullable=False
@@ -816,7 +827,7 @@ class SalesOrderItemShare(Base):
         nullable=False,
     )
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="RESTRICT"), index=True, nullable=False
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="RESTRICT"), index=True, nullable=False
     )
     #: This item's share of `sales_order_item.unit_price * quantity`.
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
@@ -854,19 +865,19 @@ class SalesOrderChange(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     sales_order_id: Mapped[int] = mapped_column(
-        ForeignKey("sales_order.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey(_FK_SALES_ORDER, ondelete="CASCADE"), index=True, nullable=False
     )
     changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     changed_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
     change: Mapped[SalesOrderChangeKind] = mapped_column(
         enum_column(SalesOrderChangeKind, "sales_order_change_kind"), nullable=False
     )
     listing_id: Mapped[int | None] = mapped_column(
-        ForeignKey("listing.id", ondelete="RESTRICT"), nullable=True
+        ForeignKey(_FK_LISTING, ondelete="RESTRICT"), nullable=True
     )
     from_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     to_value: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -888,7 +899,7 @@ class Shipment(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     sales_order_id: Mapped[int] = mapped_column(
-        ForeignKey("sales_order.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey(_FK_SALES_ORDER, ondelete="CASCADE"), index=True, nullable=False
     )
     carrier_id: Mapped[int | None] = mapped_column(
         ForeignKey("carrier.id", ondelete="RESTRICT"), index=True, nullable=True

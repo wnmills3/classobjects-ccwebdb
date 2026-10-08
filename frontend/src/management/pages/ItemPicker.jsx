@@ -55,7 +55,7 @@ export default function ItemPicker({ onPick }) {
   return (
     <div className="item-picker">
       <label>
-        Item code
+        Item code{/* */}
         <input
           type="text"
           value={code}

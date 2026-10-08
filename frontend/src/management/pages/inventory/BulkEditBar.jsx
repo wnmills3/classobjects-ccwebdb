@@ -83,7 +83,7 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
   // 'new', or the id of an assembling lot as the select's string value.
   const [target, setTarget] = useState('new')
   const [title, setTitle] = useState('')
-  const [groupError, setError] = useState('')
+  const [groupError, setGroupError] = useState('')
   const error = groupError || assembling.error
   const [busy, setBusy] = useState(false)
   // The new lot this dialog made whose coins were then refused: asked again
@@ -100,11 +100,11 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
     if (target === 'new' && wanted === '') {
       // Said here rather than left to the API, whose refusal for a blank
       // title is a schema complaint about `min_length`.
-      setError('A lot needs a title: it is what the offer and the shop call it.')
+      setGroupError('A lot needs a title: it is what the offer and the shop call it.')
       return
     }
     setBusy(true)
-    setError('')
+    setGroupError('')
     let lot = lots?.find((row) => String(row.id) === target) ?? null
     try {
       if (target === 'new') {
@@ -119,7 +119,7 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
       onGrouped(lot.title)
     } catch (err) {
       if (!mounted.current) return
-      setError(
+      setGroupError(
         target === 'new' && lot !== null
           ? `${lot.title} was started but is empty: ${err.message}`
           : err.message,
@@ -155,7 +155,7 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
       )}
       <div className="filter-grid">
         <label data-help="lot_target">
-          Lot
+          Lot{/* */}
           <select value={target} onChange={(e) => setTarget(e.target.value)}>
             <option value="new">A new lot</option>
             {open.map((lot) => (
@@ -167,7 +167,7 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
         </label>
         {target === 'new' && (
           <label data-help="lot_title">
-            Title
+            Title{/* */}
             <input value={title} onChange={(e) => setTitle(e.target.value)} />
           </label>
         )}

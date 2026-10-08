@@ -60,7 +60,7 @@ export default function OffersPanel({ item, onChanged }) {
     ? new Set(platforms.venues.filter((v) => v.is_own_store).map((v) => v.code))
     : null
 
-  const [endError, setError] = useState('')
+  const [endError, setEndError] = useState('')
   const error = endError || offers.error || platforms.error
   const [ending, setEnding] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -68,14 +68,14 @@ export default function OffersPanel({ item, onChanged }) {
 
   async function end() {
     setBusy(true)
-    setError('')
+    setEndError('')
     try {
       await api.endListing(ending.id)
       setEnding(null)
       offers.reload()
       onChanged?.()
     } catch (err) {
-      setError(err.message)
+      setEndError(err.message)
       setEnding(null)
     } finally {
       setBusy(false)

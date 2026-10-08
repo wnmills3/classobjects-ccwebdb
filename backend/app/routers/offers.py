@@ -283,7 +283,7 @@ def _offer_lot(
     )
 
 
-@router.get("/offers/titles", response_model=OfferTitlesOut)
+@router.get("/offers/titles")
 def offer_titles(
     db: DbSession,
     _admin: AdminUser,
@@ -714,7 +714,6 @@ def sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
 
 @router.post(
     "/listings/{listing_id}/sale",
-    response_model=SaleRecordedOut,
     status_code=status.HTTP_201_CREATED,
     # `SaleInputInvalid`/`SaleRefused` go to the handlers `app.main`
     # registers by class, which answer `{detail, refused: [...]}`

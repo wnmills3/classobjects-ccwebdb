@@ -44,12 +44,9 @@ const EMPTY_FILTERS = {
  */
 async function runSearch({ kind, filters, orderId = null }) {
   const views = kind === 'any' ? ['coins', 'currency'] : [kind]
-  const statuses =
-    filters.status === ANY_STATUS
-      ? [null]
-      : filters.status
-        ? [filters.status]
-        : OUTSTANDING_STATUSES
+  let statuses = OUTSTANDING_STATUSES
+  if (filters.status === ANY_STATUS) statuses = [null]
+  else if (filters.status) statuses = [filters.status]
   const shared = {}
   if (filters.denomination) shared.denomination = filters.denomination
   if (orderId != null) shared.purchase_order_id = orderId
@@ -290,7 +287,7 @@ export default function ItemFinder({
 
         <div className="filter-grid">
           <label data-help="order_number">
-            Order number
+            Order number{/* */}
             <input
               type="text"
               value={filters.orderNumber}
@@ -301,7 +298,7 @@ export default function ItemFinder({
             />
           </label>
           <label data-help="status">
-            Status
+            Status{/* */}
             <select
               value={filters.status}
               onChange={(e) => setField('status', e.target.value)}
@@ -316,7 +313,7 @@ export default function ItemFinder({
             </select>
           </label>
           <label data-help="denomination">
-            Denomination
+            Denomination{/* */}
             <select
               value={filters.denomination}
               onChange={(e) => setField('denomination', e.target.value)}
@@ -333,7 +330,7 @@ export default function ItemFinder({
           {kind === 'coins' && (
             <>
               <label data-help="year">
-                Year
+                Year{/* */}
                 <input
                   type="text"
                   value={filters.year}
@@ -341,7 +338,7 @@ export default function ItemFinder({
                 />
               </label>
               <label data-help="mint">
-                Mint
+                Mint{/* */}
                 <input
                   type="text"
                   value={filters.mint}
@@ -353,7 +350,7 @@ export default function ItemFinder({
           {kind === 'currency' && (
             <>
               <label data-help="serial_number">
-                Serial number
+                Serial number{/* */}
                 <input
                   type="text"
                   value={filters.serialNumber}
@@ -361,7 +358,7 @@ export default function ItemFinder({
                 />
               </label>
               <label data-help="series_year">
-                Series year
+                Series year{/* */}
                 <input
                   type="text"
                   value={filters.seriesYear}
@@ -385,7 +382,7 @@ export default function ItemFinder({
           </p>
         )}
 
-        {results && results.length === 0 && (
+        {results?.length === 0 && (
           <p className="muted">
             {searchedStatus
               ? 'Nothing in that status matches.'

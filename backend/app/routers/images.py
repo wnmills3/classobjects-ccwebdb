@@ -31,9 +31,11 @@ from ..models import (
 from ..references import code_to_id
 from ..schemas import ImageFromUrl, ImageLinkIn, ImageLinkOut, ImageOut
 from ..storage import get_storage
-from ._resolve import found_or_404, get_or_404
+from ._resolve import found_or_404, get_or_404, unprocessable
 
 router = APIRouter(prefix="/images", tags=["images"])
+
+_IMAGE_NOT_FOUND = "Image not found"
 
 #: A derivative is immutable -- its key contains the hash of its source -- so
 #: it can be cached hard. A year is the usual maximum.
@@ -221,7 +223,12 @@ def add_image_from_url(
 @router.post(
     "/{image_id}/links",
     status_code=status.HTTP_201_CREATED,
-    response_model=ImageLinkOut,
+    responses={
+        409: {
+            "description": "The item is for sale and the caller has not "
+            "acknowledged it, or the photograph cannot be filed against it."
+        }
+    },
 )
 def attach_image(
     image_id: int, payload: ImageLinkIn, db: DbSession, _admin: AdminUser
@@ -232,7 +239,7 @@ def attach_image(
     acknowledges it: the shop serves an item's primary photograph, so filing
     one changes what a buyer is looking at.
     """
-    image = get_or_404(db, Image, image_id, "Image not found")
+    image = get_or_404(db, Image, image_id, _IMAGE_NOT_FOUND)
     item = get_or_404(
         db,
         InventoryItem,
@@ -260,7 +267,15 @@ def attach_image(
     return link_out(db, link)
 
 
-@router.get("", response_model=list[ImageLinkOut])
+@router.get(
+    "",
+    responses={
+        422: unprocessable(
+            "Request validation failed, or the request does not name exactly "
+            "one of an item and the unfiled photographs."
+        )
+    },
+)
 def list_images(
     db: DbSession,
     _admin: AdminUser,
@@ -338,7 +353,7 @@ def get_derivative(sha256: str, kind: DerivativeKind, db: DbSession) -> Response
         .join(Image, ImageDerivative.image_id == Image.id)
         .where(Image.sha256 == sha256, ImageDerivative.kind == kind)
     ).first()
-    found = found_or_404(found, "Image not found")
+    found = found_or_404(found, _IMAGE_NOT_FOUND)
     storage_key, media_type = found
 
     try:
@@ -371,7 +386,7 @@ def delete_image(
     because DELETE has no body here. The shop serves an item's primary image
     (`routers.catalog`), so deleting one changes what a buyer is looking at.
     """
-    image = get_or_404(db, Image, image_id, "Image not found")
+    image = get_or_404(db, Image, image_id, _IMAGE_NOT_FOUND)
 
     # This endpoint is given only an image id. The items it is attached to are
     # what the for-sale rule is about, so they are read before anything is

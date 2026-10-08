@@ -37,7 +37,8 @@ export default function HistoryPanel({ itemId, version, saves = 0 }) {
   const error = history.error
   const [all, setAll] = useState(false)
 
-  const rows = events === null ? [] : all ? events : events.slice(0, FIRST_ROWS)
+  let rows = []
+  if (events !== null) rows = all ? events : events.slice(0, FIRST_ROWS)
 
   return (
     <div className="history-panel">

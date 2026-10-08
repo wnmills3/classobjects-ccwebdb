@@ -75,6 +75,7 @@ def list_users(db: DbSession, _: AdminUser) -> list[User]:
 
 
 _EMAIL_TAKEN = "An account with that email already exists"
+_NO_SUCH_ACCOUNT = "No such account"
 
 
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -106,7 +107,7 @@ def create_user(body: AccountCreate, db: DbSession, _: AdminUser) -> User:
 @router.patch("/{user_id}", response_model=UserOut)
 def update_user(user_id: int, update: UserUpdate, db: DbSession, _: AdminUser) -> User:
     """Change a name, a role, or whether the account may sign in."""
-    user = get_or_404(db, User, user_id, "No such account")
+    user = get_or_404(db, User, user_id, _NO_SUCH_ACCOUNT)
 
     _refuse_last_admin(db, user, update)
 
@@ -131,7 +132,7 @@ def set_password(user_id: int, body: PasswordSet, db: DbSession, _: AdminUser) -
     until it expires -- which is precisely no use when the reason for the reset
     is that someone should no longer have access.
     """
-    user = get_or_404(db, User, user_id, "No such account")
+    user = get_or_404(db, User, user_id, _NO_SUCH_ACCOUNT)
 
     user.hashed_password = hash_password(body.password)
     user.token_version += 1
@@ -147,7 +148,7 @@ def customer_for_account(user_id: int, db: DbSession, _: AdminUser) -> Customer:
     Lets an administrator place an order for an account holder who has never
     bought anything, and so has no customer record to choose.
     """
-    user = get_or_404(db, User, user_id, "No such account")
+    user = get_or_404(db, User, user_id, _NO_SUCH_ACCOUNT)
     customer = customer_for_user(db, user)
     db.commit()
     db.refresh(customer)

@@ -44,6 +44,14 @@ __all__ = [
     "PcgsType",
 ]
 
+# Foreign-key targets stay strings so SQLAlchemy resolves them at
+# mapper-configuration time; a column object would force an import
+# between model modules.
+_FK_INVENTORY_ITEM = "inventory_item.id"
+_FK_USERS = "users.id"
+
+_ON_DELETE_SET_NULL = "SET NULL"
+
 
 class ItemCertification(TimestampMixin, Base):
     """A grading certificate.
@@ -56,7 +64,7 @@ class ItemCertification(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="CASCADE"),
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
@@ -88,7 +96,7 @@ class ItemError(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     #: An error is meaningless without its item, so it is deleted with it.
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="CASCADE"),
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
@@ -110,7 +118,7 @@ class ItemError(Base):
     #: SET NULL rather than CASCADE: deactivating a member of staff must not
     #: erase the record that the error was noted.
     noted_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
     noted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
@@ -140,7 +148,7 @@ class ItemAttributeLink(Base):
     __tablename__ = "item_attribute_link"
 
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"), primary_key=True
     )
     item_attribute_id: Mapped[int] = mapped_column(
         ForeignKey("item_attribute.id", ondelete="RESTRICT"),
@@ -157,7 +165,7 @@ class ItemAttributeLink(Base):
     #: person's and for links older than the column.
     derived_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     noted_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
     noted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
@@ -240,7 +248,7 @@ class FriedbergNumber(TimestampMixin, Base):
     #: Set when a person confirms the row, which is what turns a proposal into
     #: a fact the next lookup can trust.
     verified_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
     verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -317,7 +325,7 @@ class PcgsType(TimestampMixin, Base):
         nullable=False,
     )
     verified_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
     verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

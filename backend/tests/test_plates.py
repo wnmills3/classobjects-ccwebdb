@@ -26,6 +26,14 @@ from tests.builders import build_purchase_order
         ("FW E82", "FW E82", "fw"),
         ("fwe82", "FW E82", "fw"),
         ("FW 1234", "FW 1234", "fw"),
+        # Space between the parts, or none, with and without a check letter.
+        ("E 82", "E82", "dc"),
+        ("FW  E  82", "FW E82", "fw"),
+        ("fw82", "FW 82", "fw"),
+        ("FW   7", "FW 7", "fw"),
+        ("F82", "F82", "dc"),
+        ("W 5", "W5", "dc"),
+        ("12345", "12345", "dc"),
     ],
 )
 def test_a_face_plate_is_stored_one_way_and_names_its_press(
@@ -35,7 +43,22 @@ def test_a_face_plate_is_stored_one_way_and_names_its_press(
     assert plates.facility_of(stored) == facility
 
 
-@pytest.mark.parametrize("typed", ["E", "EE82", "82E", "FW", "E 8 2 3 4 5 6", "#12"])
+@pytest.mark.parametrize(
+    "typed",
+    [
+        "E",
+        "EE82",
+        "82E",
+        "FW",
+        "E 8 2 3 4 5 6",
+        "#12",
+        "FW E",
+        "F W5",
+        "E 123456",
+        "FW FW 5",
+        "8 2",
+    ],
+)
 def test_a_face_plate_of_another_shape_is_refused(typed: str) -> None:
     with pytest.raises(ValueError, match="face plate"):
         plates.face_plate(typed)

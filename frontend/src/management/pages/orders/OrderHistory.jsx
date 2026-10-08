@@ -15,7 +15,7 @@ export default function OrderHistory({ order, onClose }) {
 
   const groups = []
   for (const row of rows ?? []) {
-    const last = groups[groups.length - 1]
+    const last = groups.at(-1)
     if (last && last.at === row.changed_at && last.by === row.changed_by_email) {
       last.rows.unshift(row)
     } else {

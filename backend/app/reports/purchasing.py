@@ -60,6 +60,9 @@ __all__ = [
 
 _NO_NUMBER = "(no number)"
 
+#: The group these reports are listed under (`registry`'s order of groups).
+_GROUP = "Purchasing and receiving"
+
 _COLUMNS = [
     Column("order", "Order", "text"),
     Column("vendor", "Vendor", "text"),
@@ -203,7 +206,7 @@ def _pr_outstanding(db: Session, params: OutstandingParams) -> ReportResult:
 PR_OUTSTANDING = register(
     Report(
         id="pr_outstanding",
-        group="Purchasing and receiving",
+        group=_GROUP,
         title="Not yet arrived",
         purpose="Purchases with items still ordered or missing: vendor, "
         "seller, order date, days waiting, items outstanding and their "
@@ -267,7 +270,7 @@ def _pr_spend(db: Session, params: SpendParams) -> ReportResult:
 PR_SPEND = register(
     Report(
         id="pr_spend",
-        group="Purchasing and receiving",
+        group=_GROUP,
         title="Spending",
         purpose="Period x vendor: purchases, items, item cost, shipping, "
         "sales tax and total, over purchases with a live item.",
@@ -434,7 +437,7 @@ def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
 PR_SOURCES = register(
     Report(
         id="pr_sources",
-        group="Purchasing and receiving",
+        group=_GROUP,
         title="Vendors and sellers",
         purpose="One row per vendor, and per seller a purchase has named: "
         "purchases, live items, total spent, and first/last order date.",
@@ -670,7 +673,7 @@ def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
 PR_RECEIVED = register(
     Report(
         id="pr_received",
-        group="Purchasing and receiving",
+        group=_GROUP,
         title="Received",
         purpose="Arrival day x vendor, from acquisition-status history: "
         "items and total cost.",

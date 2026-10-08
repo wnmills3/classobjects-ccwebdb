@@ -1387,12 +1387,9 @@ def _end(
     """
     if listing.status is ListingStatus.ended:
         return
-    _set_status(
-        db,
-        listing,
-        ListingStatus.ended,
-        note if note is not None else ("sold" if sold else "withdrawn"),
-    )
+    if note is None:
+        note = "sold" if sold else "withdrawn"
+    _set_status(db, listing, ListingStatus.ended, note)
     listing.ended_at = utcnow()
     listing.paused_by_listing_id = None
     _move_claims(db, listing, ClaimState.released)

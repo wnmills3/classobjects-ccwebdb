@@ -13,6 +13,7 @@ from ..deps import CurrentUser, DbSession
 from ..models import User, UserRole
 from ..schemas import RefreshRequest, TokenPair, UserCreate, UserOut
 from ..security import (
+    UNKNOWN_ACCOUNT_HASH,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -74,9 +75,15 @@ def login(
         email = form.username
     user = db.scalar(select(User).where(User.email == email))
 
-    # Verify even when the user is missing would be ideal to equalise timing;
-    # argon2 is slow enough that we simply fail closed here.
-    if user is None or not verify_password(form.password, user.hashed_password):
+    # One verification whether or not the address has an account -- against
+    # a hash no account holds when it has none -- so both refusals take the
+    # time argon2 takes. `user is None` is still what refuses: a password
+    # that happened to match that hash signs nobody in.
+    verified = verify_password(
+        form.password,
+        UNKNOWN_ACCOUNT_HASH if user is None else user.hashed_password,
+    )
+    if user is None or not verified:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

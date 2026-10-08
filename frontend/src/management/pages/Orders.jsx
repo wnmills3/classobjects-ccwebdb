@@ -31,7 +31,7 @@ const STATUSES = [
 //: disabled on its own). The goods have left, or the money went back, so
 //: nothing is put back and nothing can be stranded. Kept in the same order
 //: as STATUSES above for reading, not because anything here depends on it.
-const NO_STOCK_RETURN_STATUSES = ['packed', 'shipped', 'delivered', 'refunded']
+const NO_STOCK_RETURN_STATUSES = new Set(['packed', 'shipped', 'delivered', 'refunded'])
 
 /**
  * The Sales page: every order in a table, filtered by status, each with a
@@ -70,7 +70,7 @@ export default function Orders() {
     }
     if (
       status === 'refunded' &&
-      !NO_STOCK_RETURN_STATUSES.includes(order.status) &&
+      !NO_STOCK_RETURN_STATUSES.has(order.status) &&
       !window.confirm(
         `Refund order #${order.id} for ${order.customer_name}? It has not shipped, ` +
           'so its stock goes back on sale and the order cannot then be shipped.',
@@ -198,7 +198,7 @@ export default function Orders() {
                       //
                       // A refund before shipping returns the stock too, so
                       // it is refused in the same cases.
-                      const unshipped = !NO_STOCK_RETURN_STATUSES.includes(order.status)
+                      const unshipped = !NO_STOCK_RETURN_STATUSES.has(order.status)
                       const returnsStock = s === 'cancelled' || s === 'refunded'
                       const outsideSale =
                         returnsStock && order.sales_venue_code !== 'store' && unshipped
@@ -207,20 +207,22 @@ export default function Orders() {
                         !outsideSale &&
                         unshipped &&
                         order.items.some((line) => line.listing_ended)
+                      let why
+                      if (outsideSale) {
+                        why =
+                          `Sold on ${order.sales_venue_name}, whose listing ` +
+                          'ended with the sale -- there is no stock to return'
+                      } else if (endedListing) {
+                        why =
+                          'Its listing has ended (a lot ends when it is ' +
+                          'bought) -- there is no stock to return'
+                      }
                       return (
                         <option
                           key={s}
                           value={s}
                           disabled={outsideSale || endedListing}
-                          title={
-                            outsideSale
-                              ? `Sold on ${order.sales_venue_name}, whose listing ` +
-                                'ended with the sale -- there is no stock to return'
-                              : endedListing
-                                ? 'Its listing has ended (a lot ends when it is ' +
-                                  'bought) -- there is no stock to return'
-                                : undefined
-                          }
+                          title={why}
                         >
                           {s}
                         </option>

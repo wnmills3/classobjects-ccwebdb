@@ -13,6 +13,13 @@
  */
 import { centsOrZero, isMoney, signedFromCents, toCents } from '../../shared/cents'
 
+/** `text` without the zeros it ends in: `'2500'` is `'25'`, `'00'` is `''`. */
+export function withoutTrailingZeros(text) {
+  let end = text.length
+  while (end > 0 && text[end - 1] === '0') end -= 1
+  return text.slice(0, end)
+}
+
 /** "13.25" (percent, as typed) -> "0.1325"; blank -> null. */
 export function percentToFraction(text) {
   const trimmed = String(text ?? '').trim()
@@ -22,7 +29,12 @@ export function percentToFraction(text) {
   const digits = (whole.padStart(3, '0') + frac).replace(/^0+(?=\d{3})/, '')
   const cut = digits.length - frac.length - 2
   const result = `${digits.slice(0, cut) || '0'}.${digits.slice(cut)}`
-  return result.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '') || '0'
+  // The zeros the decimal places end in go, and then a point left with
+  // nothing after it. Places that are not all digits are left as typed.
+  const point = result.lastIndexOf('.')
+  const places = result.slice(point + 1)
+  const kept = /^\d*$/.test(places) ? withoutTrailingZeros(places) : places
+  return result.slice(0, kept === '' ? point : point + 1) + kept || '0'
 }
 
 /** "0.1325" -> "13.25"; null -> "". */
@@ -31,7 +43,7 @@ export function fractionToPercent(value) {
   const [whole, frac = ''] = String(value).split('.')
   const padded = frac.padEnd(2, '0')
   const shifted = `${whole}${padded.slice(0, 2)}`.replace(/^0+(?=\d)/, '')
-  const rest = padded.slice(2).replace(/0+$/, '')
+  const rest = withoutTrailingZeros(padded.slice(2))
   return rest ? `${shifted}.${rest}` : shifted
 }
 
@@ -144,7 +156,7 @@ export function marginPercent(price, costBasis) {
 
 //: Past this a price is not a price: the platform's rates and the margin
 //: asked for together leave nothing, however much is charged.
-const NO_SUCH_PRICE_CENTS = 100_000_000_00
+const NO_SUCH_PRICE_CENTS = 10_000_000_000
 
 /**
  * The lowest price that leaves at least `marginPercent` after the platform's

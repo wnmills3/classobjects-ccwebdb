@@ -32,11 +32,9 @@ export default function VocabularyDetailsForm({
     (field) => field.required && !filled(field, draft[field.name]),
   )
   // What Save is waiting for, said beside it; '' once it can be sent.
-  const waiting = missing
-    ? `${missing.label} is needed.`
-    : changed.length === 0
-      ? 'Nothing is changed yet.'
-      : ''
+  let waiting = ''
+  if (missing) waiting = `${missing.label} is needed.`
+  else if (changed.length === 0) waiting = 'Nothing is changed yet.'
   const ready = waiting === ''
 
   async function save(e) {

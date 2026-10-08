@@ -55,6 +55,11 @@ describe('codeFromLabel', () => {
     ["Printer's Mark", 'printers_mark'],
     ['Off-Center', 'off_center'],
     ['Ink Smear 2', 'ink_smear_2'],
+    // Whatever is not a letter or a digit, however much of it, is one
+    // underscore inside the code and nothing at either end of it.
+    ['__Ink -- Smear__', 'ink_smear'],
+    ['(Star) Note!!', 'star_note'],
+    ['---', ''],
   ])('%s becomes %s', (label, code) => {
     expect(codeFromLabel(label)).toBe(code)
   })

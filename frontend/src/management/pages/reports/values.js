@@ -69,7 +69,8 @@ export function cellText(kind, value) {
 export function compareValues(kind, a, b, descending) {
   const blankA = isBlank(a)
   const blankB = isBlank(b)
-  if (blankA || blankB) return blankA === blankB ? 0 : blankA ? 1 : -1
+  if (blankA && blankB) return 0
+  if (blankA || blankB) return blankA ? 1 : -1
   const order = NUMERIC_KINDS.has(kind)
     ? Number(a) - Number(b)
     : String(a).localeCompare(String(b), 'en-US', {

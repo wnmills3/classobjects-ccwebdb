@@ -46,12 +46,12 @@ export default function VocabularyFieldInput({ field, value, onChange }) {
   }
   // Text with a pattern, not type=number: a number input steps on the mouse
   // wheel, and scrolling the page would change what is about to be saved.
-  const numeric =
-    field.kind === 'integer'
-      ? { inputMode: 'numeric', pattern: '-?[0-9]+' }
-      : field.kind === 'decimal'
-        ? { inputMode: 'decimal', pattern: '-?[0-9]*[.]?[0-9]+' }
-        : {}
+  let numeric = {}
+  if (field.kind === 'integer') {
+    numeric = { inputMode: 'numeric', pattern: '-?[0-9]+' }
+  } else if (field.kind === 'decimal') {
+    numeric = { inputMode: 'decimal', pattern: '-?[0-9]*[.]?[0-9]+' }
+  }
   return (
     <input
       value={value}

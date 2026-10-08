@@ -264,6 +264,7 @@ _C_DESCRIPTION = "i.description"
 #: the rating could not find it.
 _C_RATING = "i.rating"
 _C_YEAR_START = "i.year_start"
+_C_SERIES_YEAR = "cud.series_year"
 _C_GRADE_VALUE = "g.numeric_value"
 #: MS65, PR69+ -- composed the same way the inventory views compose it.
 _C_GRADE_DISPLAY = (
@@ -447,7 +448,7 @@ CURRENCY_VIEW = ViewSpec(
         **_SHARED_COLUMNS,
         "item_kind": Col(_C_KIND_CODE, (_J_KIND,)),
         "note_type": Col("nt.code", (_J_CUR_DETAIL, _J_NOTE_TYPE)),
-        "series_year": Col("cud.series_year", (_J_CUR_DETAIL,)),
+        "series_year": Col(_C_SERIES_YEAR, (_J_CUR_DETAIL,)),
         "series_letter": Col("cud.series_letter", (_J_CUR_DETAIL,)),
         "face_plate_number": Col("cud.face_plate_number", (_J_CUR_DETAIL,)),
         "back_plate_number": Col("cud.back_plate_number", (_J_CUR_DETAIL,)),
@@ -467,7 +468,7 @@ CURRENCY_VIEW = ViewSpec(
         "note_type": Filt("nt.code", join=(_J_CUR_DETAIL, _J_NOTE_TYPE)),
         "seal_color": Filt("sc.code", join=(_J_CUR_DETAIL, _J_SEAL)),
         "fed_district": Filt("fd.letter", join=(_J_CUR_DETAIL, _J_DISTRICT)),
-        "series_year": Filt("cud.series_year", join=(_J_CUR_DETAIL,), integer=True),
+        "series_year": Filt(_C_SERIES_YEAR, join=(_J_CUR_DETAIL,), integer=True),
         "series_letter": Filt("cud.series_letter", join=(_J_CUR_DETAIL,)),
         "printing_facility": Filt("cud.printing_facility", join=(_J_CUR_DETAIL,)),
         "face_plate_number": Filt("cud.face_plate_number", "ilike", (_J_CUR_DETAIL,)),
@@ -477,8 +478,8 @@ CURRENCY_VIEW = ViewSpec(
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),
         # A note's year is its series year; it holds no other, so Year
         # from / to read that.
-        "year_min": Filt("cud.series_year", "gte", (_J_CUR_DETAIL,), integer=True),
-        "year_max": Filt("cud.series_year", "lte", (_J_CUR_DETAIL,), integer=True),
+        "year_min": Filt(_C_SERIES_YEAR, "gte", (_J_CUR_DETAIL,), integer=True),
+        "year_max": Filt(_C_SERIES_YEAR, "lte", (_J_CUR_DETAIL,), integer=True),
     },
     search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_RATING, _C_ITEM_CODE),
     named=(
@@ -651,6 +652,9 @@ _FILTER_TEMPLATES = {
 }
 _FILTER_DEFAULT = "{sql} = :{placeholder}"
 
+#: What joins the clauses of a WHERE, and the parts of one clause.
+_AND = " AND "
+
 
 def _deleted_clause(params: dict[str, Any]) -> str:
     """The soft-delete predicate, consumed from `params` in place.
@@ -776,7 +780,7 @@ def _grade_clause(
     if not parts:
         return None
     joins.append((_J_GRADE,))
-    return "(" + " AND ".join(parts) + ")"
+    return "(" + _AND.join(parts) + ")"
 
 
 def _issue_clause(
@@ -934,7 +938,7 @@ def search(
     clauses, joins, bound = _conditions(
         spec, params, query, _names(db, spec, query, names)
     )
-    where = " WHERE " + " AND ".join(clauses)
+    where = " WHERE " + _AND.join(clauses)
 
     # The count needs no display joins at all -- only whatever the filters
     # reach for.
@@ -1019,7 +1023,7 @@ def count_facets(
         else:
             others = {key: value for key, value in params.items() if key != own}
             clauses, joins, bound = _conditions(spec, others, query, matched)
-        where = " WHERE " + " AND ".join(clauses)
+        where = " WHERE " + _AND.join(clauses)
         facet_joins = list(joins)
         if facet.join:
             facet_joins.append(facet.join)
@@ -1108,7 +1112,7 @@ def count_issues(
         db.execute(
             text(
                 f"SELECT {selected} FROM {spec.base} {spec.joins_for(joins)} "
-                f"WHERE {' AND '.join(clauses)}"
+                f"WHERE {_AND.join(clauses)}"
             ),
             bound,
         )

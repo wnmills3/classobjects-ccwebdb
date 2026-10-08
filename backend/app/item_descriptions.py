@@ -92,7 +92,9 @@ _SHORT_GRADE_WORDS = ((re.compile(r"\bUncirculated\b"), "Unc"),)
 
 #: An attribute's label less the noun every serial feature shares: a
 #: "Radar Serial" is written "Radar" beside the serial number itself.
-_SERIAL_SUFFIX = re.compile(r"\s+Serial$")
+#: The space is taken from where its run begins (`(?<!\s)`), which is where
+#: the match starts anyway, so a long run of spaces is read once.
+_SERIAL_SUFFIX = re.compile(r"(?<!\s)\s+Serial$")
 
 
 def _grade(item: InventoryItem) -> str | None:
