@@ -56,7 +56,10 @@ def named_edge(url: str) -> int | None:
     size -- the address on record is a smaller form of the one it came from
     -- so it has nothing to gain from being fetched again.
     """
-    parts = urlsplit(url.strip())
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return None
     host = (parts.hostname or "").lower()
     if not (host == "ebayimg.com" or host.endswith(".ebayimg.com")):
         return None
@@ -69,10 +72,14 @@ def full_size(url: str) -> str:
 
     Returned unchanged when the host is not one whose sizes are known, when
     the address is already the full size, or when it is not a web address
-    at all.
+    at all -- one that cannot even be read as an address among them, which
+    is the fetch's to refuse.
     """
     address = url.strip()
-    parts = urlsplit(address)
+    try:
+        parts = urlsplit(address)
+    except ValueError:
+        return url
     host = (parts.hostname or "").lower()
     if parts.scheme not in ("http", "https") or not host:
         return url

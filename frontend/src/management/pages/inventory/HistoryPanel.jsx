@@ -21,14 +21,18 @@ function subject(event) {
  *
  * Read-only, like the sale history beside it. `version` is the item's
  * version: a save, or a change read in from elsewhere, moves it, and the
- * list is read again so the change just made is on it.
+ * list is read again so the change just made is on it. `saves` counts the
+ * editor's own saves: one that records only errors or photographs logs an
+ * entry without moving the version, and is read again on the count.
  *
  * An edit made by a machine pass, or before the change log existed, has no
  * entry; the note under the list says so, because an empty history is
  * otherwise read as "never changed".
  */
-export default function HistoryPanel({ itemId, version }) {
-  const history = useRequest(`${itemId}:${version}`, () => api.getItemHistory(itemId))
+export default function HistoryPanel({ itemId, version, saves = 0 }) {
+  const history = useRequest(`${itemId}:${version}:${saves}`, () =>
+    api.getItemHistory(itemId),
+  )
   const events = history.data ?? null
   const error = history.error
   const [all, setAll] = useState(false)

@@ -234,6 +234,80 @@ def test_a_non_image_is_refused() -> None:
         cleanse(b"this is not an image")
 
 
+def _encoded(image_format: str, **options: object) -> bytes:
+    """A small one-colour picture in the named file format."""
+    buffer = io.BytesIO()
+    PILImage.new("RGB", (16, 12), (30, 60, 90)).save(
+        buffer, format=image_format, **options
+    )
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("image_format", ["JPEG", "PNG", "WEBP", "GIF", "TIFF", "BMP"])
+def test_the_formats_photographs_arrive_in_are_taken(image_format: str) -> None:
+    cleansed = cleanse(_encoded(image_format))
+    assert (cleansed.width, cleansed.height) == (16, 12)
+
+
+def test_a_phone_s_multi_picture_jpeg_is_taken() -> None:
+    """A phone's JPEG holding a second picture is reported as MPO, not JPEG."""
+    raw = _encoded(
+        "MPO", save_all=True, append_images=[PILImage.new("RGB", (16, 12), "olive")]
+    )
+    with PILImage.open(io.BytesIO(raw)) as probe:
+        assert probe.format == "MPO", "the fixture is not the format under test"
+
+    cleansed = cleanse(raw)
+    assert cleansed.media_type == "image/jpeg"
+
+
+def test_a_format_no_photograph_arrives_in_is_refused() -> None:
+    """Only the formats in use are decoded.
+
+    The bytes are whatever a web address returned or a person picked, and
+    each decoder is code run on them. PCX is a real picture Pillow reads,
+    so only the list of formats keeps it out.
+    """
+    from app.imaging import ImageRejected
+
+    raw = _encoded("PCX")
+    with PILImage.open(io.BytesIO(raw)) as probe:
+        assert probe.format == "PCX", "the fixture is not the format under test"
+
+    with pytest.raises(ImageRejected, match="not a readable image"):
+        cleanse(raw)
+
+
+def test_a_file_over_the_upload_limit_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.imaging import ImageRejected
+
+    raw = make_jpeg()
+    monkeypatch.setattr(settings, "max_upload_bytes", len(raw) - 1)
+    with pytest.raises(ImageRejected, match="byte limit"):
+        cleanse(raw)
+    monkeypatch.setattr(settings, "max_upload_bytes", len(raw))
+    assert cleanse(raw).data
+
+
+def test_a_picture_over_the_pixel_limit_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The limit is the limit: Pillow itself only warns until twice over it."""
+    from app.imaging import ImageRejected
+
+    monkeypatch.setattr(PILImage, "MAX_IMAGE_PIXELS", 100)
+    within = io.BytesIO()
+    PILImage.new("RGB", (10, 10), "navy").save(within, format="PNG")
+    assert cleanse(within.getvalue()).width == 10
+
+    over = io.BytesIO()
+    PILImage.new("RGB", (15, 10), "navy").save(over, format="PNG")
+    with pytest.raises(ImageRejected, match="implausibly large"):
+        cleanse(over.getvalue())
+
+
 # ---------------------------------------------------------------------------
 # Through the API
 # ---------------------------------------------------------------------------
@@ -628,6 +702,26 @@ def test_an_upload_for_an_unknown_item_stores_nothing(
         headers=admin_headers,
     )
     assert response.status_code == 404, response.text
+    assert _stored(media_root) == []
+
+
+def test_an_upload_naming_an_unknown_role_stores_nothing(
+    client: TestClient, admin_headers: dict[str, str], db: Session, media_root: Path
+) -> None:
+    """The role is refused before the bytes are written, as an unknown item is."""
+    from tests.conftest import build_item
+
+    item = build_item(db)
+    db.commit()
+
+    response = client.post(
+        "/api/images",
+        files={"file": ("coin.jpg", make_jpeg(color=(2, 4, 6)), "image/jpeg")},
+        data={"inventory_item_id": str(item.id), "image_role": "no-such-role"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422, response.text
+    assert "image_role" in response.json()["detail"]
     assert _stored(media_root) == []
 
 

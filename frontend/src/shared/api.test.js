@@ -5,6 +5,7 @@ import {
   api,
   clearTokens,
   loadTokens,
+  onSignedOut,
   saveTokens,
   send,
   withQuery,
@@ -18,6 +19,24 @@ describe("the shop's api object", () => {
     expect(api.setOrderStatus).toBeUndefined()
     expect(api.listOrders).toBeUndefined()
     expect(api.listMyOrders).toBeTypeOf('function')
+  })
+
+  it('holds exactly the calls the shop and shared components make', () => {
+    // Written out, not derived: a call added here ships to every visitor,
+    // so adding one means editing this list and deciding that it should.
+    // `addReferenceValue` is the one staff call, because the shared
+    // reference picker makes it.
+    expect(Object.keys(api).sort()).toEqual([
+      'addReferenceValue',
+      'createOrder',
+      'getCatalogItem',
+      'getReference',
+      'listCatalog',
+      'listMyOrders',
+      'login',
+      'me',
+      'register',
+    ])
   })
 
   it("asks for the caller's own orders, which for an admin is not every order", async () => {
@@ -192,10 +211,64 @@ describe('send', () => {
     expect(err.status).toBe(200)
   })
 
+  /** A fetch that refuses everything, the refresh included, with a 401. */
+  function refuseAll() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 401,
+        ok: false,
+        text: () => Promise.resolve('{"detail":"Could not validate credentials"}'),
+      }),
+    )
+  }
+
+  it('keeps the session when a sign-in attempt is refused', async () => {
+    // A wrong password is a 401 too, but it says nothing about the tokens
+    // already held: mistyping on a sign-in form must not sign anyone out.
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    refuseAll()
+
+    await api.login('buyer@example.com', 'wrong').catch(() => {})
+
+    expect(loadTokens()).toEqual({ access_token: 'a', refresh_token: 'r' })
+  })
+
+  it('drops the session, and says so, when the server no longer accepts it', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    refuseAll()
+    const heard = vi.fn()
+    const stop = onSignedOut(heard)
+
+    const err = await send('/api/orders?mine=true').catch((caught) => caught)
+
+    expect(err.status).toBe(401)
+    expect(loadTokens()).toBeNull()
+    expect(heard).toHaveBeenCalledTimes(1)
+    stop()
+  })
+
+  it('tells nobody who has stopped listening, or about a refused sign-in', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    refuseAll()
+    const heard = vi.fn()
+    const stopped = vi.fn()
+    const stop = onSignedOut(heard)
+    onSignedOut(stopped)()
+
+    await api.login('buyer@example.com', 'wrong').catch(() => {})
+    expect(heard).not.toHaveBeenCalled()
+
+    await send('/api/orders?mine=true').catch(() => {})
+    expect(heard).toHaveBeenCalledTimes(1)
+    expect(stopped).not.toHaveBeenCalled()
+    stop()
+  })
+
   it('refreshes once for requests that are refused together', async () => {
     // A page that loads three things at once on an expired access token gets
-    // three 401s. Each refreshing on its own spends the refresh token three
-    // times over.
+    // three 401s. Each refreshing on its own is three exchanges for one
+    // expiry, each overwriting the pair the one before it stored.
     saveTokens({ access_token: 'old', refresh_token: 'r' })
     const fetchMock = vi.fn((path, init) => {
       if (path === '/api/auth/refresh') {

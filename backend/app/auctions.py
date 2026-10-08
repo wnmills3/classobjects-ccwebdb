@@ -250,6 +250,9 @@ _CONSIGNED_KIND_CODE = "consigned"
 #: never leaves the premises (spec, *Consignment custody*).
 _AUCTION_HOUSE_KIND_CODE = "auction_house"
 
+#: The length of `sales_lot.title`, which a lot of one's title is cut to.
+_LOT_TITLE_LENGTH = 255
+
 
 def add_lot(
     db: Session,
@@ -335,9 +338,15 @@ def _lot_of_one(db: Session, item: InventoryItem) -> SalesLot:
     assembled around `lot_writes.add_member`'s rules -- not split, not
     already sold, not already in another open lot -- is a lot the rules have
     accepted, rather than one that merely looks like one.
+
+    The lot's title is the item's source title cut to `sales_lot.title`'s
+    255 characters: `inventory_item.source_title` holds 500, and a title the
+    item may carry must not be one the wrapping lot cannot.
     """
     wrapped = lot_writes.create_lot(
-        db, title=item.source_title, description=item.description
+        db,
+        title=item.source_title[:_LOT_TITLE_LENGTH],
+        description=item.description,
     )
     lot_writes.add_member(db, wrapped, item)
     return wrapped
@@ -386,10 +395,17 @@ def remove_lot(
     listing this function was handed by name.
 
     Takes the `auction` row first (`_lock_auction`), like every transition
-    that reaches an auction's coins -- see that function for why.
+    that reaches an auction's coins -- see that function for why. Then takes
+    the lot's own rows through `offering_writes.lock_for_sale`, the pass
+    `end_offer` itself makes, **before** `_remove_lot` moves anything: the
+    return from consignment writes item rows, and written ahead of that pass
+    they would be taken before the lot row -- items before lots.
     """
     auction = _lock_auction(db, auction_lot.auction)
     _refuse_unless(auction, _LOTS_REMOVABLE, "lots cannot be removed")
+    offering_writes.lock_for_sale(
+        db, listing_ids=[auction_lot.listing_id], including_paused=True
+    )
     _remove_lot(
         db,
         auction_lot,
@@ -420,6 +436,15 @@ def _remove_lot(
     offer ends: `_return_from_consignment` reads the lot's open membership
     through `offering_writes.offered_items`, which `end_offer` releases.
 
+    The move is flushed before the offer ends. `lifecycle_writes.set_location`
+    assigns without flushing, and `end_offer` re-reads the lot's item rows
+    with `populate_existing`, which discards an assignment still pending --
+    the history row would say the coin came home beside an item still filed
+    at the house. **The caller already holds this lot's rows**
+    (`offering_writes.lock_for_sale`, in `remove_lot` and `cancel`), so the
+    flush writes rows taken in the canonical order rather than taking item
+    rows ahead of the lot row.
+
     Never clears `auction.consigned_on` -- that is an auction-level fact,
     owned by `cancel`, which clears it once every lot has been returned.
     Removing a single lot out of several leaves the house holding the rest.
@@ -435,6 +460,7 @@ def _remove_lot(
         _return_from_consignment(
             db, auction_lot, returned_to_location_id, user_id=user_id
         )
+        db.flush()
     offering_writes.end_offer(
         db,
         auction_lot.listing,
@@ -520,15 +546,27 @@ def refuse_unless_lot_editable(db: Session, auction_lot: AuctionLot) -> None:
     than through the `auction_lot.auction` relationship: that attribute is a
     lazy load, which emits a `SELECT` of its own on a cold instance and
     raises `DetachedInstanceError` on an expired one, so a "pure check" that
-    reads it is not actually free of the session. Asking `db` directly for
-    just the one column this function needs is both the honest signature and
-    the cheaper query.
+    reads it is not actually free of the session.
+
+    **Takes the `auction` row FOR UPDATE and decides on the row as re-read**
+    (`_lock_auction`), not on the instance the session already holds: the
+    lot has no version column and the write that follows touches only
+    `auction_lot`, so nothing else would notice a `close` that committed
+    between the caller's read and its write. The caller commits, which
+    releases the row.
     """
     # `get_one`, not `scalar(select(...))`: `auction_id` is `ondelete="RESTRICT"`,
     # so the row is guaranteed to exist, and this reads that guarantee's
     # type as well as its data -- `AuctionStatus`, never `AuctionStatus | None`.
+    #
+    # Then the row itself, locked and re-read (`_lock_auction`): the instance
+    # `get_one` answers with is whatever the session already holds, and a
+    # `close` committed since it was loaded would leave the gate deciding on
+    # `scheduled` for an auction that is `closed`. Holding the row until the
+    # caller commits is also what keeps a `close` from landing between this
+    # check and the write it permits.
     _refuse_unless(
-        db.get_one(Auction, auction_lot.auction_id),
+        _lock_auction(db, db.get_one(Auction, auction_lot.auction_id)),
         _LOTS_REMOVABLE,
         f"lot {auction_lot.lot_number} cannot be renumbered or have its "
         "reserve changed",
@@ -701,10 +739,17 @@ def cancel(
     guards a `settle` that commits without ever contending.
 
     Lots are removed in **ascending id order**, read fresh through
-    `_lots_of` rather than `auction.lots` (which has no `order_by`), so two
-    concurrent cancels of one auction take their rows in the same order.
-    Within each removal, `end_offer` keeps the canonical lot -> items ->
-    listings order.
+    `_lots_of` rather than `auction.lots` (which has no `order_by`). **Every
+    lot's rows are taken first, in one `offering_writes.lock_for_sale` pass
+    over the whole auction**, as `settle` takes them: sales lot rows, then
+    items, then listings, each kind in one ascending statement. A pass per
+    lot would take the sales lot rows in the order the lots were added to
+    the auction, which need not be ascending, and a receipt or an item edit
+    naming coins from two of them takes both rows at once --
+    `test_cancelling_an_auction_races_a_receipt_across_its_lots`
+    (`tests/test_settlement_race.py`). Each removal's own `end_offer` then
+    re-locks rows this pass already holds, and its return from consignment
+    writes item rows held the same way.
 
     `returned_to_location_id` is **required** whenever `auction.consigned_on
     is not None` -- keyed on custody, not on `status is consigned`, because
@@ -736,7 +781,17 @@ def cancel(
             )
         )
     still_consigned = auction.consigned_on is not None
-    for auction_lot in _lots_of(db, auction):
+    lots = _lots_of(db, auction)
+    # Every lot's rows in one pass, before the first removal: the sales lot
+    # rows in one ascending statement, then the items, then the listings.
+    # Taken a lot at a time, in `auction_lot` order, the sales lot rows would
+    # come in whatever order the lots were added to the auction -- which
+    # need not be ascending -- against a writer that takes several of them
+    # at once. Each `end_offer` below then re-locks rows already held.
+    offering_writes.lock_for_sale(
+        db, listing_ids=[row.listing_id for row in lots], including_paused=True
+    )
+    for auction_lot in lots:
         _remove_lot(
             db,
             auction_lot,
@@ -821,7 +876,8 @@ def _lock_auction(db: Session, auction: Auction) -> Auction:
     before its `UPDATE auction`. Any transition that reaches a coin must
     take this first as well.
     `schedule` and `close` touch only the auction row and rely on its
-    `version` column.
+    `version` column. `refuse_unless_lot_editable` takes it too, alone: the
+    edit it gates writes an `auction_lot` row and nothing below this level.
 
     Why it is needed: `settle` decides what to write from the auction's
     status and its lot table, and then writes both. Two settlements of one
@@ -1303,6 +1359,11 @@ def settle(
                 _return_from_consignment(
                     db, row, returned_to_location_id, user_id=settled_by.id
                 )
+            # Written before any ending: `set_location` assigns without
+            # flushing, and each `end_offer` re-reads its lot's item rows
+            # with `populate_existing`, which discards a move still pending.
+            # The rows are held already, by the `lock_for_sale` pass above.
+            db.flush()
         for row in coming_home:
             # Said as what it was: unsold, or withdrawn from the sale -- not
             # the bare "withdrawn" an End would record. This is the fact

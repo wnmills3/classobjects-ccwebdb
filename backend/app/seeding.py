@@ -11,8 +11,11 @@ never hardcoded in Python. Two reasons:
 2. **What we learn flows back out.** Classifiers learned from a real
    collection carry ``source='derived'``, those a person adds
    ``source='manual'``. ``export`` can then
-   dump the vocabulary back to JSON, and the ``--source`` filter is what keeps
-   one collection's guesses out of the shared catalog.
+   dump the classifier tables and ``composition`` back to JSON, and the
+   ``--source`` filter is what keeps one collection's guesses out of the
+   shared catalog. It does not write ``series_alias``, ``series_year_range``,
+   ``reference_alias`` or ``note_issue``: those leave only in the shipped
+   seed files.
 
 Foreign keys are written as the *code* of the referenced row rather than its
 id, because ids are per-installation and codes are not. Resolution is generic:
@@ -343,6 +346,44 @@ def seed_all(
     return stats
 
 
+def _refuse_unknown_keys(
+    row: dict[str, Any], known: frozenset[str], where: str
+) -> None:
+    """Raise `SeedError` for a key the table's loader does not read.
+
+    A misspelt key would otherwise load as the value left out -- `letter`
+    for `letters` as a range that allows every letter. Commentary, which
+    begins with an underscore, is not a key.
+    """
+    unknown = sorted(
+        key for key in row if key not in known and not key.startswith(_SKIP_PREFIX)
+    )
+    if unknown:
+        raise SeedError(f"{where}: unknown key(s) {unknown}; known: {sorted(known)}")
+
+
+#: The keys each hand-written loader below reads from a row.
+_SERIES_ALIAS_KEYS = frozenset({"series", "alias"})
+_SERIES_YEAR_RANGE_KEYS = frozenset(
+    {"series", "denomination", "year_start", "year_end", "letters"}
+)
+_REFERENCE_ALIAS_KEYS = frozenset({"table", "code", "alias"})
+#: `sources` names where a row's facts were checked; it is not loaded.
+_NOTE_ISSUE_KEYS = frozenset(
+    {
+        "denomination",
+        "series_year",
+        "series_letter",
+        "note_type",
+        "seal_color",
+        "signatures",
+        "variant",
+        "serial_prefix",
+        "sources",
+    }
+)
+
+
 def _seed_series_aliases(
     session: Session,
     data: dict[str, list[dict[str, Any]]],
@@ -369,6 +410,7 @@ def _seed_series_aliases(
     }
 
     for position, row in enumerate(rows, start=1):
+        _refuse_unknown_keys(row, _SERIES_ALIAS_KEYS, f"series_alias[{position}]")
         code = row.get("series")
         alias = row.get("alias")
         if not code or not alias:
@@ -418,6 +460,7 @@ def _seed_series_year_ranges(
     wanted: dict[int, dict[tuple[int | None, int], tuple[int | None, str | None]]] = {}
     for position, row in enumerate(rows, start=1):
         where = f"series_year_range[{position}]"
+        _refuse_unknown_keys(row, _SERIES_YEAR_RANGE_KEYS, where)
         code = row.get("series")
         if code not in designs:
             raise SeedError(f"{where}: unknown series {code!r}")
@@ -520,6 +563,7 @@ def _seed_reference_aliases(
     )
     for position, row in enumerate(rows, start=1):
         where = f"reference_alias[{position}]"
+        _refuse_unknown_keys(row, _REFERENCE_ALIAS_KEYS, where)
         table, code, alias = row.get("table"), row.get("code"), row.get("alias")
         if not table or not code or not alias:
             raise SeedError(f"{where}: needs 'table', 'code' and 'alias'")
@@ -581,6 +625,7 @@ def _seed_note_issues(
     wanted: dict[_IssueKey, tuple[int | None, str | None, str | None]] = {}
     for position, row in enumerate(rows, start=1):
         where = f"note_issue[{position}]"
+        _refuse_unknown_keys(row, _NOTE_ISSUE_KEYS, where)
         year = row.get("series_year")
         if not isinstance(year, int):
             raise SeedError(f"{where}: series_year must be a year")
@@ -675,9 +720,15 @@ def export_reference_data(
 
     This is the path that lets one installation's curation benefit the next.
     ``sources`` is the safety valve: exporting only ``seeded`` reproduces the
-    shipped catalog, while adding ``derived`` includes classifiers learned
-    from real data. ``manual`` rows are one operator's private decisions and
-    are excluded unless asked for explicitly.
+    shipped rows of the tables it covers, while adding ``derived`` includes
+    classifiers learned from real data. ``manual`` rows are one operator's
+    private decisions and are excluded unless asked for explicitly.
+
+    It covers `SEEDABLE`: every classifier table, and ``composition``. The
+    four tables with loaders of their own -- ``series_alias``,
+    ``series_year_range``, ``reference_alias`` and ``note_issue`` -- are not
+    written, so a load of an export alone leaves a new installation without
+    nicknames, a design's year ranges or the note issues.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     wanted = {ProvenanceSource(s) for s in sources}
@@ -771,7 +822,9 @@ def _record_to_row(
 
     for column in model.__table__.columns:
         name = column.name
-        if name == "id":
+        # A generated column cannot be written, so a row carrying one could
+        # not be inserted by the load that reads this file.
+        if name == "id" or column.computed is not None:
             continue
         value = getattr(record, name)
         if value is None:

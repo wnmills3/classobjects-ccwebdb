@@ -117,6 +117,17 @@ def test_longer_text_matches_part_of_a_name(db: Session) -> None:
     }
 
 
+def test_search_text_is_matched_as_written_not_as_a_pattern(db: Session) -> None:
+    """A `%` or `_` typed is that character, not "anything"."""
+    assert aliases.ids_named(db, StrikeType, "r_v") == []
+    assert aliases.ids_named(db, StrikeType, "%%%") == []
+    # An underscore that is really in a code still finds it.
+    assert _codes(db, StrikeType, aliases.ids_named(db, StrikeType, "e_p")) == {
+        "reverse_proof",
+        "enhanced_reverse_proof",
+    }
+
+
 # --- add and remove --------------------------------------------------------------
 
 

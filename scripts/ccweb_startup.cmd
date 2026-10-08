@@ -43,12 +43,12 @@ echo ============================================
 
 rem --- preflight ------------------------------------------------------------
 if not exist "%ENVDIR%\python.exe" (
-    echo ERROR: conda environment not found: %ENVDIR%
+    echo ERROR: conda environment not found: !ENVDIR!
     echo        see docs\environment-setup.md
     exit /b 1
 )
 if not exist "%PGDATA%\PG_VERSION" (
-    echo ERROR: no PostgreSQL cluster at %PGDATA%
+    echo ERROR: no PostgreSQL cluster at !PGDATA!
     echo        see docs\environment-setup.md
     exit /b 1
 )
@@ -74,7 +74,7 @@ if not errorlevel 1 (
     call :waitpg 60
     "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
     if errorlevel 1 (
-        echo       FAILED - see %LOGS%\postgres.log
+        echo       FAILED - see !LOGS!\postgres.log
         exit /b 1
     )
     echo       started
@@ -88,10 +88,16 @@ if defined BPID (
     echo [2/3] backend      starting on %BPORT%...
     rem  The pipe is inside the quoted part, so the new console runs it.
     start "ccweb-backend" /MIN /D "%REPO%\backend" cmd /c ""%ENVDIR%\Scripts\uvicorn.exe" app.main:app --host 127.0.0.1 --port %BPORT% 2>&1 | "%ENVDIR%\python.exe" "%LOGPIPE%" "%LOGS%\backend.log""
+    rem  A held port is not an answer: a backend that binds and then hangs
+    rem  holds 8000 exactly as a healthy one does.
     call :waiturl "http://127.0.0.1:%BPORT%/health" 60
+    if errorlevel 1 (
+        echo       FAILED - /health did not answer - see !LOGS!\backend.log
+        exit /b 1
+    )
     call :portpid %BPORT% BPID
     if not defined BPID (
-        echo       FAILED - see %LOGS%\backend.log
+        echo       FAILED - see !LOGS!\backend.log
         exit /b 1
     )
     echo       pid !BPID!
@@ -105,9 +111,13 @@ if defined FPID (
     echo [3/3] frontend     starting on %FPORT%...
     start "ccweb-frontend" /MIN /D "%REPO%\frontend" cmd /c ""%ENVDIR%\node.exe" .\node_modules\vite\bin\vite.js --host 127.0.0.1 --port %FPORT% 2>&1 | "%ENVDIR%\python.exe" "%LOGPIPE%" "%LOGS%\frontend.log""
     call :waiturl "http://127.0.0.1:%FPORT%/" 60
+    if errorlevel 1 (
+        echo       FAILED - Vite did not answer - see !LOGS!\frontend.log
+        exit /b 1
+    )
     call :portpid %FPORT% FPID
     if not defined FPID (
-        echo       FAILED - see %LOGS%\frontend.log
+        echo       FAILED - see !LOGS!\frontend.log
         exit /b 1
     )
     echo       pid !FPID!
@@ -143,15 +153,17 @@ for /f "tokens=5" %%A in ('netstat -ano -p TCP ^| findstr /R /C:":%~1  *[0-9]" ^
 goto :eof
 
 rem ---------------------------------------------------------------------------
-rem  :waiturl <url> <max seconds>  - poll until it answers, or give up
+rem  :waiturl <url> <max tries>  - poll until it answers (exit 0), or give
+rem  up (exit 1). A try that gets no answer takes up to two seconds, and a
+rem  second passes before the next.
 rem ---------------------------------------------------------------------------
 :waiturl
 set /a _tries=0
 :waiturl_loop
 curl -s -o nul --max-time 2 "%~1" >nul 2>&1
-if not errorlevel 1 goto :eof
+if not errorlevel 1 exit /b 0
 set /a _tries+=1
-if !_tries! GEQ %~2 goto :eof
+if !_tries! GEQ %~2 exit /b 1
 rem  ping, not timeout: timeout needs a real console and returns at once, with
 rem  no pause, when stdin is redirected - as it is for any caller that is not a
 rem  person at a keyboard - so the loop would give up almost instantly.
@@ -159,7 +171,7 @@ ping -n 2 127.0.0.1 >nul
 goto waiturl_loop
 
 rem ---------------------------------------------------------------------------
-rem  :waitpg <max seconds>  - poll until PostgreSQL accepts connections
+rem  :waitpg <max tries>  - poll until PostgreSQL accepts connections
 rem
 rem  pg_isready says "rejecting connections" while crash recovery replays WAL.
 rem  That is progress, not failure, so this waits through it.

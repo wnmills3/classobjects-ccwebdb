@@ -6,13 +6,18 @@ assumes the classifiers it names already exist.
 
     python -m app.seeding load
     python -m app.seed
+
+For a new, empty database: one that already holds items or purchases is
+refused, and nothing is written to it, unless `--into-existing` is given.
 """
 
 from __future__ import annotations
 
+import argparse
+from collections.abc import Sequence
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import grades, offering_writes
@@ -32,6 +37,7 @@ from .models import (
     ListingFormat,
     Metal,
     ProvenanceSource,
+    PurchaseOrder,
     ReferenceMixin,
     SalesVenue,
     StorageForm,
@@ -190,45 +196,95 @@ def _build(db: Session, row: dict) -> None:
     )
 
 
-def seed() -> None:
+def _refuse_a_collection(db: Session) -> None:
+    """Exit unless the database holds nothing but this module's own demo items.
+
+    The demo items are offered in the shop, where a buyer could order a coin
+    nobody has, and the account made here takes its password from a setting
+    whose default is published. A purchase, or an item that is not one of the
+    demo catalog's, means the database is somebody's record.
+    """
+    titles = [row["title"] for row in SAMPLE_CATALOG]
+    purchases = db.scalar(select(func.count()).select_from(PurchaseOrder)) or 0
+    items = (
+        db.scalar(
+            select(func.count())
+            .select_from(InventoryItem)
+            .where(InventoryItem.source_title.not_in(titles))
+        )
+        or 0
+    )
+    if purchases or items:
+        raise SystemExit(
+            f"This database already holds {items} item(s) and {purchases} "
+            "purchase(s) that are not demo data, so nothing was written. "
+            "`app.seed` is for a new, empty database; pass --into-existing "
+            "to add the demo items and the first administrator anyway."
+        )
+
+
+def seed(db: Session | None = None, *, into_existing: bool = False) -> None:
     """Create the first administrator and a small demo catalog.
 
     Assumes the reference vocabularies are already loaded; run
-    `python -m app.seeding load` first.
+    `python -m app.seeding load` first. Refuses a database that holds a
+    collection (`_refuse_a_collection`) unless `into_existing` is set.
+
+    `db` is the session to write through; without one the application's own
+    `SessionLocal` is opened. A caller that has a session -- the test suite,
+    whose transaction is rolled back -- passes it, and no other is opened.
     """
-    with SessionLocal() as db:
-        admin = db.scalar(select(User).where(User.email == settings.first_admin_email))
-        if admin is None:
-            admin = User(
-                email=settings.first_admin_email,
-                full_name="Site Administrator",
-                hashed_password=hash_password(settings.first_admin_password),
-                role=UserRole.manager,
-            )
-            db.add(admin)
-            print(f"created admin {settings.first_admin_email}")
-        else:
-            print(f"admin {settings.first_admin_email} already exists")
+    if db is None:
+        with SessionLocal() as own:
+            seed(own, into_existing=into_existing)
+        return
 
-        created = 0
-        for row in SAMPLE_CATALOG:
-            # Matched on source_title: the schema has no artificial unique key
-            # per catalog row, because two identical coins are two objects.
-            exists = db.scalar(
-                select(InventoryItem.id).where(
-                    InventoryItem.source_title == row["title"]
-                )
-            )
-            if exists is None:
-                _build(db, row)
-                created += 1
+    if not into_existing:
+        _refuse_a_collection(db)
 
-        print(
-            f"created {created} catalog item(s); "
-            f"{len(SAMPLE_CATALOG) - created} already present"
+    admin = db.scalar(select(User).where(User.email == settings.first_admin_email))
+    if admin is None:
+        admin = User(
+            email=settings.first_admin_email,
+            full_name="Site Administrator",
+            hashed_password=hash_password(settings.first_admin_password),
+            role=UserRole.manager,
         )
-        db.commit()
+        db.add(admin)
+        print(f"created admin {settings.first_admin_email}")
+    else:
+        print(f"admin {settings.first_admin_email} already exists")
+
+    created = 0
+    for row in SAMPLE_CATALOG:
+        # Matched on source_title: the schema has no artificial unique key
+        # per catalog row, because two identical coins are two objects.
+        exists = db.scalar(
+            select(InventoryItem.id).where(InventoryItem.source_title == row["title"])
+        )
+        if exists is None:
+            _build(db, row)
+            created += 1
+
+    print(
+        f"created {created} catalog item(s); "
+        f"{len(SAMPLE_CATALOG) - created} already present"
+    )
+    db.commit()
+
+
+def _main(argv: Sequence[str] | None = None) -> None:
+    """Run the command line: seed, refusing a database in use unless told."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--into-existing",
+        action="store_true",
+        help="write the demo items and administrator into a database that "
+        "already holds items or purchases",
+    )
+    args = parser.parse_args(argv)
+    seed(into_existing=args.into_existing)
 
 
 if __name__ == "__main__":
-    seed()
+    _main()

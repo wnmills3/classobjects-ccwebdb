@@ -89,7 +89,8 @@ arriving in a value's `extra`:
 | Vocabulary | Column | Values |
 |---|---|---|
 | `denomination` | `kind` | `coin`, `note` |
-| `series`, `grade_designation`, `error_type`, `item_attribute` | `applies_to` | `coin`, `currency`, `any` |
+| `grade_designation`, `error_type`, `item_attribute` | `applies_to` | `coin`, `currency`, `any` |
+| `series` | `applies_to` | `coin`, `currency` (a design belongs to one side; `any` is refused) |
 
 The rule has two sides: `currency` on one; every other kind (`coin`,
 `bullion`, `set`, `medal`, `token` and the rest) on the other. `denomination.kind = note` maps to the currency

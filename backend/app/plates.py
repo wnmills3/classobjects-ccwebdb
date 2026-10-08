@@ -1,8 +1,8 @@
 """A banknote's plate numbers, and the printing location the face plate names.
 
 The face and back plate numbers, with where the note
-was printed, tell a Friedberg number apart -- a 2017-A $1 is Fr. 3005-A from
-Washington, DC or Fr. 3006-A from Fort Worth -- and a mismatched face and back
+was printed, tell a Friedberg number apart -- a 2017-A $1 has one number from
+Washington, DC and another from Fort Worth -- and a mismatched face and back
 is how a mule is found (the web search's answer carries an "m" suffix then).
 
 - **Face plate**: a check letter and digits (``E82``), or digits alone on older

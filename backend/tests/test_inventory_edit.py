@@ -6,22 +6,28 @@ collection has no listing.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 
+import pytest
 from app.models import (
     CurrencyDetail,
     Denomination,
     Grade,
+    InventoryItem,
     ItemKind,
+    ItemStatus,
     Metal,
     SealColor,
     Series,
     StrikeType,
 )
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
-from tests.builders import build_bare_item, code_id
+from tests.builders import TUBE, build_bare_item, build_split_lot, code_id
 
 
 def test_an_unlisted_item_can_be_edited(
@@ -613,3 +619,214 @@ def test_the_rating_is_shown_and_corrected_like_any_text(
     assert client.get(path, headers=admin_headers).json()["rating"] is None
     db.refresh(item)
     assert item.rating is None
+
+
+def _note(db: Session, **detail: object) -> InventoryItem:
+    """A banknote with its currency detail row, holding these detail columns."""
+    note = build_bare_item(
+        db, item_kind_id=code_id(db, ItemKind, "currency"), year_start=None
+    )
+    db.add(CurrencyDetail(inventory_item_id=note.id, **detail))
+    db.commit()
+    return note
+
+
+def test_an_edit_of_a_note_s_own_fields_moves_the_item_s_version(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The note's fields are another table, and the version guards the whole item.
+
+    A form opened before a serial number changed must be told, and an open
+    editor notices a change made elsewhere by the version alone.
+    """
+    note = _note(db, serial_number="A11111111A")
+    path = f"/api/inventory/{note.id}"
+    opened = client.get(path, headers=admin_headers).json()["version"]
+
+    first = client.patch(
+        path,
+        json={"serial_number": "A22222222A", "version": opened},
+        headers=admin_headers,
+    )
+    assert first.status_code == 200, first.text
+    assert client.get(path, headers=admin_headers).json()["version"] == opened + 1
+
+    # The form that opened before it still holds the old version.
+    stale = client.patch(
+        path,
+        json={"serial_number": "A33333333A", "version": opened},
+        headers=admin_headers,
+    )
+    assert stale.status_code == 409, stale.text
+    db.expire_all()
+    detail = db.get_one(CurrencyDetail, note.id)
+    assert detail.serial_number == "A22222222A"
+
+
+def test_a_note_field_sent_unchanged_does_not_move_the_version(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    note = _note(db, serial_number="A11111111A")
+    path = f"/api/inventory/{note.id}"
+    opened = client.get(path, headers=admin_headers).json()["version"]
+
+    same = client.patch(
+        path, json={"serial_number": "A11111111A"}, headers=admin_headers
+    )
+
+    assert same.status_code == 200, same.text
+    assert client.get(path, headers=admin_headers).json()["version"] == opened
+
+
+def test_a_serial_number_sent_blank_is_stored_as_none(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """An empty string is not a serial: "no serial recorded" is NULL."""
+    note = _note(db, serial_number="A11111111A")
+
+    for blank in ("", "   "):
+        cleared = client.patch(
+            f"/api/inventory/{note.id}",
+            json={"serial_number": blank},
+            headers=admin_headers,
+        )
+        assert cleared.status_code == 200, cleared.text
+        db.expire_all()
+        assert db.get_one(CurrencyDetail, note.id).serial_number is None, repr(blank)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["item_cost", "shipping_cost", "piece_count", "source_title", "description"],
+)
+def test_nulling_a_required_scalar_is_refused_naming_the_field(
+    client: TestClient, admin_headers: dict[str, str], db: Session, field: str
+) -> None:
+    """Each is NOT NULL: an explicit null is a 422 naming it, never a 500."""
+    item = build_bare_item(db, source_title="kept", description="kept")
+
+    response = client.patch(
+        f"/api/inventory/{item.id}",
+        json={field: None, "rating": "sent with it"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert field in response.json()["detail"]
+    db.refresh(item)
+    assert item.rating is None, "nothing sent with the refused field is applied"
+
+
+def test_a_bulk_edit_refuses_a_nulled_required_scalar(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    item = build_bare_item(db)
+
+    response = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [item.id], "changes": {"item_cost": None}},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert "item_cost" in response.json()["detail"]
+
+
+def test_a_piece_is_not_told_its_lot_claimed_a_series(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A piece does not inherit its lot's design series, so it is no claim.
+
+    `lot_claims` says what the piece took from the seller's description of
+    the lot. Naming a series there would mark as inherited a value the piece
+    never held.
+    """
+    parent = build_split_lot(db, series_id=code_id(db, Series, "morgan_dollar"))
+    piece_id = client.post(
+        f"/api/inventory/{parent.id}/split", json=TUBE, headers=admin_headers
+    ).json()["pieces"][0]["id"]
+
+    body = client.get(f"/api/inventory/{piece_id}", headers=admin_headers).json()
+
+    assert body["series"] is None
+    assert "series" not in body["lot_claims"]
+    # The fields a piece does inherit are still claimed.
+    assert body["lot_claims"]["year_start"] == 1881
+
+
+#: A request as `client.request` takes it: method, path and JSON body.
+Request = tuple[str, str, dict[str, object] | None]
+
+
+def _bulk(db: Session) -> Request:
+    """A bulk edit of one item."""
+    item = build_bare_item(db)
+    return (
+        "POST",
+        "/api/inventory/bulk",
+        {"ids": [item.id], "changes": {"description": "x"}},
+    )
+
+
+def _delete(db: Session) -> Request:
+    """A soft delete of an item nothing refers to."""
+    return "DELETE", f"/api/inventory/{build_bare_item(db).id}", None
+
+
+def _detach(db: Session) -> Request:
+    """A piece detached from its lot."""
+    parent = build_bare_item(db)
+    piece = build_bare_item(db, parent_item_id=parent.id)
+    return "DELETE", f"/api/inventory/{piece.id}/parent", None
+
+
+def _errors(db: Session) -> Request:
+    """An item's errors replaced."""
+    item = build_bare_item(db)
+    return (
+        "PUT",
+        f"/api/inventory/{item.id}/errors",
+        {"errors": [{"error_type": "doubled_die"}]},
+    )
+
+
+def _receive(db: Session) -> Request:
+    """An ordered item received."""
+    item = build_bare_item(db, status_id=code_id(db, ItemStatus, "ordered"))
+    return (
+        "POST",
+        "/api/inventory/receive",
+        {"item_ids": [item.id], "outcome": "received"},
+    )
+
+
+def _split(db: Session) -> Request:
+    """A lot split into its pieces."""
+    return "POST", f"/api/inventory/{build_split_lot(db).id}/split", dict(TUBE)
+
+
+@pytest.mark.parametrize("build", [_bulk, _delete, _detach, _errors, _receive, _split])
+def test_a_write_that_loses_to_another_writer_is_a_409(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    build: Callable[[Session], Request],
+) -> None:
+    """A version that moved under a write is the caller's conflict, not a 500.
+
+    Every one of these writes a versioned item row. The rows are built and
+    committed first; from then on the session's commit answers as the
+    database does when an UPDATE's `WHERE version = ...` matches no row.
+    """
+    method, path, body = build(db)
+
+    def stale() -> None:
+        """Refuse the commit as a lost race."""
+        raise StaleDataError("UPDATE statement on table matched 0 rows")
+
+    monkeypatch.setattr(db, "commit", stale)
+
+    response: Response = client.request(method, path, json=body, headers=admin_headers)
+
+    assert response.status_code == 409, response.text

@@ -23,6 +23,7 @@ const SIDED_CLASSIFIERS = [
   'strike_type',
   'metal',
   'mint',
+  'bullion_form',
   'set_form',
   'note_type',
   'seal_color',

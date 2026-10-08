@@ -88,7 +88,7 @@ server)*).
 script runs, from the repository root:
 
 ```cmd
-python -m pytest -q --cov=backend/app --cov-report=xml:coverage.xml
+python -m pytest --cov=backend/app --cov-report=xml:coverage.xml
 ```
 
 with `relative_files = true` under `[tool.coverage.run]` in `pyproject.toml`.

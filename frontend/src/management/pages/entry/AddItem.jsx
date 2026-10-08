@@ -44,13 +44,28 @@ const NOTE_ONLY = new Set([
 ])
 const COIN_ONLY = new Set(['metal', 'mint'])
 
-/** The fields of `item` the next piece shares, as a create takes them. */
+//: The statuses an item may be entered with; the server refuses any other.
+const ENTRY_STATUSES = new Set(['ordered', 'received'])
+
+/**
+ * The fields of `item` the next piece shares, as a create takes them.
+ *
+ * A value a rule filled on `item` (`item.derived`, by column) is left out:
+ * it followed from that piece's own year or serial, which the next piece
+ * does not share, and sent here it would be taken as typed by a person and
+ * held against whatever the next piece's facts decide. Left out, the rules
+ * fill it for the next piece from its own facts. A status an item cannot be
+ * entered with is left out too, and the next piece starts as ordered.
+ */
 function sharedWith(item) {
   const note = item.item_kind === 'currency'
+  const derived = item.derived ?? {}
   return Object.fromEntries(
     SHARED_ON_REPEAT.filter((key) => !(note ? COIN_ONLY : NOTE_ONLY).has(key))
+      .filter((key) => !(key in derived) && !(`${key}_id` in derived))
       .map((key) => [key, item[key]])
-      .filter(([, value]) => value !== null && value !== undefined && value !== ''),
+      .filter(([, value]) => value !== null && value !== undefined && value !== '')
+      .filter(([key, value]) => key !== 'status' || ENTRY_STATUSES.has(value)),
   )
 }
 
@@ -65,7 +80,8 @@ function sharedWith(item) {
  *
  * Closing the editor without saving removes the row again: an item nobody
  * saved was never entered. "Add another like it" starts the next piece from
- * what the last one shares with it (`SHARED_ON_REPEAT`).
+ * what the last one shares with it (`SHARED_ON_REPEAT`, less what a rule
+ * filled -- see `sharedWith`).
  *
  * `defaults` is the purchase's tax values, sent with every item entered on
  * it; `orderUrl` its lot page, offered as the item's listing.

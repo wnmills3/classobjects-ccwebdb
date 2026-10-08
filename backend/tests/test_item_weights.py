@@ -12,6 +12,7 @@ from decimal import Decimal
 from app.field_sources import WEIGHT_TEXT, derived_fields, record_derived
 from app.models import InventoryItem, PurchaseOrder, Vendor
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests.builders import ItemFactory
@@ -142,6 +143,137 @@ def test_the_weight_as_written_is_kept_and_returned(
     assert client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()[
         "weight_note"
     ] == ("1 oz each")
+
+
+def test_a_fine_weight_above_the_gross_weight_is_refused_naming_both(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    """A piece cannot hold more metal than it weighs: a 422, never a 500.
+
+    Judged on the item as the edit leaves it, so a fine weight sent alone is
+    held against the gross weight already stored, and the reverse.
+    """
+    item = _round(db, make_item)
+    path = f"/api/inventory/{item.id}"
+
+    both = client.patch(
+        path,
+        json={"gross_weight_ozt": "1", "fine_weight_ozt": "2"},
+        headers=admin_headers,
+    )
+    assert both.status_code == 422, both.text
+    assert "fine_weight_ozt" in both.json()["detail"]
+    assert "gross_weight_ozt" in both.json()["detail"]
+
+    _patch(client, admin_headers, item, gross_weight_ozt="1", fine_weight_ozt="1")
+    fine_alone = client.patch(
+        path, json={"fine_weight_ozt": "1.5"}, headers=admin_headers
+    )
+    assert fine_alone.status_code == 422, fine_alone.text
+    gross_alone = client.patch(
+        path, json={"gross_weight_ozt": "0.5"}, headers=admin_headers
+    )
+    assert gross_alone.status_code == 422, gross_alone.text
+
+    db.expire_all()
+    stored = db.get_one(InventoryItem, item.id)
+    assert (stored.gross_weight_ozt, stored.fine_weight_ozt) == (
+        Decimal("1.000000"),
+        Decimal("1.000000"),
+    )
+
+
+def test_a_worked_out_fine_weight_follows_a_gross_weight_made_smaller(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    """The fine weight is the rule's, so it comes down with the gross weight.
+
+    Between the new gross weight being written and the fine weight being
+    worked out again, the stored fine weight is the larger of the two; that
+    moment must not be what the database is asked to accept.
+    """
+    item = _round(db, make_item)
+    _patch(client, admin_headers, item, gross_weight_ozt="1", fineness="0.999")
+
+    body = _patch(client, admin_headers, item, gross_weight_ozt="0.5")
+
+    assert body["fine_weight_ozt"] == "0.499500"
+    assert derived_fields(db, item.id) == {"fine_weight_ozt": "weight"}
+
+
+def test_a_bulk_edit_refuses_a_fine_weight_above_one_item_s_gross_weight(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    """All or nothing: the item it would fit is not changed either."""
+    heavy = _round(db, make_item, gross_weight_ozt=Decimal("5"))
+    light = _round(db, make_item, gross_weight_ozt=Decimal("1"))
+
+    response = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [heavy.id, light.id], "changes": {"fine_weight_ozt": "2"}},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert light.item_code in response.json()["detail"]
+    db.expire_all()
+    assert db.get_one(InventoryItem, heavy.id).fine_weight_ozt is None
+
+
+def test_a_fineness_of_zero_is_refused(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    """Fineness is a fraction above zero; nothing is no fineness, not zero."""
+    item = _round(db, make_item)
+
+    response = client.patch(
+        f"/api/inventory/{item.id}", json={"fineness": "0"}, headers=admin_headers
+    )
+
+    assert response.status_code == 422, response.text
+
+
+def test_a_new_item_with_more_fine_weight_than_gross_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    vendor = Vendor(name="Weight Refusal Vendor")
+    db.add(vendor)
+    db.flush()
+    order = PurchaseOrder(vendor_id=vendor.id)
+    db.add(order)
+    db.commit()
+
+    response = client.post(
+        "/api/inventory",
+        json={
+            "purchase_order_id": order.id,
+            "item_kind": "bullion",
+            "source_title": "Sterling round",
+            "gross_weight_ozt": "0.8",
+            "fine_weight_ozt": "0.9",
+        },
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert (
+        db.scalars(
+            select(InventoryItem.id).where(InventoryItem.purchase_order_id == order.id)
+        ).all()
+        == []
+    )
 
 
 def test_a_new_item_takes_its_weight(

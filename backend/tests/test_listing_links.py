@@ -7,7 +7,13 @@
 from __future__ import annotations
 
 import pytest
-from app.listing_links import apply, ebay_listing_url, listing_id_from, plan
+from app.listing_links import (
+    apply,
+    ebay_listing_url,
+    is_marketplace,
+    listing_id_from,
+    plan,
+)
 from app.models import InventoryItem, ItemFieldChange, PurchaseOrder, User, Vendor
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -103,6 +109,42 @@ def test_a_shops_page_is_not_copied_onto_its_items(
     db.commit()
 
     assert item.id not in plan(db).listing_urls
+
+
+@pytest.mark.parametrize(
+    ("name", "host", "marketplace"),
+    [
+        ("ebay.com", None, True),
+        ("eBay", "www.ebay.com", True),
+        ("eBay UK", "www.ebay.co.uk", True),
+        ("eBay", None, True),
+        ("whatnot.com", None, True),
+        ("Whatnot", "www.whatnot.com", True),
+        ("hibid.com", None, False),
+        # The letters inside another site's name make it neither.
+        ("thebaycoins.com", None, False),
+        ("Bay Coins", "www.thebaycoins.com", False),
+        ("whatnotcoins.com", None, False),
+    ],
+)
+def test_a_marketplace_is_known_by_its_own_host_name(
+    name: str, host: str | None, marketplace: bool
+) -> None:
+    assert is_marketplace(Vendor(name=name, host=host)) is marketplace
+
+
+def test_a_dealer_whose_name_holds_the_letters_ebay_is_no_marketplace(
+    db: Session, make_item: ItemFactory
+) -> None:
+    # Its lot page is its purchase's, as at any dealer or auction house.
+    order = build_purchase_order(db, vendor_name="thebaycoins.com", source_url=LOT)
+    item = _item(db, make_item, order, sellers_item_id="126845170680")
+    db.commit()
+
+    todo = plan(db)
+
+    assert todo.listing_urls == {item.id: LOT}
+    assert todo.order_pages == {}
 
 
 def test_a_purchase_of_several_lots_takes_no_single_address(

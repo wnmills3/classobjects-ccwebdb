@@ -20,6 +20,7 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
+import pytest
 from app import offering_writes
 from app.models import (
     InventoryItem,
@@ -127,6 +128,61 @@ def test_search_matches_title_and_description(
     assert client.get("/api/catalog?q=Morgan").json()["total"] == 1
     assert client.get("/api/catalog?q=fixture").json()["total"] == 1
     assert client.get("/api/catalog?q=nothingmatches").json()["total"] == 0
+
+
+def test_search_reads_the_wording_the_offer_itself_carries(
+    client: TestClient, db: Session, make_listing: Callable[..., Listing]
+) -> None:
+    """What a buyer reads on the page is what a search has to find.
+
+    An entry shows `listing.description` when the offer has one, in place of
+    the item's own. A decoy listing with no wording of its own is here so
+    that "everything matched" cannot pass for "the right one matched".
+    """
+    worded = make_listing()
+    make_listing()
+    worded.description = "Hand-picked for its zanzibar toning."
+    db.commit()
+
+    body = client.get("/api/catalog?q=zanzibar").json()
+
+    assert [item["id"] for item in body["items"]] == [worded.id]
+    assert body["total"] == 1
+
+
+def test_search_finds_a_lot_by_its_description(
+    client: TestClient, db: Session, store_lot_listing: Listing, listing: Listing
+) -> None:
+    """A lot has no item row, so its listing's wording is all a search can read."""
+    db.commit()
+
+    body = client.get("/api/catalog", params={"q": "coins, one price"}).json()
+
+    assert [item["id"] for item in body["items"]] == [store_lot_listing.id]
+
+
+def test_search_takes_a_percent_sign_and_an_underscore_as_typed(
+    client: TestClient, make_listing: Callable[..., Listing]
+) -> None:
+    """`%` and `_` are characters in a title, not wildcards for the buyer.
+
+    Each pair differs only where the wildcard would match: read as a
+    pattern, `zq100%` finds both of the first pair and `zq_under` both of the
+    second.
+    """
+    percent = make_listing(title="zq100% silver round")
+    make_listing(title="zq100 silver rounds")
+    underscore = make_listing(title="zq_under the mint mark")
+    make_listing(title="zqXunder the mint mark")
+
+    by_percent = client.get("/api/catalog", params={"q": "zq100%"}).json()
+    by_underscore = client.get("/api/catalog", params={"q": "zq_under"}).json()
+    everything = client.get("/api/catalog", params={"q": "%"}).json()
+
+    assert [item["id"] for item in by_percent["items"]] == [percent.id]
+    assert [item["id"] for item in by_underscore["items"]] == [underscore.id]
+    # A lone `%` is a search for that character, not for every entry.
+    assert [item["id"] for item in everything["items"]] == [percent.id]
 
 
 def test_filter_by_kind(
@@ -475,6 +531,94 @@ def test_a_lot_entry_shows_the_offer_wording_not_the_lots(
     entry = _entry(client, listing.id)
     assert entry["title"] == "Two Morgan Dollars"
     assert entry["description"] == "Both together."
+
+
+def test_a_lot_entry_never_falls_back_to_the_lots_own_wording(
+    client: TestClient,
+    db: Session,
+    make_item: Callable[..., InventoryItem],
+    make_lot: Callable[..., SalesLot],
+) -> None:
+    """A lot listing with no wording shows none, not the office's.
+
+    `sales_lot.title` and `sales_lot.description` are the group's working
+    name and note. The listing's wording is blanked on the stored row, after
+    the offer, so this reads what the catalog does with such a row whatever
+    the offer path accepts: nothing of the lot's own may reach the page, in
+    the list or on the detail page.
+    """
+    lot = make_lot(
+        [make_item(title="First coin"), make_item(title="Second coin")],
+        title="Working name nobody should see",
+        description="Internal note.",
+    )
+    listing = _offer_in_store(db, lot)
+    listing.title = ""
+    listing.description = ""
+    db.commit()
+
+    entry = _entry(client, listing.id)
+    detail = client.get(f"/api/catalog/{listing.id}").json()
+
+    for shown in (entry, detail):
+        payload = json.dumps(shown)
+        assert "Working name nobody should see" not in payload
+        assert "Internal note." not in payload
+        assert shown["description"] == ""
+        # The members are still what describes it.
+        assert [member["title"] for member in shown["members"]] == [
+            "First coin",
+            "Second coin",
+        ]
+
+
+@pytest.mark.parametrize("title", ["", "   "])
+def test_a_lot_cannot_be_offered_in_the_store_with_no_title(
+    title: str,
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: Callable[..., InventoryItem],
+    make_lot: Callable[..., SalesLot],
+) -> None:
+    """A store lot's title is the only name a buyer is given for it.
+
+    An item listing left untitled is named by its item; a lot has no item,
+    and its own title is not for buyers. So the offer is refused, and the lot
+    is left as it was.
+    """
+    lot = make_lot(
+        [make_item(title="First coin"), make_item(title="Second coin")],
+        title="Working name nobody should see",
+    )
+    db.commit()
+    store = db.get_one(SalesVenue, store_venue_id(db))
+
+    refused = client.post(
+        "/api/offers",
+        json={"venue": store.code, "lot_id": lot.id, "price": "75.00", "title": title},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert "title" in json.dumps(refused.json()).lower()
+    db.expire_all()
+    assert db.get_one(SalesLot, lot.id).status is SalesLotStatus.assembling
+    listed = db.scalars(select(Listing).where(Listing.sales_lot_id == lot.id)).all()
+    assert listed == []
+
+    # The same offer with wording is accepted: the title was all that was wrong.
+    accepted = client.post(
+        "/api/offers",
+        json={
+            "venue": store.code,
+            "lot_id": lot.id,
+            "price": "75.00",
+            "title": "Two Morgan Dollars",
+        },
+        headers=admin_headers,
+    )
+    assert accepted.status_code in (200, 201), accepted.text
 
 
 def test_a_buyers_order_line_calls_a_lot_what_the_shop_called_it(

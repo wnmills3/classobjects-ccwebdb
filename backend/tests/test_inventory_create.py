@@ -118,6 +118,27 @@ def test_a_banknote_gets_exactly_one_currency_detail_row(
     )
 
 
+def test_a_note_entered_with_a_blank_serial_holds_none(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """An empty string is not a serial: "no serial recorded" is NULL."""
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_currency_payload(order.id, serial_number="  "),
+        headers=admin_headers,
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["serial_number"] is None
+
+    detail = db.scalars(
+        select(CurrencyDetail).where(
+            CurrencyDetail.inventory_item_id == res.json()["id"]
+        )
+    ).one()
+    assert detail.serial_number is None
+
+
 def test_a_lot_records_its_piece_count(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

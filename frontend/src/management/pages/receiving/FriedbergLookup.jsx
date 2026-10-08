@@ -243,6 +243,12 @@ export default function FriedbergLookup({
   // not read as "no year entered", which would offer every pair.
   const yearNumber = Number(seriesYear)
   const yearUnreadable = seriesYear !== '' && !Number.isInteger(yearNumber)
+  // Said when Look up or a Save is pressed, which stay live. Sent on, the
+  // year would reach the catalog as no year at all: a type recorded without
+  // one is not found by its year again.
+  const yearRefusal = yearUnreadable
+    ? `"${seriesYear}" is not a series year. Correct it, or clear the box, first.`
+    : ''
   const narrowKey = useDebounced(
     seriesYear && !yearUnreadable
       ? JSON.stringify({
@@ -311,6 +317,10 @@ export default function FriedbergLookup({
   const currentFilters = () => filtersOf(fields)
 
   async function search() {
+    if (yearRefusal) {
+      setSearchError(yearRefusal)
+      return
+    }
     invalidatePendingSearch()
     let cancelled = false
     searchCancelRef.current = () => {
@@ -387,6 +397,10 @@ export default function FriedbergLookup({
    * attached as it is; recording it again would be a 409.
    */
   async function save(status) {
+    if (yearRefusal) {
+      setRecordError(yearRefusal)
+      return
+    }
     const number = normalizeFr(recordFrNumber)
     const known = (results ?? []).find((row) => row.fr_number === number)
     if (known) {
@@ -483,7 +497,6 @@ export default function FriedbergLookup({
                   table="denomination"
                   value={denomination}
                   onChange={field('denomination')}
-                  placeholder="usd_note_5_00"
                 />
               </label>
               <label data-help="note_type">
@@ -492,7 +505,6 @@ export default function FriedbergLookup({
                   table="note_type"
                   value={noteType}
                   onChange={field('noteType')}
-                  placeholder="federal_reserve_note"
                 />
               </label>
               <label data-help="seal_color">
@@ -501,7 +513,6 @@ export default function FriedbergLookup({
                   table="seal_color"
                   value={sealColor}
                   onChange={field('sealColor')}
-                  placeholder="green"
                 />
               </label>
               <label data-help="series_year">
@@ -540,6 +551,10 @@ export default function FriedbergLookup({
                     </option>
                   ))}
                 </select>
+                {/* Pairs that could not be read are not "no pair fits". */}
+                {(everyPair.error || narrowed.error) && (
+                  <span className="error">{everyPair.error || narrowed.error}</span>
+                )}
               </label>
               <label data-help="fed_district">
                 District
@@ -547,7 +562,6 @@ export default function FriedbergLookup({
                   table="fed_district"
                   value={district}
                   onChange={field('district')}
-                  placeholder="B"
                 />
               </label>
               <label data-help="web_press">

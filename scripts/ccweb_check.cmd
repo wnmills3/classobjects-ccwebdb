@@ -2,8 +2,8 @@
 rem ---------------------------------------------------------------------------
 rem  Run every quality gate, in the order that fails fastest.
 rem
-rem    ccweb_check          format check, lint, types, tests, frontend
-rem    ccweb_check fix      reformat and auto-fix first, then check
+rem    .\scripts\ccweb_check.cmd        format check, lint, types, tests, frontend
+rem    .\scripts\ccweb_check.cmd fix    reformat and auto-fix first, then check
 rem
 rem  Exit code is non-zero if anything failed, so CI can call this directly.
 rem ---------------------------------------------------------------------------
@@ -18,7 +18,7 @@ set "NODE=%ENVDIR%\node.exe"
 set "FAILED="
 
 if not exist "%PY%" (
-    echo ERROR: conda environment not found: %ENVDIR%
+    echo ERROR: conda environment not found: !ENVDIR!
     echo        see docs\environment-setup.md
     exit /b 1
 )
@@ -32,7 +32,7 @@ if /i "%~1"=="fix" (
     "%PY%" -m ruff check . --fix
     if exist "frontend\node_modules\prettier" (
         echo [fix] prettier
-        "%NODE%" frontend\node_modules\prettier\bin\prettier.cjs --write frontend --log-level warn
+        "%NODE%" frontend\node_modules\prettier\bin\prettier.cjs --write frontend --ignore-path .gitignore --ignore-path frontend\.prettierignore --log-level warn
     )
     echo.
 )
@@ -81,7 +81,7 @@ if errorlevel 1 set "FAILED=!FAILED! types"
 
 echo === tests ===
 pushd backend
-"%PY%" -m pytest -q
+"%PY%" -m pytest
 if errorlevel 1 set "FAILED=!FAILED! tests"
 popd
 
@@ -91,7 +91,10 @@ if exist "frontend\node_modules\eslint" (
     if errorlevel 1 set "FAILED=!FAILED! eslint"
 
     echo === frontend format ===
-    "%NODE%" frontend\node_modules\prettier\bin\prettier.cjs --check frontend --log-level warn
+    rem  Both ignore files are named: prettier looks for them only in the
+    rem  directory it is run from, which is the repository root, and the
+    rem  frontend's own is one level down.
+    "%NODE%" frontend\node_modules\prettier\bin\prettier.cjs --check frontend --ignore-path .gitignore --ignore-path frontend\.prettierignore --log-level warn
     if errorlevel 1 set "FAILED=!FAILED! prettier"
 
     echo === frontend tests ===

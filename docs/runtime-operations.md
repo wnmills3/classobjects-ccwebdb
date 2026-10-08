@@ -157,9 +157,12 @@ demand, not part of the runtime.
 3. **Backend** -- `uvicorn app.main:app` on 127.0.0.1:8000, minimized window,
    no `--reload`.
 4. **Frontend** -- Vite on 127.0.0.1:5173, minimized window.
-5. **Waits** up to about 60 seconds each for PostgreSQL, the backend's
-   `/health` and Vite to answer, then reports. A service that does not come up
-   stops the script with exit 1 and the log to read.
+5. **Waits** for PostgreSQL, the backend's `/health` and Vite to answer, up
+   to 60 tries each, then reports. A try that gets no answer takes up to two
+   seconds and a second passes before the next, so a service that never
+   answers is given up on after one to three minutes. A service that does
+   not answer stops the script with exit 1 and the log to read -- a backend
+   that holds its port without answering `/health` included.
 6. **Records PIDs** in `.runtime\ccweb.pids`.
 
 **It is safe to re-run.** Anything already listening is left alone and
@@ -171,7 +174,10 @@ reported as `already running`.
 (or `--keepdb`), PostgreSQL.
 
 1. Stops the backend and frontend by the PIDs in `.runtime\ccweb.pids`, with
-   `taskkill /T` so child processes go too.
+   `taskkill /T` so child processes go too. A recorded PID is used only
+   while it is still that program (`python.exe` for the backend, `node.exe`
+   for the frontend): the file outlives a reboot, and Windows gives a freed
+   PID to whatever starts next.
 2. **Sweeps ports 8000 and 5173** for survivors -- the safety net when the PID
    file is missing or stale, or a service was started by hand.
 3. Stops PostgreSQL with `pg_ctl -m fast` (skipped with `/keepdb`).
@@ -243,10 +249,11 @@ logs\backend.log               uvicorn output
 logs\frontend.log              Vite output
 logs\postgres.log              pg_ctl start output, then the server log
 logs\pg_stop.log               pg_ctl stop output
+logs\backup.log                what each ccweb_backup.cmd run did
 ```
 
-[logs/README.md](../logs/README.md) describes every log file, how they
-rotate, and the `CCWEB_LOG_DIR`, `CCWEB_LOG_KEEP` and `CCWEB_LOG_MAX_BYTES`
+[logs/README.md](../logs/README.md) describes every log file, which of them
+rotate and how, and the `CCWEB_LOG_DIR`, `CCWEB_LOG_KEEP` and `CCWEB_LOG_MAX_BYTES`
 settings. `.runtime\`, `.pgdata\` and everything in `logs\` but its README
 are gitignored. When something fails to start, the scripts print the log to
 read first.
@@ -386,17 +393,19 @@ run startup bare next time.
 **`pg_ctl` not recognized** -- the conda environment is not active. Activate
 it, or use the scripts.
 
-**Startup reports FAILED but the service seems fine** -- the wait is about 60
-seconds, and a first Vite run after `npm install` can exceed it while it
-pre-bundles dependencies. Check `logs\frontend.log` and re-run startup; it
-adopts whatever is already listening.
+**Startup reports FAILED but the service seems fine** -- the wait is 60
+tries, one to three minutes, and a first Vite run after `npm install` can
+exceed it while it pre-bundles dependencies. Check `logs\frontend.log` and
+re-run startup; it adopts whatever is already listening.
 
 **The console shows old frontend code after a merge** -- Vite is serving a
 stale module. Restart it (`.\scripts\ccweb_shutdown.cmd /keepdb`, then
 `.\scripts\ccweb_startup.cmd`) and reload the page.
 
 **Stale PID file** after a reboot without a clean shutdown -- shutdown reports
-`pid N already gone` and falls through to the port sweep.
+`pid N is not a running python.exe - left alone` (or `node.exe`), whether
+nothing has that PID or another program does, and falls through to the port
+sweep.
 
 **PostgreSQL holds port 5432 but `pg_isready` gets no response**, and the log
 shows children dying with `0xC0000142` -- the server was started from a

@@ -19,7 +19,7 @@ from ..deps import AdminUser, DbSession
 from ..models import Customer, User, UserRole
 from ..order_writes import customer_for_user
 from ..schemas import AccountCreate, CustomerOut, PasswordSet, UserOut, UserUpdate
-from ..security import hash_password
+from ..security import hash_password, normalize_email
 from ._resolve import get_or_404
 from ._tx import commit_unique
 
@@ -85,11 +85,12 @@ def create_user(body: AccountCreate, db: DbSession, _: AdminUser) -> User:
     person to have registered first; this is how an administrator adds either
     directly.
     """
-    if db.scalar(select(User.id).where(User.email == body.email)) is not None:
+    email = normalize_email(body.email)
+    if db.scalar(select(User.id).where(User.email == email)) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN)
 
     user = User(
-        email=body.email,
+        email=email,
         full_name=body.full_name,
         hashed_password=hash_password(body.password),
         role=body.role,

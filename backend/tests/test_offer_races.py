@@ -412,7 +412,7 @@ def test_a_lot_shaped_claim_does_not_survive_cleanup_or_block_it(
     the lot-member shape `test_offering_writes.py`'s `claim_invariant_waiver`
     tests already exercise, constructed directly the same way they are,
     bypassing `offering_writes` on purpose. `offer` writes that shape for a
-    real lot now; what no write path produces is the *mismatched state*
+    real lot; what no write path produces is the *mismatched state*
     below -- a `released` claim on a still-active listing -- which is the
     part this test rests on.
     Before the extra `OfferClaim.listing_id.in_(...)` predicate, this claim
@@ -486,10 +486,15 @@ def test_two_platforms_racing_the_same_item_leave_exactly_one_winner(
     """Two threads offer one item on two platforms at once: one wins.
 
     Both lock the same item row (``offering_writes._lock_items``) before
-    reading what claims it, so the loser should see the winner's committed
-    listing and be refused cleanly -- but the backstop is the database's own
-    partial unique index (``uq_offer_claim_active``), so an ``IntegrityError``
-    is an acceptable loss too, not just ``OfferRefused``.
+    reading what claims it, so the loser waits, re-reads, sees the winner's
+    committed listing and is refused with a reason -- ``OfferRefused``, every
+    time. ``"integrity_error"`` is named apart from ``"refused"`` and asserted
+    against, the way this file treats ``"stale"``: it is what the loser gets
+    from the partial unique index (``uq_offer_claim_active``) when the item
+    lock is not what serialized the two, and accepting it would let this test
+    pass with that lock removed. The index is a backstop with a test of its
+    own, ``test_one_item_can_have_only_one_active_claim``
+    (``tests/test_offering_writes.py``).
     """
     item_id = _seed_item(committed)
     venue_ids = [_venue(committed, "race-ebay"), _venue(committed, "race-whatnot")]
@@ -532,9 +537,8 @@ def test_two_platforms_racing_the_same_item_leave_exactly_one_winner(
             pool.map(lambda job: attempt(*job), jobs, timeout=30), key=str
         )
 
-    assert outcomes.count("ok") == 1, outcomes
-    losses = outcomes.count("refused") + outcomes.count("integrity_error")
-    assert losses == 1, outcomes
+    assert "integrity_error" not in outcomes, outcomes
+    assert outcomes == ["ok", "refused"], outcomes
 
     active = _active_claims(committed, item_id)
     assert len(active) == 1, active

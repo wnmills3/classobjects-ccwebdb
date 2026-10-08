@@ -6,6 +6,7 @@ import json
 from decimal import Decimal
 
 import pytest
+from app import references
 from app.models import REFERENCE_MODELS, Grade, ProvenanceSource, ReferenceMixin
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -609,6 +610,98 @@ def test_a_value_the_application_looks_up_cannot_be_retired(
     )
     assert renamed.status_code == 200
     assert renamed.json()["label"] == f"{label} (renamed)"
+
+
+#: Every vocabulary the application acts on value by value, written out here
+#: rather than read from `app.references`: an entry dropped from that module
+#: must fail a test, and a list derived from it would shrink with it.
+_ACTED_ON_BY_CODE = (
+    "authenticity",
+    "disposition",
+    "grade_scale",
+    "item_kind",
+    "item_status",
+    "sales_fee_kind",
+    "sales_order_status",
+    "sales_venue_kind",
+    "shipment_status",
+    "strike_type",
+    "valuation_basis",
+)
+
+#: The single values looked up by code in vocabularies that are otherwise
+#: free to change, written out for the same reason.
+_LOOKED_UP_BY_CODE = (
+    ("country", "US"),
+    ("currency", "USD"),
+    ("image_role", "obverse"),
+    ("image_role", "reverse"),
+    ("image_role", "unassigned"),
+    ("note_type", "frn"),
+    ("storage_form", "single"),
+    ("vendor_kind", "unknown"),
+)
+
+
+def test_the_protected_vocabularies_are_the_ones_listed_here() -> None:
+    """A vocabulary newly protected, or no longer, is a change made on purpose."""
+    assert set(_ACTED_ON_BY_CODE) == references._CODE_KEYED_TABLES
+    assert set(_LOOKED_UP_BY_CODE) == references._CODE_KEYED_VALUES
+
+
+@pytest.mark.parametrize("table", _ACTED_ON_BY_CODE)
+def test_no_value_of_a_vocabulary_acted_on_by_code_is_retired_or_added(
+    client: TestClient, admin_headers: dict[str, str], table: str
+) -> None:
+    body = client.get(f"/api/reference/{table}?include_inactive=true").json()
+    assert body["values"], f"{table} has no values, so nothing here is checked"
+    assert body["addable"] is False
+    assert all(value["retirable"] is False for value in body["values"])
+
+    value = body["values"][0]
+    refused = client.patch(
+        f"/api/reference/{table}/{value['code']}",
+        json={"label": value["label"], "is_active": False},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409, refused.text
+    assert _value(client, table, value["code"])["is_active"] is True
+
+    added = client.post(
+        f"/api/reference/{table}",
+        json={"code": "invented", "label": "Invented"},
+        headers=admin_headers,
+    )
+    assert added.status_code == 409, added.text
+
+
+@pytest.mark.parametrize(("table", "code"), _LOOKED_UP_BY_CODE)
+def test_a_single_value_looked_up_by_code_is_not_retired_or_merged_away(
+    client: TestClient, admin_headers: dict[str, str], table: str, code: str
+) -> None:
+    value = _value(client, table, code)
+    assert value["retirable"] is False
+
+    refused = client.patch(
+        f"/api/reference/{table}/{code}",
+        json={"label": value["label"], "is_active": False},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409, refused.text
+    assert _value(client, table, code)["is_active"] is True
+
+    other = next(
+        entry["code"]
+        for entry in client.get(f"/api/reference/{table}").json()["values"]
+        if entry["code"] != code
+    )
+    merged = client.post(
+        f"/api/reference/{table}/{code}/merge",
+        json={"into": other, "dry_run": True},
+        headers=admin_headers,
+    )
+    assert merged.status_code == 409, merged.text
+    assert "looks it up" in merged.json()["detail"]
 
 
 def test_a_descriptive_image_role_is_still_retirable(

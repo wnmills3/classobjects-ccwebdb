@@ -54,12 +54,19 @@ if not exist "%PKG%\config_local.py" (
     echo Restoring pgAdmin config_local.py ...
     copy /y "%REPO%\scripts\pgadmin_config_local.py" "%PKG%\config_local.py" >nul
     if errorlevel 1 (
-        echo ERROR: could not write %PKG%\config_local.py
+        echo ERROR: could not write !PKG!\config_local.py
         exit /b 1
     )
     echo Re-registering the ccwebdb connection ...
     "%PGADMIN_CLI%" load-servers "%REPO%\scripts\pgadmin-servers.json" ^
         --user pgadmin4@pgadmin.org >nul
+    rem  Said, not passed over: this block runs only while config_local.py
+    rem  is missing, so a registration that failed is not tried again.
+    if errorlevel 1 (
+        echo WARNING: the ccwebdb connection was not registered. pgAdmin
+        echo          still starts; add the server there by hand -
+        echo          localhost:5432, database and user ccwebdb.
+    )
 )
 
 rem --- already running? -----------------------------------------------------
@@ -101,7 +108,9 @@ echo        Check its log: %APPDATA%\pgAdmin\pgadmin4.log
 exit /b 1
 
 rem ---------------------------------------------------------------------------
-rem  :waiturl <url> <max seconds>  - poll until it answers, or give up
+rem  :waiturl <url> <max tries>  - poll until it answers, or give up. A try
+rem  that gets no answer takes up to two seconds, and a second passes before
+rem  the next.
 rem ---------------------------------------------------------------------------
 :waiturl
 set /a _tries=0

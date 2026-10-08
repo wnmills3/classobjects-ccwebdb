@@ -80,16 +80,21 @@ def test_is_active_follows_status(db: Session, listing: Listing) -> None:
     """The database computes `is_active`, and the session goes back for it.
 
     No `db.refresh` here on purpose: `is_active` is a generated column, so
-    the only place its new value exists after the commit is the database.
+    the only place its new value exists after the write is the database.
     Reading it straight off the instance is what every caller does, and it
     has to be right -- if the session handed back the value it had written
     `status` over, this would still say True.
+
+    Flushed, not committed: this session expires every instance on commit
+    and production's does not (`app/database.py`), so after a commit the
+    attribute would be reloaded here whatever the mapping did about a
+    generated column.
     """
     assert listing.status is ListingStatus.active
     assert listing.is_active is True
 
     listing.status = ListingStatus.paused
-    db.commit()
+    db.flush()
     assert listing.is_active is False
 
 

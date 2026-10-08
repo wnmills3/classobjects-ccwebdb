@@ -38,7 +38,7 @@ export default function WeightFields({ get, set, className, aside }) {
             id={id}
             type="text"
             inputMode="decimal"
-            placeholder="0.999"
+            placeholder="a fraction of 1"
             value={get(key) ?? ''}
             onChange={text}
           />

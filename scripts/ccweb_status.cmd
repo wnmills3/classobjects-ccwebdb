@@ -46,6 +46,8 @@ set "PGBIN="
 call "%~dp0ccweb_env.cmd" && set "ENVOK=1"
 if not defined ENVOK (
     echo   Environment  conda ccwebdb    NOT AVAILABLE
+    echo   BLOCKED: the ccwebdb conda environment could not be put in play
+    echo            see docs\environment-setup.md
     set "BLOCKED=1"
 ) else if /i "!CCWEB_ENV_STATE!"=="already active" (
     echo   Environment  conda ccwebdb    active in this shell
@@ -130,7 +132,7 @@ rem  when you are about to start PostgreSQL; it is noise when it is running.
 if defined DOWN (
     if not exist "%PGDATA%\PG_VERSION" (
         echo.
-        echo   BLOCKED: no PostgreSQL cluster at %PGDATA%
+        echo   BLOCKED: no PostgreSQL cluster at !PGDATA!
         echo            see docs\environment-setup.md
         set "BLOCKED=1"
     )

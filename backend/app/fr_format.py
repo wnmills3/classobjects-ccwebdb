@@ -4,7 +4,7 @@ Only the *form* is known here -- digits, an optional letter, a district, a
 mule's `m`, a star, a seal shade -- never which number belongs to which
 note: that mapping is the publisher's arrangement, which
 `docs/reference-data.md` forbids shipping. The form is what
-catches a slip: `3007-` pasted for `3007-L`, a
+catches a slip: `9907-` pasted for `9907-L`, a
 stray space, or a `Fr. ` prefix that one row of the catalog carried and the
 rest did not.
 
@@ -20,17 +20,18 @@ __all__ = ["fr_problem", "fr_traits", "normalize_fr", "seal_shade"]
 
 #: `Fr.`, `Fr#`, `FR-`, `Fr. #` -- a label for the number, not part of it --
 #: taken off only where digits follow, so a word starting "fr" is left whole.
-_PREFIX = re.compile(r"^fr[\s.#-]*(?=\d)", re.IGNORECASE)
-#: Space around the hyphen: `3007 - L`.
+_PREFIX = re.compile(r"^fr[\s.#-]*(?=[0-9])", re.IGNORECASE)
+#: Space around the hyphen: `9907 - L`.
 _SPACED_HYPHEN = re.compile(r"\s*-\s*")
 #: 1 to 4 digits, an optional letter (`1a`), a district `-A` to `-L`, `m` for
-#: a mule (`3007-Em`; without a district the optional letter already holds
+#: a mule (`9907-Em`; without a district the optional letter already holds
 #: it), and `*` for a star note.
 #: Then, after a space, `LGS` or `DGS` for a light or dark green seal --
-#: `2008-B LGS`. The seal is a catalog fact of its own,
+#: `9908-B LGS`. The seal is a catalog fact of its own,
 #: so the two shades are already two types; the suffix keeps their numbers
-#: apart.
-_FORM = re.compile(r"^(?P<digits>\d+)[A-Za-z]?(?:-[A-L]m?)?\*?(?: (?:LGS|DGS))?$")
+#: apart. Digits are `0` to `9` only, here and in `_PREFIX`: `\d` would take
+#: any script's, which the console's copy of the rule refuses.
+_FORM = re.compile(r"^(?P<digits>[0-9]+)[A-Za-z]?(?:-[A-L]m?)?\*?(?: (?:LGS|DGS))?$")
 #: A seal shade typed at the end, any case and spacing: taken off before the
 #: rest is cleaned, and put back as ` LGS` / ` DGS`.
 _SHADE = re.compile(r"\s+(?P<shade>lgs|dgs)$", re.IGNORECASE)

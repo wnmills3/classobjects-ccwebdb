@@ -73,12 +73,25 @@ def _test_database_url() -> URL:
     renders the password as ``***``, which silently produces a URL that cannot
     authenticate. Render with ``hide_password=False`` wherever a string is
     genuinely needed.
+
+    The `engine` fixture drops whatever database this names, so a
+    `TEST_DATABASE_URL` is refused unless its database's name ends in
+    `_test` and is not the application's own: a URL copied from `.env` must
+    stop the run here, not at `DROP DATABASE`.
     """
+    configured = make_url(settings.database_url)
     override = os.environ.get("TEST_DATABASE_URL")
-    if override:
-        return make_url(override)
-    url = make_url(settings.database_url)
-    return url.set(database=f"{url.database}_test")
+    if not override:
+        return configured.set(database=f"{configured.database}_test")
+    url = make_url(override)
+    name = url.database or ""
+    if not name.endswith("_test") or name == configured.database:
+        raise RuntimeError(
+            f"TEST_DATABASE_URL names the database {name!r}, which the test "
+            "session would drop. Name one ending in `_test` that is not the "
+            "application's own database."
+        )
+    return url
 
 
 TEST_URL = _test_database_url()
@@ -231,6 +244,13 @@ def db(engine: Engine) -> Iterator[Session]:
     # inside the writer flushes it first. A test that needs production's
     # ordering has to opt out for itself, with `db.autoflush = False` or
     # `db.no_autoflush` -- see `test_for_sale_guards.py`.
+    #
+    # No `expire_on_commit` argument either, so every loaded object is
+    # expired at each commit and reads the database again on its next
+    # attribute access -- production's `SessionLocal` sets
+    # `expire_on_commit=False` and keeps what it loaded. Code that reads an
+    # object after a commit sees a value another statement wrote here, and
+    # the value it held before the commit in production.
     session = Session(bind=connection, join_transaction_mode="create_savepoint")
 
     yield session

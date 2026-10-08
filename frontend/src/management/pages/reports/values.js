@@ -10,6 +10,27 @@ import { FIELD_HELP } from '../../fieldHelp'
 //: Column kinds that are numbers: right-aligned, and sorted by amount.
 export const NUMERIC_KINDS = new Set(['count', 'money', 'percent', 'ounces'])
 
+//: A weight as a plain decimal string, the only shape `ounces` formats.
+const DECIMAL = /^-?\d+(\.\d+)?$/
+
+//: Fine troy ounces to three places, as the exported workbook shows them.
+const OUNCES = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 3,
+  maximumFractionDigits: 3,
+})
+
+/**
+ * Fine troy ounces as a person reads them: `ounces('12.441400')` is `12.441`.
+ *
+ * The decimal string is handed to `Intl.NumberFormat` as a string, as
+ * `money()` hands it one, so a weight is never rounded through a JavaScript
+ * number. Anything that is not a plain decimal is shown as it came.
+ */
+function ounces(value) {
+  const text = String(value).trim()
+  return DECIMAL.test(text) ? OUNCES.format(text) : text
+}
+
 /** Nothing to show: an empty cell, not "0" and not "null". */
 export function isBlank(value) {
   return value === null || value === undefined || value === ''
@@ -17,14 +38,16 @@ export function isBlank(value) {
 
 /**
  * One cell as a person reads it. Money goes to `money()` as the decimal
- * string the API sent, never through a float; a date is a day; a percent
- * carries its sign. A blank is an empty string.
+ * string the API sent, never through a float, and so do ounces; a date is a
+ * day; a percent carries its sign. A blank is an empty string.
  */
 export function cellText(kind, value) {
   if (isBlank(value)) return ''
   switch (kind) {
     case 'money':
       return money(value)
+    case 'ounces':
+      return ounces(value)
     case 'percent':
       return `${value}%`
     case 'date':

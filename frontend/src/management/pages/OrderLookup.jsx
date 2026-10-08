@@ -5,6 +5,7 @@ import { api } from '../api'
 import HelpScope from '../HelpScope'
 import { purchaseNumber } from '../purchase-number'
 import { matchesFilter, sortPurchases } from '../purchase-list'
+import { centsOrZero, fromCents } from '../../shared/cents'
 import { date, money } from '../../shared/format'
 import { useRequest } from '../../shared/useRequest'
 
@@ -64,8 +65,7 @@ export default function OrderLookup() {
     ),
     sort,
   )
-  const cost = shown.reduce((sum, order) => sum + Number(order.total_cost), 0)
-  const narrowed = text.trim() !== '' || from !== '' || to !== '' || openOnly
+  const cost = shown.reduce((sum, order) => sum + centsOrZero(order.total_cost), 0)
 
   function sortBy(key, first) {
     setSort((current) =>
@@ -123,13 +123,13 @@ export default function OrderLookup() {
               {/* */}
               Only purchases with items not yet received
             </label>
-            <button type="button" className="link" onClick={clear} disabled={!narrowed}>
+            <button type="button" className="link" onClick={clear}>
               Clear
             </button>
           </div>
           <p role="status">
             {shown.length.toLocaleString()} of {orders.length.toLocaleString()}{' '}
-            purchases, costing {money(cost.toFixed(2))}
+            purchases, costing {money(fromCents(cost))}
           </p>
           {shown.length === 0 ? (
             <p className="muted">

@@ -402,6 +402,56 @@ describe('BulkEditBar', () => {
     ).toBeVisible()
   })
 
+  it('fills the lot it started when asked again, and starts no second one', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    api.createLot.mockResolvedValue({ id: 5, title: 'Two', version: 1, members: [] })
+    api.updateLot
+      .mockRejectedValueOnce(new Error('CC-000002 is already in a lot'))
+      .mockResolvedValueOnce({ id: 5, title: 'Two', version: 2 })
+    renderWithProviders(
+      <BulkEditBar ids={[1, 2]} rows={ROWS} view="coins" onClear={onClose} />,
+    )
+    await user.click(screen.getByRole('button', { name: /group into lot/i }))
+    await user.type(await screen.findByLabelText('Title'), 'Two')
+    await user.click(await screen.findByRole('button', { name: /^create lot$/i }))
+    await screen.findByText(/Two was started but is empty/)
+
+    await user.click(screen.getByRole('button', { name: /^create lot$/i }))
+
+    expect(await screen.findByText('2 item(s) are in Two.')).toBeVisible()
+    expect(api.createLot).toHaveBeenCalledTimes(1)
+    expect(api.updateLot).toHaveBeenCalledTimes(2)
+    expect(api.updateLot).toHaveBeenLastCalledWith(5, {
+      add_item_ids: [1, 2],
+      version: 1,
+    })
+  })
+
+  it('asks again about items for sale once the selection is another one', async () => {
+    const user = userEvent.setup()
+    api.bulkEditInventory
+      .mockRejectedValueOnce(new Error('For sale -- CC-000001: listing #3 at 189.00.'))
+      .mockResolvedValueOnce({ updated: 3 })
+    const bar = (ids) => (
+      <BulkEditBar view="coins" ids={ids} onApplied={vi.fn()} onClear={vi.fn()} />
+    )
+    const { rerender } = render(bar([1, 2]))
+    await user.type(screen.getByPlaceholderText('New value'), '1964')
+    await user.click(screen.getByRole('button', { name: 'Apply to 2' }))
+    await user.click(
+      await screen.findByRole('checkbox', { name: 'Change the items for sale too' }),
+    )
+
+    // A third item joins: the tick was given for the two the server named.
+    rerender(bar([1, 2, 3]))
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Apply to 3' }))
+    expect(api.bulkEditInventory).toHaveBeenLastCalledWith([1, 2, 3], {
+      year_start: 1964,
+    })
+  })
+
   it('moves the selection to a storage location picked from the list', async () => {
     const user = userEvent.setup()
     const onApplied = vi.fn()

@@ -8,8 +8,9 @@ import { SaveButton, SaveShortcut } from '../SaveButton'
  * People administration, in two tabs.
  *
  * Accounts and customers are separate tables joined by a nullable `user_id`,
- * because a guest checkout creates a customer with no account and an account
- * holder who has never bought anything has no customer record. One tab each
+ * because a sale recorded from another platform creates a customer with no
+ * account and an account holder who has never bought anything has no
+ * customer record. One tab each
  * keeps that honest -- a merged grid would imply every customer can sign in.
  */
 
@@ -294,9 +295,13 @@ function AddressForm({ customerId, onSaved, onCancel, notify, setError }) {
     postal_code: '',
     country: 'US',
   })
+  const [saving, setSaving] = useState(false)
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
+  // One request at a time: each one retires the address before it and adds
+  // a row, so a second behind the first would leave a retired copy.
   async function save() {
+    setSaving(true)
     try {
       await api.addCustomerAddress(customerId, { ...form, address_kind: 'shipping' })
       notify(
@@ -305,6 +310,7 @@ function AddressForm({ customerId, onSaved, onCancel, notify, setError }) {
       onSaved()
     } catch (err) {
       setError(err.message)
+      setSaving(false)
     }
   }
 
@@ -333,12 +339,21 @@ function AddressForm({ customerId, onSaved, onCancel, notify, setError }) {
         </label>
         <label>
           Country{/* */}
-          <input value={form.country} onChange={set('country')} placeholder="US" />
+          <input
+            value={form.country}
+            onChange={set('country')}
+            placeholder="two-letter code"
+          />
         </label>
       </div>
       <div className="row">
-        <SaveButton label="Save address" onClick={save} />
-        <SaveShortcut onSave={save} />
+        <SaveButton
+          label="Save address"
+          saving={saving}
+          disabled={saving}
+          onClick={save}
+        />
+        <SaveShortcut onSave={save} enabled={!saving} />
         <button className="link" onClick={onCancel}>
           Cancel
         </button>
@@ -361,6 +376,8 @@ function Customers({ notify }) {
   const [editing, setEditing] = useState(null)
   const [addressFor, setAddressFor] = useState(null)
   const [draft, setDraft] = useState({})
+  // True while a row's save is out, so Ctrl+S held down sends it once.
+  const [saving, setSaving] = useState(false)
 
   const load = useCallback(() => {
     api
@@ -375,13 +392,24 @@ function Customers({ notify }) {
   useEffect(load, [load])
 
   async function saveEdit(id) {
+    const changes = { ...draft }
+    if ('display_name' in changes && changes.display_name.trim() === '') {
+      setError('A customer needs a name.')
+      return
+    }
+    // No email is null to the server, which refuses an empty string as an
+    // address that is not one.
+    if ('email' in changes && changes.email.trim() === '') changes.email = null
+    setSaving(true)
     try {
-      await api.updateCustomer(id, draft)
+      await api.updateCustomer(id, changes)
       setEditing(null)
       notify('Customer updated')
       load()
     } catch (err) {
       setError(err.message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -394,8 +422,9 @@ function Customers({ notify }) {
   if (rows.length === 0)
     return (
       <p className="muted">
-        No customers yet. A customer record is created by a purchase, including a guest
-        checkout, so this fills up once the store is selling.
+        No customers yet. A customer record is created by a purchase -- an order in the
+        shop, or a sale recorded from another platform -- so this fills up once the
+        store is selling.
       </p>
     )
 
@@ -450,7 +479,7 @@ function Customers({ notify }) {
                       // dialable from anywhere, and two columns could disagree.
                       value={draft.phone ?? c.phone ?? PHONE_DEFAULT_CC}
                       onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
-                      placeholder="+12125551234"
+                      placeholder="country code, then the number"
                     />
                   ) : (
                     c.phone || <span className="muted">-</span>
@@ -466,9 +495,13 @@ function Customers({ notify }) {
                 <td>
                   {isEditing ? (
                     <span className="row">
-                      <SaveButton onClick={() => saveEdit(c.id)} />
+                      <SaveButton
+                        saving={saving}
+                        disabled={saving}
+                        onClick={() => saveEdit(c.id)}
+                      />
                       {/* Rendered with the row's edit, so held only then. */}
-                      <SaveShortcut onSave={() => saveEdit(c.id)} />
+                      <SaveShortcut onSave={() => saveEdit(c.id)} enabled={!saving} />
                       <button className="link" onClick={() => setEditing(null)}>
                         Cancel
                       </button>

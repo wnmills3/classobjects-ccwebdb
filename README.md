@@ -131,8 +131,8 @@ frontend/
   src/test/              vitest setup and test helpers
   scripts/               check-bundle-isolation.mjs
 scripts/                 ccweb_*.cmd: startup, shutdown, status, check, psql,
-                         pgadmin, claude, sonar_*; env, logdir and pgstart are
-                         helpers the others call
+                         pgadmin, backup, claude, sonar_*; env, logdir and
+                         pgstart are helpers the others call
 docs/                    project, operations and design documents; designs
                          for individual features are in docs/specs/
 ```

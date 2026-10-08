@@ -37,8 +37,9 @@ export function fractionToPercent(value) {
 
 //: A platform's rate as it is stored: `Numeric(6, 4)`, a fraction between 0
 //: and 1, so `0.1325` is 13.25%. Four decimal places exactly, which is what
-//: lets a rate be held as a whole number of ten-thousandths.
-const RATE = /^\d+(\.\d{1,4})?$/
+//: lets a rate be held as a whole number of ten-thousandths. The digits
+//: before the point may be left out -- `.05` -- as in every decimal box.
+const RATE = /^(\d+(\.\d{1,4})?|\.\d{1,4})$/
 
 /** "0.1325" -> 1325 ten-thousandths. Anything unreadable is no rate at all. */
 function rateUnits(rate) {

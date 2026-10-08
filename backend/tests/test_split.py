@@ -11,10 +11,15 @@ from app.models import (
     CurrencyDetail,
     InventoryItem,
     ItemKind,
+    ItemStatus,
     Listing,
     ListingFormat,
+    LocationHistory,
     SalesLot,
     SalesVenue,
+    StorageForm,
+    StorageLocation,
+    StorageLocationKind,
 )
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text, update
@@ -596,6 +601,116 @@ def test_a_missing_currency_kind_fails_the_split_loudly(
     db.commit()
     with pytest.raises(NoResultFound):
         do_split(client, admin_headers, parent.id, TUBE)
+
+
+def test_a_missing_single_storage_form_fails_the_split_loudly(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Not found, it must not quietly leave every piece packaged as the lot was."""
+    parent = build_split_lot(db, storage_form_id=code_id(db, StorageForm, "roll"))
+    db.execute(
+        update(StorageForm).where(StorageForm.code == "single").values(code="gone")
+    )
+    db.commit()
+    with pytest.raises(NoResultFound):
+        do_split(client, admin_headers, parent.id, TUBE)
+
+
+def test_a_piece_is_kept_where_its_lot_was_and_its_history_says_so(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A piece starts where the lot was kept, as a move in its own history.
+
+    A location held with no history row cannot answer where the piece was,
+    and its first later move would read as coming from nowhere.
+    """
+    box = StorageLocation(
+        storage_location_kind_id=code_id(db, StorageLocationKind, "safe_deposit_box"),
+        institution="First National",
+        identifier="804",
+    )
+    db.add(box)
+    db.commit()
+    parent = build_split_lot(db, storage_location_id=box.id)
+
+    body = do_split(client, admin_headers, parent.id, TUBE).json()
+    ids = [p["id"] for p in body["pieces"]]
+
+    db.expire_all()
+    for piece_id in ids:
+        assert db.get_one(InventoryItem, piece_id).storage_location_id == box.id
+        moves = db.execute(
+            select(LocationHistory.storage_location_id, LocationHistory.note).where(
+                LocationHistory.inventory_item_id == piece_id
+            )
+        ).all()
+        assert [tuple(move) for move in moves] == [
+            (box.id, f"split from {parent.item_code}")
+        ]
+    # The lot itself did not move.
+    assert (
+        db.scalars(
+            select(LocationHistory.id).where(
+                LocationHistory.inventory_item_id == parent.id
+            )
+        ).all()
+        == []
+    )
+
+
+def test_a_piece_of_a_lot_kept_nowhere_has_no_move(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    parent = build_split_lot(db)
+    body = do_split(client, admin_headers, parent.id, TUBE).json()
+    ids = [p["id"] for p in body["pieces"]]
+
+    assert (
+        db.scalars(
+            select(LocationHistory.id).where(LocationHistory.inventory_item_id.in_(ids))
+        ).all()
+        == []
+    )
+
+
+def test_an_unknown_field_in_a_split_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A misspelt `piece_count` would divide the cost as if each piece were one."""
+    parent = build_split_lot(db)
+    pieces = [{"source_title": "Three"}, {"source_title": "One"}]
+
+    for payload in (
+        {"mode": "equal", "pieces": [{**pieces[0], "pieces_count": 3}, pieces[1]]},
+        {"mode": "equal", "pieces": pieces, "acknowledge_forsale": True},
+    ):
+        response = do_split(client, admin_headers, parent.id, payload)
+        assert response.status_code == 422, response.text
+
+    db.expire_all()
+    assert db.get_one(InventoryItem, parent.id).split_at is None
+
+
+def test_a_split_lot_cannot_be_received(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The lot is no longer a thing anyone holds: its pieces are what arrive."""
+    parent = build_split_lot(db, status_id=code_id(db, ItemStatus, "ordered"))
+    pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
+
+    refused = client.post(
+        "/api/inventory/receive",
+        json={"item_ids": [parent.id, pieces[0]["id"]], "outcome": "received"},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 404, refused.text
+    assert str(parent.id) in refused.json()["detail"]
+    db.expire_all()
+    ordered = code_id(db, ItemStatus, "ordered")
+    # All or nothing: the piece sent with it is not received either.
+    assert db.get_one(InventoryItem, parent.id).status_id == ordered
+    assert db.get_one(InventoryItem, pieces[0]["id"]).status_id == ordered
 
 
 def test_a_coin_offered_inside_a_lot_cannot_be_split(

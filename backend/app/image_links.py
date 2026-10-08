@@ -31,6 +31,7 @@ __all__ = [
     "make_primary",
     "move",
     "name_for_place",
+    "next_position",
     "set_role",
 ]
 
@@ -94,8 +95,7 @@ def attach(
 
     So `is_primary` is an input *and* an output: passing False may still
     produce a primary link, and the caller learns that only from
-    `link.is_primary` on the row returned. `photo_import` reports on it and
-    has to check the vacancy itself to do so.
+    `link.is_primary` on the row returned.
     """
     existing = db.scalar(
         select(ItemImage).where(

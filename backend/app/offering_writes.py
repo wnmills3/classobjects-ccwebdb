@@ -1358,13 +1358,13 @@ def _end(
     here rather than in `end_offer` or in any caller. It is not defensive
     tidying: `routers.offers.end_listing`
     (`POST /api/listings/{id}/end`) loads its listing with a plain id lookup
-    and calls `end_offer(sold=False)` unconditionally, so a lot bought in the
-    shop -- settled as `sold`, its listing `ended` -- was one admin API call
-    from being rewritten to `dissolved` while its members stayed `sold`,
-    because `end_offer` skips the disposition loop for a sale. `sold` and
-    `dissolved` are different histories and never collapse into one (spec,
-    *`sales_lot` and `sales_lot_item`*), and no concurrency is needed to
-    collapse them -- a stale console tab is enough
+    and calls `end_offer(sold=False)` unconditionally, so for a lot bought in
+    the shop -- settled as `sold`, its listing `ended` -- this guard is all
+    that keeps one admin API call from rewriting it to `dissolved` while its
+    members stay `sold`: `end_offer` skips the disposition loop for a sale.
+    `sold` and `dissolved` are different histories and never collapse into
+    one (spec, *`sales_lot` and `sales_lot_item`*), and no concurrency is
+    needed to collapse them -- a stale console tab is enough
     (`test_ending_a_sold_lot_s_listing_again_leaves_it_sold`).
 
     **Why here and not in `end_offer`.** This module is the single writer of
@@ -1484,10 +1484,11 @@ def end_offer(
     item_ids = list(locked.item_ids)
     listing = locked.listings[listing.id]
 
-    # Still paused, not merely pointing here. A listing ended while it was
-    # paused can keep the pointer, and resuming
-    # that would put a listing an administrator deliberately withdrew back
-    # into the public shop, re-claiming the item with it.
+    # Still paused, not merely pointing here. `_end` clears the pointer of
+    # every listing it ends, but the column does not forbid an `ended` row
+    # that carries one, and resuming on the pointer alone would put a
+    # listing an administrator deliberately withdrew back into the public
+    # shop, re-claiming the item with it.
     #
     # This re-locks rows the pass above already holds and so reorders
     # nothing -- **while each paused listing still has a `HELD_BY` claim**,
@@ -1542,8 +1543,8 @@ def end_offer(
             continue
         item = db.get(InventoryItem, item_id)
         # Only a listed item goes back to held, because `listed` is the only
-        # disposition this module writes. An item bought through the shop is
-        # `sold` while its listing stays active at zero stock
+        # disposition this module is entitled to undo. An item bought through
+        # the shop is `sold` while its listing stays active at zero stock
         # (`order_writes._after_stock_change`); ending that listing afterwards
         # must not report the item as merely held again, and `shipped`,
         # `delivered` and `returned_by_buyer` are no more this function's to

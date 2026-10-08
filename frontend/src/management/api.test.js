@@ -288,6 +288,19 @@ describe('sales lots', () => {
   })
 })
 
+describe('renameReferenceValue', () => {
+  it('writes the code into the address encoded, as the alias and merge calls do', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.renameReferenceValue('grade', 'a b?c', { label: 'A' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/reference/grade/a%20b%3Fc')
+    expect(init.method).toBe('PATCH')
+  })
+})
+
 describe('getOfferTitles', () => {
   // FastAPI reads a list query parameter from a repeated key; a single
   // comma-joined value would be one unparseable id and a 422.

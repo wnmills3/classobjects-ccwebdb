@@ -1,9 +1,10 @@
 """Valuation: what an item is worth, as opposed to what it cost.
 
 Cost basis is fixed at purchase and stored on `inventory_item`. Value moves
-daily and is therefore *computed*, never stored -- with one deliberate
-exception, `valuation_snapshot`, which records a point-in-time figure together
-with the spot price that produced it, so the number stays reproducible.
+daily and is therefore *computed*, never stored. The one table shaped to
+hold a stored figure, `valuation_snapshot`, pairs it with the spot price that
+produced it so the number would stay reproducible; it is unused scaffolding,
+and nothing writes a row.
 
 A common-date, low-grade silver coin is worth its metal. A key date in high
 grade carries a collector premium unrelated to spot. One stored number cannot
@@ -13,7 +14,7 @@ represent both.
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import (
     CheckConstraint,
@@ -139,11 +140,24 @@ class MetalPrice(Base):
     )
 
 
+def melt_value(fine_ounces: Decimal, price_per_ozt: Decimal) -> Decimal:
+    """What fine troy ounces melt for at a spot price, to the cent.
+
+    A half cent rounds up, as the `item_valuation` view's `round()` does, so
+    every place that shows a melt value agrees on a tie.
+    """
+    return (fine_ounces * price_per_ozt).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+
 class ValuationSnapshot(Base):
     """A point-in-time valuation, recorded with the inputs that produced it.
 
     Storing ``spot_price_used`` is what makes a snapshot reproducible. A bare
     historical value column would leave every past figure unexplainable.
+
+    Unused scaffolding: nothing writes a row or reads one.
     """
 
     __tablename__ = "valuation_snapshot"

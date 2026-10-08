@@ -373,14 +373,15 @@ reader skips such rows and every rule leaves them alone.
 A Friedberg or PCGS number identifies a *type*, not an object. Both are
 commercial catalogs, so both tables are **curated as notes and coins
 arrive**, not seeded (see `docs/reference-data.md`). Resolution against
-them is a proposal, never a derivation: the lookup returns ranked candidates,
-a person confirms, and confirmation stamps `verified_by_id` and `verified_at`
-so the next lookup can trust the row.
+them is a proposal, never a derivation: the lookup returns the rows that
+match what is known of the note, in the order they were recorded, a person
+confirms one, and confirmation stamps `verified_by_id` and `verified_at` so
+the next lookup can trust the row.
 
 | `friedberg_number` | Notes |
 |---|---|
 | `fr_number` | varchar(32), unconditionally unique (`uq_friedberg_number_fr_number`) |
-| `base_number`, `district_letter` | |
+| `base_number`, `district_letter` | `base_number` (int, indexed) is filled by nothing in the application. `district_letter` is A to L, in capitals |
 | `note_type_id`, `denomination_id`, `series_year`, `series_letter`, `seal_color_id`, `signature_combination_id` | |
 | `size_class` | `large` \| `small` \| `fractional` (check constraint) |
 | `web_press` | boolean null: web-press and sheet-fed printings are different types |
@@ -584,21 +585,24 @@ previous move's destination.
 
 ## 8. Images
 
-Photographs of items, of what is shown on a listing, and of outgoing parcels
-(`models/images.py`). The **file** and its **use** are separate, because one
-photograph may serve several purposes with different visibility.
+Photographs of items (`models/images.py`). The **file** and its **use** are
+separate, because one photograph may serve several purposes with different
+visibility. The schema also has link tables for what is shown on a listing
+and for outgoing parcels, `listing_image` and `shipment_image`; nothing in
+the application reads or writes either.
 
 | Table | Columns | Notes |
 |---|---|---|
-| `image` | `sha256` (unique), `storage_key`, `media_type`, `byte_size`, `width`, `height`, `captured_at`, `source_ref`, `source_url` | the file, stored once, content-addressed; `source_ref` is the original filename, `source_url` the web address it was fetched from, when it was |
+| `image` | `sha256` (unique), `storage_key`, `media_type`, `byte_size`, `width`, `height`, `captured_at`, `source_ref`, `source_url` | the file, stored once, content-addressed; `source_ref` is the name the photograph goes by -- the uploaded file's name with the stored format's extension, replaced by `<item_code>_<nn>` when it is fetched from a web address or filed on another item (`image_links.name_for_place`); `source_url` is the web address it was fetched from, when it was |
 | `image_derivative` | `image_id`, `kind` (`thumb` \| `web`), `storage_key`, `width`, `height` | unique `(image_id, kind)` |
 | `item_image` | `inventory_item_id` (**nullable**), `image_id`, `image_role_id`, `is_primary`, `sort_order`, `note` | unique `(inventory_item_id, image_id)` |
 | `listing_image` | `listing_id`, `image_id`, `sort_order` | unique pair |
 | `shipment_image` | `shipment_id`, `image_id`, `kind` (`packed` \| `label` \| `handover` \| `damage`) | unique triple |
 
 Three link tables rather than a polymorphic subject: real foreign keys, each
-constrained on its own. `item_image.inventory_item_id` is nullable because
-photographs exist before anyone decides what they show; a file named
+constrained on its own. A photograph nobody has placed yet is an `image` row
+with no `item_image` row: `item_image.inventory_item_id` is nullable in the
+schema, but `app.image_links` never leaves it null. A file named
 `<item_code>_<nn>` is linked by `app.photo_import`, and the console places the
 rest. `uq_item_image_primary` allows at most one `is_primary` per item;
 **`app.image_links` is the only writer of `item_image`**, because promoting a
@@ -789,7 +793,7 @@ exclude split and soft-deleted items.
 
 | View | Shows |
 |---|---|
-| `coin_inventory` | kinds coin, bullion, set, medal, token, with coin detail and the composed grade |
+| `coin_inventory` | kinds coin, bullion, set, medal, token, with coin detail and the composed grade; an item of kind `other` or `unknown` is in neither inventory view |
 | `currency_inventory` | kind currency, with note detail and the Friedberg number |
 | `item_valuation` | melt, reported value, profit and profit % from the latest spot price (§6) |
 | `public_catalog` | active, fixed-price, own-store **item** listings with `quantity_available > 0`, and the public item fields; lot listings are not in it |
@@ -987,8 +991,7 @@ cost basis; customers do not. Tokens are stateless JWTs carrying
 revokes every token issued before it.
 
 It is referenced by `customer.user_id` and by the audit columns on history,
-review, catalog, error, attribute, merge and order rows, all
-`ON DELETE SET NULL`.
+catalog, error, attribute, merge and order rows, all `ON DELETE SET NULL`.
 
 ---
 

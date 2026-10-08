@@ -115,7 +115,7 @@ All manager only (`AdminUser`).
 | `PATCH /api/sellers/{id}` | `name`, `store_url` |
 | `DELETE /api/sellers/{id}` | 409 while a purchase names the seller |
 | `GET /api/vendors` | every vendor, by name, with `order_count` (purchases and sales platforms) |
-| `PATCH /api/vendors/{id}` | `name`, `url` (`host` recomputed), `vendor_kind` (null sets `unknown`) |
+| `PATCH /api/vendors/{id}` | `name`, `url` (http(s) only, as when a vendor is added; `host` recomputed), `vendor_kind` (null sets `unknown`) |
 | `DELETE /api/vendors/{id}` | 409 while a purchase or sales platform names the vendor |
 | `GET /api/storage-locations` | every location with `label`, `kind`, `institution`, `identifier`, `notes`, `item_count` |
 | `PATCH /api/storage-locations/{id}` | `kind`, `institution`, `identifier`, `notes` |

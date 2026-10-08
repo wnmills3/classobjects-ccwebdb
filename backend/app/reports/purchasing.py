@@ -5,8 +5,9 @@ one live item still `ordered` or `missing` -- the same outstanding
 definition Receiving's own order list (`GET /api/purchase-orders`) uses
 (`app.live.OUTSTANDING_STATUSES`), so this report and Receiving can never
 disagree about what "not yet arrived" means. `pr_spend`: period x vendor
-spending, over purchases with a live item. `pr_sources`: every vendor, and
-every seller a purchase has named, with what was bought from them.
+spending, over purchases with a live item. `pr_sources`: every vendor with
+such a purchase, and every seller one has named, with what was bought from
+them.
 `pr_received`: arrival day x vendor, from the acquisition-status history
 itself.
 """
@@ -282,7 +283,7 @@ PR_SPEND = register(
 
 
 class SourcesParams(BaseModel):
-    """`pr_sources` takes no parameters: every vendor and seller, every time."""
+    """`pr_sources` takes no parameters: every vendor and seller bought from."""
 
 
 _SOURCES_COLUMNS = [

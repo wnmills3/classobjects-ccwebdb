@@ -9,6 +9,8 @@ vi.mock('../api', () => ({
     runReport: vi.fn(),
     downloadReportWorkbook: vi.fn(),
     searchInventory: vi.fn(),
+    // The item editor's, were it mounted in place of its stand-in below.
+    previewItem: vi.fn(() => new Promise(() => {})),
   },
 }))
 
@@ -91,6 +93,22 @@ const CATALOG = [
     params: [
       { name: 'date_from', label: 'From', type: 'date', default: null, choices: null },
       { name: 'date_to', label: 'To', type: 'date', default: null, choices: null },
+    ],
+  },
+  {
+    id: 'test_date_and_days',
+    group: 'Purchasing and receiving',
+    title: 'Date and days (test)',
+    purpose: 'Exercises a date parameter beside one that may not be empty.',
+    params: [
+      { name: 'date_from', label: 'From', type: 'date', default: null, choices: null },
+      {
+        name: 'overdue_days',
+        label: 'Overdue after (days)',
+        type: 'integer',
+        default: 21,
+        choices: null,
+      },
     ],
   },
 ]
@@ -318,7 +336,10 @@ describe('Reports page', () => {
     const user = userEvent.setup()
     renderAt('/reports?report=pr_outstanding&overdue_days=30')
     const box = await screen.findByLabelText('Overdue after (days)')
-    const callsBefore = api.runReport.mock.calls.length
+    // The form is on screen before the first run has been asked for, so the
+    // count is taken only once that run's answer is.
+    await screen.findByRole('cell', { name: 'Order-0012' })
+    expect(api.runReport).toHaveBeenCalledTimes(1)
 
     await user.clear(box)
     await user.click(screen.getByRole('button', { name: 'Run' }))
@@ -326,7 +347,7 @@ describe('Reports page', () => {
     expect(
       await screen.findByText('Enter a value for Overdue after (days).'),
     ).toBeInTheDocument()
-    expect(api.runReport).toHaveBeenCalledTimes(callsBefore)
+    expect(api.runReport).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('address').textContent).toBe(
       '?report=pr_outstanding&overdue_days=30',
     )
@@ -710,8 +731,10 @@ describe('Reports page', () => {
 
   it('still refuses an emptied non-date field alongside an empty date', async () => {
     const user = userEvent.setup()
-    renderAt('/reports?report=pr_outstanding&overdue_days=30')
+    renderAt('/reports?report=test_date_and_days')
     const box = await screen.findByLabelText('Overdue after (days)')
+    await screen.findByRole('cell', { name: 'Order-0012' })
+    expect(screen.getByLabelText('From')).toHaveValue('')
 
     await user.clear(box)
     await user.click(screen.getByRole('button', { name: 'Run' }))
@@ -719,6 +742,60 @@ describe('Reports page', () => {
     expect(
       await screen.findByText('Enter a value for Overdue after (days).'),
     ).toBeInTheDocument()
+    expect(api.runReport).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows fine ounces to three places, never through a float', async () => {
+    const result = {
+      ...completeness(),
+      columns: [
+        { key: 'kind', label: 'Metal', kind: 'text' },
+        { key: 'ounces', label: 'Fine troy ounces', kind: 'ounces' },
+      ],
+      rows: [
+        { kind: 'Silver', ounces: '12.441400' },
+        // Too many digits for a JavaScript number, and a half that rounds up.
+        { kind: 'Gold', ounces: '12345678901234567.000500' },
+      ],
+      totals: { kind: 'All metals', ounces: '0.500000' },
+      drills: [null, null],
+    }
+    api.runReport.mockResolvedValue(result)
+    renderAt('/reports?report=dq_completeness')
+
+    const cell = await screen.findByRole('cell', { name: '12.441' })
+    expect(cell).toHaveClass('num')
+    expect(
+      screen.getByRole('cell', { name: '12,345,678,901,234,567.001' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: '0.500' })).toBeInTheDocument()
+  })
+
+  it('reads a choice the address misnames as that parameter’s default', async () => {
+    const user = userEvent.setup()
+    api.runReport.mockImplementation((_id, params) =>
+      params.status
+        ? Promise.reject(
+            new ApiError(422, 'status: not a choice', {
+              detail: [{ type: 'literal_error', loc: ['status'], msg: 'Not a choice' }],
+            }),
+          )
+        : Promise.resolve(outstanding(params)),
+    )
+    renderAt('/reports?report=cb_holdings&status=bogus')
+
+    expect(await screen.findByText('Status: Not a choice')).toBeInTheDocument()
+    // The dropdown shows what Run will send: the default, not a value it
+    // has no option for.
+    expect(screen.getByLabelText('Status')).toHaveValue('received')
+
+    await user.click(screen.getByRole('button', { name: 'Run' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('address').textContent).toBe('?report=cb_holdings'),
+    )
+    expect(api.runReport).toHaveBeenLastCalledWith('cb_holdings', {})
+    expect(await screen.findByRole('cell', { name: 'Order-0012' })).toBeInTheDocument()
   })
 
   it("shows a date parameter as a date, and an absent bound as 'any', on the print heading", async () => {

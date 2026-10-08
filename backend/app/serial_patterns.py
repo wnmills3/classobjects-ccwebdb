@@ -11,12 +11,16 @@ typed. `star` is the exception in mechanism only: it comes from the asterisk
 that is part of the serial rather than from the digits.
 
 **The eight-digit rule matters more than it looks.** A US small-size serial has
-exactly eight digits, and 954 of this collection's 1,015 are that long. The
-rest are incomplete transcriptions, and reading patterns out of them produces
-confident nonsense: "59" has two distinct digits, so a naive binary test calls
-it a binary note. It is not a note at all, it is a truncated field. Pattern
-designations therefore require a full-length serial, and a short one is
-reported as incomplete instead.
+exactly eight digits. A shorter one is an incomplete transcription, and
+reading patterns out of it produces confident nonsense: "59" has two distinct
+digits, so a naive binary test calls it a binary note. It is not a note at
+all, it is a truncated field. Pattern designations therefore require a
+full-length serial, and a short one is reported as incomplete instead.
+
+The pass takes back what it derived and the serial no longer earns: a serial
+corrected from a radar to an ordinary number loses the radar this module gave
+it. A designation a person set is theirs, and one a person removed stays
+removed. Nothing here runs on a save; the pass is run by hand.
 
 `consecutive` is deliberately never derived. It describes a *run* of notes --
 three sequential serials bought together -- which no single serial can show.
@@ -147,8 +151,8 @@ def analyse(serial: str) -> set[str]:
 
     # `fancy_serial` is the umbrella over *digit patterns* only. A star note is
     # a replacement note, which is a different question on a grading form and
-    # a different suffix on the catalog number -- sweeping it in here would
-    # have labeled all 189 stars as fancy serials.
+    # a different suffix on the catalog number: a star alone says nothing of
+    # the digits, so it does not make a serial fancy.
     if found - {"star", "low_serial", "high_serial"}:
         found.add("fancy_serial")
     return found
@@ -159,12 +163,9 @@ def analyse(serial: str) -> set[str]:
 WELL_FORMED = re.compile(r"^(?:\*|[A-Z]{1,2})\d{8}[*A-Z]$")
 
 #: A letter with digits on both sides. Not the shape of a small-size US
-#: serial, so data entry warns: it is usually the suffix letter typed one
+#: serial, so `check` warns: it is usually the suffix letter typed one
 #: position early.
 INTERNAL_LETTER = re.compile(r"\d[A-Z]\d")
-
-#: The highest an eight-digit serial can be. Structural, not a print run.
-MAX_SERIAL = 99_999_999
 
 #: Advisory only. Some print runs ended at 96,000,000 rather than 99,999,999,
 #: so a serial above this is worth a second look -- but the real limit varies
@@ -179,11 +180,12 @@ ADVISORY_CEILING = 96_000_000
 class SerialIssue:
     """Something wrong with a serial, and how wrong.
 
-    `error` means the serial cannot be what was typed, so data entry refuses
-    it. `warning` means it is unusual and worth a second look, and entry
-    proceeds if the person insists -- a collection holds genuine oddities, and
-    a system that would not let its owner record what is in their hand records
-    fiction instead.
+    `error` means the serial cannot be what was typed; no rule here finds
+    one, since eight digits cannot exceed 99,999,999. `warning` means it is
+    unusual and worth a second look -- a collection holds genuine oddities,
+    and a system that would not let its owner record what is in their hand
+    records fiction instead. What `check` returns; nothing acts on either,
+    since no save calls `check`.
     """
 
     severity: str
@@ -231,13 +233,6 @@ def _range_issues(digits: str, series_year: int | None) -> list[SerialIssue]:
     if len(digits) != SERIAL_DIGITS:
         return []
     value = int(digits)
-    if value > MAX_SERIAL:
-        return [
-            SerialIssue(
-                "error",
-                f"above {MAX_SERIAL:,}, which no eight-digit serial reaches.",
-            )
-        ]
     if value > ADVISORY_CEILING:
         year = f" for series {series_year}" if series_year else ""
         return [
@@ -255,6 +250,12 @@ def check(
     serial: str, series_year: int | None = None, country: str | None = "US"
 ) -> list[SerialIssue]:
     """Everything questionable about a serial, worst first.
+
+    Called by nothing in the application: data entry neither refuses nor
+    warns on a serial, and the inventory search's `malformed_serial` check
+    (`app.issues`) is what lists an internal letter. `_shape_issues`,
+    `_range_issues`, `SerialIssue`, `INTERNAL_LETTER` and `ADVISORY_CEILING`
+    serve only this function.
 
     Shape rules apply to **US** notes only. A US small-size serial is letters
     at the ends and eight digits between, but world notes are not: many
@@ -277,11 +278,30 @@ def check(
 
 
 def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:
-    """Report, and optionally record, the designations every serial earns."""
+    """Report, and optionally record, the designations every serial earns.
+
+    A designation this module added, still in force, that the serial no
+    longer earns -- the serial was corrected -- is taken back with it. One a
+    person set, or removed, is never touched.
+    """
     attribute_ids = {
         code: ident
         for ident, code in db.execute(select(ItemAttribute.id, ItemAttribute.code))
     }
+    codes = {ident: code for code, ident in attribute_ids.items()}
+    # The links in force that this module added, by item: the only ones it
+    # may take back.
+    mine: dict[int, set[int]] = {}
+    for item_id, derived_id in db.execute(
+        select(
+            ItemAttributeLink.inventory_item_id,
+            ItemAttributeLink.item_attribute_id,
+        ).where(
+            ItemAttributeLink.derived_by == RULE,
+            ItemAttributeLink.removed_at.is_(None),
+        )
+    ).tuples():
+        mine.setdefault(item_id, set()).add(derived_id)
     # Every link, removed ones included: a designation a person took away
     # is not put back.
     existing: set[tuple[int, int]] = set(
@@ -304,14 +324,20 @@ def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:
     stats: Counter = Counter()
     incomplete: list[tuple[str, str]] = []
     to_add: list[ItemAttributeLink] = []
+    to_remove: list[tuple[int, int]] = []
 
     for item_id, item_code, serial in rows:
+        earned = analyse(serial) if serial else set()
+        earned_ids = {attribute_ids[c] for c in earned if c in attribute_ids}
+        for stale_id in sorted(mine.get(item_id, set()) - earned_ids):
+            stats[f"stale:{codes[stale_id]}"] += 1
+            to_remove.append((item_id, stale_id))
         if not serial:
             continue
         if is_incomplete(serial):
             stats["incomplete_serial"] += 1
             incomplete.append((item_code, serial))
-        for code in analyse(serial):
+        for code in earned:
             attribute_id = attribute_ids.get(code)
             if attribute_id is None:
                 stats[f"unknown_attribute:{code}"] += 1
@@ -329,10 +355,17 @@ def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:
                 )
             )
 
-    if commit and to_add:
+    if commit and (to_add or to_remove):
+        for key in to_remove:
+            stale = db.get(ItemAttributeLink, key)
+            if stale is not None:
+                db.delete(stale)
         db.add_all(to_add)
         db.commit()
-        stats["written"] = len(to_add)
+        if to_add:
+            stats["written"] = len(to_add)
+        if to_remove:
+            stats["taken_back"] = len(to_remove)
 
     return stats, incomplete
 
@@ -353,6 +386,11 @@ def main(argv: list[str] | None = None) -> int:
         print("designations the data does not carry:")
         for code, count in sorted(missing.items(), key=lambda kv: -kv[1]):
             print(f"  {code:<16}{count:>5}")
+    stale = {k[len("stale:") :]: v for k, v in stats.items() if k.startswith("stale:")}
+    if stale:
+        print("\ndesignations derived here that the serial no longer earns:")
+        for code, count in sorted(stale.items(), key=lambda kv: -kv[1]):
+            print(f"  {code:<16}{count:>5}")
     if stats.get("incomplete_serial"):
         print(
             f"\nincomplete serials (fewer than {SERIAL_DIGITS} digits): "
@@ -362,7 +400,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {code}  {serial!r}")
     if stats.get("written"):
         print(f"\nrecorded {stats['written']} designations")
-    elif not args.commit:
+    if stats.get("taken_back"):
+        print(f"\ntook back {stats['taken_back']} designations")
+    if not args.commit:
         print("\n(dry run -- nothing written; pass --commit)")
     return 0
 

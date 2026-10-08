@@ -155,7 +155,7 @@ stored on a sale.
 | `is_active` | `GENERATED ALWAYS AS (status = 'active') STORED`, read by `ix_listing_active` and the `public_catalog` view; nothing writes it |
 | `inventory_item_id` / `sales_lot_id` | nullable FKs; `ck_listing_item_xor_lot` requires **exactly one** |
 | `paused_by_listing_id` | FK `listing`: the offer this store listing is paused for, and so which ending resumes it |
-| `external_id`, `external_url` | the platform's id and page; the URL is derived from the template when not stored |
+| `external_id`, `external_url` | the platform's id and page. Nothing writes `external_url`: no request field and no pass sets it, so the page shown is always derived from the platform's URL template and `external_id` |
 | `price` | for an auction listing, the **starting bid** (0 if none) |
 | `quantity_available` | always 1 on a lot listing (`ck_listing_lot_quantity_one`) |
 | `title`, `description` | the public wording of the offer |
@@ -432,9 +432,11 @@ unit marks the item `sold` while its store listing stays active.
   `tests/test_offer_races.py`, `tests/test_settlement_race.py`,
   `tests/test_order_revision_race.py`.
 - **Settlement** (`tests/test_auction_settlement.py`): shares sum to the line
-  to the cent; resumed store listings keep their price; consignment moves
-  appear in location history both ways; a sold lot's paused store listings
-  end rather than resume; a failure part way leaves nothing written.
+  to the cent; resumed store listings keep their price; a settlement run
+  without autoflush leaves each returned coin at the chosen location, with
+  the move out to the house and the move back both in its location history;
+  a sold lot's paused store listings end rather than resume; a failure part
+  way leaves nothing written.
 - **Migrations**: `test_migrations_match_models` and
   `test_the_baseline_views_and_functions_are_the_apps`.
 - **Shop boundary**: the public catalog never exposes cost, storage

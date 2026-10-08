@@ -183,6 +183,13 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
     gets a 409, not a lost update or an oversell. A TestClient-based version
     of this test would serialize both requests through one connection and
     pass even with the lock removed.
+
+    The loser's refusal is read, not just counted. With the listing lock
+    gone, `listing.version` still stops the second writer, and when that
+    writer is the edit, `revise_order` answers the `StaleDataError` with a
+    409 of its own ("changed while saving") -- one winner, one 409, stock at
+    zero, and no lock. Only a refusal that names the stock says the loser
+    waited for the row and then read what the winner left.
     """
     listing_id, (buyer_id, holder_id, admin_id) = _seed(committed, stock=2, buyers=3)
     with committed() as s:
@@ -196,8 +203,8 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
 
     barrier = threading.Barrier(2)
 
-    def checkout() -> str | int:
-        """Buy the last unit as the customer: "checkout", or the refusal's status."""
+    def checkout() -> str:
+        """Buy the last unit as the customer: "checkout", or the refusal in full."""
         s = committed()
         try:
             user = _present(s.get(User, buyer_id))
@@ -208,12 +215,12 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
             return "checkout"
         except HTTPException as exc:
             s.rollback()
-            return exc.status_code
+            return f"{exc.status_code}: {exc.detail}"
         finally:
             s.close()
 
-    def edit() -> str | int:
-        """Revise the order to two units, from the version read before the race."""
+    def edit() -> str:
+        """Revise the order to two units: "edit", or the refusal in full."""
         s = committed()
         try:
             o = _present(s.get(SalesOrder, order_id))
@@ -233,18 +240,24 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
             return "edit"
         except HTTPException as exc:
             s.rollback()
-            return exc.status_code
+            return f"{exc.status_code}: {exc.detail}"
         finally:
             s.close()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        outcomes = sorted(pool.map(lambda f: f(), [checkout, edit]), key=str)
+        outcomes = sorted(pool.map(lambda f: f(), [checkout, edit]))
 
     with committed() as s:
         remaining = _present(s.get(Listing, listing_id)).quantity_available
     assert remaining == 0
-    assert outcomes.count(409) == 1, outcomes
-    assert len([o for o in outcomes if o in ("checkout", "edit")]) == 1, outcomes
+    winners = [o for o in outcomes if o in ("checkout", "edit")]
+    refusals = [o for o in outcomes if o not in ("checkout", "edit")]
+    assert len(winners) == 1, outcomes
+    # "Only 0 of listing N remain" from a checkout, "Only 0 more of listing
+    # N are available" from an edit: either way the loser saw the stock gone.
+    assert len(refusals) == 1, outcomes
+    assert refusals[0].startswith("409: Only 0 "), outcomes
+    assert f"listing {listing_id}" in refusals[0], outcomes
 
 
 def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock(
@@ -629,10 +642,11 @@ def test_a_stale_data_error_inside_a_cancellation_is_a_409_not_a_500(
 
     Covers the `except StaleDataError` clause of `routers._tx.committing`,
     which `update_order_status` writes inside: the cancellation twin of the
-    test above. The status write is pending when `return_stock` issues its
-    first SELECT, so the autoflush is what fails -- well before
-    `db.commit()`, which is why the whole block and not only the commit sits
-    inside `committing`.
+    test above. This test's session autoflushes, so the pending status write
+    is flushed -- and fails -- when `return_stock` issues its first SELECT,
+    well before `db.commit()`. The application's session does not autoflush
+    (`app/database.py`) and would meet the same error at the commit; the
+    whole block sits inside `committing`, so either is answered alike.
 
     Survives: replacing the body of `routers._tx.committing`'s
     `except StaleDataError` clause with a bare `raise` makes this fail with

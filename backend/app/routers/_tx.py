@@ -28,6 +28,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
+#: PostgreSQL's SQLSTATE for a unique index refusing a duplicate.
+_UNIQUE_VIOLATION = "23505"
+
 
 @contextmanager
 def committing(db: Session, stale_detail: str) -> Iterator[None]:
@@ -67,6 +70,11 @@ def commit_unique(db: Session, taken_detail: str) -> None:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        # Only a unique index's refusal is a duplicate. A foreign key that
+        # names nothing, a null or a failed check is an integrity error too,
+        # and "already exists" would be the wrong thing to say about it.
+        if getattr(exc.orig, "sqlstate", None) != _UNIQUE_VIOLATION:
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=taken_detail
         ) from exc

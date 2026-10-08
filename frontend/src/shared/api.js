@@ -40,6 +40,21 @@ export function clearTokens() {
   }
 }
 
+//: Who is told when the server stops accepting the session.
+const signedOutListeners = new Set()
+
+/**
+ * Call `listener` whenever a request made with the session is finally
+ * refused and the tokens are dropped; returns the function that stops it.
+ *
+ * Dropping the tokens is not enough on its own: whatever holds "who is
+ * signed in" would go on naming the account beside requests that all fail.
+ */
+export function onSignedOut(listener) {
+  signedOutListeners.add(listener)
+  return () => signedOutListeners.delete(listener)
+}
+
 export class ApiError extends Error {
   /**
    * `body` is the whole parsed response, kept beside the flattened `detail`,
@@ -96,8 +111,10 @@ let refreshing = null
  * One refresh for however many requests were refused together.
  *
  * A page that loads several things at once on an expired access token gets a
- * 401 for each. Refreshing once per 401 would spend the refresh token that
- * many times over; they all wait on the same one instead.
+ * 401 for each. Refreshing once per 401 would be that many exchanges for one
+ * expiry, each storing a pair over the last; they all wait on the same one
+ * instead. The server does not retire a refresh token when it is used, so
+ * this saves requests rather than guarding a single-use token.
  */
 function refreshOnce() {
   refreshing ??= refreshTokens().finally(() => {
@@ -214,7 +231,13 @@ export async function send(
   const parsed = parseBody(await res.text())
 
   if (!res.ok) {
-    if (res.status === 401) clearTokens()
+    // Only a request that carried the session says anything about it. A
+    // refused sign-in is a 401 too, and must leave a session already held
+    // alone.
+    if (res.status === 401 && auth) {
+      clearTokens()
+      for (const listener of signedOutListeners) listener()
+    }
     if (parsed === undefined) {
       throw new ApiError(res.status, res.statusText || `Request failed (${res.status})`)
     }
@@ -259,7 +282,6 @@ export const api = {
   getCatalogItem: (id) => send(`/api/catalog/${id}`, { auth: false }),
 
   // reference vocabularies, for dropdowns
-  listReferenceTables: () => send('/api/reference', { auth: false }),
   // Retired values included: a record may still use one, and its picker has
   // to show it. `useReference` leaves them out for everything else.
   getReference: (table) =>

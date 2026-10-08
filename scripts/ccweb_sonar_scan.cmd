@@ -2,7 +2,7 @@
 rem ---------------------------------------------------------------------------
 rem  Publish an analysis of this repository to the local SonarQube server.
 rem
-rem    ccweb_sonar_scan
+rem    .\scripts\ccweb_sonar_scan.cmd
 rem
 rem  Requires SONAR_TOKEN in the environment: the scanner runs in its own
 rem  container and cannot read the host keychain.
@@ -40,7 +40,7 @@ set "PY=%ENVDIR%\python.exe"
 set "NODE=%ENVDIR%\node.exe"
 
 if not exist "%PY%" (
-    echo ERROR: conda environment not found: %ENVDIR%
+    echo ERROR: conda environment not found: !ENVDIR!
     echo        see docs\environment-setup.md
     popd
     exit /b 1
@@ -52,7 +52,7 @@ rem  [tool.coverage.run] in pyproject.toml, running from the repository root
 rem  (this "pushd" above), and --cov=backend/app. Running from backend, the
 rem  way ccweb_check.cmd does, records paths like app/database.py, which sonar.sources
 rem  (backend/app) cannot map - a silent 0% that looks like clean code.
-"%PY%" -m pytest -q --cov=backend/app --cov-report=xml:coverage.xml
+"%PY%" -m pytest --cov=backend/app --cov-report=xml:coverage.xml
 if errorlevel 1 (
     echo ERROR: tests failed - refusing to publish an analysis.
     popd
@@ -73,9 +73,12 @@ if errorlevel 1 (
 popd
 
 echo === scanner ===
+rem  SONAR_TOKEN is passed by name: podman takes the value from this
+rem  environment, so the token never appears on a command line, where the
+rem  process list would show it for as long as the scan runs.
 podman run --rm --network sonar-net ^
     -e SONAR_HOST_URL=http://sonarqube:9000 ^
-    -e SONAR_TOKEN=%SONAR_TOKEN% ^
+    -e SONAR_TOKEN ^
     -v "%REPO%:/usr/src" ^
     docker.io/sonarsource/sonar-scanner-cli
 if errorlevel 1 (

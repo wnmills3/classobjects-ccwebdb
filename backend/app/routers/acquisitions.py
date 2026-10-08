@@ -9,7 +9,7 @@ item sits in, are neither a customer's business.
 
 from __future__ import annotations
 
-import re
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import and_, case, func, select
@@ -84,18 +84,18 @@ def next_order_number(db: Session) -> str:
     return f"{_GENERATED_PREFIX}{highest + 1:04d}"
 
 
-#: The rule for turning a vendor's web address into the plain hostname
-#: stored in `Vendor.host`, so every vendor with the same URL has the same
-#: host.
-_HOST = re.compile(r"https?://([^/]+)")
-
-
 def _host_of(url: str | None) -> str | None:
-    """The lowercase hostname of `url`, or `None` when there isn't one."""
+    """The lowercase hostname of `url`, or `None` when there isn't one.
+
+    What `Vendor.host` stores: the host name alone -- no port, user name,
+    query or fragment -- so every address at one site gives the same host.
+    """
     if not url:
         return None
-    match = _HOST.search(url)
-    return match.group(1).lower() if match else None
+    try:
+        return urlsplit(url).hostname or None
+    except ValueError:
+        return None
 
 
 def _counted(count: int, noun: str) -> str:
@@ -560,8 +560,9 @@ def _commit_order(db: Session, vendor: Vendor, number: str | None) -> None:
     commit_unique(db, f"{vendor.name} order {number} is already recorded")
 
 
-#: Location kinds made by other code: a consignment by the auction code,
-#: a sold item's by the sale. Not added from a picker.
+#: Location kinds not made by hand: a consignment is made by the auction
+#: code, and `sold` is reserved -- nothing creates one. Not added from a
+#: picker.
 _MADE_ELSEWHERE = frozenset({"consigned", "sold"})
 
 
@@ -578,7 +579,8 @@ def create_storage_location(
     if payload.kind in _MADE_ELSEWHERE:
         raise HTTPException(
             status_code=422,
-            detail=f"A {payload.kind} location is made by the auction or sale code",
+            detail=f"A {payload.kind} location is not made by hand: the auction "
+            "code makes a consigned one, and sold is reserved",
         )
     kind_id = require_code(db, StorageLocationKind, payload.kind, "kind")
     same = func.lower(func.coalesce(StorageLocation.institution, "")) == (
@@ -666,8 +668,8 @@ def update_storage_location(
 ) -> StorageLocationOut:
     """Correct a location's kind, institution, identifier or notes.
 
-    Only what is sent changes. A location the auction or sale code made
-    (`consigned`, `sold`) is that code's, and is not edited by hand.
+    Only what is sent changes. A `consigned` location is the auction code's
+    and `sold` is reserved: neither is edited by hand.
     """
     location = get_or_404(
         db, StorageLocation, location_id, "Storage location not found"
@@ -675,7 +677,8 @@ def update_storage_location(
     if location.kind.code in _MADE_ELSEWHERE or payload.kind in _MADE_ELSEWHERE:
         raise HTTPException(
             status_code=422,
-            detail="A consigned or sold location is made by the auction or sale code",
+            detail="A consigned location is the auction code's, and sold is "
+            "reserved: neither is edited or chosen by hand",
         )
     sent = payload.model_fields_set
     kind_id = (

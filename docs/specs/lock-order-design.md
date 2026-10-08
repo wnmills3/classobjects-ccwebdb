@@ -124,12 +124,22 @@ in `refuse_if_lot_unheld`, and here.
 | `routers.inventory.bulk_edit`, `update_item` | the same, when the edit changes an offered item's status or disposition |
 | `splitting.split_item` | `end_offer`, while holding the parent item row |
 | `auctions.settle` | `_lock_auction`, then `lock_for_sale(item_ids=...)` over every coin in the auction |
-| `auctions.add_lot`, `remove_lot`, `cancel` | `_lock_auction`, then `offer` / `end_offer` |
+| `auctions.add_lot` | `_lock_auction`, then `offer` |
+| `auctions.remove_lot` | `_lock_auction`, then `lock_for_sale(listing_ids=..., including_paused=True)` for the lot before its coins come back from the house, then `end_offer` |
+| `auctions.cancel` | `_lock_auction`, then one `lock_for_sale(listing_ids=..., including_paused=True)` over every lot in the auction, then `end_offer` per lot |
+
+`remove_lot` and `cancel` take their pass before the first write because
+returning a consigned coin writes its item row, and that write is flushed
+before `end_offer`: taken any later, the item row would come before the lot
+row. `cancel` takes one pass for the whole auction, as `settle` does, since
+its lots' `sales_lot` ids need not ascend in the order it removes them.
 
 `auctions.consign` takes `_lock_auction` and then moves items through
 `lifecycle_writes.set_location`, which writes item rows and takes no lot or
 listing row. `schedule` and `close` touch only the auction row and rely on
-its `version` column. Every transition that reaches an auction's coins takes
+its `version` column; `refuse_unless_lot_editable`, the gate on a lot's
+number and reserve, takes the auction row and nothing below it. Every
+transition that reaches an auction's coins takes
 the auction row first; a `cancel` that wrote the auction row last would take
 lots, items and listings before it, the inverse of `settle`.
 

@@ -27,11 +27,20 @@ from .data_quality import (
     DQ_LOCATIONS,
     DQ_PHOTOS,
     DQ_PURCHASES,
+    DQ_SERIES_REVIEW,
+    DQ_SERIES_YEARS,
 )
 from .money import MN_BASIS, MN_TAX, MN_VALUE
 from .purchasing import PR_OUTSTANDING, PR_RECEIVED, PR_SOURCES, PR_SPEND
 from .registry import REPORTS, register
-from .selling import SL_AGING, SL_AUCTIONS, SL_FULFILMENT, SL_OFFERED, SL_SALES
+from .selling import (
+    SL_AGING,
+    SL_AUCTIONS,
+    SL_FULFILMENT,
+    SL_OFFERED,
+    SL_READY,
+    SL_SALES,
+)
 
 __all__ = [
     "CB_ATTRIBUTES",
@@ -46,6 +55,8 @@ __all__ = [
     "DQ_LOCATIONS",
     "DQ_PHOTOS",
     "DQ_PURCHASES",
+    "DQ_SERIES_REVIEW",
+    "DQ_SERIES_YEARS",
     "MN_BASIS",
     "MN_TAX",
     "MN_VALUE",
@@ -58,6 +69,7 @@ __all__ = [
     "SL_AUCTIONS",
     "SL_FULFILMENT",
     "SL_OFFERED",
+    "SL_READY",
     "SL_SALES",
     "register",
 ]

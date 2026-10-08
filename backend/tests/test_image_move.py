@@ -203,6 +203,38 @@ def test_moving_onto_an_item_for_sale_is_refused_until_acknowledged(
     assert moved.status_code == 200, moved.text
 
 
+def test_moving_off_an_item_for_sale_is_refused_until_acknowledged(
+    client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    """The item it leaves is the one a buyer is looking at: checked as well.
+
+    Only the source is for sale here, so the target's own check passes and
+    the refusal can come from nowhere else.
+    """
+    source = db.get(InventoryItem, listing.inventory_item_id)
+    assert source is not None
+    target = build_item(db)
+    link = _filed(db, source, "a5" * 32, primary=True)
+    db.commit()
+    body = {"inventory_item_id": target.id}
+
+    refused = client.post(
+        f"/api/image-links/{link.id}/move", json=body, headers=admin_headers
+    )
+    assert refused.status_code == 409
+    assert "For sale" in refused.json()["detail"]
+    db.expire_all()
+    assert db.get_one(ItemImage, link.id).inventory_item_id == source.id
+
+    moved = client.post(
+        f"/api/image-links/{link.id}/move",
+        json={**body, "acknowledge_for_sale": True},
+        headers=admin_headers,
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["item_code"] == target.item_code
+
+
 def test_filing_a_loose_photograph_names_it_for_its_new_place(
     client: TestClient, db: Session, admin_headers: dict[str, str]
 ) -> None:

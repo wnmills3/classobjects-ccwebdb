@@ -15,7 +15,16 @@ from decimal import Decimal
 import httpx
 import pytest
 from app import auctions, offering_writes, sales_writes
-from app.models import Auction, InventoryItem, Listing, SalesOrder, SalesVenue, User
+from app.models import (
+    Auction,
+    InventoryItem,
+    Listing,
+    SalesOrder,
+    SalesOrderItem,
+    SalesOrderItemShare,
+    SalesVenue,
+    User,
+)
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -88,6 +97,106 @@ def test_recording_a_sale_returns_the_order_and_net(
     order = db.get(SalesOrder, body["id"])
     assert order is not None
     assert order.placed_by_id == admin_user.id
+
+
+def test_equal_shares_reaches_the_fee_split(
+    client: TestClient,
+    db: Session,
+    offered_lot_listing: Listing,
+    admin_headers: dict[str, str],
+) -> None:
+    """The request's `equal_shares` is what divides the fee, not a default.
+
+    A lot whose members cost 500, 300 and 200: a 10.00 fee by cost is
+    5.00 / 3.00 / 2.00, and equally it is 3.34 / 3.33 / 3.33. The endpoint
+    dropping the flag would answer 201 just the same, so the shares are read.
+    """
+    response = _post(
+        client,
+        offered_lot_listing.id,
+        admin_headers,
+        fees=[{"kind": "commission", "amount": "10.00"}],
+        equal_shares=True,
+    )
+    assert response.status_code == 201, response.text
+    fee_amounts = db.scalars(
+        select(SalesOrderItemShare.fee_amount)
+        .join(
+            SalesOrderItem,
+            SalesOrderItem.id == SalesOrderItemShare.sales_order_item_id,
+        )
+        .where(SalesOrderItem.sales_order_id == response.json()["id"])
+    ).all()
+    assert sorted(fee_amounts) == [
+        Decimal("3.33"),
+        Decimal("3.33"),
+        Decimal("3.34"),
+    ]
+
+
+def test_an_outside_offer_of_more_than_one_unit_is_refused(
+    client: TestClient,
+    db: Session,
+    ebay_venue: SalesVenue,
+    make_item: Callable[..., InventoryItem],
+    admin_headers: dict[str, str],
+) -> None:
+    """Off the store, a listing is one unit: a recorded sale takes all of it.
+
+    Record sale writes a line of one and ends the listing. Against a listing
+    of three that leaves two units on an ended offer and the item still
+    `listed` with nothing offering it, so the offer is refused where it is
+    made rather than the sale where it is recorded.
+    """
+    item = make_item()
+    response = client.post(
+        "/api/offers",
+        headers=admin_headers,
+        json={
+            "venue": ebay_venue.code,
+            "format": "fixed_price",
+            "quantity": 3,
+            "items": [{"item_id": item.id, "price": "10.00"}],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "quantity" in response.text
+    db.expire_all()
+    assert (
+        db.scalar(select(Listing.id).where(Listing.inventory_item_id == item.id))
+        is None
+    )
+    assert db.get_one(InventoryItem, item.id).disposition.code == "held"
+
+
+def test_a_store_offer_may_still_be_of_several_units(
+    client: TestClient,
+    db: Session,
+    make_item: Callable[..., InventoryItem],
+    admin_headers: dict[str, str],
+) -> None:
+    """The other side of the refusal above: the shop sells a unit at a time."""
+    item = make_item()
+    response = client.post(
+        "/api/offers",
+        headers=admin_headers,
+        json={
+            "venue": "store",
+            "format": "fixed_price",
+            "quantity": 3,
+            "items": [{"item_id": item.id, "price": "10.00"}],
+        },
+    )
+    assert response.status_code == 201, response.text
+    db.expire_all()
+    assert (
+        db.scalar(
+            select(Listing.quantity_available).where(
+                Listing.inventory_item_id == item.id
+            )
+        )
+        == 3
+    )
 
 
 def test_an_anonymous_request_is_refused(

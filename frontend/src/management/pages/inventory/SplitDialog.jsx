@@ -95,8 +95,10 @@ function problems(rows, mode) {
 export default function SplitDialog({ item, onSplit, onClose }) {
   const [mode, setMode] = useState('equal')
   const [rows, setRows] = useState(() => startingRows(item))
-  // The Pieces box as typed: it may be blank for a moment while a number is
-  // retyped, which the rows themselves never are.
+  // The Pieces box as typed. The rows follow it only once the number is
+  // finished -- the box is left, or Enter pressed: on the way from 9 to 12
+  // it reads 1, and rows dropped for that moment would take what was typed
+  // in them.
   const [countText, setCountText] = useState(() => String(rows.length))
   const [acknowledged, setAcknowledged] = useState(false)
   const [error, setError] = useState('')
@@ -111,11 +113,10 @@ export default function SplitDialog({ item, onSplit, onClose }) {
   const listed = (item.sale_state ?? []).filter((use) => use.kind === 'listing')
   const estimate = shares(rows, mode, item.item_cost)
 
-  function setCount(e) {
-    const text = e.target.value
-    setCountText(text)
-    if (!WHOLE.test(text)) return
-    const count = Math.min(Number(text), MAX_PIECES)
+  /** Make the rows as many as the Pieces box says, if it holds a number. */
+  function resizeRows() {
+    if (!WHOLE.test(countText)) return
+    const count = Math.min(Number(countText), MAX_PIECES)
     setRows((current) =>
       count <= current.length
         ? current.slice(0, Math.max(count, 0))
@@ -190,7 +191,11 @@ export default function SplitDialog({ item, onSplit, onClose }) {
               min="2"
               max={MAX_PIECES}
               value={countText}
-              onChange={setCount}
+              onChange={(e) => setCountText(e.target.value)}
+              onBlur={resizeRows}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') resizeRows()
+              }}
             />
           </label>
           <label data-help="split_mode">

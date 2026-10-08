@@ -29,8 +29,11 @@ SERIAL_DISTRICT = "serial_district"
 COMPOSITION = "composition"
 SERIES_MATCH = "series_match"
 SERIES_CLASSIFY = "series_classify"
+#: Written by no rule here: `app.reports.data_quality` reads it only to
+#: label a row that holds it.
 SERIES_BACKFILL = "series_backfill"
 SUGGESTION = "suggestion"
+#: Written by no rule here either; a label in the same report.
 RATING = "rating"
 #: Fine weight worked out as gross weight times fineness.
 WEIGHT = "weight"

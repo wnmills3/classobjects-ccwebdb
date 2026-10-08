@@ -107,6 +107,54 @@ def test_a_nonsense_setting_is_refused(
         logpipe.keep_setting()
 
 
+@pytest.mark.parametrize("value", ["big", "0", "1023"])
+def test_a_size_limit_below_the_minimum_is_refused(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("CCWEB_LOG_MAX_BYTES", value)
+    with pytest.raises(SystemExit):
+        logpipe.max_bytes_setting()
+
+
+def test_the_smallest_size_limit_is_1024_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CCWEB_LOG_MAX_BYTES", "1024")
+    assert logpipe.max_bytes_setting() == 1024
+
+
+def test_a_log_held_open_elsewhere_does_not_stop_the_writer(tmp_path: Path) -> None:
+    log = tmp_path / "backend.log"
+    pipe([b"first\n"], RollingWriter(log, keep=3, max_bytes=1024))
+    # Another program still has the current file open, as a server from an
+    # earlier start does. Windows refuses to rename or delete a file in that
+    # state, so the file cannot be moved up to make room for a new one.
+    with log.open("ab"):
+        pipe([b"second\n"], RollingWriter(log, keep=3, max_bytes=1024))
+
+    kept = b"".join(p.read_bytes() for p in tmp_path.iterdir())
+    # Nothing either launch wrote is lost, wherever it landed.
+    assert b"first\n" in kept
+    assert b"second\n" in kept
+
+
+def test_only_rotating_reports_a_log_it_could_not_move(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = tmp_path / "pg_stop.log"
+    log.write_text("stop\n")
+    assert logpipe.main([str(log), "--rotate"]) == 0
+
+    def refuse(path: Path, keep: int) -> None:
+        raise PermissionError(f"{path} is open in another program")
+
+    monkeypatch.setattr(logpipe, "rotate", refuse)
+    log.write_text("stop again\n")
+    # The caller goes on to write the file whatever happened; the exit code
+    # is how it learns the file before was not kept.
+    assert logpipe.main([str(log), "--rotate"]) == 1
+
+
 def test_the_defaults_are_three_files_of_one_gigabyte(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

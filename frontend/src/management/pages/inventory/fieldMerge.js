@@ -37,7 +37,10 @@ export function sameValue(a, b) {
   const blank = (v) => v === null || v === undefined || v === ''
   if (blank(a) && blank(b)) return true
   if (Array.isArray(a) && Array.isArray(b)) {
-    const norm = (v) => [...v].map(String).sort().join('\u0000')
+    // Ordered by code unit, stated rather than left to the default: all that
+    // matters is that both lists are put in the same order.
+    const byCodeUnit = (x, y) => (x < y ? -1 : x > y ? 1 : 0)
+    const norm = (v) => [...v].map(String).sort(byCodeUnit).join('\u0000')
     return norm(a) === norm(b)
   }
   if (typeof a === 'boolean' || typeof b === 'boolean') return a === b

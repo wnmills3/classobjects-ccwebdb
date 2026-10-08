@@ -289,4 +289,37 @@ describe('SettlementGrid', () => {
       { buyer_username: 'amy', fees: [{ kind: 'commission', amount: '10.00' }] },
     ])
   })
+
+  it('totals only the fees of buyers still in the grid, which are the ones sent', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <SettlementGrid
+        auction={closedAuction()}
+        isAuctionHouse={false}
+        locations={[]}
+        onSettled={vi.fn()}
+      />,
+      { reference: reference() },
+    )
+    const total = (name) =>
+      screen.getByText(name, { selector: 'dt' }).nextElementSibling.textContent
+
+    await user.selectOptions(screen.getByLabelText('Result for lot 1'), 'sold')
+    await user.type(screen.getByLabelText('Hammer price for lot 1'), '150.00')
+    await user.type(screen.getByLabelText('Buyer for lot 1'), 'amy')
+    await user.type(screen.getByLabelText('Commission fee for amy'), '24.00')
+    expect(total('Fees')).toBe('24.00')
+
+    // The buyer's name is corrected: the fee typed under the old spelling
+    // belongs to nobody in the grid and is not sent.
+    await user.type(screen.getByLabelText('Buyer for lot 1'), 'b')
+    expect(screen.getByLabelText('Commission fee for amyb')).toHaveValue('')
+    expect(total('Fees')).toBe('0.00')
+    expect(total('Net')).toBe('150.00')
+
+    // The lot did not sell after all: its buyer's fees leave the total too.
+    await user.type(screen.getByLabelText('Commission fee for amyb'), '9.00')
+    await user.selectOptions(screen.getByLabelText('Result for lot 1'), 'unsold')
+    expect(total('Fees')).toBe('0.00')
+  })
 })

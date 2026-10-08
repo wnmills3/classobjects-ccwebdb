@@ -12,9 +12,17 @@ from pathlib import Path
 
 import pytest
 from app import ebay_orders
-from app.models import InventoryItem, ItemFieldChange, PurchaseOrder, User, Vendor
+from app.models import (
+    InventoryItem,
+    ItemFieldChange,
+    PurchaseOrder,
+    Seller,
+    User,
+    Vendor,
+)
+from app.models.base import utcnow
 from fastapi.testclient import TestClient
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -59,7 +67,11 @@ def _ebay(db: Session) -> Vendor:
 
 
 def _purchase(
-    db: Session, item_id: str, on: date, number: str | None = None, pieces: int = 1
+    db: Session,
+    item_id: str,
+    on: date | None,
+    number: str | None = None,
+    pieces: int = 1,
 ) -> PurchaseOrder:
     """A purchase of one listing, linking it, with `pieces` items from it."""
     url = f"https://www.ebay.com/itm/{item_id}"
@@ -183,6 +195,278 @@ def test_a_listing_of_an_order_already_recorded_joins_that_purchase(
         )
     ).all()
     assert moved == [held.id]
+
+
+def _two_listings_of_one_order(tmp_path: Path, number: str, stem: str) -> Path:
+    """A history of one order holding the listings `<stem>1` and `<stem>2`."""
+    return _history(
+        tmp_path,
+        [
+            (number, "Mar 04, 2025", f"{stem}1", "one"),
+            (number, "Mar 04, 2025", f"{stem}2", "two"),
+        ],
+    )
+
+
+def test_a_merged_purchases_seller_and_notes_go_to_the_one_kept(
+    db: Session, tmp_path: Path
+) -> None:
+    """Deleting a purchase must not delete what only it recorded."""
+    seller = Seller(name="drh9989")
+    db.add(seller)
+    db.flush()
+    first = _purchase(db, "232323232321", DAY)
+    first.notes = "paid by card"
+    second = _purchase(db, "232323232322", DAY)
+    second.seller_id = seller.id
+    second.notes = "one coin short, refunded 4.00"
+    db.flush()
+
+    _run(db, _two_listings_of_one_order(tmp_path, "23-23232-32323", "23232323232"))
+
+    assert db.get(PurchaseOrder, second.id) is None
+    survivor = db.get(PurchaseOrder, first.id)
+    assert survivor is not None
+    assert survivor.seller_id == seller.id
+    assert "paid by card" in (survivor.notes or "")
+    assert "one coin short, refunded 4.00" in (survivor.notes or "")
+
+
+def test_the_kept_purchases_own_seller_stays_and_the_review_names_the_other(
+    db: Session, tmp_path: Path
+) -> None:
+    """One purchase has one seller: a second one is for a person to settle."""
+    kept_seller = Seller(name="coind0g")
+    other_seller = Seller(name="summer_the_cockapoo")
+    db.add_all([kept_seller, other_seller])
+    db.flush()
+    first = _purchase(db, "242424242421", DAY)
+    first.seller_id = kept_seller.id
+    second = _purchase(db, "242424242422", DAY)
+    second.seller_id = other_seller.id
+    second.notes = "came in a second parcel"
+    db.flush()
+    path = _two_listings_of_one_order(tmp_path, "24-24242-42424", "24242424242")
+    lines = ebay_orders.read_history([path])
+    todo = ebay_orders.plan(db, lines)
+
+    review = tmp_path / "review.xlsx"
+    ebay_orders.write_review(db, todo, lines, review)
+    book = load_workbook(review)
+    try:
+        numbered = " | ".join(
+            str(cell)
+            for row in book["Numbered"].iter_rows(values_only=True)
+            for cell in row
+            if cell is not None
+        )
+    finally:
+        book.close()
+    # What the merge cannot carry, and what it appends, is there to be read.
+    assert "summer_the_cockapoo" in numbered
+    assert "came in a second parcel" in numbered
+
+    ebay_orders.apply(db, todo, _admin(db))
+    db.flush()
+    db.expire_all()
+    survivor = db.get(PurchaseOrder, first.id)
+    assert survivor is not None
+    assert survivor.seller_id == kept_seller.id
+    assert "came in a second parcel" in (survivor.notes or "")
+
+
+def test_a_listing_bought_twice_goes_to_the_order_of_the_purchases_date(
+    db: Session, tmp_path: Path
+) -> None:
+    order = _purchase(db, "252525252525", date(2025, 4, 9))
+    path = _history(
+        tmp_path,
+        [
+            ("25-25252-00001", "Mar 04, 2025", "252525252525", "x"),
+            ("25-25252-00002", "Apr 09, 2025", "252525252525", "x"),
+        ],
+    )
+    todo = _run(db, path)
+
+    assert todo.unmatched == []
+    refreshed = db.get(PurchaseOrder, order.id)
+    assert refreshed is not None and refreshed.order_number == "25-25252-00002"
+
+
+def test_an_empty_order_date_is_filled_from_the_history_and_a_set_one_kept(
+    db: Session, tmp_path: Path
+) -> None:
+    undated = _purchase(db, "262626262621", None)
+    dated = _purchase(db, "262626262622", date(2025, 3, 1))
+    path = _history(
+        tmp_path,
+        [
+            ("26-26262-00001", "Mar 04, 2025", "262626262621", "x"),
+            ("26-26262-00002", "Mar 04, 2025", "262626262622", "y"),
+        ],
+    )
+    _run(db, path)
+
+    filled = db.get(PurchaseOrder, undated.id)
+    assert filled is not None
+    assert (filled.order_number, filled.ordered_on) == ("26-26262-00001", DAY)
+    kept = db.get(PurchaseOrder, dated.id)
+    assert kept is not None
+    assert (kept.order_number, kept.ordered_on) == (
+        "26-26262-00002",
+        date(2025, 3, 1),
+    )
+
+
+def test_a_deleted_item_and_a_split_lot_say_nothing_about_the_order(
+    db: Session, tmp_path: Path
+) -> None:
+    """Only live items are read, as every count of the collection reads them.
+
+    A row deleted as a mistake, or a lot replaced by its pieces, may link a
+    listing of another order: read, it would leave the purchase "in several
+    orders" and write a listing id and a History row on a row nobody sees.
+    """
+    order = _purchase(db, "272727272721", DAY)
+    gone = build_item(db, purchase_order_id=order.id)
+    gone.listing_url = "https://www.ebay.com/itm/272727272722"
+    gone.deleted_at = utcnow()
+    lot = build_item(db, purchase_order_id=order.id)
+    lot.listing_url = "https://www.ebay.com/itm/272727272723"
+    lot.split_at = utcnow()
+    db.flush()
+    path = _history(
+        tmp_path,
+        [
+            ("27-27272-00001", "Mar 04, 2025", "272727272721", "ours"),
+            ("27-27272-00002", "Mar 04, 2025", "272727272722", "deleted"),
+            ("27-27272-00003", "Mar 04, 2025", "272727272723", "split"),
+        ],
+    )
+    todo = _run(db, path)
+
+    assert todo.unmatched == []
+    refreshed = db.get(PurchaseOrder, order.id)
+    assert refreshed is not None and refreshed.order_number == "27-27272-00001"
+    for item in (gone, lot):
+        assert item.id not in todo.listing_ids
+        assert db.get_one(InventoryItem, item.id).sellers_item_id is None
+    logged = db.scalars(
+        select(ItemFieldChange.inventory_item_id).where(
+            ItemFieldChange.inventory_item_id.in_([gone.id, lot.id])
+        )
+    ).all()
+    assert logged == []
+
+
+def test_ebay_is_known_by_its_host_name_whatever_the_vendor_is_called(
+    db: Session, tmp_path: Path
+) -> None:
+    """A vendor renamed on the Lists page is still eBay to the pass."""
+    for renamed in db.scalars(select(Vendor).where(Vendor.name == ebay_orders.EBAY)):
+        renamed.name = "eBay"
+        renamed.host = "www.ebay.com"
+    vendor = db.scalar(select(Vendor).where(Vendor.name == "eBay"))
+    if vendor is None:
+        vendor = Vendor(name="eBay", host="www.ebay.com")
+        db.add(vendor)
+    db.flush()
+    url = "https://www.ebay.com/itm/282828282828"
+    order = PurchaseOrder(vendor_id=vendor.id, ordered_on=DAY, source_url=url)
+    db.add(order)
+    db.flush()
+    build_item(db, purchase_order_id=order.id).listing_url = url
+    db.flush()
+    path = _history(tmp_path, [("28-28282-82828", "Mar 04, 2025", "282828282828", "z")])
+
+    _run(db, path)
+
+    refreshed = db.get(PurchaseOrder, order.id)
+    assert refreshed is not None and refreshed.order_number == "28-28282-82828"
+
+
+def test_with_no_ebay_vendor_the_pass_refuses_rather_than_reporting_nothing(
+    db: Session, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Zero changes must mean nothing is left to do, not that eBay was not found.
+
+    `main` is given the test's own `db`: left to itself it opens the
+    application's `SessionLocal`.
+    """
+    for vendor in db.scalars(select(Vendor)):
+        assert not ebay_orders.is_ebay(vendor)
+    path = _history(tmp_path, [("29-29292-92929", "Mar 04, 2025", "292929292929", "z")])
+
+    assert ebay_orders.main([str(path)], db=db) == 1
+
+    captured = capsys.readouterr()
+    assert "no eBay vendor" in captured.err
+    assert "listing ids to set" not in captured.out
+
+
+def test_the_person_named_is_found_whatever_the_capitals(
+    db: Session, tmp_path: Path, admin_user: User
+) -> None:
+    """`--by` reads an email address as every other pass does: case aside."""
+    order = _purchase(db, "303030303030", DAY)
+    db.commit()
+    path = _history(tmp_path, [("30-30303-03030", "Mar 04, 2025", "303030303030", "z")])
+
+    assert (
+        ebay_orders.main([str(path), "--commit", "--by", "nobody@example.com"], db=db)
+        == 2
+    )
+    db.expire_all()
+    assert db.get_one(PurchaseOrder, order.id).order_number is None
+
+    by = admin_user.email.upper()
+    assert ebay_orders.main([str(path), "--commit", "--by", by], db=db) == 0
+    db.expire_all()
+    assert db.get_one(PurchaseOrder, order.id).order_number == "30-30303-03030"
+
+
+def test_the_review_workbook_lists_what_was_numbered_and_what_is_left(
+    db: Session, tmp_path: Path
+) -> None:
+    numbered = _purchase(db, "313131313131", DAY)
+    absent = _purchase(db, "313131313139", DAY)
+    wrong = _purchase(db, "313131313132", DAY, number="31-00000-00000")
+    path = _history(
+        tmp_path,
+        [
+            ("31-31313-00001", "Mar 04, 2025", "313131313131", "a dime"),
+            ("31-31313-00002", "Mar 04, 2025", "313131313132", "a cent"),
+        ],
+    )
+    lines = ebay_orders.read_history([path])
+    review = tmp_path / "out" / "review.xlsx"
+
+    ebay_orders.write_review(db, ebay_orders.plan(db, lines), lines, review)
+
+    book = load_workbook(review)
+    try:
+        assert book.sheetnames == ["Numbered", "Needs you", "Numbers that disagree"]
+        sheets = {
+            name: [list(row) for row in book[name].iter_rows(values_only=True)][1:]
+            for name in book.sheetnames
+        }
+    finally:
+        book.close()
+    assert [(row[0], row[1]) for row in sheets["Numbered"]] == [
+        ("31-31313-00001", numbered.id)
+    ]
+    assert "a dime" in sheets["Numbered"][0]
+    assert [(row[0], row[-1]) for row in sheets["Needs you"]] == [
+        (absent.id, "listing not in the purchase history")
+    ]
+    (differs,) = sheets["Numbers that disagree"]
+    assert differs[0] == wrong.id
+    assert differs[-4:] == [
+        "31-00000-00000",
+        "31-31313-00002",
+        "a cent",
+        "not in the history (a typo?)",
+    ]
 
 
 def test_an_order_number_is_compared_as_text(db: Session) -> None:

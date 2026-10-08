@@ -100,7 +100,7 @@ describe('AdminPeople', () => {
     expect(screen.queryByRole('button', { name: 'Create account' })).toBeNull()
   })
 
-  it('offers customer as the role until an administrator is chosen', async () => {
+  it('offers customer as the role until manager is chosen', async () => {
     await openNewAccount()
     expect(screen.getByLabelText(/^role$/i)).toHaveValue('customer')
   })
@@ -176,6 +176,67 @@ describe('AdminPeople', () => {
     expect(await screen.findByText('that email is already in use')).toBeInTheDocument()
     // The typing is still there to be corrected, not retyped.
     expect(screen.getByDisplayValue('Ada King')).toBeInTheDocument()
+  })
+})
+
+describe('AdminPeople: a customer edit', () => {
+  /** The customers tab with the one customer's row open for editing. */
+  async function editCustomer() {
+    const user = userEvent.setup()
+    renderWithProviders(<AdminPeople />, { auth: adminAuth() })
+    await user.click(await screen.findByRole('button', { name: 'Customers' }))
+    await user.click(await screen.findByRole('button', { name: 'Edit' }))
+    return user
+  }
+
+  it('clears an email by sending null, which is what the server takes for none', async () => {
+    api.updateCustomer.mockResolvedValue({})
+    const user = await editCustomer()
+    await user.clear(screen.getByDisplayValue('ada@example.com'))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(api.updateCustomer).toHaveBeenCalledWith(5, { email: null }),
+    )
+  })
+
+  it('refuses a blank name without asking the server', async () => {
+    const user = await editCustomer()
+    await user.clear(screen.getByDisplayValue('Ada Lovelace'))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(screen.getByText('A customer needs a name.')).toBeInTheDocument()
+    expect(api.updateCustomer).not.toHaveBeenCalled()
+  })
+
+  it('sends one save however often Ctrl+S repeats while it is out', async () => {
+    api.updateCustomer.mockReturnValue(new Promise(() => {}))
+    const user = await editCustomer()
+    await user.type(screen.getByDisplayValue('Ada Lovelace'), ' King')
+
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    await user.click(screen.getByRole('button', { name: 'Saving...' }))
+
+    expect(api.updateCustomer).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('AdminPeople: a new address', () => {
+  it('records one address however often Save repeats while it is out', async () => {
+    // Each request retires the address before it and adds a row, so a second
+    // one behind the first would leave a retired copy of the same address.
+    api.addCustomerAddress.mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    renderWithProviders(<AdminPeople />, { auth: adminAuth() })
+    await user.click(await screen.findByRole('button', { name: 'Customers' }))
+    await user.click(await screen.findByRole('button', { name: 'New address' }))
+
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    await user.click(screen.getByRole('button', { name: 'Saving...' }))
+
+    expect(api.addCustomerAddress).toHaveBeenCalledTimes(1)
   })
 })
 

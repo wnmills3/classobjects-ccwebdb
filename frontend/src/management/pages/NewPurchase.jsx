@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
 import AddItem from './entry/AddItem'
-import { siteName } from '../site-name'
+import { siteName, withScheme } from '../site-name'
 import { useInlineAdd } from '../useInlineAdd'
 import SellerField from './SellerField'
 import ItemEditDialog from './inventory/ItemEditDialog'
@@ -53,7 +53,7 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
         api.createVendor({
           name: d.name.trim(),
           vendor_kind: d.vendor_kind || null,
-          url: orNull(d.url),
+          url: withScheme(d.url),
         }),
       onCreated: (created) => {
         onVendorAdded(created)
@@ -65,8 +65,9 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
     return (
       <div className="add-reference" onKeyDown={onKeyDown}>
         {/* The address first: a vendor is named for its site, so the address
-            proposes the name. Only a name the address gave follows it; one
-            typed by hand is left alone. */}
+            proposes the name. Only a name the address gave follows it, or
+            an empty one, which is nobody's choice; one typed by hand is
+            left alone. */}
         <input
           placeholder="https://"
           aria-label="Vendor web address"
@@ -74,7 +75,7 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
           autoFocus
           onChange={(e) => {
             const url = e.target.value
-            const proposed = draft.name === siteName(draft.url)
+            const proposed = draft.name === '' || draft.name === siteName(draft.url)
             setDraft({ ...draft, url, name: proposed ? siteName(url) : draft.name })
           }}
         />
@@ -278,7 +279,12 @@ function PurchaseDetails({ purchase, onSaved }) {
     )
   }
 
-  const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
+  // Each change is made to the draft as it stands when it lands: adding a
+  // seller answers later, and must not put back what was typed meanwhile.
+  const set = (key) => (e) => {
+    const { value } = e.target
+    setDraft((current) => ({ ...current, [key]: value }))
+  }
 
   // From the form's submit, or from Ctrl+S, which has no event to stop.
   async function save(e) {
@@ -346,7 +352,7 @@ function PurchaseDetails({ purchase, onSaved }) {
           Seller{/* */}
           <SellerField
             value={draft.seller_id}
-            onChange={(id) => setDraft({ ...draft, seller_id: id })}
+            onChange={(id) => setDraft((current) => ({ ...current, seller_id: id }))}
           />
         </label>
       </div>
@@ -410,7 +416,7 @@ export default function NewPurchase() {
    * another purchase" has moved on by the time it answers. A failure is
    * handed to `onError`, under the same guard.
    */
-  const fetchPurchase = useCallback((id, onError) => {
+  const fetchPurchase = useCallback((id, onError, onAnswered) => {
     const token = ++pickToken.current
     api
       .getPurchaseOrder(id)
@@ -420,6 +426,8 @@ export default function NewPurchase() {
       .catch((err) => {
         if (pickToken.current === token) onError(err.message)
       })
+      // Whether or not it was still wanted: the question is no longer open.
+      .finally(() => onAnswered?.())
   }, [])
 
   // Tax defaults for every item entered on this purchase. The rate box
@@ -474,16 +482,27 @@ export default function NewPurchase() {
   // item's purchase can be corrected from the item.
   const [searchParams] = useSearchParams()
   const linkedOrder = Number(searchParams.get('order')) || null
+  //: The linked purchase whose read has answered, well or badly. Until it
+  //: has, the page says it is loading rather than showing an empty form as
+  //: though no purchase had been asked for.
+  const [answeredLink, setAnsweredLink] = useState(null)
   useEffect(() => {
     if (linkedOrder === null) return undefined
-    fetchPurchase(linkedOrder, setPickError)
+    fetchPurchase(linkedOrder, setPickError, () => setAnsweredLink(linkedOrder))
     return () => {
       pickToken.current += 1
     }
   }, [linkedOrder, fetchPurchase])
+  const linkLoading = linkedOrder !== null && answeredLink !== linkedOrder
 
+  // Each change is made to the form as it stands when it lands: adding a
+  // vendor or a seller answers later, and must not put back what was typed
+  // meanwhile.
   function set(key) {
-    return (e) => setForm({ ...form, [key]: e.target.value })
+    return (e) => {
+      const { value } = e.target
+      setForm((current) => ({ ...current, [key]: value }))
+    }
   }
 
   function pickExisting(id) {
@@ -620,7 +639,10 @@ export default function NewPurchase() {
               )}
             </h2>
             <PurchaseDetails
-              key={purchase.id}
+              // Its own key, not the bare id the item form below also takes:
+              // two siblings with one key leave the first on screen when the
+              // purchase changes.
+              key={`details-${purchase.id}`}
               purchase={purchase}
               onSaved={(updated) => {
                 setPurchase(updated)
@@ -720,7 +742,7 @@ export default function NewPurchase() {
 
             <AddItem
               // A purchase's own: the last item added is not the next one's.
-              key={purchase.id}
+              key={`items-${purchase.id}`}
               purchaseOrderId={purchase.id}
               orderUrl={lotPage(purchase)}
               defaults={itemDefaults}
@@ -748,6 +770,12 @@ export default function NewPurchase() {
     <section>
       <h1>Purchases</h1>
       <HelpScope>
+        {/* Above the choice, not under one side of it: a linked purchase is
+            asked for whichever side is showing. */}
+        {pickError && <p className="error">{pickError}</p>}
+        {linkLoading && (
+          <p className="muted">Loading purchase {purchaseNumber(linkedOrder)}...</p>
+        )}
         <div className="filter-grid" data-help="purchase_mode">
           <label className="checkbox">
             <input
@@ -776,7 +804,6 @@ export default function NewPurchase() {
         {mode === 'existing' && (
           <div className="admin-form">
             {ordersError && <p className="error">{ordersError}</p>}
-            {pickError && <p className="error">{pickError}</p>}
             {!ordersError && !orders && <p className="muted">Loading...</p>}
             {orders && orders.length > 0 && (
               <label data-help="purchase_filter">
@@ -822,7 +849,9 @@ export default function NewPurchase() {
                   <VendorField
                     vendors={vendors}
                     value={form.vendor_id}
-                    onChange={(id) => setForm({ ...form, vendor_id: id })}
+                    onChange={(id) =>
+                      setForm((current) => ({ ...current, vendor_id: id }))
+                    }
                     onVendorAdded={(created) =>
                       setVendors((v) =>
                         [...v, created].sort((a, b) => a.name.localeCompare(b.name)),
@@ -862,7 +891,9 @@ export default function NewPurchase() {
                 Seller{/* */}
                 <SellerField
                   value={form.seller_id}
-                  onChange={(id) => setForm({ ...form, seller_id: id })}
+                  onChange={(id) =>
+                    setForm((current) => ({ ...current, seller_id: id }))
+                  }
                 />
               </label>
             </div>

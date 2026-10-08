@@ -33,10 +33,14 @@ const STALE_MS = 60_000
 /**
  * Holds the loaded vocabularies and gives its children `tables`, by name,
  * with `load`, `refresh` and `invalidate` to fetch one, renew an old copy,
- * and drop one that has been changed.
+ * and drop one that has been changed, and `failed`, naming the tables whose
+ * latest fetch did not succeed.
  */
 export function ReferenceProvider({ children }) {
   const [tables, setTables] = useState({})
+  //: table -> true while its latest fetch failed. Such a table is held as
+  //: an empty list, which on its own cannot be told from an empty vocabulary.
+  const [failed, setFailed] = useState({})
   //: table -> a token for its latest request, loaded or still in flight.
   const requested = useRef(new Map())
   //: table -> when its values were last asked for, once they have arrived.
@@ -47,17 +51,20 @@ export function ReferenceProvider({ children }) {
     const token = {}
     requested.current.set(table, token)
     let values
+    let missed = false
     try {
       values = (await api.getReference(table)).values
     } catch {
       // A missing vocabulary must not take the form down: the field falls
-      // back to a free-text input.
+      // back to a free-text input, and says the vocabulary did not load.
       values = []
+      missed = true
     }
     // An answer to a request since invalidated is stale; the newer one wins.
     if (requested.current.get(table) === token) {
       asked.current.set(table, Date.now())
       setTables((t) => ({ ...t, [table]: values }))
+      setFailed((f) => ({ ...f, [table]: missed }))
     }
   }, [])
 
@@ -84,6 +91,7 @@ export function ReferenceProvider({ children }) {
     }
     if (requested.current.get(table) === token) {
       setTables((t) => ({ ...t, [table]: values }))
+      setFailed((f) => ({ ...f, [table]: false }))
     }
   }, [])
 
@@ -119,8 +127,8 @@ export function ReferenceProvider({ children }) {
   )
 
   const value = useMemo(
-    () => ({ tables, load, invalidate, refresh }),
-    [tables, load, invalidate, refresh],
+    () => ({ tables, failed, load, invalidate, refresh }),
+    [tables, failed, load, invalidate, refresh],
   )
 
   return <ReferenceContext.Provider value={value}>{children}</ReferenceContext.Provider>
@@ -311,7 +319,7 @@ export function ReferenceSelect({
   }
 
   if (!values || values.length === 0) {
-    return (
+    const box = (
       <input
         value={value ?? ''}
         onChange={onChange}
@@ -321,6 +329,18 @@ export function ReferenceSelect({
         aria-keyshortcuts={ariaKeyshortcuts}
         disabled={disabled}
       />
+    )
+    // A box that appears because the fetch failed says so: unexplained, it
+    // reads as a field that takes any text, and what is typed is a code the
+    // server may not know.
+    if (!context?.failed?.[table]) return box
+    return (
+      <>
+        {box}
+        <span className="error" role="status">
+          Could not load {table}.
+        </span>
+      </>
     )
   }
 

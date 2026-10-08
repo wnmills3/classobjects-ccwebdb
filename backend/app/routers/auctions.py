@@ -84,6 +84,15 @@ router = APIRouter(prefix="/auctions", tags=["selling"])
 
 _STALE = "This auction was changed by someone else. Reload and reapply your changes."
 
+#: The unique index a repeated `lot_number` within one auction violates.
+_LOT_NUMBER_INDEX = "uq_auction_lot_auction_lot_number"
+
+#: What the loser of a race for a coin is told when adding it as a lot.
+_RACED = (
+    "This could not be added as a lot: one of its items was put in a lot or "
+    "offered somewhere else a moment ago. Reload and try again."
+)
+
 _REFUSAL_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_409_CONFLICT: {"model": AuctionRefusedOut},
     status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": AuctionRefusedOut},
@@ -206,8 +215,22 @@ def list_auctions(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_auction(payload: AuctionIn, db: DbSession, _admin: AdminUser) -> AuctionOut:
-    """Start an auction. It begins `draft`, with no lots yet."""
+    """Start an auction. It begins `draft`, with no lots yet.
+
+    Never on the web store, a 422: the shop sells at a fixed price through
+    checkout, and a sale recorded there has no order status to start at
+    (`sales_writes._STATUS_BY_VENUE_KIND`), so an auction on it could take
+    lots out of the shop and then never settle one as sold.
+    """
     venue = venue_by_code(db, payload.venue)
+    if venue.is_own_store:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"{venue.name} is the web store, which sells at a fixed price "
+                "through checkout: an auction runs on an outside platform"
+            ),
+        )
     auction = Auction(
         sales_venue_id=venue.id,
         title=payload.title,
@@ -328,7 +351,15 @@ def add_auction_lot(
             detail=f"{refused.item_code}: {refused.reason}",
         ) from refused
     except IntegrityError as exc:
-        raise _duplicate_lot_number(lot_number) from exc
+        # Only this one index means the lot number. Adding a lot also writes
+        # a lot membership and a claim, each behind a unique index of its
+        # own, and the loser of a race for the coin must not be told to pick
+        # another number.
+        if _LOT_NUMBER_INDEX in str(exc.orig):
+            raise _duplicate_lot_number(lot_number) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_RACED
+        ) from exc
     return _out(_get_auction(db, auction_id))
 
 

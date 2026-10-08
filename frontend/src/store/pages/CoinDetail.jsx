@@ -54,6 +54,12 @@ export default function CoinDetail() {
   // decides which and says so in the alt text.
   const cover = coverImage(coin)
 
+  // The detail endpoint serves a listing that has been ended or paused, so
+  // a bookmarked page can say so. Whatever stock it still carries is not on
+  // offer -- checkout refuses it -- so it is neither counted nor addable.
+  // One with no stock left reads "Sold out", which is the more exact news.
+  const withdrawn = coin.is_active === false && coin.quantity_available > 0
+
   return (
     <section className="detail">
       <p>
@@ -62,11 +68,15 @@ export default function CoinDetail() {
       <h1>{coin.title}</h1>
       {cover && <img className="detail-image" src={cover.url} alt={cover.alt} />}
       <p className="price large">{money(coin.price, coin.currency)}</p>
-      <p className="muted">
-        {coin.quantity_available > 0
-          ? `${coin.quantity_available} available`
-          : 'Sold out'}
-      </p>
+      {withdrawn ? (
+        <p className="muted">No longer for sale.</p>
+      ) : (
+        <p className="muted">
+          {coin.quantity_available > 0
+            ? `${coin.quantity_available} available`
+            : 'Sold out'}
+        </p>
+      )}
       {/* How many things this is, before the price is read as one coin's. */}
       {isLot(coin) && <p className="muted">{summarize(coin)}</p>}
 
@@ -110,9 +120,11 @@ export default function CoinDetail() {
         </section>
       )}
 
-      <button disabled={coin.quantity_available === 0} onClick={() => add(coin, 1)}>
-        {coin.quantity_available === 0 ? 'Sold out' : 'Add to cart'}
-      </button>
+      {!withdrawn && (
+        <button disabled={coin.quantity_available === 0} onClick={() => add(coin, 1)}>
+          {coin.quantity_available === 0 ? 'Sold out' : 'Add to cart'}
+        </button>
+      )}
     </section>
   )
 }

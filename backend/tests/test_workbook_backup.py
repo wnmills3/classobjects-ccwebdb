@@ -8,6 +8,10 @@ JSON with both SQL NULL and JSON's null, a decimal, a zone-aware
 timestamp, a date, an empty string beside a NULL, and a value that looks
 like a formula. Two vocabularies test `--unknown-for-missing`: `finish`
 needs nothing but a code and a label, `coinage` a face value too.
+
+The same two databases serve `app.backup.copy_rows` and the proof a backup
+run makes (`app.backup_run.prove_workbook`), which need a source to copy and
+a second database to restore into.
 """
 
 from __future__ import annotations
@@ -19,17 +23,20 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from app import backup
+from alembic.config import Config
+from app import backup, backup_run
 from app import workbook_backup as wb
 from openpyxl import Workbook, load_workbook
 from sqlalchemy import (
     JSON,
     Boolean,
+    Column,
     Date,
     DateTime,
     Integer,
     Numeric,
     String,
+    Table,
     create_engine,
     text,
 )
@@ -443,6 +450,299 @@ def test_app_backup_finds_the_tables_no_model_describes(
     # And the copy's table list is the models' followed by these.
     names = [table.name for table in backup.all_tables(source)]
     assert names[-len(found) :] == found
+
+
+def test_app_backup_copies_a_row_that_points_at_a_later_row_of_its_table(
+    pair: tuple[Engine, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`app.backup.copy_rows` run for real, a row at a time.
+
+    Parent 2 points at parent 3. One row per round trip puts row 2 in the
+    database before row 3 exists, as a table larger than one chunk does to
+    any row that points forward.
+    """
+    source, target_url = pair
+    monkeypatch.setattr(backup, "CHUNK", 1)
+    target = create_engine(target_url)
+    try:
+        with target.begin() as conn:
+            conn.execute(
+                text("TRUNCATE parent, child, finish, coinage RESTART IDENTITY CASCADE")
+            )
+        tables = [
+            table
+            for table in backup.unmodelled_tables(source)
+            if table.name != wb.VERSION_TABLE
+        ]
+
+        copied = dict(backup.copy_rows(source, target, tables))
+
+        assert copied == {"parent": 4, "finish": 2, "coinage": 1, "child": 3}
+        with source.connect() as a, target.connect() as b:
+            for query in (
+                "SELECT id, name, parent_id, amount, doubled, at, day, flag, "
+                "color::text FROM parent ORDER BY id",
+                "SELECT id, parent_id, note, finish_id, coinage_id "
+                "FROM child ORDER BY id",
+                "SELECT id, code, label, featured FROM finish ORDER BY id",
+            ):
+                assert b.execute(text(query)).all() == a.execute(text(query)).all()
+            # SQL NULL (parent 2) and JSON's null (parent 4) each stayed what
+            # it was: read back, both are Python's None.
+            nulls = b.execute(
+                text("SELECT data IS NULL FROM parent WHERE id IN (2, 4) ORDER BY id")
+            ).scalars()
+            assert list(nulls) == [True, False]
+            # The sequence is past the copied ids: a new row does not collide.
+            new_id = b.execute(
+                text("INSERT INTO parent (name) VALUES ('new') RETURNING id")
+            ).scalar()
+            assert new_id == 5
+    finally:
+        target.dispose()
+
+
+# -- what an export refuses, and what it reads ----------------------------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        " ",
+        "\u00a0",
+        "first line\r\nsecond line",
+        "one\rtwo",
+        '""',
+        "x" * 32768,
+        "a\x0bb",
+    ],
+    ids=[
+        "only a space",
+        "only a no-break space",
+        "a carriage return and line feed",
+        "a bare carriage return",
+        "two quotation marks",
+        "longer than a cell holds",
+        "a control character",
+    ],
+)
+def test_a_text_a_cell_would_not_give_back_is_refused_and_named(
+    pair: tuple[Engine, str], tmp_path: Path, value: str
+) -> None:
+    """An export that would read back as something else is no backup.
+
+    A cell holds at most 32,767 characters and no carriage return; blank
+    text reads back as NULL and `""` as the empty string. Each is refused
+    with its table, row and column, and no workbook is left behind.
+    """
+    _, target_url = pair
+    target = create_engine(target_url)
+    path = tmp_path / "backup.xlsx"
+    try:
+        with target.begin() as conn:
+            conn.execute(
+                text("INSERT INTO parent (id, name) VALUES (50, :value)"),
+                {"value": value},
+            )
+        with pytest.raises(wb.WorkbookError, match=r"parent id 50, name"):
+            wb.export_workbook(target, path)
+        assert not path.exists()
+    finally:
+        target.dispose()
+
+
+def test_json_longer_than_a_cell_holds_is_refused_and_named(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    """JSON is a cell of text too; cut short it is not JSON at all."""
+    _, target_url = pair
+    target = create_engine(target_url)
+    path = tmp_path / "backup.xlsx"
+    try:
+        with target.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO parent (id, name, data) VALUES "
+                    "(51, 'long', jsonb_build_object('k', repeat('x', 40000)))"
+                )
+            )
+        with pytest.raises(wb.WorkbookError, match=r"parent id 51, data"):
+            wb.export_workbook(target, path)
+        assert not path.exists()
+    finally:
+        target.dispose()
+
+
+def test_an_empty_string_inside_json_is_not_mistaken_for_one_to_refuse(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    """JSON's `""` is its own text for an empty string, and reads back as one."""
+    _, target_url = pair
+    target = create_engine(target_url)
+    scratch = tmp_path / "from_target.xlsx"
+    try:
+        with target.begin() as conn:
+            conn.execute(
+                text("INSERT INTO parent (id, name, data) VALUES (52, 'empty', '\"\"')")
+            )
+        counts = wb.export_workbook(target, scratch)
+        assert counts["parent"] == 2
+        sheet = load_workbook(scratch)["parent"]
+        header = [cell.value for cell in sheet[1]]
+        assert sheet.cell(row=3, column=header.index("data") + 1).value == '""'
+    finally:
+        target.dispose()
+
+
+def test_an_export_reads_every_table_as_of_one_moment(
+    pair: tuple[Engine, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row saved while the export runs is in all of its sheets or in none.
+
+    A child and the parent it points at are committed after the parent
+    table has been read and before the child table is. Read table by table
+    as each stands, the workbook would hold the child and not its parent,
+    and no import would take it.
+    """
+    _, target_url = pair
+    target = create_engine(target_url)
+    other = create_engine(target_url)
+    columns_of = wb.stored_columns
+
+    def saving_meanwhile(table: Table) -> list[Column[Any]]:
+        """The table's stored columns, after a save lands just ahead of `child`."""
+        if table.name == "child":
+            with other.begin() as conn:
+                conn.execute(
+                    text("INSERT INTO parent (id, name) VALUES (60, 'meanwhile')")
+                )
+                conn.execute(
+                    text("INSERT INTO child (parent_id, note) VALUES (60, 'late')")
+                )
+        return columns_of(table)
+
+    monkeypatch.setattr(wb, "stored_columns", saving_meanwhile)
+    try:
+        counts = wb.export_workbook(target, tmp_path / "backup.xlsx")
+        with target.connect() as conn:
+            # The save did happen: only the export's view of it is in question.
+            assert conn.execute(text("SELECT count(*) FROM child")).scalar() == 1
+    finally:
+        other.dispose()
+        target.dispose()
+
+    assert (counts["parent"], counts["child"]) == (1, 0)
+
+
+def test_a_sheet_for_a_table_the_database_does_not_have_is_refused(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    """Rows with nowhere to go are not dropped without a word."""
+    source, target_url = pair
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+    book = load_workbook(path)
+    ghost = book.create_sheet("ghost")
+    ghost.append(["id", "name"])
+    ghost.append([1, "a row no table takes"])
+    book.save(path)
+
+    with pytest.raises(wb.WorkbookError, match="ghost"):
+        wb.import_workbook(path, target_url)
+    target = create_engine(target_url)
+    try:
+        with target.connect() as conn:
+            # One transaction: the migration's row is still there, untouched.
+            assert conn.execute(text("SELECT count(*) FROM parent")).scalar() == 1
+    finally:
+        target.dispose()
+
+
+def test_a_table_only_the_other_database_has_is_a_difference(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    source, target_url = pair
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+    wb.import_workbook(path, target_url)
+    target = create_engine(target_url)
+    try:
+        with target.begin() as conn:
+            conn.execute(text("CREATE TABLE extra (id serial PRIMARY KEY)"))
+            conn.execute(text("INSERT INTO extra DEFAULT VALUES"))
+        assert wb.compare(source, target) == [wb.Difference("extra", -1, 1)]
+    finally:
+        target.dispose()
+
+
+# -- the proof a backup run makes -----------------------------------------------
+
+
+def _scratch_built_like_the_source(config: Config, _revision: str) -> None:
+    """Stand in for the migrations: the scratch database gets the source's schema.
+
+    The source's tables are this file's own, which no migration builds; the
+    address is the one the proof handed the migrations.
+    """
+    url = config.get_main_option("sqlalchemy.url")
+    assert url is not None
+    scratch = create_engine(url)
+    try:
+        with scratch.begin() as conn:
+            conn.execute(text(SCHEMA))
+            conn.execute(text("INSERT INTO alembic_version VALUES ('rev_1')"))
+    finally:
+        scratch.dispose()
+
+
+def _databases_named(name: str) -> int:
+    """How many databases on the test server go by this name."""
+    admin = _admin()
+    try:
+        with admin.connect() as conn:
+            found = conn.execute(
+                text("SELECT count(*) FROM pg_database WHERE datname = :name"),
+                {"name": name},
+            ).scalar_one()
+    finally:
+        admin.dispose()
+    return int(found)
+
+
+def test_the_proof_restores_the_workbook_and_compares_it_with_live(
+    source: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`backup_run.prove_workbook` itself: restore, compare, drop.
+
+    The source database stands in for live, as it does for every import
+    here. Three workbooks: the one just exported, which is proved; one with
+    a cell changed, which differs; and one with a link to nothing, which
+    cannot be restored. The scratch database is gone after each.
+    """
+    monkeypatch.setattr(wb.settings, "database_url", _url("ccwebdb_test_wb_source"))
+    monkeypatch.setattr(backup_run.command, "upgrade", _scratch_built_like_the_source)
+    scratch = "ccwebdb_proof_wb_test"
+    # One an interrupted run of this test left would refuse the first proof.
+    admin = _admin()
+    with admin.connect() as conn:
+        drop_database(conn, scratch)
+    admin.dispose()
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+
+    assert backup_run.prove_workbook(source, path, stamp="wb_test") == []
+    assert _databases_named(scratch) == 0
+
+    _break(path, {"child": {"C2": "edited"}})  # child id 1's note
+    assert backup_run.prove_workbook(source, path, stamp="wb_test") == [
+        "the workbook differs from live in child: 3 rows live, 3 restored"
+    ]
+    assert _databases_named(scratch) == 0
+
+    _break(path, {"child": {"B2": 999}})  # no parent 999
+    (problem,) = backup_run.prove_workbook(source, path, stamp="wb_test")
+    assert problem.startswith("the workbook could not be restored: 1 link(s) point")
+    assert _databases_named(scratch) == 0
 
 
 def test_remembered_widths_follow_their_column_by_name(

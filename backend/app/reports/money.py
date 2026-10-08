@@ -21,7 +21,7 @@ from sqlalchemy import FromClause, func, select
 from sqlalchemy.orm import Session
 
 from ..models import Disposition, InventoryItem, ItemStatus, PurchaseOrder
-from .base import Column, DateRange, Report, ReportResult
+from .base import ZERO_MONEY, Column, DateRange, Report, ReportResult
 from .live_params import NOTHING_MATCHES, LiveParams, kind_query_string, live_where
 from .live_purchases import period_by_vendor
 from .registry import register
@@ -263,11 +263,11 @@ def _mn_value(db: Session, params: ValueParams) -> ReportResult:
                 _K.c.sort_order.label("kind_sort"),
                 func.count().label("items"),
                 func.count().filter(has_value).label("valued_items"),
-                func.coalesce(func.sum(_I.c.total_cost).filter(has_value), 0).label(
-                    "cost"
-                ),
                 func.coalesce(
-                    func.sum(_I.c.numismatic_value).filter(has_value), 0
+                    func.sum(_I.c.total_cost).filter(has_value), ZERO_MONEY
+                ).label("cost"),
+                func.coalesce(
+                    func.sum(_I.c.numismatic_value).filter(has_value), ZERO_MONEY
                 ).label("value"),
             )
             .select_from(src)

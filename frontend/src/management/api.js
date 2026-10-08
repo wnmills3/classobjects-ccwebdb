@@ -24,8 +24,13 @@ export const api = {
   // No catalog writes: the shop's catalog is filled by offering an item the
   // business already owns (`docs/specs/selling-design.md`).
 
+  // The vocabularies there are, for the Vocabularies page's picker.
+  listReferenceTables: () => send('/api/reference', { auth: false }),
   renameReferenceValue: (table, code, payload) =>
-    send(`/api/reference/${table}/${code}`, { method: 'PATCH', body: payload }),
+    send(`/api/reference/${table}/${encodeURIComponent(code)}`, {
+      method: 'PATCH',
+      body: payload,
+    }),
   // dryRun: say what would move, change nothing. acknowledgeForSale: the
   // operator has seen the preview's for-sale items and confirmed the merge
   // should move them anyway.
@@ -119,7 +124,7 @@ export const api = {
   deleteFriedbergNumber: (id) => send(`/api/friedberg/${id}`, { method: 'DELETE' }),
 
   // acquisition -- reading what was ordered, to record what arrived
-  listPurchaseOrders: (params = {}) => send(withQuery('/api/purchase-orders', params)),
+  listPurchaseOrders: () => send('/api/purchase-orders'),
   getPurchaseOrder: (id) => send(`/api/purchase-orders/${id}`),
   listStorageLocations: () => send('/api/storage-locations'),
   createStorageLocation: (payload) =>

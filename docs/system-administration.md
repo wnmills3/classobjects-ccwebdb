@@ -82,10 +82,12 @@ bundle split removes an information leak, it does not enforce anything.
 - **The first manager** of a new database is created by
   `python -m app.seed`, from `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD`,
   after `python -m app.seeding load` has loaded the reference vocabularies it
-  names. It takes no options and writes at once. It also creates five demo
-  items, each offered in the web store, so it is never run against a
-  database holding a real collection. Change the password immediately -- the
-  default is published in this repository.
+  names. It writes at once. It also creates five demo items, each offered
+  in the web store, so it is never run against a database holding a real
+  collection: it refuses one that already holds a purchase or an item other
+  than its own demo items, writing nothing, unless `--into-existing` is
+  given. Change the password immediately -- the default is published in
+  this repository.
 
 ### What a manager may change
 
@@ -211,7 +213,7 @@ would change and writes no database rows.
 | `python -m app.classifier_defaults` | fills note class, seal, signatures, Reserve Bank, composition and No Motto from the facts | `--commit` |
 | `python -m app.series_match` | assigns a coin's series from the design its title or description names | `--commit` |
 | `python -m app.series_classify` | assigns series from denomination and year, for coins the text left and all notes | `--commit` |
-| `python -m app.serial_patterns` | derives star, radar, repeater and similar designations from a note's serial | `--commit` |
+| `python -m app.serial_patterns` | derives star, radar, repeater and similar designations from a note's serial, and takes back one it derived that the serial no longer earns (the serial was corrected); the dry run lists those too, and a designation a person set or removed is never touched | `--commit` |
 | `python -m app.bullion_weights` | guesses the weight and fineness of a bar, round or medal with no fine weight, from its own words or from what most items of its form and metal hold; each guess is marked "suggested" in the editor (*Weight*) | `[--list] --commit --by EMAIL` |
 | `python -m app.listing_links` | fills an item's listing address and seller's item id each from the other; outside eBay and Whatnot, an item and its purchase share one lot page, and each takes it from the other when missing; an eBay purchase takes its order page, built from its order number (`docs/specs/entry-panels-design.md`, *Listing links*) | `--commit --by EMAIL` |
 | `python -m app.seller_titles` | where an item's title is only a face value (ten characters or fewer) and its description is the seller's listing text (thirty or more), moves that text into the title and writes the description the editor's Suggest would -- after what a save fills from the facts, which a commit keeps, as the editor's Save does; both change together, an item with nothing in its record to describe it by is left alone, and a second run changes nothing | `[--show N] [--commit --by EMAIL]` |
@@ -502,7 +504,7 @@ true while that happens.
 |---|---|---|
 | **Entering an item on a purchase** (`POST /api/inventory`) | every new acquisition | requires a purchase order; see *Entering a purchase* |
 | **Splitting a lot** (`POST /api/inventory/{id}/split`) | a bought lot becomes individual pieces | children inherit the parent's claims and a share of its cost (`equal`, or `relative` to a value per piece); the parent gets `split_at` and drops out of every count. In the console: **Split into pieces...** in the item editor, a row per piece with its own description and year |
-| **`python -m app.seed`** | a new, empty database | five demo items; never on real data |
+| **`python -m app.seed`** | a new, empty database | five demo items; never on real data -- refused where items or purchases exist, unless `--into-existing` |
 
 Every path records an opening `item_status_history` row, so every item has a
 lifecycle from its first row. Putting an owned item up for sale is a separate,
@@ -605,12 +607,13 @@ Creating an item (`POST /api/inventory`) refuses one too. Bulk edit does not set
 attributes: one set applied to many items would wipe whatever each carried
 that the others do not.
 
-**Every console edit window** -- item, order, platform, offer,
-listing, record sale, lot, auction, a purchase's details, a customer and their
-address -- takes Alt plus the underlined letter to jump to a field, and Ctrl+S
-or Ctrl+Enter to save. Every Save button underlines its S and shows "Ctrl+S"
-beside it (`management/SaveButton.jsx`); it has no Alt letter of its own, so
-the underlined S means Ctrl+S, not Alt+S. No letter is
+**The keyboard in the console's edit windows.** A field whose label
+underlines a letter is reached with Alt plus that letter. Not every field
+has one: the customer row, the address form and some auction dialogs hold
+fields with no letter, which are reached with Tab. A window whose button
+shows "Ctrl+S" beside it (`management/SaveButton.jsx`) saves on Ctrl+S or
+Ctrl+Enter; that button underlines its S and has no Alt letter of its own,
+so the underlined S means Ctrl+S, not Alt+S. No letter is
 D, E or F, which the browser keeps; Escape closes a dialog.
 
 ### Status and location have one door
@@ -917,7 +920,12 @@ as `0%` or `$0.00`; a blank means nobody has looked the terms up.
 
 **Spot prices** (`/management/spot-prices`) lists every metal in use with the
 price a troy ounce of it is quoted at, when that was recorded, the fine
-ounces held across the live items, and what they melt for at that price. The
+ounces held, and what they melt for at that price. Held means in hand: items
+received and either held or listed, since a coin on offer is still in the
+drawer; one sold, returned, cancelled, missing or still on order is not
+counted. That is wider on purpose than the **Precious metal** report's
+default of received and held, which leaves out what is on offer. A retired
+metal stays on the page while any of it is held. The
 metal with the most fine ounces held is first and those with none held are
 last, so the prices that matter are at the top. Type a price in a metal's
 **New price** box and press **Record** (or Enter):
@@ -935,13 +943,14 @@ last, so the prices that matter are at the top. Type a price in a metal's
   is not worth nothing. A price of `0` is a price, and values the holding at
   nothing.
 - Melt value is never stored. It is the newest price times each item's fine
-  weight and piece count, worked out where it is shown -- this page and the
-  **Precious metal** report (`cb_metal`) -- so one new price revalues
-  everything at once. Only an item with a fine weight counts.
+  weight and piece count, worked out where it is shown -- this page, the
+  **Precious metal** report (`cb_metal`) and the `item_valuation` view -- so
+  one new price revalues everything at once. Only an item with a fine weight
+  counts.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/metal-prices` | each metal in use: newest price, when, source, fine ounces held, melt value |
+| `GET /api/metal-prices` | each metal in use or held: newest price, when, source, fine ounces held, melt value |
 | `POST /api/metal-prices` | record a price now -- `metal` (its code), `price_per_ozt`; answers the whole table. 422 for an unknown metal or a price that is not one |
 
 Both are manager-only.
@@ -1438,8 +1447,12 @@ One command does what the sections below describe step by step
    (`ccwebdb_proof_<time>`, built by the migrations as a restore is, and
    dropped afterwards) and compares that with live, every row of every table;
 3. checks the photograph copy against the image rows;
-4. only when all of that held, prunes the photograph files no image names
-   and removes the older workbooks, keeping the newest `--keep` (default 1).
+4. only when all of that held, removes the older workbooks, keeping the
+   newest `--keep` (default 1), and -- when only that one is kept -- prunes
+   the photograph files no image names. With `--keep` above 1 nothing is
+   pruned: the older workbooks kept still name those photographs. Only
+   workbooks named `ccwebdb_<date>_<time>.xlsx` are ever removed; one saved
+   under any other name stays.
 
 When any step fails nothing is removed -- the workbooks already there are
 the proved ones -- the reason is printed, and the exit code is 1. An edit
@@ -1447,7 +1460,8 @@ made between the export and the comparison shows as a difference and fails
 that run; the next one sets it right.
 
 The folder is `%USERPROFILE%\OneDrive\coins_backup`, or the one
-`CCWEB_BACKUP_DIR` names. Every run is appended to `backup.log` in the logs
+`CCWEB_BACKUP_DIR` names; `CCWEB_BACKUP_DIR` has to be a user environment
+variable for the scheduled task to see it. Every run is appended to `backup.log` in the logs
 folder under a line with its date and time: read it after a failure, and now
 and then to see that the daily runs say `proved`. `/schedule` makes a Windows
 scheduled task named `ccwebdb backup` that runs while you are signed in;
@@ -1483,7 +1497,10 @@ It judges nothing obsolete -- and exits 1 saying why -- in a folder that is
 missing a file the rows name, or when the database records no photographs:
 such a folder is not a complete copy for this database, and may be another
 collection's. Run `copy` first on a copy that has fallen behind. The folder
-may be `MEDIA_ROOT` itself, which gathers such files the same way.
+may be `MEDIA_ROOT` itself, which gathers such files the same way -- with
+the server stopped: a photograph's files are written before its rows are
+committed, so one being stored while the prune runs is a file no row names
+yet.
 
 **To restore**, copy the folder's contents into `MEDIA_ROOT`, keeping the
 layout:
@@ -1516,7 +1533,7 @@ python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@lo
 models, so it works whatever code is checked out. It checks the migration
 revision and every row of every table through a digest, prints `identical`
 and exits 0, or prints `DIFFERS <table>: <n> rows vs <m>` for each table that
-differs and exits 1. For a backup taken moments ago, any difference is a
+differs (`missing` for a side that has no such table) and exits 1. For a backup taken moments ago, any difference is a
 failed backup.
 
 ### The database copy (`app.backup`)
@@ -1531,9 +1548,10 @@ python -m app.backup --verify <name>      row counts of a local copy against liv
 
 Every table is copied, `alembic_version` too (it has no model, so it is read
 from the database itself). The copy is portable: another engine is a
-different `--to` URL. `--verify` compares each model table's row count and
-prints `<name> matches the source on every table`, or `MISMATCH` with the
-tables that differ and exits 1. A copy that predates a migration reports
+different `--to` URL. `--verify` compares each table's row count -- the
+counts only, not what the rows hold; `app.workbook_backup compare` does that
+-- and prints `<name>: row counts match the source on every table`, or
+`MISMATCH` with the tables that differ and exits 1. A copy that predates a migration reports
 `OLDER SCHEMA -- <name> has no <table>`: it records its own moment but cannot
 be compared table for table. An older copy is expected to differ in counts; it
 records the collection as it was. `--list` only lists names beginning

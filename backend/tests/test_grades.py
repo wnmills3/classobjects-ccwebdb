@@ -71,6 +71,21 @@ def test_what_is_not_a_grade_is_not_split(text_: str) -> None:
     assert grades.split(text_) is None
 
 
+@pytest.mark.parametrize("text_", ["AU65", "MS55", "P70", "G-65", "VF12", "AU60+"])
+def test_a_number_outside_its_prefix_is_not_a_grade(text_: str) -> None:
+    """Split, AU65 would be shown as MS65: a different grade from the one sent."""
+    assert grades.split(text_) is None
+    assert grades.split_fields(text_, None) == (text_, None)
+
+
+@pytest.mark.parametrize(
+    ("text_", "grade"),
+    [("MS60", "60"), ("MS70", "70"), ("AU58+", "58+"), ("PO1", "1"), ("P1", "1")],
+)
+def test_a_number_at_the_edge_of_its_prefix_is_a_grade(text_: str, grade: str) -> None:
+    assert grades.split(text_) == grades.Split("business", grade)
+
+
 def test_a_strike_type_the_client_names_wins() -> None:
     assert grades.split_fields("MS65", "sms") == ("65", "sms")
     assert grades.split_fields("MS65", None) == ("65", "business")

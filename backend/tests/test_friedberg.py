@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from app.fr_format import fr_traits
 from app.models import (
     CurrencyDetail,
@@ -464,6 +465,95 @@ def test_correcting_a_mule_onto_a_plain_type_on_file_is_a_409(
 
     assert refused.status_code == 409, refused.text
     assert refused.json()["existing"]["id"] == plain["id"]
+
+
+def test_a_correction_racing_onto_a_type_on_file_is_a_409_not_a_500(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two corrections at once both pass the checks; the index stops one.
+
+    Simulated by making the checks themselves miss, as if they ran before the
+    other request committed: the commit then meets
+    `uq_friedberg_number_identity`, and that reads as a 409, as it does when
+    a number is recorded.
+    """
+    client.post("/api/friedberg", json=_typed("9951-B", None), headers=admin_headers)
+    mule = client.post(
+        "/api/friedberg", json=_typed("9951-Bm", None), headers=admin_headers
+    ).json()
+    monkeypatch.setattr(db, "scalar", lambda *args, **kwargs: None)
+
+    refused = client.patch(
+        f"/api/friedberg/{mule['id']}",
+        json={"fr_number": "9952-B"},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 409, refused.text
+    monkeypatch.undo()
+    db.expire_all()
+    assert db.get_one(FriedbergNumber, mule["id"]).fr_number == "9951-Bm"
+
+
+def test_a_district_letter_is_kept_in_capitals(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """`b` and `B` are one district, so they are one type.
+
+    Kept as typed, the second recording would pass the identity index as a
+    different type, and a search for district B would not strictly match
+    the first.
+    """
+    first = client.post(
+        "/api/friedberg",
+        json=_typed("9953-B", None) | {"district_letter": "b"},
+        headers=admin_headers,
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["district_letter"] == "B"
+
+    again = client.post(
+        "/api/friedberg", json=_typed("9954-B", None), headers=admin_headers
+    )
+    assert again.status_code == 409, again.text
+    assert again.json()["existing"]["fr_number"] == "9953-B"
+
+
+def test_a_district_letter_past_l_is_refused(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """There are twelve districts, A to L."""
+    for letter in ("M", "z", "1"):
+        resp = client.post(
+            "/api/friedberg",
+            json=_typed("9955", None) | {"district_letter": letter},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 422, (letter, resp.text)
+
+
+def test_attaching_a_number_as_unknown_is_refused(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """`unknown` is a note with no number: it cannot be how one is attached."""
+    item = _currency_item(db)
+    friedberg = _add_friedberg(db, fr_number="9956")
+
+    resp = client.post(
+        f"/api/inventory/{item.id}/friedberg",
+        json={"friedberg_id": friedberg.id, "status": "unknown"},
+        headers=admin_headers,
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "proposed" in resp.json()["detail"]
+    db.expire_all()
+    detail = db.get(CurrencyDetail, item.id)
+    assert detail is not None
+    assert detail.friedberg_id is None
 
 
 def test_the_same_series_under_two_signature_pairs_are_two_types(

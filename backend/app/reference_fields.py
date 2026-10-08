@@ -143,6 +143,29 @@ def fields_of(model: type[ReferenceMixin]) -> list[ReferenceFieldOut]:
     return fields
 
 
+#: One past the largest value an INTEGER column holds.
+_INTEGER_LIMIT = 2**31
+
+
+def _refuse_overflow(
+    name: str, kind: Numeric[Any], number: Decimal, value: object
+) -> None:
+    """Raise `FieldError` for a decimal with more whole digits than its column.
+
+    PostgreSQL rounds extra decimal places but refuses extra whole digits
+    with an error that is not a constraint's, so it is caught here, where it
+    can be told to the person as their own field.
+    """
+    if kind.precision is None:
+        return
+    whole_digits = kind.precision - (kind.scale or 0)
+    if abs(number) >= Decimal(10) ** whole_digits:
+        raise FieldError(
+            f"{name}: {value!r} is too large to store "
+            f"(at most {whole_digits} digits before the point)"
+        )
+
+
 def _read(
     db: Session, table: str, column: Column[Any], name: str, value: object
 ) -> object:
@@ -169,11 +192,15 @@ def _read(
                 isinstance(value, float) and not value.is_integer()
             ):
                 raise FieldError(f"{name}: {value!r} is not a whole number")
-            return int(str(value).strip())
+            whole = int(str(value).strip())
+            if not -_INTEGER_LIMIT <= whole < _INTEGER_LIMIT:
+                raise FieldError(f"{name}: {value!r} is too large to store")
+            return whole
         if isinstance(column.type, Numeric):
             number = Decimal(str(value).strip())
             if not number.is_finite():
                 raise FieldError(f"{name}: {value!r} is not a number")
+            _refuse_overflow(name, column.type, number, value)
             return number
     except (InvalidOperation, ValueError) as exc:
         if isinstance(exc, FieldError):
@@ -204,10 +231,11 @@ def column_values(
     refused where the column cannot be empty.
     """
     table = model.__tablename__
-    by_name: dict[str, Column[Any]] = {}
-    for column in _own_columns(model):
-        by_name[column.name] = column
-        by_name[_name(column)] = column
+    # By the name each crosses the API under, and no other: a reference is
+    # sent as a code, so its column's own name (`currency_id`) is not a key.
+    by_name: dict[str, Column[Any]] = {
+        _name(column): column for column in _own_columns(model)
+    }
 
     unknown = sorted(set(extra) - set(by_name))
     if unknown:

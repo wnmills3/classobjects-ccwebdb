@@ -160,7 +160,10 @@ describe('OrderLookup', () => {
   it('says so when nothing matches, and Clear brings everything back', async () => {
     const user = await open()
     const clear = screen.getByRole('button', { name: 'Clear' })
-    expect(clear).toBeDisabled()
+    // Live with nothing to clear: pressing it then changes nothing.
+    expect(clear).toBeEnabled()
+    await user.click(clear)
+    expect(found()).toHaveLength(4)
 
     await user.type(text(), 'zzz')
     expect(

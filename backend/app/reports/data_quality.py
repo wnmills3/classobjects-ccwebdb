@@ -64,7 +64,7 @@ from ..models import (
 )
 from ..purchases import GENERATED, WEB_ADDRESS
 from ..series_classify import classify
-from .base import Column, Report, ReportResult, local_date
+from .base import ZERO_MONEY, Column, Report, ReportResult, local_date
 from .registry import register
 from .tables import ITEM as _I
 from .tables import KIND as _K
@@ -318,8 +318,8 @@ def _dq_photos(db: Session, _params: DqPhotosParams) -> ReportResult:
     exactly what its own drill-down search returns.
 
     The final row is a different question in the same table: not which
-    *items* lack a photograph, but which *photographs* the import and the
-    console have not filed against any item at all -- the same test
+    *items* lack a photograph, but which *photographs* nobody has filed
+    against any item -- the same test
     `GET /api/images?unattached=true` (`routers.images.list_images`) uses to
     build `/photos`' own list, so this row's count is exactly what that page
     shows.
@@ -719,7 +719,7 @@ def _dq_locations(db: Session, _params: DqLocationsParams) -> ReportResult:
         label_counts[label] = label_counts.get(label, 0) + 1
 
     none_items = 0
-    none_cost = Decimal("0")
+    none_cost = ZERO_MONEY
     #: (label, location id, items, total cost) -- one entry per location,
     #: sorted below by label then id before it becomes a row.
     entries: list[tuple[str, int, int, Decimal]] = []

@@ -92,13 +92,16 @@ Two rules add links, each recorded `derived` with its rule in `derived_by`:
   the serial, so a batch pass derives them (`python -m app.serial_patterns`,
   `--commit` to write). Patterns need a full eight-digit serial; a shorter one
   is reported as incomplete. Consecutive is never derived: it describes a run
-  of notes, which no single serial shows.
+  of notes, which no single serial shows. The pass also takes back a link it
+  added, still in force, that the serial no longer earns (a serial corrected
+  since). It runs only by hand, never on a save.
 - **Attributes from facts** (`attribute_rule`), below.
 
 **Removal is recorded for every link** (`app.item_attributes`), not only
 derived ones: deleting a link a person added would let the serial pass add it
-straight back. Setting a removed attribute again clears the mark and keeps the
-link's source. Every reader -- the item detail, search, the `attribute=`
+straight back. Setting a removed attribute again clears the mark and makes the
+link the person's (`manual`, no `derived_by`), so no rule takes it back as its
+own. Every reader -- the item detail, search, the `attribute=`
 filter, the star check -- skips a removed link, and every pass that adds links
 skips an item holding *any* link for that attribute, removed ones included.
 

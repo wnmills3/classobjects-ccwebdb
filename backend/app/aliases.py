@@ -2,9 +2,9 @@
 
 docs/specs/item-attributes-design.md, section 1. The standard term is the
 label; what people actually write -- Ultra Cameo, Legal Tender, No God, Mercury --
-is an alias. Two tables hold them: `series_alias`, which predates the general
-one and keeps its own shape, and `reference_alias` for every other
-vocabulary. This module hides that split from its callers.
+is an alias. Two tables hold them: `series_alias`, keyed by the series itself
+and in its own shape, and `reference_alias` for every other vocabulary. This
+module hides that split from its callers.
 
 **A removed alias stays removed.** Seed loads only add aliases, so deleting a
 shipped one would bring it back on the next load. A seeded alias is retired
@@ -41,7 +41,8 @@ __all__ = [
     "word_pattern",
 ]
 
-#: The longest alias either table stores.
+#: The longest alias accepted. It is `series_alias.alias`'s width;
+#: `reference_alias.alias` holds more, and one limit serves both tables.
 MAX_ALIAS = 64
 
 
@@ -155,7 +156,9 @@ def ids_named(db: Session, model: type[ReferenceMixin], query: str | None) -> li
         """The test that `column` matches: whole for short text, else within."""
         if whole:
             return func.lower(column) == text.lower()
-        return column.ilike(f"%{text}%")
+        # Escaped: a `%` or `_` typed is that character, not a wildcard that
+        # would name every row.
+        return column.icontains(text, autoescape=True)
 
     by_name = select(model.id).where(or_(named(model.label), named(model.code)))
     held = _alias_table(model)

@@ -24,10 +24,12 @@ Usage, from `backend/`:
 
     python -m app.image_enlarge                    report what would be fetched
     python -m app.image_enlarge --commit           fetch and replace
-    python -m app.image_enlarge --commit --limit N the first N only
+    python -m app.image_enlarge --commit --limit N stop once N are replaced
 
 A dry run fetches nothing. A commit writes in batches, so one that is
-interrupted keeps what it had done and a second run takes up the rest.
+interrupted keeps what it had done and a second run takes up the rest. The
+photographs left as they are stay candidates, and are looked at again by
+every run.
 """
 
 from __future__ import annotations
@@ -178,7 +180,9 @@ def run(
     Without `commit` nothing is fetched and nothing written. With it, each
     photograph is fetched and replaced in turn, committed every `BATCH`, and
     the files a batch left unused are deleted only once it is committed.
-    `limit` stops after that many photographs; `pause` waits that many
+    `limit` stops once that many have been replaced -- one left as it was
+    is a candidate again on the next run, so counting it would have a
+    limited run look at the same few every time; `pause` waits that many
     seconds between fetches.
     """
     report = Report()
@@ -189,8 +193,7 @@ def run(
     if not commit:
         return report
 
-    work = found if limit is None else found[:limit]
-    selling = _for_sale(db, work)
+    selling = _for_sale(db, found)
     storage = get_storage()
     unused: list[str] = []
     pending = 0
@@ -202,7 +205,9 @@ def run(
             storage.delete(key)
         unused.clear()
 
-    for image in work:
+    for image in found:
+        if limit is not None and report.outcomes[REPLACED] >= limit:
+            break
         if image.id in selling:
             report.outcomes[FOR_SALE] += 1
             report.left.append((image.id, FOR_SALE, selling[image.id]))
@@ -252,7 +257,7 @@ def main(argv: Sequence[str] | None = None, *, db: Session | None = None) -> int
     """
     parser = argparse.ArgumentParser(prog="image_enlarge", description=__doc__)
     parser.add_argument("--commit", action="store_true", help="fetch and replace")
-    parser.add_argument("--limit", type=int, help="stop after this many photographs")
+    parser.add_argument("--limit", type=int, help="stop once this many are replaced")
     parser.add_argument(
         "--pause", type=float, default=0.05, help="seconds between fetches"
     )

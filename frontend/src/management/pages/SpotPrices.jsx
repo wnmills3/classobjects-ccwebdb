@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { api } from '../api'
 import HelpScope from '../HelpScope'
+import { centsOrZero, fromCents } from '../../shared/cents'
 import { dateTime, money } from '../../shared/format'
 import { useRequest } from '../../shared/useRequest'
 
@@ -78,7 +79,7 @@ function byOuncesHeld(rows) {
  * mistyped price is put right by recording the right one.
  *
  * Melt value is worked out from the newest price wherever it is shown -- here
- * and in the "Metal by form" report -- so recording a price revalues
+ * and in the "Precious metal" report -- so recording a price revalues
  * everything at once. A metal never quoted has no melt value: that is "not
  * quoted", not "worth nothing".
  */
@@ -119,10 +120,7 @@ export default function SpotPrices() {
     }
   }
 
-  const total = rows.reduce(
-    (sum, row) => (row.melt_value === null ? sum : sum + Number(row.melt_value)),
-    0,
-  )
+  const total = rows.reduce((sum, row) => sum + centsOrZero(row.melt_value), 0)
   const anyValued = rows.some((row) => row.melt_value !== null)
 
   return (
@@ -205,7 +203,7 @@ export default function SpotPrices() {
             <tfoot>
               <tr>
                 <td colSpan={4}>Melt value of everything quoted</td>
-                <td>{money(total.toFixed(2))}</td>
+                <td>{money(fromCents(total))}</td>
                 <td />
               </tr>
             </tfoot>

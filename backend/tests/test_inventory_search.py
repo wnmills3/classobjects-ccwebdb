@@ -464,6 +464,30 @@ def test_a_filter_from_the_other_view_is_refused(
     assert search(client, "currency", admin_headers, metal="silver").status_code == 422
 
 
+def test_a_number_filter_given_text_is_refused_naming_it(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A year or an id that is not a number is a 422, not a database error."""
+    coin(db)
+    note(db)
+
+    for view, param in (
+        ("coins", "year_min"),
+        ("coins", "year_max"),
+        ("coins", "purchase_order_id"),
+        ("currency", "series_year"),
+        ("currency", "year_min"),
+    ):
+        response = search(client, view, admin_headers, **{param: "abc"})
+        assert response.status_code == 422, (view, param, response.text)
+        assert param in response.json()["detail"], (view, param)
+
+    # A number sent as the text a query string always is still filters.
+    wanted = coin(db, year_start=1999)
+    found = search(client, "coins", admin_headers, year_min="1999").json()
+    assert {r["id"] for r in found["rows"]} == {wanted.id}
+
+
 def test_an_unknown_view_is_a_404(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

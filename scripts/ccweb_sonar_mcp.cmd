@@ -28,9 +28,14 @@ rem  Any pre-flight added here - e.g. copying the server/token checks from
 rem  ccweb_sonar_scan.cmd - must redirect its ERROR/echo lines with 1>&2. That
 rem  script's "echo ERROR:" lines go to stdout, which is fine there but would
 rem  corrupt the MCP protocol stream if copied in unchanged.
+rem  The server reads SONARQUBE_TOKEN. It is set here, inside this script's
+rem  setlocal, and passed by name: podman takes the value from this
+rem  environment, so the token never appears on a command line, where the
+rem  process list would show it for as long as the server runs.
+set "SONARQUBE_TOKEN=%SONAR_TOKEN%"
 podman run --init --rm -i ^
     --network sonar-net ^
-    -e SONARQUBE_TOKEN=%SONAR_TOKEN% ^
+    -e SONARQUBE_TOKEN ^
     -e SONARQUBE_URL=http://sonarqube:9000 ^
     -e SONARQUBE_PROJECT_KEY=classobjects-ccwebdb ^
     -v "%REPO%:/app/mcp-workspace:ro" ^

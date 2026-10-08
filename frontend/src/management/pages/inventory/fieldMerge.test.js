@@ -19,6 +19,19 @@ describe('sameValue', () => {
     expect(sameValue(['a', 'b'], ['b', 'a'])).toBe(true)
     expect(sameValue(['a'], ['a', 'b'])).toBe(false)
   })
+
+  it('compares lists as sets whatever order either arrives in', () => {
+    // Certificate numbers and codes of mixed case and length, where an
+    // ordering by number, by locale or by case would each sort differently.
+    const held = ['10', '9', 'B2', 'a1', 'CAC', '0091']
+    for (let turn = 0; turn < held.length; turn += 1) {
+      const turned = [...held.slice(turn), ...held.slice(0, turn)]
+      expect(sameValue(held, turned)).toBe(true)
+      expect(sameValue([...turned].reverse(), held)).toBe(true)
+    }
+    expect(sameValue(held, [...held.slice(1), '09'])).toBe(false)
+    expect(sameValue([10, 9], ['9', '10'])).toBe(true)
+  })
 })
 
 describe('merging a change made elsewhere', () => {

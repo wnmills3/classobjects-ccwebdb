@@ -1,4 +1,4 @@
-"""What is missing or wrong in the record: the seven data-quality reports."""
+"""What is missing or wrong in the record: the eight data-quality reports."""
 
 from __future__ import annotations
 
@@ -959,6 +959,10 @@ def test_dq_locations_a_unique_label_is_shown_plain(db: Session) -> None:
 
     row = next(r for r in result.rows if r["location"] == location_label(only))
     assert "#" not in str(row["location"])
+    # Every item has a location here: the "None recorded" row's cost is
+    # still an amount of money, to two places.
+    assert result.rows[-1]["items"] == 0
+    assert str(result.rows[-1]["total_cost"]) == "0.00"
 
 
 def test_dq_locations_sorts_by_label_then_id(db: Session) -> None:

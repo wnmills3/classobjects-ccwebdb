@@ -41,7 +41,7 @@ In order:
 | Python linting | `ruff check` | `pyproject.toml` `[tool.ruff.lint]` |
 | Mutation-scaffolding guard | `findstr /S /N` over `backend\app\*.py` | `scripts\ccweb_check.cmd` |
 | Python types | `mypy` | `pyproject.toml` `[tool.mypy]` |
-| Python tests | `pytest -q` (from `backend`) | `pyproject.toml` `[tool.pytest.ini_options]` |
+| Python tests | `pytest` (from `backend`) | `pyproject.toml` `[tool.pytest.ini_options]` |
 | Frontend linting | `eslint --max-warnings 0` | `frontend/eslint.config.js` |
 | Frontend formatting | `prettier --check` | `frontend/.prettierrc.json`, `frontend/.prettierignore` |
 | Frontend tests | `vitest run` | `frontend/vite.config.js` |
@@ -109,8 +109,9 @@ from `D`, `ANN` and `I`.
 
 `backend/app` carries no inline `# noqa` or `# type: ignore`. The tests carry
 a few `# type: ignore[<code>]`, each scoped to one error code, and mypy's
-`warn_unused_ignores` fails any that stops being needed; `test_schema.py`
-carries the one `# noqa`, an `F401` on its import of the models.
+`warn_unused_ignores` fails any that stops being needed. There are two
+`# noqa`, both an `F401` on an import of the models made for its side
+effect: one in `test_schema.py`, one in `backend/alembic/env.py`.
 
 ---
 

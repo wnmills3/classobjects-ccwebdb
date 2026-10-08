@@ -213,6 +213,19 @@ def test_a_purchase_names_its_seller(
     )
 
 
+def test_a_purchase_gives_a_mail_sellers_address_as_it_is_stored(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """`seller_url` is the seller's store: a page, or a `mailto:` address."""
+    seller = _seller(db, "by_mail", "mailto:coins@example.com")
+    order = _order(db, seller_id=seller.id)
+
+    res = client.get(f"/api/purchase-orders/{order.id}", headers=admin_headers)
+
+    assert res.status_code == 200, res.text
+    assert res.json()["seller_url"] == "mailto:coins@example.com"
+
+
 def test_an_unknown_seller_is_a_404(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

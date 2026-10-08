@@ -48,21 +48,22 @@ from sqlalchemy.orm import Session
 
 from . import field_changes, pass_cli
 from .database import SessionLocal
-from .ebay_orders import ORDER_PAGE
+from .ebay_orders import ITEM_ID, ORDER_PAGE, is_ebay, vendor_key
 from .models import InventoryItem, PurchaseOrder, Vendor
 
 #: Where each site puts a listing's own id in its web address. An order page
 #: (Whatnot's `/order/`, eBay's order.ebay.com) names an order, not a listing.
 _LISTING_IDS = (
-    re.compile(r"ebay\.[a-z.]+/itm/(?:[^/?#]*/)?(\d{9,15})", re.IGNORECASE),
+    ITEM_ID,
     re.compile(r"hibid\.com/lot/(\d+)", re.IGNORECASE),
     re.compile(r"liveauctioneers\.com/item/(\d+)", re.IGNORECASE),
     re.compile(r"proxibid\.com/lotinformation/(\d+)", re.IGNORECASE),
 )
 _EBAY_ID = re.compile(r"^\d{9,15}$")
 _WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
-#: Vendors whose order holds many listings: their order page is no lot's.
-_MARKETPLACES = ("ebay", "whatnot")
+#: Whatnot's own host name: the whole label, so a site whose name only
+#: contains the letters is not Whatnot.
+_WHATNOT_HOST = re.compile(r"(?:^|\.)whatnot\.com$")
 #: An order number as eBay writes one; only these build an order page.
 _EBAY_ORDER_NUMBER = re.compile(r"^\d{2}-\d{5}-\d{5}$")
 _EBAY_ORDER_PAGE = re.compile(r"order\.ebay\.[a-z.]+/ord/", re.IGNORECASE)
@@ -84,19 +85,19 @@ def ebay_listing_url(item_id: str) -> str:
     return f"https://www.ebay.com/itm/{item_id}"
 
 
-def _vendor_key(vendor: Vendor) -> str:
-    """What a vendor is recognised by: its host, else its name, in lower case."""
-    return (vendor.host or vendor.name or "").lower()
+def _is_whatnot(vendor: Vendor) -> bool:
+    """Whether the vendor is Whatnot: called `whatnot`, or at its host."""
+    key = vendor_key(vendor)
+    return key == "whatnot" or _WHATNOT_HOST.search(key) is not None
 
 
 def is_marketplace(vendor: Vendor) -> bool:
-    """Whether the vendor's orders hold many listings: eBay and Whatnot."""
-    return any(name in _vendor_key(vendor) for name in _MARKETPLACES)
+    """Whether the vendor's orders hold many listings: eBay and Whatnot.
 
-
-def _is_ebay(vendor: Vendor) -> bool:
-    """Whether the vendor is eBay, whose item numbers make a listing's address."""
-    return "ebay" in _vendor_key(vendor)
+    Each is known by its own host name (`ebay_orders.is_ebay`), never by
+    the letters appearing somewhere in another vendor's.
+    """
+    return is_ebay(vendor) or _is_whatnot(vendor)
 
 
 def _web_address(value: str | None) -> str | None:
@@ -148,7 +149,7 @@ def plan(db: Session) -> Plan:
                 and lots <= {own}  # one lot: no item names another
             ):
                 url = own
-            elif _is_ebay(vendor) and _EBAY_ID.match(item.sellers_item_id or ""):
+            elif is_ebay(vendor) and _EBAY_ID.match(item.sellers_item_id or ""):
                 url = ebay_listing_url(item.sellers_item_id or "")
             if url is not None:
                 todo.listing_urls[item.id] = url
@@ -181,7 +182,7 @@ def plan(db: Session) -> Plan:
         if order.id in seen:
             continue
         seen.add(order.id)
-        if not _is_ebay(vendor):
+        if not is_ebay(vendor):
             continue
         if not _EBAY_ORDER_NUMBER.match(order.order_number or ""):
             continue

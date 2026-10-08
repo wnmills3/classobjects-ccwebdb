@@ -264,9 +264,8 @@ export default function Listings() {
 
   /** Whether a row's platform is the web store itself.
    *
-   * `is_own_store` from the platform list, not the code `store`: the store
-   * platform is a row like any other and an installation may have named it
-   * something else. A platform this page could not match reads as false --
+   * `is_own_store` from the platform list, not the code `store`. A platform
+   * this page could not match reads as false --
    * see the Record sale guard below for why that direction.
    */
   function isStore(listing) {

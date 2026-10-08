@@ -17,12 +17,15 @@ A merge moves the purchase orders and removes the duplicate. Vendor rows hold
 no history of their own; the orders carry it, and they are kept.
 
 Renames run last, after the merges, so the survivor of a merge can take a
-spelling neither row had -- or one the merged-away row was using.
+spelling neither row had -- or one the merged-away row was using. A rename
+from one host name to another corrects the vendor's host and link with it;
+any other rename leaves them as they are. A blank name is refused.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -32,6 +35,9 @@ from sqlalchemy.orm import Session
 
 from .database import SessionLocal
 from .models import PurchaseOrder, SalesVenue, Vendor, VendorKind
+
+#: A host name: labels of letters, digits and hyphens with a dot between.
+_HOST_NAME = re.compile(r"^[a-z0-9-]+(?:\.[a-z0-9-]+)+$", re.IGNORECASE)
 
 
 class CleanupError(Exception):
@@ -160,8 +166,13 @@ def run(
             vendor.vendor_kind_id = kind_id
             report.kinds.append((vendor.name, code))
 
-        for vendor_id, new_name in renames:
+        for vendor_id, typed_name in renames:
             vendor = _vendor(db, vendor_id)
+            new_name = typed_name.strip()
+            if not new_name:
+                raise CleanupError(
+                    f"Cannot rename {vendor.name} to nothing: a vendor needs a name"
+                )
             # `uq_vendor_name` is case-sensitive, but two vendors differing
             # only in case are the same source to a person, so the check here
             # is case-insensitive -- the same rule the vendors API applies.
@@ -181,13 +192,19 @@ def run(
             vendor.name = new_name
             # A misspelt source misspells its web address too (`ampex.com` for
             # apmex.com), so a name fixed on its own would leave the vendor's
-            # `host` naming a site that does not exist. Only text that
-            # repeated the old name is rewritten;
-            # anything else is the source's address, not the typo.
-            if vendor.host:
-                vendor.host = vendor.host.replace(old_name, new_name)
-            if vendor.url:
-                vendor.url = vendor.url.replace(old_name, new_name)
+            # `host` naming a site that does not exist. The address follows
+            # the name only as one host name for another: the old name must
+            # be the host, or the end of it after a dot, and both names must
+            # be host names. A fragment replaced wherever it occurs, or
+            # words put where a host belongs, would name no site at all.
+            old_host = vendor.host
+            if old_host and _HOST_NAME.match(old_name) and _HOST_NAME.match(new_name):
+                old_key = old_name.lower()
+                if old_host == old_key or old_host.endswith(f".{old_key}"):
+                    new_host = old_host[: -len(old_key)] + new_name.lower()
+                    vendor.host = new_host
+                    if vendor.url:
+                        vendor.url = vendor.url.replace(old_host, new_host, 1)
 
         db.flush()
     except Exception:

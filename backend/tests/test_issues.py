@@ -1,8 +1,8 @@
 """Anomalies as named, kind-aware checks rather than generic field filters.
 
 `issue=no_grade` means *a coin or banknote with no grade*, because bullion has
-no grade by nature and 712 rounds have no weight either, so a generic
-grade=null would bury 2,965 real cases under rounds that will never have one.
+no grade by nature and most rounds have no weight either, so a generic
+grade=null would bury the real cases under rounds that will never have one.
 The domain knowledge belongs in the check, defined once, rather than in the
 head of whoever types the filter.
 """
@@ -10,14 +10,18 @@ head of whoever types the filter.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.inventory_search import VIEWS
-from app.models import ItemKind
+from app.models import CurrencyDetail, InventoryItem, ItemCertification, ItemKind
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, build_purchase_order, code_id
+
+#: When a row in these tests was deleted, or split into its pieces.
+_GONE = datetime(2026, 1, 1, tzinfo=UTC)
 
 #: Pulls a `k.code = 'x'` or `k.code <> 'x'` constraint out of a predicate,
 #: if it states one at all. Both a view's own WHERE and an issue's SQL are
@@ -55,7 +59,7 @@ def test_no_grade_ignores_bullion(
 ) -> None:
     """A round will never have a grade.
 
-    Counting it as an anomaly buries the 2,965 coins that should have one.
+    Counting it as an anomaly buries the coins that should have one.
     """
     coin = build_bare_item(db, grade_id=None)
     build_bare_item(db, grade_id=None, item_kind_id=code_id(db, ItemKind, "bullion"))
@@ -77,14 +81,128 @@ def test_no_weight_applies_only_to_bullion(
     assert [r["id"] for r in rows] == [round_.id]
 
 
-def test_zero_cost_catches_null_and_zero_alike(
+def test_zero_cost_finds_an_item_recorded_at_no_cost(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
+    """The cost column is never empty, so "no cost recorded" is a zero."""
     zero = build_bare_item(db, item_cost=Decimal("0.00"))
     build_bare_item(db, item_cost=Decimal("19.99"))
+    build_bare_item(db, item_cost=Decimal("0.01"))
 
     rows = search(client, admin_headers, "issue=zero_cost")["rows"]
     assert [r["id"] for r in rows] == [zero.id]
+
+
+def test_mixed_marker_reads_the_rating_and_the_description(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Either text saying the row is known to vary, in any case."""
+    rated = build_bare_item(db, rating="Mixed dates")
+    described = build_bare_item(db, description="Roll of cents, MIXED grades")
+    build_bare_item(db, rating="BU", description="Roll of cents")
+
+    rows = search(client, admin_headers, "issue=mixed_marker")["rows"]
+    assert sorted(r["id"] for r in rows) == sorted([rated.id, described.id])
+
+
+def _certified(db: Session, number: str, **overrides: object) -> InventoryItem:
+    """A coin holding this certificate number."""
+    item = build_bare_item(db, **overrides)
+    db.add(ItemCertification(inventory_item_id=item.id, cert_number=number))
+    db.commit()
+    return item
+
+
+def _note(db: Session, serial: str | None, **overrides: object) -> InventoryItem:
+    """A banknote with this printed serial."""
+    item = build_bare_item(
+        db, item_kind_id=code_id(db, ItemKind, "currency"), **overrides
+    )
+    db.add(CurrencyDetail(inventory_item_id=item.id, serial_number=serial))
+    db.commit()
+    return item
+
+
+def _currency_issue(
+    client: TestClient, headers: dict[str, str], issue: str
+) -> list[int]:
+    """The ids the currency view returns for one named check, in id order."""
+    body = client.get(
+        f"/api/inventory/currency/search?issue={issue}", headers=headers
+    ).json()
+    return sorted(r["id"] for r in body["rows"])
+
+
+def test_a_certificate_on_two_rows_flags_both_and_no_other(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    pair = [_certified(db, "9900001"), _certified(db, "9900001")]
+    _certified(db, "9900002")
+    build_bare_item(db)
+
+    rows = search(client, admin_headers, "issue=repeated_identity")["rows"]
+    assert sorted(r["id"] for r in rows) == sorted(i.id for i in pair)
+
+
+def test_a_certificate_repeated_only_on_a_deleted_row_is_not_flagged(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Deleting the duplicate is the remedy, and it has to clear the check.
+
+    A row that should never have existed is not a second holder of the
+    certificate; neither is a lot that has been split into its pieces.
+    """
+    kept = _certified(db, "9900001")
+    _certified(db, "9900001", deleted_at=_GONE)
+    split_kept = _certified(db, "9900003")
+    _certified(db, "9900003", split_at=_GONE)
+
+    rows = search(client, admin_headers, "issue=repeated_identity")["rows"]
+
+    assert rows == [], [kept.id, split_kept.id]
+
+
+def test_a_serial_on_two_notes_flags_both_and_no_other(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    pair = [_note(db, "A00000001A"), _note(db, "A00000001A")]
+    _note(db, "A00000002A")
+    _note(db, None)
+    _note(db, "")
+
+    found = _currency_issue(client, admin_headers, "repeated_identity")
+    assert found == sorted(i.id for i in pair)
+
+
+def test_a_serial_repeated_only_on_a_deleted_note_is_not_flagged(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    _note(db, "A00000001A")
+    _note(db, "A00000001A", deleted_at=_GONE)
+
+    assert _currency_issue(client, admin_headers, "repeated_identity") == []
+
+
+def test_a_near_duplicate_of_a_deleted_note_is_not_flagged(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = build_purchase_order(db, vendor_name="test-vendor", order_number="X2")
+    _note(db, "B08084501A", purchase_order_id=order.id)
+    _note(db, "B0808451A", purchase_order_id=order.id, deleted_at=_GONE)
+
+    assert _currency_issue(client, admin_headers, "near_duplicate_serial") == []
+
+
+def test_a_malformed_serial_is_a_letter_between_two_digits(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A letter inside the digits is usually a typo; one at either end is not."""
+    odd = _note(db, "A1234B678C")
+    _note(db, "A12345678B")
+    _note(db, "12345678")
+    _note(db, None)
+
+    assert _currency_issue(client, admin_headers, "malformed_serial") == [odd.id]
 
 
 def test_a_near_duplicate_serial_is_found_within_one_order(
@@ -102,8 +220,6 @@ def test_a_near_duplicate_serial_is_found_within_one_order(
     requires the two serials to differ in length. That is what a dropped or
     duplicated character does and a consecutive run does not.
     """
-    from app.models import CurrencyDetail
-
     order = build_purchase_order(
         db, vendor_name="test-vendor", order_number="X1", commit=False
     )

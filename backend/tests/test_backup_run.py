@@ -5,7 +5,8 @@ themselves they open the application's database, which on this machine is
 the live one. The export and the proof -- a restore into a second database
 -- are replaced here by ones that answer as the test says: the test
 database is built from the models and has no migration revision to export
-or restore. Both are exercised for real by running the command.
+or restore. The proof itself, `prove_workbook`, is run for real in
+`tests/test_workbook_backup.py`, on that file's scratch databases.
 """
 
 from __future__ import annotations
@@ -177,6 +178,103 @@ def test_only_this_command_s_workbooks_are_ever_removed(
     assert (folder / "media" / "ccwebdb_20200101_000000.xlsx").is_file()
 
 
+def test_a_workbook_a_person_named_is_never_removed(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """Only a name of this command's own making -- date, time, nothing else.
+
+    A corrected copy, a copy made in the file manager and an export saved
+    under a name of the owner's choosing all begin as the command's own do.
+    """
+    folder = tmp_path / "backup"
+    _older(folder, "20260101_000000")
+    kept = [
+        "ccwebdb_20260101_000000 - Copy.xlsx",
+        "ccwebdb_20260101_corrected.xlsx",
+        "ccwebdb_before_the_cleanup.xlsx",
+    ]
+    for name in kept:
+        (folder / name).write_bytes(b"a person's workbook")
+
+    done = run(engine, folder, stamp="20261007_120000", prove=_proved)
+
+    assert [path.name for path in done.removed] == ["ccwebdb_20260101_000000.xlsx"]
+    assert _names(folder) == sorted([*kept, "ccwebdb_20261007_120000.xlsx"])
+
+
+def test_a_workbook_a_person_named_takes_no_place_among_those_kept(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """It sorts after every time stamp, and would count as the newest."""
+    folder = tmp_path / "backup"
+    _older(folder, "20260101_000000", "20260301_000000")
+    (folder / "ccwebdb_final.xlsx").write_bytes(b"a person's workbook")
+
+    run(engine, folder, keep=2, stamp="20261007_120000", prove=_proved)
+
+    assert _names(folder) == [
+        "ccwebdb_20260301_000000.xlsx",
+        "ccwebdb_20261007_120000.xlsx",
+        "ccwebdb_final.xlsx",
+    ]
+
+
+def test_photographs_are_not_pruned_while_older_workbooks_are_kept(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An older workbook kept still names the photographs it was exported with.
+
+    Pruning to what live names today would leave that workbook restoring
+    rows whose pictures are gone, so with more than one kept nothing is
+    pruned.
+    """
+    pruned: list[Path] = []
+
+    def prune(_db: object, folder: Path, *, delete: bool) -> media_backup.MediaPrune:
+        """Note that a prune was asked for at all."""
+        pruned.append(folder)
+        return media_backup.MediaPrune(deleted=4)
+
+    monkeypatch.setattr(media_backup, "prune_media", prune)
+    folder = tmp_path / "backup"
+    _older(folder, "20260101_000000")
+
+    done = run(engine, folder, keep=2, stamp="20261007_120000", prove=_proved)
+
+    assert done.proved
+    assert pruned == []
+    assert done.pruned == 0
+    assert done.not_pruned is not None
+    assert "--keep 2" in done.not_pruned
+
+
+def test_a_prune_that_was_refused_is_said_not_counted_as_none_found(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A refusal is not a failed backup, and is not "0 obsolete files" either."""
+    monkeypatch.setattr(backup_run, "prove_workbook", _proved)
+    monkeypatch.setattr(
+        media_backup,
+        "prune_media",
+        lambda _db, _folder, *, delete: media_backup.MediaPrune(
+            refused="no photographs are recorded: nothing is judged obsolete"
+        ),
+    )
+    folder = tmp_path / "backup"
+
+    assert main([str(folder)], live=engine) == 0
+
+    printed = capsys.readouterr().out
+    assert (
+        "photographs not pruned: no photographs are recorded: nothing is judged "
+        "obsolete" in printed
+    )
+    assert "pruned 0 obsolete" not in printed
+
+
 def test_the_proof_is_handed_the_workbook_that_was_just_written(
     engine: Engine, tmp_path: Path
 ) -> None:
@@ -227,6 +325,32 @@ def test_the_command_exits_1_and_says_nothing_was_removed(
     assert "NOT PROVED: 1 problem(s). Nothing was removed" in printed.err
     assert DIFFERENCE in printed.err
     assert (folder / "ccwebdb_20260101_000000.xlsx").is_file()
+
+
+def test_an_export_that_is_refused_exits_1_and_removes_nothing(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No workbook was written, so nothing was proved and nothing may go."""
+
+    def refuse(_engine: Engine, _path: Path) -> dict[str, int]:
+        """Stand in for the export, refusing a value a cell cannot hold."""
+        raise workbook_backup.WorkbookError("vendor id 3, notes: a carriage return")
+
+    monkeypatch.setattr(workbook_backup, "export_workbook", refuse)
+    monkeypatch.setattr(backup_run, "prove_workbook", _proved)
+    folder = tmp_path / "backup"
+    _older(folder, "20260101_000000")
+
+    assert main([str(folder)], live=engine) == 1
+
+    printed = capsys.readouterr()
+    assert "NOT PROVED: the database could not be exported" in printed.err
+    assert "vendor id 3, notes" in printed.err
+    assert "Nothing was removed" in printed.err
+    assert _names(folder) == ["ccwebdb_20260101_000000.xlsx"]
 
 
 def test_keeping_no_workbook_at_all_is_refused(

@@ -376,6 +376,33 @@ def test_a_limit_stops_after_that_many_and_leaves_the_rest_for_later(
     assert db.get_one(Image, second.id).width == SMALL[0]
 
 
+def test_a_limit_counts_the_photographs_replaced_so_a_later_run_moves_on(
+    db: Session,
+) -> None:
+    """One left as it was stays a candidate: it must not use up the limit.
+
+    The oldest candidate's full-size picture is no larger than the one
+    held, so every run finds it first again. Were it counted, a run limited
+    to one would look at it alone, each time, and never reach the second.
+    """
+    stays = _stored(db, "aaa", "navy", LARGE)
+    grows = _stored(db, "bbb", "olive")
+    fetch = _fetcher(
+        {
+            f"{G}/aaa/s-l1600.jpg": _picture("teal", LARGE),
+            f"{G}/bbb/s-l1600.jpg": _picture("olive", LARGE),
+        }
+    )
+
+    report = run(db, commit=True, fetch=fetch, limit=1)
+
+    assert dict(report.outcomes) == {NOT_LARGER: 1, REPLACED: 1}
+    db.expire_all()
+    assert db.get_one(Image, stays.id).width == LARGE[0]
+    assert db.get_one(Image, grows.id).width == LARGE[0]
+    assert db.get_one(Image, grows.id).source_url == f"{G}/bbb/s-l1600.jpg"
+
+
 def test_more_than_a_batch_is_all_replaced(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

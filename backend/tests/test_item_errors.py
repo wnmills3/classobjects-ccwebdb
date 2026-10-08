@@ -190,3 +190,40 @@ def test_unknown_item_is_404(client: TestClient, admin_headers: dict[str, str]) 
         headers=admin_headers,
     )
     assert resp.status_code == 404
+
+
+def test_a_changed_error_set_moves_the_item_s_version(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Errors are another table, and an open editor watches the version alone.
+
+    The same set sent again changes nothing, and so moves nothing.
+    """
+    item = build_bare_item(db)
+    path = f"/api/inventory/{item.id}"
+    opened = client.get(path, headers=admin_headers).json()["version"]
+    body = {"errors": [{"error_type": "doubled_die", "details": "on LIBERTY"}]}
+
+    assert client.put(f"{path}/errors", json=body, headers=admin_headers).is_success
+    assert client.get(path, headers=admin_headers).json()["version"] == opened + 1
+
+    assert client.put(f"{path}/errors", json=body, headers=admin_headers).is_success
+    assert client.get(path, headers=admin_headers).json()["version"] == opened + 1
+
+
+def test_an_unknown_field_in_the_request_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A misspelt field is a 422, not a set saved without what it meant."""
+    item = build_bare_item(db)
+    url = f"/api/inventory/{item.id}/errors"
+    entry = {"error_type": "doubled_die"}
+
+    for body in (
+        {"errors": [entry], "acknowledge_forsale": True},
+        {"errors": [{**entry, "detail": "strong doubling"}]},
+    ):
+        resp = client.put(url, json=body, headers=admin_headers)
+        assert resp.status_code == 422, resp.text
+
+    assert _errors_of(db, item) == set()

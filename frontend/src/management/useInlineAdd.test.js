@@ -40,6 +40,43 @@ describe('useInlineAdd', () => {
     expect(result.current.ready).toBe(true)
   })
 
+  it('sends one row when it is asked again before the first answer', async () => {
+    let answer
+    const create = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve
+        }),
+    )
+    const { result, onCreated } = mount(create)
+    act(() => {
+      result.current.setAdding(true)
+      result.current.setDraft({ name: 'Apmex', url: '' })
+    })
+
+    let first
+    act(() => {
+      first = result.current.add()
+      result.current.add()
+    })
+    expect(create).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      answer({ id: 12, name: 'Apmex' })
+      await first
+    })
+    expect(onCreated).toHaveBeenCalledTimes(1)
+    expect(result.current.error).toBe('')
+  })
+
+  it('takes another row once the first has been answered', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 12 })
+    const { result } = mount(create)
+    await act(() => result.current.add())
+    await act(() => result.current.add())
+    expect(create).toHaveBeenCalledTimes(2)
+  })
+
   it('sends the draft, hands over the row made, and closes blank again', async () => {
     const made = { id: 12, name: 'Apmex' }
     const { result, create, onCreated } = mount(vi.fn().mockResolvedValue(made))

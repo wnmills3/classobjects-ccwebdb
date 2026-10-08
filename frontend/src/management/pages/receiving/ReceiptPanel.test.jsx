@@ -12,6 +12,8 @@ vi.mock('../../api', () => ({
     getInventoryItem: vi.fn(),
     getItemSales: vi.fn(),
     updateInventoryItem: vi.fn(),
+    // The editor asks what a change decides a moment after it is typed.
+    previewItem: vi.fn(),
     // The Identify section's look-up of what the facts decide.
     suggestNote: vi.fn(),
     suggestCoin: vi.fn(),
@@ -78,6 +80,8 @@ beforeEach(() => {
   api.uploadImage.mockResolvedValue({ id: 1 })
   api.getInventoryItem.mockResolvedValue(ITEM)
   api.updateInventoryItem.mockResolvedValue({})
+  // Never answers: no test here says what the facts decide.
+  api.previewItem.mockReturnValue(new Promise(() => {}))
   api.suggestNote.mockResolvedValue({})
   api.suggestCoin.mockResolvedValue({})
   api.getSignatureChoices.mockResolvedValue({
@@ -99,12 +103,19 @@ describe('ReceiptPanel', () => {
     expect(api.receiveItems.mock.calls[0][0].item_ids).toEqual([412, 413])
   })
 
-  it('sends the outcome the pressed button names', async () => {
+  // The label and the code are not always the same word: the server spells
+  // the fourth with one L.
+  it.each([
+    ['Receive', 'received'],
+    ['Missing', 'missing'],
+    ['Returned', 'returned'],
+    ['Cancelled', 'canceled'],
+  ])('sends the outcome the %s button names', async (label, outcome) => {
     renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
-    await userEvent.click(await screen.findByRole('button', { name: /missing/i }))
+    await userEvent.click(await screen.findByRole('button', { name: label }))
 
     await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
-    expect(api.receiveItems.mock.calls[0][0].outcome).toBe('missing')
+    expect(api.receiveItems.mock.calls[0][0].outcome).toBe(outcome)
   })
 
   it('defaults the arrival date to the local calendar date, not UTC, but lets it be changed', async () => {

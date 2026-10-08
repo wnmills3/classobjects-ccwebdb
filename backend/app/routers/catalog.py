@@ -216,13 +216,13 @@ def _lot_entry(listing: Listing) -> CatalogItemOut:
         version=version_token(listing, None),
         item_code=None,
         piece_count=sum(member.piece_count for member in members),
-        # The offer's own wording first, exactly as for an item, with the
-        # lot's own title behind it. `lot` is never None in practice --
-        # `ck_listing_item_xor_lot` means a listing with no item has one --
-        # but the column is nullable, so this reads it defensively rather
-        # than crashing the shop if that ever stops being true.
-        title=listing.title or (lot.title if lot is not None else ""),
-        description=listing.description or (lot.description if lot is not None else ""),
+        # The offer's own wording and nothing behind it. An item listing
+        # falls back to its item's title and description, which describe the
+        # coin; a lot's are the group's working name and note, kept for the
+        # office, so a lot listing with no wording shows none. A store lot
+        # is not offered untitled (`routers.offers`).
+        title=listing.title,
+        description=listing.description,
         price=listing.price,
         currency=id_to_code(listing.currency) or "USD",
         quantity_available=listing.quantity_available,
@@ -273,7 +273,11 @@ def list_catalog(
     db: DbSession,
     caller: OptionalUser,
     q: Annotated[
-        str | None, Query(description="Free text over title and description")
+        str | None,
+        Query(
+            description="Text to find in the title or description of the "
+            "listing or of its item"
+        ),
     ] = None,
     kind: Annotated[str | None, Query(description="item_kind code")] = None,
     country: Annotated[str | None, Query(description="country code")] = None,
@@ -308,12 +312,16 @@ def list_catalog(
         active_only=not include_inactive
     )
     if q:
-        pattern = f"%{q}%"
+        # The listing's own wording as well as the item's: an entry shows
+        # `listing.description` when the offer has one, and a lot has no item
+        # row to read at all. `autoescape` so that `%` and `_` in what was
+        # typed are those characters, not wildcards.
         filters.append(
             or_(
-                Listing.title.ilike(pattern),
-                InventoryItem.source_title.ilike(pattern),
-                InventoryItem.description.ilike(pattern),
+                Listing.title.icontains(q, autoescape=True),
+                Listing.description.icontains(q, autoescape=True),
+                InventoryItem.source_title.icontains(q, autoescape=True),
+                InventoryItem.description.icontains(q, autoescape=True),
             )
         )
     if kind:

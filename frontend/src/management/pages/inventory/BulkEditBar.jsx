@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { api } from '../../api'
 import ForSaleNotice from '../ForSaleNotice'
+import HelpScope from '../../HelpScope'
 import LocationSelect from '../../LocationSelect'
 import ModalDialog from '../../ModalDialog'
 import OfferDialog from './OfferDialog'
@@ -38,6 +39,10 @@ import { ASSEMBLING_LOTS } from '../assembling-lots'
 
 //: The refusal the server gives a change to items that are for sale.
 const FOR_SALE = 'For sale'
+
+//: The help topic for a field where it is not the field's own name: the
+//: bar's Year is the one-year box the item editor explains as `year`.
+const HELP_FOR = { year_start: 'year' }
 
 const BULK_FIELDS = [
   //: Coins only: a note's year is its series year, and it holds no other.
@@ -81,6 +86,9 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
   const [groupError, setError] = useState('')
   const error = groupError || assembling.error
   const [busy, setBusy] = useState(false)
+  // The new lot this dialog made whose coins were then refused: asked again
+  // under the same title, it is that lot that is filled, not a second one.
+  const [started, setStarted] = useState(null)
 
   // Guards group()'s continuation once the request settles: Cancel (and
   // Escape, which ModalDialog routes to onClose) can unmount this dialog
@@ -100,7 +108,11 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
     let lot = lots?.find((row) => String(row.id) === target) ?? null
     try {
       if (target === 'new') {
-        lot = await api.createLot({ title: wanted, description: '' })
+        lot =
+          started?.title === wanted
+            ? started
+            : await api.createLot({ title: wanted, description: '' })
+        if (mounted.current) setStarted(lot)
       }
       await api.updateLot(lot.id, { add_item_ids: ids, version: lot.version })
       if (!mounted.current) return
@@ -123,8 +135,9 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
   //: Selected ids this page has not loaded a row for, and so cannot name.
   const offPage = ids.length - codes.length
 
-  return (
-    <ModalDialog label={label} onClose={onClose}>
+  // What the dialog holds, set inside its help scope below.
+  const body = (
+    <>
       <h2>{label}</h2>
       {error && <p className="error">{error}</p>}
       {codes.length > 0 && (
@@ -141,7 +154,7 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
         </p>
       )}
       <div className="filter-grid">
-        <label>
+        <label data-help="lot_target">
           Lot
           <select value={target} onChange={(e) => setTarget(e.target.value)}>
             <option value="new">A new lot</option>
@@ -153,7 +166,7 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
           </select>
         </label>
         {target === 'new' && (
-          <label>
+          <label data-help="lot_title">
             Title
             <input value={title} onChange={(e) => setTitle(e.target.value)} />
           </label>
@@ -167,6 +180,12 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
           Cancel
         </button>
       </div>
+    </>
+  )
+
+  return (
+    <ModalDialog label={label} onClose={onClose}>
+      <HelpScope>{body}</HelpScope>
     </ModalDialog>
   )
 }
@@ -197,9 +216,15 @@ export default function BulkEditBar({
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  // Shown once the server has said some of the selection is for sale.
-  const [forSale, setForSale] = useState(false)
-  const [acknowledged, setAcknowledged] = useState(false)
+  // The selection the server said holds items for sale, and the one the
+  // operator then agreed to change. Each is kept as the selection it was
+  // about, so neither the notice nor the agreement carries over to another:
+  // items added since were never named.
+  const selection = ids.join(',')
+  const [forSaleIn, setForSaleIn] = useState(null)
+  const [acknowledgedFor, setAcknowledgedFor] = useState(null)
+  const forSale = forSaleIn === selection
+  const acknowledged = acknowledgedFor === selection
   const [offering, setOffering] = useState(false)
   const [grouping, setGrouping] = useState(false)
   // What the last grouping did, so the bar says so where the selection is.
@@ -215,6 +240,9 @@ export default function BulkEditBar({
     ([, , , onlyView]) => !onlyView || onlyView === view,
   )
   const type = fields.find(([, key]) => key === field)?.[2] ?? 'text'
+  // The value box explains the field chosen, to the `HelpScope` the page
+  // puts around this bar.
+  const topic = HELP_FOR[field] ?? field
 
   async function apply() {
     setBusy(true)
@@ -225,12 +253,12 @@ export default function BulkEditBar({
       await api.bulkEditInventory(ids, changes)
       setError('')
       setValue('')
-      setForSale(false)
-      setAcknowledged(false)
+      setForSaleIn(null)
+      setAcknowledgedFor(null)
       onApplied?.()
     } catch (err) {
       setError(err.message)
-      if (err.message.startsWith(FOR_SALE)) setForSale(true)
+      if (err.message.startsWith(FOR_SALE)) setForSaleIn(selection)
     } finally {
       setBusy(false)
     }
@@ -242,6 +270,7 @@ export default function BulkEditBar({
 
       <select
         aria-label="Field to change"
+        data-help="bulk_field"
         value={field}
         onChange={(e) => {
           // A year typed for one field is not a location's id for another.
@@ -257,10 +286,13 @@ export default function BulkEditBar({
       </select>
 
       {type === 'location' ? (
-        <LocationSelect value={value} onChange={setValue} />
+        <span data-help={topic}>
+          <LocationSelect value={value} onChange={setValue} />
+        </span>
       ) : (
         <input
           type={type}
+          data-help={topic}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="New value"
@@ -289,7 +321,7 @@ export default function BulkEditBar({
         show={forSale}
         heading="Some of the selected items are for sale"
         checked={acknowledged}
-        onChange={setAcknowledged}
+        onChange={(agreed) => setAcknowledgedFor(agreed ? selection : null)}
         action="Change the items for sale too"
       />
       {error && <span className="error">{error}</span>}

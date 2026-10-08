@@ -235,6 +235,35 @@ describe('Auctions', () => {
     expect(api.addAuctionLot).not.toHaveBeenCalled()
   })
 
+  it('offers a new auction only the platforms one can be run on', async () => {
+    // The web store runs no auction, and a retired platform runs nothing.
+    const user = userEvent.setup()
+    api.listAuctions.mockResolvedValue({ auctions: [] })
+    api.listSalesVenues.mockResolvedValue([
+      { code: 'store', name: 'Web store', kind: 'own_store', is_own_store: true },
+      { ...HERITAGE, is_own_store: false, is_active: true },
+      { ...EBAY, is_own_store: false, is_active: true },
+      {
+        code: 'oldhouse',
+        name: 'Old House',
+        kind: 'auction_house',
+        is_own_store: false,
+        is_active: false,
+      },
+    ])
+    renderWithProviders(<Auctions />, { strict: true })
+
+    await user.click(await screen.findByRole('button', { name: 'New auction...' }))
+    const dialog = screen.getByRole('dialog', { name: 'Start a new auction' })
+    await waitFor(() =>
+      expect(
+        within(within(dialog).getByLabelText('Platform'))
+          .getAllByRole('option')
+          .map((option) => option.textContent),
+      ).toEqual(['Choose a platform', 'Heritage Auctions', 'Weekly eBay']),
+    )
+  })
+
   it("does not let a closed auction's lot numbers be edited", async () => {
     // `app.auctions.refuse_unless_lot_editable`: draft, scheduled or
     // consigned only. The console must not let the owner walk into that
@@ -263,9 +292,13 @@ describe('Auctions', () => {
     const dialog = screen.getByRole('dialog', { name: /remove lot/i })
     const confirm = within(dialog).getByRole('button', { name: 'Remove lot' })
     expect(confirm).toBeDisabled()
+    // Held back with its reason beside it, not greyed out in silence.
+    const reason = 'Choose where the items come back to first.'
+    expect(within(dialog).getByText(reason)).toBeVisible()
 
     await user.selectOptions(within(dialog).getByLabelText(/return items to/i), '9')
     expect(confirm).toBeEnabled()
+    expect(within(dialog).queryByText(reason)).toBeNull()
     await user.click(confirm)
 
     expect(api.removeAuctionLot).toHaveBeenCalledWith(row.id, row.lots[0].id, 9)

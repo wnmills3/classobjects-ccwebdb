@@ -207,12 +207,10 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
       setNote('')
       setStorageLocationId('')
       setArrivedOn(todayLocal())
-      // The section only ever has something to review while an item is
-      // selected; once the receipt clears the selection, `ReviewPane` would
-      // render nothing for an empty queue anyway, but leaving `reviewIds` set
-      // would still keep the "Confirm or correct fields" button hidden
-      // behind a review pane nobody can see. Closing it here is what makes
-      // it reappear for the next item.
+      // A review left open ends with the receipt. The caller closes the
+      // dialog on a clean one; when a failed photograph keeps the panel on
+      // screen, it is the receipt's own fields and that error that show,
+      // not the editor.
       setReviewIds(null)
 
       // The arrival above is the fact; a photograph is evidence added to it
@@ -260,8 +258,9 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
         )
         // Every photograph is cleared, the failed ones included. Keeping one
         // in the picker would suggest a retry that does not exist: the only
-        // button that would send it also re-sends the receipt, which the
-        // backend refuses with a 409 now that the item is received.
+        // button that would send it also sends the receipt again -- a 409
+        // for an item now received, and for any other outcome a repeat of
+        // something that happened once.
         setPhotos([])
         setPhotoInputKey((key) => key + 1)
       }
@@ -443,9 +442,9 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
       </div>
 
       {/* One item's id only -- `PUT /api/inventory/{id}/errors` replaces a
-          single item's set, so with several items selected there is no
-          bulk semantic to show this against; it appears once the selection
-          narrows to one. Unlike the Friedberg section this is not gated on
+          single item's set, so over the several items of Receive all there
+          is no bulk semantic to show this against; it is offered in the
+          one-item dialog only. Unlike the Friedberg section this is not gated on
           `isCurrency`: a coin has its own mint errors (off-center, clipped
           planchet) just as a note has printing ones.
 

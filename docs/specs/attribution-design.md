@@ -222,6 +222,9 @@ fieldMerge.js           field-by-field merge against changes made elsewhere
 ConflictList.jsx        fields changed elsewhere meanwhile: keep mine or theirs
 ```
 
+`PhotosPanel.jsx` shares `pages/ItemPicker.jsx`, one directory up, with the
+Photos page: it finds one item by its code, searching both views.
+
 **The review queue is the search result, frozen at entry.** `ReviewPane`
 captures the id list once. If it re-ran the search at each step, fixing item
 3's missing year would drop it from `?issue=no_year`, shift every later

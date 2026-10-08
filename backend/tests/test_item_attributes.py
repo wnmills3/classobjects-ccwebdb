@@ -13,6 +13,7 @@ from app.models import (
     InventoryItem,
     ItemAttribute,
     ItemAttributeLink,
+    ProvenanceSource,
 )
 from app.serial_patterns import run as run_serial_patterns
 from fastapi.testclient import TestClient
@@ -221,7 +222,7 @@ def test_a_removed_derived_attribute_stays_removed(
     assert note.item_code not in {r["item_code"] for r in rows}
 
 
-def test_setting_a_removed_attribute_again_restores_it_as_it_was(
+def test_setting_a_removed_attribute_again_makes_it_the_persons(
     db: Session,
     make_item: ItemFactory,
     client: TestClient,
@@ -229,13 +230,13 @@ def test_setting_a_removed_attribute_again_restores_it_as_it_was(
 ) -> None:
     note = _note(db, make_item, STAR_SERIAL)
     run_serial_patterns(db, commit=True)
-    _set(client, admin_headers, note, [])
-    _set(client, admin_headers, note, ["star"])
+    assert _set(client, admin_headers, note, []).status_code == 200
+    assert _set(client, admin_headers, note, ["star"]).status_code == 200
 
+    # A person chose it, so no rule may take it back as its own.
     body = _detail(client, admin_headers, note)
-    assert [(a["code"], a["source"]) for a in body["attributes"]] == [
-        ("star", "derived")
-    ]
+    held = [(a["code"], a["source"], a["derived_by"]) for a in body["attributes"]]
+    assert held == [("star", "manual", None)]
     # And removing it a second time still holds.
     _set(client, admin_headers, note, [])
     run_serial_patterns(db, commit=True)
@@ -253,6 +254,46 @@ def test_an_attribute_a_person_added_and_removed_is_not_derived_back(
     _set(client, admin_headers, note, [])
     run_serial_patterns(db, commit=True)
     assert _codes(_detail(client, admin_headers, note)) == []
+
+
+def test_a_designation_a_corrected_serial_no_longer_earns_is_taken_back(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """The pass takes back what it derived, and nothing a person set."""
+    radar = "A12344321B"
+    corrected = _note(db, make_item, radar)
+    unchanged = _note(db, make_item, radar)
+    by_hand = _note(db, make_item, "A38164927B")
+    db.add(
+        ItemAttributeLink(
+            inventory_item_id=by_hand.id,
+            item_attribute_id=_attribute(db, "radar").id,
+            source=ProvenanceSource.manual,
+        )
+    )
+    db.commit()
+    run_serial_patterns(db, commit=True)
+    assert _link(db, corrected, "radar") is not None
+    assert _link(db, corrected, "fancy_serial") is not None
+
+    detail = db.execute(
+        select(CurrencyDetail).where(CurrencyDetail.inventory_item_id == corrected.id)
+    ).scalar_one()
+    detail.serial_number = "A12344322B"
+    db.commit()
+
+    # A report touches nothing.
+    run_serial_patterns(db, commit=False)
+    db.expire_all()
+    assert _link(db, corrected, "radar") is not None
+
+    run_serial_patterns(db, commit=True)
+    db.expire_all()
+    assert _link(db, corrected, "radar") is None
+    assert _link(db, corrected, "fancy_serial") is None
+    # The serial that still earns it keeps it, and so does a person's link.
+    assert _link(db, unchanged, "radar") is not None
+    assert _link(db, by_hand, "radar") is not None
 
 
 def test_an_attribute_for_the_other_kind_of_item_is_refused(

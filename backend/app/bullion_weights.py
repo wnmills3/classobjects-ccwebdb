@@ -27,7 +27,8 @@ looked at, and only its empty fields are filled. Two sources, in order:
 
 Fine weight is then gross weight times fineness, by the same rule a save
 applies (`classifier_defaults.weight_outcome`), unless the peers record a
-fine weight with no gross weight, which is taken as it stands.
+fine weight with no gross weight or no fineness to work it out from, which
+is taken as it stands.
 
     python -m app.bullion_weights                          report, touching nothing
     python -m app.bullion_weights --list                   ... naming every item
@@ -108,7 +109,8 @@ _WORDS: tuple[tuple[re.Pattern[str], Decimal], ...] = tuple(
         ("tenth", Decimal("0.1")),
     )
 )
-_DECIMAL_FINENESS = re.compile(r"(?<![\d.])\.(\d{3,4})(?!\d)")
+#: `.999` or `0.999`. A digit before that is a larger number's: `12.925`.
+_DECIMAL_FINENESS = re.compile(r"(?<![\d.])0?\.(\d{3,4})(?!\d)")
 #: The finenesses metal is actually sold at. Any other `.nnn` in a title is
 #: something else -- a lot code, a price.
 _KNOWN_FINENESS = frozenset(
@@ -355,7 +357,9 @@ def plan(db: Session) -> Plan:
                 if peer_gross is not None:
                     guess("gross_weight_ozt", peer_gross, WEIGHT_PEERS, why)
                     gross = peer_gross
-                else:
+                # Without both a gross weight and a fineness nothing works
+                # the fine weight out, so the peers' own is taken.
+                if peer_gross is None or fineness is None:
                     guess("fine_weight_ozt", peer_fine, WEIGHT_PEERS, why)
         if len(todo.guesses) == before:
             todo.no_guess.append(item.item_code)

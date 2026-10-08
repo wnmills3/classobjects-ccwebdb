@@ -62,6 +62,9 @@ item_router = APIRouter(prefix="/inventory", tags=["friedberg"])
 #: here, not imported from the model, because a `CheckConstraint` string is
 #: not something Python code can introspect.
 FRIEDBERG_STATUSES = frozenset({"unknown", "proposed", "confirmed", "conflicting"})
+#: The statuses a number is attached with. `unknown` is a note with no
+#: number -- what clearing one leaves -- so it is not among them.
+ATTACHABLE_STATUSES = FRIEDBERG_STATUSES - {"unknown"}
 
 
 class CombinationRecorded(Exception):
@@ -252,8 +255,8 @@ def search_friedberg(
     back -- browsing the whole catalog is a valid use of this endpoint too.
     """
     # Resolved in this order, so an unknown code is refused the same way
-    # whichever others were sent too. Washington or Fort Worth: a 2017-A $1 is
-    # 3005-A from one, 3006-A from the other.
+    # whichever others were sent too. Washington or Fort Worth: the two
+    # facilities' printings of one series carry different numbers.
     filters: list[tuple[InstrumentedAttribute[Any], object]] = [
         (
             FriedbergNumber.note_type_id,
@@ -517,7 +520,17 @@ def update_catalog_row(
         else:
             row.verified_by_id = None
             row.verified_at = None
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        # Two corrections, or a correction and a recording, racing past the
+        # checks above: the unique index stops the second, and it reads as
+        # the same refusal.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That combination is already recorded under another number.",
+        ) from exc
     db.refresh(row)
     return _to_out(db, row)
 
@@ -590,11 +603,11 @@ def attach_friedberg(
     turns this particular proposal into a fact the next lookup can trust,
     for every item it is ever attached to afterwards.
     """
-    if payload.status not in FRIEDBERG_STATUSES:
+    if payload.status not in ATTACHABLE_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown friedberg_status {payload.status!r}. Expected one "
-            f"of {sorted(FRIEDBERG_STATUSES)}",
+            f"of {sorted(ATTACHABLE_STATUSES)}",
         )
 
     detail = _note_detail(db, item_id)

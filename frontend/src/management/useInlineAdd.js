@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 /**
  * The small form a picker opens from its "+ Add ..." option: the vendor,
@@ -21,7 +21,14 @@ export function useInlineAdd({ blank, ready, create, onCreated }) {
   const [draft, setDraft] = useState(blank)
   const [error, setError] = useState('')
 
+  // A ref, not state: Enter held down asks again before the next render.
+  const sending = useRef(false)
+
   async function add() {
+    // One request at a time: a second behind the first would make the row
+    // twice, or be refused for a row the first had just made.
+    if (sending.current) return
+    sending.current = true
     try {
       const created = await create(draft)
       onCreated(created)
@@ -30,6 +37,8 @@ export function useInlineAdd({ blank, ready, create, onCreated }) {
       setError('')
     } catch (err) {
       setError(err.message)
+    } finally {
+      sending.current = false
     }
   }
 

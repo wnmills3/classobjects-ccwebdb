@@ -27,10 +27,18 @@ export default function VocabularyAddForm({
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const ready =
-    label.trim() &&
-    /^\d*$/.test(order) &&
-    fields.every((field) => !field.required || filled(field, extra[field.name]))
+  const missing = fields.find(
+    (field) => field.required && !filled(field, extra[field.name]),
+  )
+  // What Add is waiting for, said beside it; '' once it can be sent.
+  const waiting = !label.trim()
+    ? 'A label is needed first.'
+    : !/^\d*$/.test(order)
+      ? 'Position is a whole number.'
+      : missing
+        ? `${missing.label} is needed first.`
+        : ''
+  const ready = waiting === ''
 
   async function add(e) {
     e.preventDefault()
@@ -111,6 +119,7 @@ export default function VocabularyAddForm({
         <button type="button" className="link" onClick={onCancel}>
           Cancel
         </button>
+        {waiting && <span className="muted">{waiting}</span>}
       </div>
     </form>
   )

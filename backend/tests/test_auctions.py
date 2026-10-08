@@ -200,6 +200,20 @@ def location_history(db: Session, item: InventoryItem) -> list[StorageLocation]:
     return locations
 
 
+def stored_location_id(db: Session, item_id: int) -> int | None:
+    """Where the database says an item is, read through a session of its own.
+
+    A second session on the test's connection, so the answer is the row as
+    written and never an attribute the writing session still holds in
+    memory -- a value assigned but never flushed reads correctly there and
+    nowhere else.
+    """
+    with Session(bind=db.get_bind(), join_transaction_mode="create_savepoint") as fresh:
+        return fresh.scalar(
+            select(InventoryItem.storage_location_id).where(InventoryItem.id == item_id)
+        )
+
+
 def _home_location(db: Session) -> StorageLocation:
     """A plain, non-consigned location, for a test to return items to."""
     kind_id = db.scalar(
@@ -270,6 +284,29 @@ def test_add_lot_accepts_explicit_title_description_and_external_id(
     assert listing.title == "Custom lot title"
     assert listing.description == "Custom lot description"
     assert listing.external_id == "LOT-42"
+
+
+def test_an_item_with_a_title_longer_than_a_lot_s_becomes_a_lot_of_one(
+    db: Session, auction: Auction, make_item: ItemFactory
+) -> None:
+    """A single item is wrapped in a lot whatever the length of its title.
+
+    `inventory_item.source_title` holds 500 characters and `sales_lot.title`
+    255, so the wrapping lot takes the first 255 rather than the insert
+    failing on a title the item itself was allowed to carry.
+    """
+    long_title = "1881-S Morgan Dollar " * 14
+    assert 255 < len(long_title) <= 500
+    item = make_item(title=long_title)
+
+    auction_lot = add_lot(
+        db, auction, item, lot_number="1", reserve=None, price=Decimal("10.00")
+    )
+
+    lot = auction_lot.listing.sales_lot
+    assert lot is not None
+    assert lot.title == long_title[:255]
+    assert [member.inventory_item_id for member in lot.members] == [item.id]
 
 
 def test_lots_cannot_be_added_after_closing(
@@ -439,6 +476,79 @@ def test_removing_a_lot_from_a_consigned_auction_moves_its_items_back(
         db.refresh(item)
         assert item.storage_location_id == home.id
         assert location_history(db, item)[-1].id == home.id
+
+
+def test_a_removed_consigned_lot_s_items_are_stored_home_without_autoflush(
+    db: Session, house_auction: Auction
+) -> None:
+    """The return reaches the item's row, run the way production runs.
+
+    `SessionLocal` (app/database.py) sets `autoflush=False`; the test session
+    does not. `remove_lot` moves the items through
+    `lifecycle_writes.set_location`, which assigns without flushing, and then
+    ends the offer, which locks the same item rows with `populate_existing`.
+    With autoflush on, the lock query writes the move first; with it off, a
+    move still pending when the rows are re-read is discarded, and the commit
+    writes a history row saying the coin came home beside an item still filed
+    at the house.
+    """
+    consign(db, house_auction, on_date=date(2026, 10, 1))
+    (auction_lot,) = house_auction.lots
+    item_ids = [item.id for item in items_of(house_auction)]
+    assert item_ids, "the auction holds no items, so nothing here is checked"
+    home = _home_location(db)
+    db.flush()
+
+    db.autoflush = False
+    try:
+        remove_lot(db, auction_lot, returned_to_location_id=home.id)
+        db.commit()
+    finally:
+        db.autoflush = True
+
+    for item_id in item_ids:
+        assert stored_location_id(db, item_id) == home.id
+
+
+def test_a_cancelled_consigned_auction_s_items_are_stored_home_without_autoflush(
+    db: Session, heritage_venue: SalesVenue, make_item: ItemFactory
+) -> None:
+    """Every lot's coins reach the return location, not only the last lot's.
+
+    Two lots, because `cancel` removes them one after another and each
+    removal re-reads its own lot's items: a move that survives only until
+    the next lot's rows are locked would pass on a single lot.
+    """
+    auction = Auction(sales_venue_id=heritage_venue.id, title="Two-lot house sale")
+    db.add(auction)
+    db.flush()
+    for number in (1, 2):
+        add_lot(
+            db,
+            auction,
+            make_item(title=f"Lot {number}"),
+            lot_number=str(number),
+            reserve=None,
+            price=Decimal("10.00"),
+        )
+    schedule(db, auction)
+    consign(db, auction, on_date=date(2026, 10, 1))
+    item_ids = [item.id for item in items_of(auction)]
+    assert len(item_ids) == 2
+    home = _home_location(db)
+    db.flush()
+
+    db.autoflush = False
+    try:
+        cancel(db, auction, returned_to_location_id=home.id)
+        db.commit()
+    finally:
+        db.autoflush = True
+
+    assert [stored_location_id(db, item_id) for item_id in item_ids] == [
+        home.id,
+        home.id,
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -888,9 +998,10 @@ def test_marking_one_member_of_an_auction_lot_missing_is_refused(
 
     The refusal is raised under `lock_for_sale`'s locks, after the
     authoritative `offers_holding` re-read, so nothing is written when it
-    fires -- the endpoint commits once, at the end. The pending status write
-    that got as far as a flush is discarded with the savepoint here, exactly
-    as `get_db` discards it in production when the handler raises.
+    fires -- the endpoint commits once, at the end, and rolls back when it
+    refuses. The pending status write that got as far as a flush is discarded
+    by that rollback, so the fixture's rows are committed first: a rollback
+    takes everything since the last commit with it.
 
     The trade is stated in the message, because the operator has to act on
     it: remove the lot from the auction first, then record the loss. Record
@@ -910,7 +1021,7 @@ def test_marking_one_member_of_an_auction_lot_missing_is_refused(
         if member.inventory_item_id != stored_item.id
     ]
 
-    savepoint = db.begin_nested()
+    db.commit()
     with pytest.raises(HTTPException) as refused:
         receive_items(
             ReceiveRequest(
@@ -921,7 +1032,6 @@ def test_marking_one_member_of_an_auction_lot_missing_is_refused(
             db,
             admin_user,
         )
-    savepoint.rollback()
 
     assert refused.value.status_code == 409
     detail = str(refused.value.detail)

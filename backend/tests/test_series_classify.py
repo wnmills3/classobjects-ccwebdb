@@ -185,9 +185,9 @@ def test_1921_is_both_morgan_and_peace(db: Session, make_item: ItemFactory) -> N
 def test_text_naming_an_impossible_design_is_a_conflict(
     db: Session, make_item: ItemFactory
 ) -> None:
-    # Measured in the collection: $1 notes rated "funnyback" but recorded as
-    # Series 1923, a large-size note. The rating or the year is wrong; the
-    # pass must say so rather than pick one.
+    # A $1 note rated "funnyback" but recorded as Series 1923, a large-size
+    # note: the rating or the year is wrong, and the pass must say so rather
+    # than pick one.
     note = _note(db, make_item, NOTE_1, 1923, rating="VF funnyback")
 
     assert _case(db, note) == ("conflict", ("funnyback",))
@@ -198,7 +198,7 @@ def test_text_naming_an_impossible_design_is_a_conflict(
 def test_lot_text_is_not_evidence_about_a_piece(
     db: Session, make_item: ItemFactory
 ) -> None:
-    # Measured in the collection: a lot's pieces carry the lot's listing,
+    # A lot's pieces carry the lot's listing,
     # which names designs the piece is not. The 1943 cent is a Lincoln cent
     # whatever the lot says; the same words on a piece alone are a conflict.
     vendor = Vendor(name="Lot seller")
@@ -291,7 +291,8 @@ def test_a_trade_dollar_needs_its_word(db: Session, make_item: ItemFactory) -> N
 
 
 def test_a_commemorative_needs_its_word(db: Session, make_item: ItemFactory) -> None:
-    # Measured: dozens of commemorative halves would otherwise be Kennedys.
+    # A commemorative half shares its years with the Kennedy half, so only
+    # its own words tell the two apart.
     worded = _coin(
         db, make_item, "usd_coin_0_50", 1992, title="1992 Olympic Commemorative Half"
     )
@@ -594,7 +595,7 @@ def _class(db: Session, item: InventoryItem, code: str) -> None:
 
 
 def test_a_1929_national_needs_its_class(db: Session, make_item: ItemFactory) -> None:
-    # Measured on live: the 1929 notes name their bank in the rating, and the
+    # A 1929 note names its bank in the rating, and the
     # brown seal is on both classes. The bank's name is not the design's: the
     # word "National" is on a National bank's notes of every series, so it
     # decides the note's class (`classifier_defaults`), and the class is the

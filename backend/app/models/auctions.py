@@ -2,11 +2,14 @@
 
 `auction` and `auction_lot` are the schema half of the selling design's
 auction flow (`docs/specs/selling-design.md`, the `auction` and `auction_lot`
-section). An auction-format listing always belongs to an auction, and a timed
-eBay auction is modeled the same way -- an auction with one lot. Nothing in
-this module writes these tables: `app/auctions.py` is their sole writer, the
-same pattern `offering_writes.py` and `lifecycle_writes.py` follow for their
-own tables.
+section). An `auction_lot` always details an auction-format listing, and a
+timed eBay auction can be modeled the same way -- an auction with one lot.
+The converse does not hold: a coin offered directly on a marketplace by
+auction has an auction-format listing and no `auction` behind it. Nothing in
+this module writes these tables. `app/auctions.py` is the sole writer of
+every transition -- an auction's status and custody, and which `auction_lot`
+rows exist; `routers.auctions` creates a `draft` auction and edits its
+wording and dates, and a lot's number and reserve.
 """
 
 from __future__ import annotations

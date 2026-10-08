@@ -4,9 +4,9 @@ What the development runtime writes while it runs. Everything in this directory 
 (`logs/*` and `!logs/README.md` in `.gitignore`), so nothing written here
 reaches GitHub.
 
-`scripts\ccweb_startup.cmd`, `scripts\ccweb_shutdown.cmd` and
-`scripts\ccweb_claude.cmd` write here. When something fails, they print the
-log file to read first.
+`scripts\ccweb_startup.cmd`, `scripts\ccweb_shutdown.cmd`,
+`scripts\ccweb_claude.cmd` and `scripts\ccweb_backup.cmd` write here. When
+something fails, they print the log file to read first.
 
 ## Layout
 
@@ -19,6 +19,7 @@ logs\
   frontend.log  .1  .2    Vite: dev server output and build errors
   postgres.log  .1  .2    PostgreSQL: pg_ctl's start messages, then the server's own log
   pg_stop.log   .1  .2    pg_ctl stop: "server stopped"
+  backup.log              ccweb_backup.cmd: what each backup run did
 ```
 
 `.runtime\ccweb.pids` is not a log: it holds the running processes' PIDs for
@@ -32,10 +33,12 @@ shutdown, and it stays in `.runtime\`.
 | `frontend.log` | the site will not load, or startup says the frontend FAILED |
 | `postgres.log` | PostgreSQL will not start (a bad setting or a stale `postmaster.pid` is explained here), a query fails or a connection is refused, or you want to see a shutdown finish (`database system is shut down`) |
 | `pg_stop.log` | shutdown says PostgreSQL is still running |
+| `backup.log` | a backup run says FAILED, or to see that the daily runs say `proved` |
 
 ## How the files rotate
 
-**Every type keeps its last three files, and no file grows past 1 GB.**
+**Every type but `backup.log` keeps its last three files, and no file of
+those grows past 1 GB.**
 
 - The current file always has the plain name. When a new one starts, the
   older files move up to `.1` and `.2`, and whatever was in `.2` is deleted.
@@ -47,8 +50,14 @@ shutdown, and it stays in `.runtime\`.
   `backend\app\logpipe.py`, which does the rotating. PostgreSQL's own logging
   collector is turned off for this: it can cap a file's size but not how many
   files it leaves behind.
+- A current file that another program still has open cannot be moved up --
+  Windows refuses -- so no new file is started: the lines are added to that
+  file, under one line beginning `[logpipe]` that says so.
 - `pg_stop.log` holds a few lines from each stop. Shutdown rotates it before
   each stop and never measures it.
+- `backup.log` is one file that every backup run adds to, each under a line
+  with its date and time. It is not rotated and has no size limit: delete it
+  when it has grown long.
 
 ## Settings
 

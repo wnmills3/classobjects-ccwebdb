@@ -140,11 +140,12 @@ gains a trailing space. `.pgdata\` is gitignored. The "enabling trust
 authentication for local connections" warning is harmless on Windows: there
 are no Unix domain sockets, so only the `host` rules apply.
 
-Start the server with `.\scripts\ccweb_startup.cmd` (or by hand, see
-[runtime-operations.md](runtime-operations.md)), then create the application
-role and database:
+Start the server by hand, then create the application role and database.
+`.\scripts\ccweb_startup.cmd` cannot start it yet: it stops before
+PostgreSQL unless the dependencies of step 7 are installed.
 
 ```cmd
+pg_ctl -D .pgdata -l logs\postgres-by-hand.log start
 set "PGPASSWORD=devpassword"
 psql -h localhost -U postgres -d postgres -c "CREATE ROLE ccwebdb WITH LOGIN PASSWORD 'devpassword' CREATEDB;"
 psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ccwebdb OWNER ccwebdb ENCODING 'UTF8';"
@@ -152,6 +153,12 @@ psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ccwebdb OWNER ccwe
 
 `CREATEDB` is for the test suite, which creates and drops its own
 `ccwebdb_test` database. On an existing role: `ALTER ROLE ccwebdb CREATEDB;`.
+
+A server started this way belongs to this window and breaks when the window
+closes ([runtime-operations.md](runtime-operations.md), *Running a service
+by hand*). Leave the window open through step 8, then stop the server with
+`pg_ctl -D .pgdata -m fast stop`; from then on `.\scripts\ccweb_startup.cmd`
+starts it.
 
 ## 6. Configure the application
 
@@ -210,7 +217,9 @@ uv run python -m app.seed
 `backend/data/reference/`. `app.seed` creates the administrator from
 `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD` **plus five demo items with shop
 listings**. Both are idempotent. Never run `app.seed` against a real
-collection's database.
+collection's database: it refuses one that already holds a purchase, or an
+item other than the five demo ones, and writes nothing, unless
+`--into-existing` is given.
 
 ---
 

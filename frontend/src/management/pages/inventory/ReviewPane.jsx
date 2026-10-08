@@ -9,7 +9,11 @@ import ItemEditForm from './ItemEditForm'
  * starts, and never re-read. If it re-ran the search at each step, fixing
  * item 3's missing year would remove it from `issue=no_year`, the set would
  * shrink to 22, and every position after it would shift -- silently skipping
- * an item. Fixed items stay in the list, marked done.
+ * an item. A saved item keeps its place in the queue, and the count of
+ * those saved is shown beside the position.
+ *
+ * Previous and Next open another item's form: an edit not yet saved on the
+ * one being left is not carried over.
  */
 export default function ReviewPane({ ids, onClose }) {
   const [at, setAt] = useState(0)

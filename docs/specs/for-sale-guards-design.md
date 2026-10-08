@@ -58,7 +58,7 @@ operator would tick a box and then be refused anyway.
 | Endpoint | When it guards | Acknowledgement travels as |
 |---|---|---|
 | `PATCH /api/inventory/{id}` | any field, attribute or certificate-number change, except where the item is kept (`storage_location_id`: a move does not show to a buyer); a new status or disposition, acknowledged, ends the item's offers | `acknowledge_for_sale` in the body |
-| `POST /api/inventory/bulk` | any change; a new status or disposition ends each changed item's offers | body |
+| `POST /api/inventory/bulk` | any change, except where the items are kept (`storage_location_id`), as for the single edit; a new status or disposition ends each changed item's offers | body |
 | `POST /api/inventory/receive` | outcomes `missing`, `returned`, `canceled` only | body (`ReceiveRequest`) |
 | `POST /api/inventory/{id}/split` | listings only (`kinds={"listing"}`) | body (`SplitRequest`) |
 | `PUT /api/inventory/{id}/errors` | always | body (`ItemErrorsRequest`) |
@@ -147,17 +147,24 @@ opening words, "For sale".
 
 ## Tests
 
-`backend/tests/test_for_sale_guards.py` holds the policy in one file: each
-path refuses when the item is for sale and nothing was acknowledged, and
-succeeds when it was; receiving guards only the three outcomes and an
-acknowledged `missing` ends the listing and releases its claim; split refuses
-an order with no acknowledgement path; merge's `dry_run` reports the codes.
+`backend/tests/test_for_sale_guards.py` holds the policy for the guard
+itself and for the inventory, upload, image-deletion and merge paths: each
+refuses when the item is for sale and nothing was acknowledged, and succeeds
+when it was. The photograph-filing paths are tested beside the code they
+guard: attaching, re-roling and detaching in
+`backend/tests/test_image_links.py`, moving in
+`backend/tests/test_image_move.py`, and fetching from a URL in
+`backend/tests/test_image_from_url.py`. Receiving guards only the three
+outcomes and an acknowledged `missing` ends the listing and releases its
+claim; split refuses an order with no acknowledgement path; merge's `dry_run`
+reports the codes.
 Receiving tests build their listing through `offering_writes.offer()`,
 because `conftest.build_listing` makes claimless listings and the test has to
 prove a claim was released. Lot cases are covered too: an offered lot's
 member warns like a listed item, and a sold lot's member warns while its
 order is open. Each guard call site has a test that fails when the call is
-removed.
+removed; a move is tested from both ends, the item the photograph leaves and
+the item it joins.
 
 Frontend: `ErrorsPanel`, `ReceiptPanel`, `Vocabularies`, `ForSaleNotice`,
 `ForSaleConfirm` and the Photos page have tests. `ErrorsPanel`'s are

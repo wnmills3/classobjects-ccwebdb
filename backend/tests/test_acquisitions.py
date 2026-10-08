@@ -257,13 +257,16 @@ def test_a_customer_cannot_read_storage_locations(
     )
 
 
-def _costing(db: Session, order: PurchaseOrder, price: str, shipping: str) -> None:
-    """A live item on `order` at this price and shipping, untaxed."""
+def _costing(
+    db: Session, order: PurchaseOrder, price: str, shipping: str, rate: str = "0"
+) -> None:
+    """A live item on `order` at this price and shipping, taxed at `rate`."""
     item = build_bare_item(
         db,
         item_cost=Decimal(price),
         shipping_cost=Decimal(shipping),
-        tax_rate=Decimal("0"),
+        tax_rate=Decimal(rate),
+        tax_includes_shipping=True,
     )
     item.purchase_order_id = order.id
 
@@ -281,7 +284,9 @@ def test_the_list_names_each_purchase_s_seller_and_what_it_cost(
         seller_id=seller.id,
         commit=False,
     )
-    _costing(db, sold_by, "40.00", "5.25")
+    # Taxed, shipping included: 45.25 at 6.35% is 2.87, so a total that left
+    # the tax out would be 55.25.
+    _costing(db, sold_by, "40.00", "5.25", rate="0.0635")
     _costing(db, sold_by, "10.00", "0")
     # Deleted: neither a line of the purchase nor part of what it cost.
     gone = build_bare_item(db, item_cost=Decimal("999.00"), tax_rate=Decimal("0"))
@@ -302,7 +307,7 @@ def test_the_list_names_each_purchase_s_seller_and_what_it_cost(
     }
 
     assert rows[sold_by.id]["seller"] == "drh9989"
-    assert Decimal(rows[sold_by.id]["total_cost"]) == Decimal("55.25")
+    assert Decimal(rows[sold_by.id]["total_cost"]) == Decimal("58.12")
     assert rows[sold_by.id]["total"] == 2
     # No seller recorded is null, not an empty name.
     assert rows[direct.id]["seller"] is None

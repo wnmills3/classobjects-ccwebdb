@@ -238,8 +238,13 @@ page:
   class, seal, signatures and Reserve Bank, a coin's metal and weights, the
   design series (`classifier-defaults-design.md`) -- marked *suggested*,
   and can be typed over. It is not sent: Save fills it by the same rules,
-  so what was shown is what is saved. A change Save would refuse has no
-  answer, and what was last shown stays.
+  so what was shown is what is saved. A change the preview refuses -- an
+  unknown code, no date beside a year, a fine weight above the gross
+  weight, a range that ends before it starts, a value the database's own
+  constraints refuse -- has no answer, and what was last shown stays. The
+  preview does not make every check Save makes on the result (a metal on a
+  note, a denomination or designation of the other kind), and does not
+  apply status or disposition: those are answered by Save.
 - **The Friedberg lookup starts from the note as the form shows it**: its
   denomination, series, seal, class, signatures, Bank, printing location
   and plates, typed and not yet saved, narrow the search and go into the

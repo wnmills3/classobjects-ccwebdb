@@ -3,10 +3,9 @@
 Walks a directory, reads `<item_code>_<nn>.<ext>` out of each filename
 (`app.photo_names`), and links the photograph to the item it names
 (`app.image_links.attach`). Every file is stored regardless of what its name
-says -- an import step must never be the reason a photograph is lost, and
-`item_image.inventory_item_id` is nullable for exactly this: a stored,
-browsable photograph that nobody has filed yet. Only the *link* is ever
-withheld.
+says -- an import step must never be the reason a photograph is lost. A
+photograph nobody has filed yet is a stored, browsable `image` row with no
+`item_image` row. Only the *link* is ever withheld.
 
     python -m app.photo_import [--root PATH] [--commit]
 
@@ -208,11 +207,11 @@ def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
             is_primary = parsed.is_primary
             if is_primary:
                 # An `_01` is the item's obverse and would be promoted, which
-                # demotes whatever is primary now. A console upload files
-                # after the item's last photograph, not at slot 1, so the
-                # occupied check above does not see a hand-attached primary --
-                # without this, the import takes the primary away from it
-                # with no line in any bucket.
+                # demotes whatever is primary now. The occupied check above
+                # sees only a photograph at this file's own slot: a primary
+                # filed at any other slot is invisible to it, and promoting
+                # this file would take the primary away with no line in any
+                # bucket.
                 incumbent = db.scalar(
                     select(ItemImage).where(
                         ItemImage.inventory_item_id == item.id, ItemImage.is_primary

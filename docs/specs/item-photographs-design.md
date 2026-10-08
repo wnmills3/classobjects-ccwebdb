@@ -35,19 +35,26 @@ therefore guarded by the for-sale rule.
   are answered from derivatives.
 - `item_image` links a photograph to an item, with an `image_role`
   (obverse, reverse, edge, detail, slab, certificate, group, packaging,
-  unassigned), `is_primary` and `sort_order`. `inventory_item_id` is
-  **nullable on purpose**: a photograph exists before anyone has decided what
-  it shows, and must be storable and browsable in that state.
+  unassigned), `is_primary` and `sort_order`. A photograph exists before
+  anyone has decided what it shows, and is storable and browsable in that
+  state: it is an `image` row with no `item_image` row at all. The
+  `inventory_item_id` column is nullable, but `image_links` never writes a
+  link without an item.
   `uq_item_image_primary` (partial unique) allows at most one primary per
   item; `uq_item_image_pair` one link per image and item. A photograph
   filed with no `sort_order` -- every console upload, and an attach that
   names none -- goes after the item's last one, so a reverse lists after its
   obverse.
 - Every file is re-encoded as it is stored (JPEG, or PNG where it has
-  transparency), so any format Pillow reads -- WebP, HEIC -- can be filed.
-  `image.source_ref` keeps the file's name, with the stored format's
-  extension when it was converted: `CC-007595_02.webp` is kept as
-  `CC-007595_02.jpg`; `DSC00417.JPG` stays as it is.
+  transparency), so a WebP can be filed as a JPEG is. Only the formats
+  photographs arrive in are decoded -- JPEG (a phone's multi-picture JPEG
+  among them), PNG, WebP, GIF, TIFF and BMP; anything else is refused as
+  not a readable image.
+  `image.source_ref` is the name the photograph goes by: the file's name
+  as uploaded, with the stored format's extension when it was converted
+  (`CC-007595_02.webp` is kept as `CC-007595_02.jpg`; `DSC00417.JPG` stays
+  as it is), a name made for its place when it was fetched from a web
+  address, and renamed when it is filed in another place (below).
 - `image_store.ingest` stores a photograph -- original and both derivatives
   -- and is shared by the upload endpoint and the import pass.
 
@@ -120,9 +127,10 @@ stored; only the *link* is withheld.
 - **An occupied slot is never replaced silently**, and **an existing primary
   is never taken away**: a re-shoot or a change to what a buyer sees is a
   decision, and the console is where decisions are made. A console upload
-  files after the item's last photograph, not at slot 1, so the primary
-  check is separate from the slot check; an upload that took slot 2 is
-  reported as occupying it.
+  files after the item's last photograph: an item's first upload takes slot
+  1, and a `_01` for that item is reported as `occupied` and not linked. A
+  primary that sits at any other slot is not seen by the slot check, so the
+  primary check is separate from it.
 - **Idempotent**: a second run re-finds images by hash and existing links,
   and changes nothing.
 - `sort_order` is the sequence number, so the console lists photographs in
@@ -221,7 +229,8 @@ it for its place on the item -- `CC-000412_02.jpg` -- and files it there, after
 the item's other photographs. Only `http(s)` is fetched, only from a host whose
 every address is public (not loopback, private, link-local, multicast or
 reserved), each redirect checked the same way and at most three, the body no
-larger than the upload limit, with a 15-second timeout. The host is resolved
+larger than the upload limit, each connection and each read given 15
+seconds and the whole fetch 60. The host is resolved
 once and the request sent to the address checked -- the name carried in the
 `Host` header and as the TLS server name, so the certificate is still
 verified against it -- so a host cannot answer public to the check and
@@ -294,6 +303,10 @@ unless `--commit`.
   address recovery pass), `tests/test_images.py` (metadata
   stripping against a GPS-tagged fixture, hashing, derivatives, the upload,
   list and serving routes).
-- Each guard call site fails a named test when deleted.
+- Each guard call site fails a named test when deleted: the upload and the
+  deletion in `tests/test_for_sale_guards.py`, the fetch from a web address
+  in `tests/test_image_from_url.py`, the attach, re-role and detach in
+  `tests/test_image_links.py`, and both ends of a move in
+  `tests/test_image_move.py`.
 - Frontend: `PhotosPanel.test.jsx`, `Photos.test.jsx` and
   `ReceiptPanel.test.jsx`.

@@ -1,5 +1,6 @@
 import userEvent from '@testing-library/user-event'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -15,6 +16,8 @@ vi.mock('../api', () => ({
     createInventoryItem: vi.fn(),
     getInventoryItem: vi.fn(),
     deleteInventoryItem: vi.fn(),
+    // The item editor's, were it mounted in place of its stand-in below.
+    previewItem: vi.fn(() => new Promise(() => {})),
   },
 }))
 
@@ -61,6 +64,16 @@ const FRESH_PURCHASE = {
   ordered_on: '2026-02-01',
   source_url: null,
   lines: [],
+}
+
+/** A button that moves the route as the browser's own Back/Forward would. */
+function NavigateButton({ to }) {
+  const navigate = useNavigate()
+  return (
+    <button type="button" onClick={() => navigate(to)}>
+      go
+    </button>
+  )
 }
 
 beforeEach(() => {
@@ -184,6 +197,36 @@ describe('NewPurchase: creating a vendor inline', () => {
     expect(screen.getByPlaceholderText('Vendor name')).toHaveValue('apmex.com')
   })
 
+  it('sends an address typed without https:// with it in front', async () => {
+    // The server takes only http(s) addresses, and the form has already
+    // read this one as a site.
+    const user = userEvent.setup()
+    api.createVendor.mockResolvedValue({
+      id: 9,
+      name: 'apmex.com',
+      url: 'https://www.apmex.com',
+      vendor_kind: null,
+    })
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '__add__',
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Vendor web address' }),
+      'www.apmex.com',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    await waitFor(() =>
+      expect(api.createVendor).toHaveBeenCalledWith({
+        name: 'apmex.com',
+        vendor_kind: null,
+        url: 'https://www.apmex.com',
+      }),
+    )
+  })
+
   it('keeps a name typed by hand when the address changes', async () => {
     const user = userEvent.setup()
     renderWithProviders(<NewPurchase />)
@@ -200,6 +243,26 @@ describe('NewPurchase: creating a vendor inline', () => {
     )
 
     expect(name).toHaveValue('Local coin shop')
+  })
+
+  it('proposes a name again once the name has been cleared by hand', async () => {
+    // An empty name is nobody's choice: it follows the address like one
+    // the address gave.
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '__add__',
+    )
+    const address = screen.getByRole('textbox', { name: 'Vendor web address' })
+    const name = screen.getByPlaceholderText('Vendor name')
+    await user.type(address, 'https://www.ebay.com')
+    expect(name).toHaveValue('ebay.com')
+
+    await user.clear(name)
+    await user.type(address, '/usr/drh9989')
+
+    expect(name).toHaveValue('drh9989')
   })
 
   it('does not submit the outer purchase form when Enter is pressed in the vendor name field', async () => {
@@ -321,6 +384,58 @@ describe('NewPurchase: changing a purchase after it is made', () => {
     renderWithProviders(<NewPurchase />, { route: '/?order=22' })
     expect(await screen.findByText(/Order-0001/)).toBeInTheDocument()
     expect(api.getPurchaseOrder).toHaveBeenCalledWith(22)
+  })
+
+  it('says so when the purchase a link names cannot be read', async () => {
+    // The page opens on "Start a new purchase": a refusal shown only under
+    // the other choice would leave a blank form and no word why.
+    api.getPurchaseOrder.mockRejectedValue(new Error('Purchase order not found'))
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+    expect(await screen.findByText('Purchase order not found')).toBeInTheDocument()
+    expect(screen.queryByText('Loading purchase #22...')).toBeNull()
+  })
+
+  it('says the linked purchase is being read until it answers', async () => {
+    let answer
+    api.getPurchaseOrder.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve
+      }),
+    )
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+    expect(await screen.findByText('Loading purchase #22...')).toBeInTheDocument()
+
+    await act(async () => {
+      answer(PURCHASE)
+    })
+    expect(screen.queryByText('Loading purchase #22...')).toBeNull()
+    expect(screen.getByText(/Order-0001/)).toBeInTheDocument()
+  })
+
+  it('shows one purchase at a time when the link moves to another', async () => {
+    // The details of the purchase left behind must go with it: its Save
+    // would write to a purchase no longer on screen.
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockImplementation((id) =>
+      Promise.resolve({ ...PURCHASE, id, order_number: `Order-00${id}` }),
+    )
+    renderWithProviders(
+      <>
+        <NewPurchase />
+        <NavigateButton to="/?order=23" />
+      </>,
+      { route: '/?order=22' },
+    )
+    await user.click(await screen.findByRole('button', { name: 'Edit details' }))
+    expect(screen.getByRole('button', { name: 'Save details' })).toBeInTheDocument()
+
+    await user.click(screen.getByText('go'))
+
+    expect(
+      await screen.findByRole('heading', { name: /Order-0023/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save details' })).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Edit details' })).toHaveLength(1)
   })
 
   it('sends only the details changed, and shows what the server kept', async () => {
@@ -762,6 +877,44 @@ describe('NewPurchase: items on the purchase', () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /PO-2/ })).not.toBeInTheDocument()
   })
+
+  it('starts another purchase with the tax boxes as they first open', async () => {
+    // A rate and a "not taxed" left over from the last purchase would be
+    // stamped on the next one's items.
+    api.createInventoryItem.mockResolvedValue({ id: 105 })
+    const user = await openPurchase()
+    await user.type(screen.getByLabelText(/^tax rate/i), '0.05')
+    await user.click(screen.getByRole('checkbox', { name: /no sales tax charged/i }))
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: /tax on shipping/i }),
+      'Not taxed',
+    )
+
+    await user.click(screen.getByRole('button', { name: /start another purchase/i }))
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '3',
+    )
+    await user.click(screen.getByRole('button', { name: /create purchase/i }))
+    await screen.findByText(/no items entered yet/i)
+    await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
+
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenCalledWith(
+        expect.objectContaining({ tax_rate: null, tax_includes_shipping: null }),
+      ),
+    )
+  })
+
+  it('reads the purchases again on Start another, so the one just made is listed', async () => {
+    const user = await openPurchase()
+    expect(api.listPurchaseOrders).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', { name: /start another purchase/i }))
+
+    await waitFor(() => expect(api.listPurchaseOrders).toHaveBeenCalledTimes(2))
+  })
 })
 
 describe('NewPurchase: the purchases table', () => {
@@ -1142,6 +1295,111 @@ describe('NewPurchase: the seller', () => {
     expect(name).toHaveValue('By Mail Coins')
   })
 
+  it('proposes a name again once the name has been cleared by hand', async () => {
+    // An empty name is nobody's choice: it follows the store like one the
+    // store gave.
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Seller' }),
+      '__add__',
+    )
+    const store = screen.getByRole('textbox', { name: 'Store web address or email' })
+    const name = screen.getByPlaceholderText('Seller name')
+    await user.type(store, 'https://www.ebay.com')
+    expect(name).toHaveValue('ebay.com')
+
+    await user.clear(name)
+    await user.type(store, '/usr/drh9989')
+
+    expect(name).toHaveValue('drh9989')
+  })
+
+  it('sends a store typed without https:// with it in front', async () => {
+    const user = userEvent.setup()
+    api.createSeller.mockResolvedValue({
+      id: 9,
+      name: 'drh9989',
+      store_url: 'https://www.ebay.com/usr/drh9989',
+    })
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Seller' }),
+      '__add__',
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Store web address or email' }),
+      'www.ebay.com/usr/drh9989',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add seller' }))
+
+    await waitFor(() =>
+      expect(api.createSeller).toHaveBeenCalledWith({
+        name: 'drh9989',
+        store_url: 'https://www.ebay.com/usr/drh9989',
+      }),
+    )
+  })
+
+  it('sends a mail address as it was typed', async () => {
+    // The server makes it a mailto: address; https:// in front would not be one.
+    const user = userEvent.setup()
+    api.createSeller.mockResolvedValue({ id: 9, name: 'By Mail Coins' })
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Seller' }),
+      '__add__',
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'Store web address or email' }),
+      'coins@example.com',
+    )
+    await user.type(screen.getByPlaceholderText('Seller name'), 'By Mail Coins')
+    await user.click(screen.getByRole('button', { name: 'Add seller' }))
+
+    await waitFor(() =>
+      expect(api.createSeller).toHaveBeenCalledWith({
+        name: 'By Mail Coins',
+        store_url: 'coins@example.com',
+      }),
+    )
+  })
+
+  it('says so when the sellers cannot be read', async () => {
+    // An empty picker would read as "no sellers yet" and invite adding one
+    // that is already there.
+    api.listSellers.mockRejectedValue(new Error('lost connection'))
+    renderWithProviders(<NewPurchase />)
+    expect(await screen.findByText('lost connection')).toBeInTheDocument()
+  })
+
+  it('keeps what is typed elsewhere while a seller is being added', async () => {
+    const user = userEvent.setup()
+    let created
+    api.createSeller.mockReturnValue(
+      new Promise((resolve) => {
+        created = resolve
+      }),
+    )
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Seller' }),
+      '__add__',
+    )
+    await user.type(screen.getByPlaceholderText('Seller name'), 'newseller')
+    await user.click(screen.getByRole('button', { name: 'Add seller' }))
+    // Typed before the new seller's answer arrives.
+    const notes = screen.getByRole('textbox', { name: /^notes/i })
+    await user.type(notes, 'from the show')
+
+    await act(async () => {
+      created({ id: 9, name: 'newseller', store_url: null })
+    })
+
+    expect(await screen.findByRole('combobox', { name: 'Seller' })).toHaveValue('9')
+    expect(notes).toHaveValue('from the show')
+  })
+
   it('shows a seller with no store as a name, not a link', async () => {
     api.getPurchaseOrder.mockResolvedValue({
       ...FRESH_PURCHASE,
@@ -1257,21 +1515,24 @@ describe('NewPurchase: fixing an item already entered', () => {
 
   it('opens the editor from the item code, and shows the fix once saved', async () => {
     const user = userEvent.setup()
-    api.getPurchaseOrder.mockResolvedValue(WITH_LINE)
+    // The second read answers with the title as the editor left it.
+    api.getPurchaseOrder.mockResolvedValueOnce(WITH_LINE).mockResolvedValue({
+      ...WITH_LINE,
+      lines: [{ ...WITH_LINE.lines[0], source_title: '1942-D dime' }],
+    })
     renderWithProviders(<NewPurchase />, { route: '/?order=22' })
 
     await user.click(await screen.findByRole('button', { name: 'CC-000501' }))
     expect(screen.getByRole('dialog', { name: 'Edit item' })).toHaveTextContent(
       'editing item 501',
     )
-    const reads = api.getPurchaseOrder.mock.calls.length
+    expect(screen.getByText('1942 dime')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'stub save' }))
 
     expect(screen.queryByRole('dialog', { name: 'Edit item' })).toBeNull()
-    await waitFor(() =>
-      expect(api.getPurchaseOrder.mock.calls.length).toBeGreaterThan(reads),
-    )
+    expect(await screen.findByText('1942-D dime')).toBeInTheDocument()
+    expect(screen.queryByText('1942 dime')).toBeNull()
   })
 
   it('reads the purchase again when the editor is closed without a save', async () => {

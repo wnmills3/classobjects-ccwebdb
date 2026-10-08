@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from urllib.parse import parse_qs, urlsplit
 
 from app import image_links
 from app.image_store import ingest
+from app.inventory_search import COIN_VIEW, CURRENCY_VIEW
+from app.inventory_search import search as inventory_search
 from app.models import (
     Disposition,
     Grade,
@@ -160,10 +163,34 @@ def test_the_total_adds_the_kinds_and_each_row_opens_its_items(db: Session) -> N
         "ready": 0,
     }
     assert result.drills == [
-        "/inventory/coins?status=received&kind=coin",
-        "/inventory/currency?status=received",
+        "/inventory/coins?status=received&disposition=held&kind=coin",
+        "/inventory/currency?status=received&disposition=held",
     ]
     assert len(result.notes) == 4
+
+
+def test_a_row_s_drill_lists_exactly_the_items_the_row_counts(db: Session) -> None:
+    """Received but listed or sold, and held but not yet received, are decoys."""
+    for kind in ("coin", "currency"):
+        _piece(db, kind)
+        _piece(db, kind)
+        _piece(db, kind, disposition_id=code_id(db, Disposition, "listed"))
+        _piece(db, kind, disposition_id=code_id(db, Disposition, "sold"))
+        _piece(db, kind, status_id=code_id(db, ItemStatus, "ordered"))
+    db.commit()
+
+    result = SL_READY.run(db, ReadyParams())
+
+    assert [row["items"] for row in result.rows] == [2, 2]
+    for row, drill, view in zip(
+        result.rows, result.drills, (COIN_VIEW, CURRENCY_VIEW), strict=True
+    ):
+        assert drill is not None
+        split = urlsplit(drill)
+        assert split.path == f"/inventory/{view.name}"
+        query = {key: values[0] for key, values in parse_qs(split.query).items()}
+        _, total = inventory_search(db, view, params=query)
+        assert total == row["items"]
 
 
 def test_with_nothing_in_hand_there_are_no_rows_and_no_total(db: Session) -> None:

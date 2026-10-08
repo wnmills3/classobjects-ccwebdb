@@ -2,8 +2,7 @@ import { useState } from 'react'
 
 import { api } from '../api'
 import { useRequest } from '../../shared/useRequest'
-import { orNull } from '../../shared/text'
-import { siteName } from '../site-name'
+import { siteName, withScheme } from '../site-name'
 import { useInlineAdd } from '../useInlineAdd'
 
 const BLANK_DRAFT = { name: '', store_url: '' }
@@ -29,7 +28,10 @@ export default function SellerField({ value, onChange }) {
       blank: BLANK_DRAFT,
       ready: (d) => Boolean(d.name.trim()),
       create: (d) =>
-        api.createSeller({ name: d.name.trim(), store_url: orNull(d.store_url) }),
+        api.createSeller({
+          name: d.name.trim(),
+          store_url: withScheme(d.store_url),
+        }),
       onCreated: (created) => {
         setAdded((list) => [...list, created])
         onChange(String(created.id))
@@ -41,7 +43,8 @@ export default function SellerField({ value, onChange }) {
       <div className="add-reference" onKeyDown={onKeyDown}>
         {/* The store first: a seller is named for their place on the
             marketplace, so its address proposes the name. Only a name the
-            address gave follows it; one typed by hand is left alone. */}
+            address gave follows it, or an empty one, which is nobody's
+            choice; one typed by hand is left alone. */}
         <input
           placeholder="Store web address or email"
           aria-label="Store web address or email"
@@ -49,7 +52,8 @@ export default function SellerField({ value, onChange }) {
           autoFocus
           onChange={(e) => {
             const store = e.target.value
-            const proposed = draft.name === siteName(draft.store_url)
+            const proposed =
+              draft.name === '' || draft.name === siteName(draft.store_url)
             setDraft({
               ...draft,
               store_url: store,
@@ -74,21 +78,25 @@ export default function SellerField({ value, onChange }) {
   }
 
   return (
-    <select
-      value={value ?? ''}
-      onChange={(e) => {
-        if (e.target.value === '__add__') setAdding(true)
-        else onChange(e.target.value)
-      }}
-      aria-label="Seller"
-    >
-      <option value="">--</option>
-      {sellers.map((s) => (
-        <option key={s.id} value={String(s.id)}>
-          {s.name}
-        </option>
-      ))}
-      <option value="__add__">+ Add a seller...</option>
-    </select>
+    <>
+      <select
+        value={value ?? ''}
+        onChange={(e) => {
+          if (e.target.value === '__add__') setAdding(true)
+          else onChange(e.target.value)
+        }}
+        aria-label="Seller"
+      >
+        <option value="">--</option>
+        {sellers.map((s) => (
+          <option key={s.id} value={String(s.id)}>
+            {s.name}
+          </option>
+        ))}
+        <option value="__add__">+ Add a seller...</option>
+      </select>
+      {/* A list that could not be read is not an empty one. */}
+      {loaded.error && <span className="error">{loaded.error}</span>}
+    </>
   )
 }

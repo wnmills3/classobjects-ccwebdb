@@ -529,6 +529,12 @@ def test_value_kind_with_no_valued_items_has_zero_valued_columns(db: Session) ->
     assert row["value"] == Decimal("0")
     assert row["difference"] == Decimal("0")
     assert row["unvalued_items"] == 1
+    # Money with nothing to add up is still money: two places, as every
+    # other amount in the column reads.
+    for key in ("cost", "value", "difference"):
+        assert str(row[key]) == "0.00", key
+        assert result.totals is not None
+        assert str(result.totals[key]) == "0.00", key
 
 
 def test_value_excludes_a_deleted_item(db: Session) -> None:

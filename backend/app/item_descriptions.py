@@ -33,6 +33,7 @@ database's own vocabularies or the item's own values
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
@@ -48,10 +49,30 @@ from .models import (
 )
 from .offer_titles import name_of
 
-__all__ = ["FANCY_SERIAL", "Features", "saved_features", "suggested_description"]
+__all__ = [
+    "FANCY_SERIAL",
+    "Features",
+    "fancy_is_redundant",
+    "saved_features",
+    "suggested_description",
+]
 
 #: The attribute that says only "some digit pattern": left out beside one.
 FANCY_SERIAL = "fancy_serial"
+
+#: The digit patterns `fancy_serial` sums up (`app.serial_patterns`).
+DIGIT_PATTERNS: frozenset[str] = frozenset(
+    {
+        "solid_serial",
+        "binary",
+        "trinary",
+        "radar",
+        "repeater",
+        "double_quad",
+        "ladder",
+        "birthday",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -104,11 +125,20 @@ def saved_features(db: Session, item: InventoryItem) -> Features:
 def saved_attributes(db: Session, item: InventoryItem) -> list[str]:
     """A saved item's attribute labels, in the order a description lists them."""
     held = item_attributes.held_attributes(db, item.id)
-    # "Fancy Serial" is the umbrella over the digit patterns: beside the
-    # pattern itself -- Trinary, Radar -- it says nothing more.
-    if len(held) > 1:
+    if fancy_is_redundant(h.code for h in held):
         held = [h for h in held if h.code != FANCY_SERIAL]
     return [h.label for h in held]
+
+
+def fancy_is_redundant(codes: Iterable[str]) -> bool:
+    """Whether "Fancy Serial" adds nothing to these attributes.
+
+    It is the umbrella over the digit patterns: beside the pattern itself --
+    Trinary, Radar -- it says nothing more. Beside a star, a low serial or
+    No Motto, which say nothing of the digits, it is still the only word for
+    the pattern.
+    """
+    return not DIGIT_PATTERNS.isdisjoint(codes)
 
 
 def _features(db: Session, item: InventoryItem, given: Features | None) -> list[str]:

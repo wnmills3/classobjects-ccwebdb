@@ -9,12 +9,26 @@ from typing import Any, Literal
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
+from pydantic import validate_email
 
 from .config import settings
 
 _hasher = PasswordHasher()
 
 TokenType = Literal["access", "refresh"]
+
+
+def normalize_email(address: str) -> str:
+    """An address in the form an account stores it and is looked up by.
+
+    The validator behind `EmailStr`, so there is one answer to "which
+    address is this": it lower-cases the domain and leaves the local part as
+    typed. Registration, an administrator opening an account and sign-in
+    all come through here; a sign-in that compared the text as typed would
+    refuse the address an account was opened with. Raises `ValueError` for
+    text that is not an address at all.
+    """
+    return validate_email(address)[1]
 
 
 def hash_password(plain: str) -> str:

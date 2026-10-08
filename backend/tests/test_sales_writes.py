@@ -19,6 +19,7 @@ from app.models import (
     ListingStatus,
     ListingStatusHistory,
     OfferClaim,
+    SalesLot,
     SalesOrder,
     SalesOrderFee,
     SalesOrderItem,
@@ -761,6 +762,50 @@ def test_shares_are_weighted_by_cost_basis_by_default(
         Decimal("300.00"): Decimal("300.00"),
         Decimal("200.00"): Decimal("200.00"),
     }
+
+
+def test_fees_follow_cost_basis_unless_equal_shares_is_asked_for(
+    db: Session,
+    offered_lot_listing: Listing,
+    lot_of_three: SalesLot,
+    admin_user: User,
+) -> None:
+    """`equal_shares` divides the fee evenly; the price stays cost-weighted.
+
+    The fixture's members cost 500, 300 and 200, so a 10.00 fee by cost is
+    5.00 / 3.00 / 2.00 and an equal one is 3.34 / 3.33 / 3.33 -- no figure in
+    common, so a flag that was dropped on the way to `_weights` cannot pass.
+    The price shares are asserted beside them: the flag is about fees only.
+    """
+    member_ids = sorted(member.inventory_item_id for member in lot_of_three.members)
+    order = record_sale(
+        db,
+        offered_lot_listing,
+        price=Decimal("1000.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-1",
+        fees=[FeeLine("commission", Decimal("10.00"))],
+        recorded_by=admin_user,
+        equal_shares=True,
+    )
+    shares = {
+        share.inventory_item_id: share
+        for share in db.scalars(
+            select(SalesOrderItemShare).where(
+                SalesOrderItemShare.sales_order_item_id == order.items[0].id
+            )
+        )
+    }
+    assert [shares[item_id].fee_amount for item_id in member_ids] == [
+        Decimal("3.34"),
+        Decimal("3.33"),
+        Decimal("3.33"),
+    ]
+    assert sorted(share.amount for share in shares.values()) == [
+        Decimal("200.00"),
+        Decimal("300.00"),
+        Decimal("500.00"),
+    ]
 
 
 def test_a_lot_s_members_all_become_sold(

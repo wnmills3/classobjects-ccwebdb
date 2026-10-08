@@ -296,5 +296,14 @@ describe('Lots', () => {
     api.listLots.mockResolvedValue({ lots: [{ ...assembling, members: [] }] })
     renderWithProviders(<Lots />, { strict: true })
     expect(await screen.findByRole('button', { name: /^offer/i })).toBeDisabled()
+    // Held back with its reason beside it, not greyed out in silence.
+    expect(screen.getByText('Add coins to this lot before offering it.')).toBeVisible()
+  })
+
+  it('gives no reason beside the Offer button of a lot that has coins', async () => {
+    api.listLots.mockResolvedValue({ lots: [assembling] })
+    renderWithProviders(<Lots />, { strict: true })
+    expect(await screen.findByRole('button', { name: /^offer/i })).toBeEnabled()
+    expect(screen.queryByText('Add coins to this lot before offering it.')).toBeNull()
   })
 })

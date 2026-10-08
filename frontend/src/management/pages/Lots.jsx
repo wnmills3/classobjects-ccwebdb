@@ -418,8 +418,9 @@ export default function Lots() {
           )}
           <div className="row">
             {/* An empty lot cannot be offered: `offering_writes._lot_members`
-                raises `EmptyLot` and the API answers 422. Said by the button
-                rather than by a refusal after the dialog was filled in. */}
+                raises `EmptyLot` and the API answers 422. Said beside the
+                button rather than by a refusal after the dialog was filled
+                in. */}
             <button
               disabled={busy || lot.members.length === 0}
               onClick={() => {
@@ -451,6 +452,9 @@ export default function Lots() {
             >
               Discard...
             </button>
+            {lot.members.length === 0 && (
+              <span className="muted">Add coins to this lot before offering it.</span>
+            )}
           </div>
         </article>
       ))}

@@ -18,6 +18,7 @@ from ..security import (
     decode_token,
     hash_password,
     needs_rehash,
+    normalize_email,
     verify_password,
 )
 from ._tx import commit_unique
@@ -33,7 +34,8 @@ _INVALID_REFRESH_TOKEN = "Invalid or expired refresh token"
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, db: DbSession) -> User:
     """Self-service registration. Always creates a customer, never an admin."""
-    existing = db.scalar(select(User).where(User.email == payload.email))
+    email = normalize_email(payload.email)
+    existing = db.scalar(select(User).where(User.email == email))
     if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -41,7 +43,7 @@ def register(payload: UserCreate, db: DbSession) -> User:
         )
 
     user = User(
-        email=payload.email,
+        email=email,
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
         role=UserRole.customer,
@@ -61,8 +63,16 @@ def login(
     db: DbSession,
 ) -> TokenPair:
     """Exchange email and password for a token pair."""
-    # OAuth2PasswordRequestForm calls the field "username"; we use the email.
-    user = db.scalar(select(User).where(User.email == form.username))
+    # OAuth2PasswordRequestForm calls the field "username"; we use the email,
+    # in the form an account stores it. Text the validator refuses is looked
+    # up as typed: an account made outside registration -- the first
+    # administrator is -- may hold an address registration would not accept,
+    # and must still be able to sign in.
+    try:
+        email = normalize_email(form.username)
+    except ValueError:
+        email = form.username
+    user = db.scalar(select(User).where(User.email == email))
 
     # Verify even when the user is missing would be ideal to equalise timing;
     # argon2 is slow enough that we simply fail closed here.

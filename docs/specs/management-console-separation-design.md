@@ -132,5 +132,5 @@ one of its gates.
 
 Tests pin the rest: the console's root guard (anonymous to sign-in, non-admin
 refused, admin rendered) and the shop answering "not found" for console paths
-such as `/inventory/coins` and `/admin/people`, asserting the absence of any
-confirmation message.
+such as `/inventory/coins` and `/people`, asserting the absence of any
+"privileges" message.

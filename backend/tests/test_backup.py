@@ -2,7 +2,8 @@
 
 The database is the system of record, so a backup that looks fine and is not
 faithful is worse than none. These check the two things that make it faithful
-and the one that makes it portable.
+and the one that makes it portable. The copy itself, `copy_rows`, is run
+between two scratch databases in `tests/test_workbook_backup.py`.
 """
 
 from __future__ import annotations

@@ -6,7 +6,9 @@ file, stored once and content-addressed, and the link tables record use.
 
 Three link tables rather than a polymorphic subject_type/subject_id pair: real
 foreign keys, each independently constrained, each able to carry the columns
-its own relationship needs.
+its own relationship needs. Only `item_image` is written and read by the
+application; `listing_image` and `shipment_image` are in the schema and
+nothing uses them.
 
 **Bytes never live in the database.** A collection's photographs run to
 gigabytes. These tables hold metadata and a storage key; a StorageBackend
@@ -95,7 +97,10 @@ class Image(TimestampMixin, Base):
     captured_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
-    #: The original filename or path, for tracing an import back to its source.
+    #: The name the photograph goes by: the uploaded file's name or its path
+    #: in an imported library, with the stored format's extension; a name
+    #: made for its place when it was fetched from a web address or filed
+    #: on another item (`image_links.name_for_place`).
     source_ref: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     #: The web address the photograph was fetched from, when it was: a
     #: seller's listing picture. Null for one uploaded from a file.
@@ -142,11 +147,12 @@ class ImageDerivative(Base):
 class ItemImage(Base):
     """Links a photograph to an inventory item.
 
-    ``inventory_item_id`` is **nullable** on purpose. Photographs exist before
-    anyone has decided what they depict, and must be storable, browsable and
-    searchable in that state -- a filename following the ``<item_code>_<nn>``
-    convention is linked by `app.photo_import`; the console places the rest,
-    and corrects anything the import pass left unfiled.
+    Photographs exist before anyone has decided what they depict, and are
+    storable and browsable in that state: an `image` row with no row here.
+    A filename following the ``<item_code>_<nn>`` convention is linked by
+    `app.photo_import`; the console places the rest, and corrects anything
+    the import pass left unfiled. ``inventory_item_id`` is nullable, but
+    `app.image_links`, the only writer of this table, never leaves it null.
     """
 
     __tablename__ = "item_image"

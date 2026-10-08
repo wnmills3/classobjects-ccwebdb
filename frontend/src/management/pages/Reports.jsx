@@ -66,10 +66,7 @@ export default function Reports() {
 
   const values = report
     ? Object.fromEntries(
-        report.params.map((param) => [
-          param.name,
-          search.get(param.name) ?? String(param.default ?? ''),
-        ]),
+        report.params.map((param) => [param.name, formValue(param, search)]),
       )
     : {}
   const result = runKey && !run.busy && !run.error ? run.data : null
@@ -135,6 +132,23 @@ export default function Reports() {
       </section>
     </HelpScope>
   )
+}
+
+/**
+ * What the form starts a parameter at: the address's value, or its default.
+ *
+ * A dropdown can only show one of its own choices, so a choice the address
+ * names that is not among them starts at the default too -- otherwise the
+ * dropdown would show its first option while Run went on sending the value
+ * that was refused.
+ */
+function formValue(param, search) {
+  const fallback = String(param.default ?? '')
+  const asked = search.get(param.name)
+  if (asked === null) return fallback
+  if (param.type === 'choice' && !param.choices.map(String).includes(asked))
+    return fallback
+  return asked
 }
 
 /** The catalog, one labeled group of links per group, in the API's order. */

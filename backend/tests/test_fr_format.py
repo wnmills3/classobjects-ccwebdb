@@ -19,6 +19,8 @@ from app.fr_format import fr_problem, fr_traits, normalize_fr
         ("fr 12", "12"),
         ("FR-9905-D", "9905-D"),
         ("French", "French"),
+        # The label comes off only before a digit 0 to 9.
+        ("Fr. \uff19\uff19", "Fr. \uff19\uff19"),
         ("9907 - l", "9907-L"),
         ("9a", "9a"),
         ("9907-lm", "9907-Lm"),
@@ -73,6 +75,10 @@ def test_a_well_formed_number_passes(number: str) -> None:
         ("9908-B LGS*", "form"),
         ("L-9907", "form"),
         ("99 07", "form"),
+        # Digits are 0 to 9 only, as the console's copy of the rule reads
+        # them: full-width or other scripts' digits are not a number's.
+        ("\uff19\uff19\uff10\uff17-L", "form"),
+        ("٩٩٠٧", "form"),
     ],
 )
 def test_a_slip_is_named(number: str, says: str) -> None:

@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 
 from . import item_kinds, lot_writes, offering_writes, sale_state
 from .allocation import allocate
-from .lifecycle_writes import record_initial_status
+from .lifecycle_writes import record_initial_status, set_location
 from .models import (
     CoinDetail,
     CurrencyDetail,
@@ -78,7 +78,6 @@ INHERITED = (
     "grading_service_id",
     "authenticity_id",
     "status_id",
-    "storage_location_id",
     "valuation_basis_id",
     "composition_id",
     "metal_id",
@@ -327,6 +326,15 @@ def split_item(
         # `lifecycle_writes.set_status` is for changes to a status that
         # already exists; a status change from here on must go through it.
         record_initial_status(db, child, note=f"split from {parent.item_code}")
+        # A piece starts where its lot was kept. Through `set_location`, not
+        # as an inherited column, so the piece's location history opens with
+        # the row that says so; a lot kept nowhere moves nothing.
+        set_location(
+            db,
+            child,
+            parent.storage_location_id,
+            note=f"split from {parent.item_code}",
+        )
         children.append(child)
 
     # The lot is no longer a thing anyone holds. Its listings end through

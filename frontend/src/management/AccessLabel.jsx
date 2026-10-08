@@ -7,7 +7,7 @@
  * text, it is the plain label.
  *
  * **One element, always.** Its callers put it straight inside a `.field`,
- * which is `display: grid` with four columns, so loose text around a `<u>`
+ * which is `display: grid` with three columns, so loose text around a `<u>`
  * would make each piece of the word its own grid item -- "T      i      tle"
  * -- and push the input out of place. Wrapped in a span, the label is a
  * single item whichever way it renders.

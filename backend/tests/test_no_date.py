@@ -162,6 +162,28 @@ def test_bulk_setting_a_year_dates_a_piece_marked_no_date(
     assert (item.no_date, item.year_start) == (False, 2019)
 
 
+def test_a_piece_turned_into_a_note_loses_no_date_in_bulk_as_in_a_single_edit(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A note never holds the flag: its year is its series year."""
+    single = _bar(db, no_date=True)
+    in_bulk = _bar(db, no_date=True)
+
+    one = _patch(client, admin_headers, single.id, {"item_kind": "currency"})
+    assert one.status_code == 200, one.text
+    many = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [in_bulk.id], "changes": {"item_kind": "currency"}},
+        headers=admin_headers,
+    )
+    assert many.status_code == 200, many.text
+
+    db.expire_all()
+    for item in (single, in_bulk):
+        assert item.item_kind.code == "currency"
+        assert (item.no_date, item.year_start, item.year_end) == (False, None, None)
+
+
 def test_the_database_refuses_no_date_with_a_year(db: Session) -> None:
     """The constraint holds even for a writer that bypasses the API."""
     with pytest.raises(IntegrityError):

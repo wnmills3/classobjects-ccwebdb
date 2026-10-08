@@ -13,7 +13,12 @@ vi.mock('../api', () => ({
 
 import { api } from '../api'
 import Platforms from './Platforms'
-import { fractionToPercent, percentToFraction } from './platform-rates'
+import {
+  estimatedFees,
+  fractionToPercent,
+  netAfterFees,
+  percentToFraction,
+} from './platform-rates'
 import { adminAuth, emptyReference, renderWithProviders } from '../../test/helpers'
 
 const STORE = {
@@ -176,6 +181,14 @@ describe('Platforms', () => {
     )
     expect(letters.length).toBeGreaterThan(10)
     expect(new Set(letters).size).toBe(letters.length)
+    // Each letter is underlined in its own field's label: a letter the label
+    // does not hold is a shortcut nobody can find.
+    for (const control of dialog.querySelectorAll('[accesskey]')) {
+      const underlined = control.closest('label').querySelector('u')
+      expect(underlined?.textContent.toLowerCase()).toBe(
+        control.getAttribute('accesskey'),
+      )
+    }
     // Chrome and Edge keep D, E and F for the address bar and menus.
     expect(letters.filter((l) => 'def'.includes(l))).toEqual([])
   })
@@ -383,6 +396,20 @@ describe('Platforms', () => {
 
     expect(await within(dialog).findByText(/already exists/)).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+})
+
+describe('a rate written without its leading zero', () => {
+  const venue = (rate) => ({
+    commission_rate: rate,
+    processing_rate: null,
+    processing_fixed: null,
+    listing_fee: null,
+  })
+
+  it.each(['0.05', '.05', '.0500'])('reads %s as five percent', (rate) => {
+    expect(estimatedFees('100.00', venue(rate))).toBe('5.00')
+    expect(netAfterFees('100.00', venue(rate))).toBe('95.00')
   })
 })
 

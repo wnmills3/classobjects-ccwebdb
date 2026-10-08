@@ -125,6 +125,12 @@ def set_location(
 
     Unlike a status, a location is legitimately nullable -- "not recorded" is
     a real answer -- so None is a value here, not an absence.
+
+    **Order-critical**, as `set_status` is: it assigns
+    `item.storage_location_id` without flushing, so a caller that then
+    invokes a writer which re-reads that row with `populate_existing` loses
+    the assignment. Flush between. Production runs `autoflush=False` while
+    the test suite does not -- so the suite cannot see the difference.
     """
     if item.storage_location_id == storage_location_id:
         return

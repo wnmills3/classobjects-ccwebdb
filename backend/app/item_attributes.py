@@ -9,8 +9,8 @@ attribute rules after them, would put a deleted link straight back, so a
 person removing one marks the row (`removed_at`) and it stays; every reader
 skips it, every rule leaves it alone. That holds for a link a person added
 too: deleting it would let a rule add it back the moment the person had
-taken it away. Setting a removed attribute again clears the mark and keeps
-the link's source.
+taken it away. Setting a removed attribute again clears the mark and makes
+the link the person's (`manual`), so no rule takes it back as its own.
 """
 
 from __future__ import annotations
@@ -140,7 +140,12 @@ def set_attributes(
             continue
         changed = True
         if existing is not None:
+            # Set again by a person, it is theirs whatever first made it: a
+            # link still marked as a rule's would be that rule's to take back.
             existing.removed_at = None
+            existing.source = ProvenanceSource.manual
+            existing.derived_by = None
+            existing.noted_by_id = user_id
         else:
             db.add(
                 ItemAttributeLink(

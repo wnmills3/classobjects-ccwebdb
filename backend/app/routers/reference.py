@@ -26,7 +26,13 @@ from sqlalchemy.orm import object_session
 from .. import aliases, reference_merge, sale_state
 from ..deps import AdminUser, DbSession
 from ..inventory_search import plain
-from ..models import REFERENCE_MODELS, InventoryItem, ProvenanceSource, ReferenceMixin
+from ..models import (
+    REFERENCE_MODELS,
+    InventoryItem,
+    ProvenanceSource,
+    ReferenceMerge,
+    ReferenceMixin,
+)
 from ..reference_fields import (
     FieldError,
     column_values,
@@ -348,6 +354,20 @@ def create_value(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{table} already has a value with code {code!r}",
         )
+    # `reference_merge` holds a code once and a seed load skips it for good:
+    # a value added under a merged code could not be merged again, and no
+    # load would update it.
+    became = db.scalar(
+        select(ReferenceMerge.merged_into).where(
+            ReferenceMerge.table_name == table, ReferenceMerge.code == code
+        )
+    )
+    if became is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{table} had a value with code {code!r}, which was merged into "
+            f"{became!r}. Use that value, or send another code.",
+        )
 
     row = model(
         code=code,
@@ -559,6 +579,7 @@ def merge_value(
         items=result.items,
         dropped=result.dropped,
         aliases=result.aliases,
+        names_not_kept=result.names_not_kept,
         for_sale=result.for_sale,
         for_sale_count=result.for_sale_count,
     )

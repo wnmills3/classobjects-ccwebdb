@@ -62,8 +62,8 @@ echo ============================================
 rem --- 1. stop by recorded PID ---------------------------------------------
 if exist "%PIDFILE%" (
     for /f "usebackq tokens=1,2 delims==" %%K in ("%PIDFILE%") do (
-        if /I "%%K"=="backend"  call :killpid %%L backend
-        if /I "%%K"=="frontend" call :killpid %%L frontend
+        if /I "%%K"=="backend"  call :killpid %%L backend python.exe
+        if /I "%%K"=="frontend" call :killpid %%L frontend node.exe
     )
 ) else (
     echo [1/3] no PID file - relying on the port sweep
@@ -99,7 +99,7 @@ if not defined PGBIN (
             echo       stopped cleanly
         ) else (
             echo       FAILED - still accepting connections
-            echo       see %LOGS%\pg_stop.log and %LOGS%\postgres.log
+            echo       see !LOGS!\pg_stop.log and !LOGS!\postgres.log
         )
     )
 )
@@ -138,14 +138,19 @@ exit /b 0
 
 rem ---------------------------------------------------------------------------
 :killpid
-rem  %1 = pid, %2 = label.  /T also takes child processes.
+rem  %1 = pid, %2 = label, %3 = image name.  /T also takes child processes.
 if "%~1"=="" goto :eof
+rem  The PID must still be the program that was recorded. The PID file
+rem  outlives a reboot, and Windows hands a freed PID to whatever starts
+rem  next, so a PID alone could name an unrelated program -- and /T /F would
+rem  take it and everything it started. A PID that is not that program is
+rem  left alone; the port sweep stops whatever really holds the port.
 rem  find.exe by full path. Run from Git Bash, a bare `find` is the Unix
 rem  find, which takes the PID for a path and fails, so every live PID would
-rem  be reported "already gone" and only the port sweep would stop it.
-tasklist /FI "PID eq %~1" 2>nul | "%SystemRoot%\System32\find.exe" "%~1" >nul
+rem  be reported as not running and only the port sweep would stop it.
+tasklist /FI "PID eq %~1" /FI "IMAGENAME eq %~3" 2>nul | "%SystemRoot%\System32\find.exe" "%~1" >nul
 if errorlevel 1 (
-    echo [1/3] %~2      pid %~1 already gone
+    echo [1/3] %~2      pid %~1 is not a running %~3 - left alone
 ) else (
     echo [1/3] %~2      stopping pid %~1
     taskkill /PID %~1 /T /F >nul 2>&1
