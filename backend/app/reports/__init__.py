@@ -31,7 +31,13 @@ from .data_quality import (
     DQ_SERIES_YEARS,
 )
 from .money import MN_BASIS, MN_TAX, MN_VALUE
-from .purchasing import PR_OUTSTANDING, PR_RECEIVED, PR_SOURCES, PR_SPEND
+from .purchasing import (
+    PR_OUTSTANDING,
+    PR_RECEIVED,
+    PR_RECEIVED_ITEMS,
+    PR_SOURCES,
+    PR_SPEND,
+)
 from .registry import REPORTS, register
 from .selling import (
     SL_AGING,
@@ -62,6 +68,7 @@ __all__ = [
     "MN_VALUE",
     "PR_OUTSTANDING",
     "PR_RECEIVED",
+    "PR_RECEIVED_ITEMS",
     "PR_SOURCES",
     "PR_SPEND",
     "REPORTS",

@@ -1147,7 +1147,8 @@ parameters and its table. Groups appear in the order the API lists them:
 | `pr_outstanding` | Purchasing and receiving | Not yet arrived | Purchases with items still ordered or missing: vendor, seller, order date, days waiting, items outstanding and their cost; oldest first | Overdue after (days) (default 21) |
 | `pr_spend` | Purchasing and receiving | Spending | Period x vendor: purchases, items, item cost, shipping, sales tax and total, over purchases with a live item | From, To, Period (month/quarter/year, default month) |
 | `pr_sources` | Purchasing and receiving | Vendors and sellers | One row per vendor, and per seller a purchase has named: purchases, items, total spent, first/last order date | none |
-| `pr_received` | Purchasing and receiving | Received | Arrival day x vendor, from acquisition-status history: items and total cost | From, To |
+| `pr_received` | Purchasing and receiving | Received | Arrival day x vendor, newest first, from acquisition-status history: items and total cost. Click a day to list the items that row counts | From, To |
+| `pr_received_items` | Purchasing and receiving | Received items | One row per item received, newest first: day, item, title, vendor, order and total cost. Click an item to open it | From, To, Vendor (a vendor's name, or `all`, the default) |
 | `sl_offered` | Selling | On offer | Active and paused listings, items and sales lots, by venue: asking price against cost basis, and days listed | none |
 | `sl_sales` | Selling | Sales | Month x venue: orders, gross, fees, net, cost basis and gain, for sales orders placed in range | From, To |
 | `sl_fulfilment` | Selling | To ship | Orders still open and unshipped -- pending, paid or packed -- oldest first | none |
