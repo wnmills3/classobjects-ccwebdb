@@ -48,9 +48,26 @@ function shownOunces(value) {
 }
 
 /**
+ * The metals with the most held first, and those with none held last.
+ *
+ * A price matters by how much of the metal there is to value: the rows worth
+ * pricing are at the top, and a metal nothing is held of -- no fine weight
+ * recorded, or a weight of zero -- is out of the way at the bottom. Metals
+ * that hold the same stay in the order the server sent, which is the
+ * vocabulary's own.
+ */
+function byOuncesHeld(rows) {
+  const held = (row) => Number(row.fine_ozt_held ?? 0)
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => held(b.row) - held(a.row) || a.index - b.index)
+    .map(({ row }) => row)
+}
+
+/**
  * Spot prices: what a troy ounce of each metal is quoted at, entered by hand.
  *
- * One row per metal in use: its newest price and when it was recorded, the
+ * One row per metal in use, the most held first: its newest price and when it was recorded, the
  * fine ounces held across the collection and what they melt for at that
  * price, and a box to record a new price. A price is never edited: a new one
  * is recorded and becomes the metal's price, with the one before kept, so a
@@ -69,7 +86,7 @@ export default function SpotPrices() {
   const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
   const [said, setSaid] = useState('')
-  const rows = recorded ?? loaded.data ?? []
+  const rows = byOuncesHeld(recorded ?? loaded.data ?? [])
 
   async function record(row) {
     const price = priceOf(drafts[row.metal] ?? '')

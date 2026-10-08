@@ -272,6 +272,74 @@ describe('SpotPrices', () => {
     )
   })
 
+  describe('the order of the metals', () => {
+    const metal = (code, held) => ({
+      ...GOLD,
+      metal: code,
+      label: code[0].toUpperCase() + code.slice(1),
+      fine_ozt_held: held,
+    })
+    //: As the server sends them: the vocabulary's order, which is not by
+    //: how much is held, with the empty ones scattered through it.
+    const AS_SENT = [
+      metal('silver', '2434.126688'),
+      metal('gold', '1.135711'),
+      metal('platinum', '0.100000'),
+      metal('palladium', null),
+      metal('copper', '1021.779622'),
+      metal('nickel', '0.000000'),
+      metal('zinc', '0.000000'),
+      metal('plated', '0.361690'),
+    ]
+    const shown = () =>
+      within(screen.getByRole('table', { name: 'Spot prices' }))
+        .getAllByRole('row')
+        .slice(1)
+        .map((tr) => within(tr).getAllByRole('cell')[0].textContent)
+
+    it('puts the most held first and those with none last', async () => {
+      await open(AS_SENT)
+      expect(shown()).toEqual([
+        'Silver',
+        'Copper',
+        'Gold',
+        'Plated',
+        'Platinum',
+        // None held -- no weight recorded, or a weight of nothing -- in the
+        // order they were sent.
+        'Palladium',
+        'Nickel',
+        'Zinc',
+      ])
+    })
+
+    it('compares the ounces as amounts, not as text', async () => {
+      // As text "9.5" sorts above "1021.78" and "10.2".
+      await open([
+        metal('gold', '9.5'),
+        metal('copper', '1021.78'),
+        metal('silver', '10.2'),
+      ])
+      expect(shown()).toEqual(['Copper', 'Silver', 'Gold'])
+    })
+
+    it('keeps that order in the table a recording answers with', async () => {
+      const user = await open(AS_SENT)
+      api.recordMetalPrice.mockResolvedValue(
+        AS_SENT.map((row) =>
+          row.metal === 'zinc' ? { ...row, price_per_ozt: '0.0900' } : row,
+        ),
+      )
+
+      await user.type(screen.getByLabelText('New price for Zinc'), '0.09{Enter}')
+
+      await waitFor(() => expect(cells('Zinc')[1]).toBe('$0.09'))
+      // A price does not move a metal up: what is held of it does.
+      expect(shown().slice(0, 2)).toEqual(['Silver', 'Copper'])
+      expect(shown().at(-1)).toBe('Zinc')
+    })
+  })
+
   it('says so when the prices cannot be loaded', async () => {
     api.listMetalPrices.mockRejectedValue(new Error('Not signed in'))
     renderWithProviders(<SpotPrices />)
