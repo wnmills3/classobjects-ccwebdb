@@ -69,87 +69,31 @@ describe('management console shell', () => {
   it('refuses a signed-in customer without revealing the console', () => {
     renderWithProviders(<ManagementApp />, { auth: customerAuth(), route: '/' })
     expect(screen.getByText(/does not have access/i)).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /people/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
   })
 
   // '/nowhere' renders the console chrome and its "Page not found", without
-  // mounting any page. That is exactly what these two cases assert -- the
-  // navigation an administrator sees. Rendering at '/' would redirect to
-  // /inventory/coins, mount InventoryCoins, and call the API; every existing
-  // page test vi.mocks the api module, and a factory mock here would have to
-  // list every export the inventory page touches and would break the moment
-  // it touched one more.
-  it('renders the console navigation for an administrator', () => {
+  // mounting any page. Rendering at '/' would redirect to /inventory/coins,
+  // mount InventoryCoins, and call the API; every existing page test vi.mocks
+  // the api module, and a factory mock here would have to list every export
+  // the inventory page touches and would break the moment it touched one
+  // more. What the menu holds and how it opens is ConsoleMenu's own test.
+  it('renders the console menu for an administrator', async () => {
+    const user = userEvent.setup()
     renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
-    expect(screen.getByRole('link', { name: /coins/i })).toBeInTheDocument()
-    // The unattached-photographs page's only way in. Without this the
-    // /photos nav link and route could both be deleted with the suite
-    // staying green.
-    expect(screen.getByRole('link', { name: /photos/i })).toBeInTheDocument()
+    const menu = screen.getByRole('navigation', { name: 'Console' })
+    await user.click(within(menu).getByRole('button', { name: /^Procurement/ }))
     // Purchases and Sales, not "New purchase" and "Orders": an order is
     // both, and "Orders" reads as purchases.
-    expect(screen.getByRole('link', { name: /^purchases$/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Purchases' })).toHaveAttribute(
       'href',
       '/purchases',
     )
-    expect(screen.getByRole('link', { name: /^sales$/i })).toHaveAttribute(
+    await user.click(within(menu).getByRole('button', { name: /^Selling/ }))
+    expect(screen.getByRole('link', { name: 'Sales' })).toHaveAttribute(
       'href',
       '/sales',
     )
-    expect(screen.getByRole('link', { name: /people/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /listings/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /platforms/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /vocabularies/i })).toBeInTheDocument()
-  })
-
-  it('groups the menu by what the work is for, each page in one group', () => {
-    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
-    const menu = screen.getByRole('navigation', { name: 'Console' })
-    const groups = within(menu).getAllByRole('group')
-    const pages = (group) =>
-      within(group)
-        .getAllByRole('link')
-        .map((link) => [link.textContent, link.getAttribute('href')])
-
-    expect(groups.map((group) => group.getAttribute('aria-label'))).toEqual([
-      'Inventory',
-      'Procurement',
-      'Selling',
-      'Reports',
-      'Settings',
-    ])
-    // Buying, in the order it is done: entered, then received.
-    expect(pages(screen.getByRole('group', { name: 'Procurement' }))).toEqual([
-      ['Purchases', '/purchases'],
-      ['Receive', '/receiving'],
-    ])
-    expect(pages(screen.getByRole('group', { name: 'Selling' }))).toEqual([
-      ['Listings', '/listings'],
-      ['Lots', '/lots'],
-      ['Auctions', '/auctions'],
-      ['Sales', '/sales'],
-      ['Platforms', '/platforms'],
-      ['Spot prices', '/spot-prices'],
-    ])
-    expect(pages(screen.getByRole('group', { name: 'Inventory' }))).toEqual([
-      ['Coins', '/inventory/coins'],
-      ['Currency', '/inventory/currency'],
-      ['Photos', '/photos'],
-      ['Order lookup', '/order-lookup'],
-    ])
-    expect(pages(screen.getByRole('group', { name: 'Reports' }))).toEqual([
-      ['Reports', '/reports'],
-    ])
-    expect(pages(screen.getByRole('group', { name: 'Settings' }))).toEqual([
-      ['People', '/people'],
-      ['Vocabularies', '/vocabularies'],
-      ['Lists', '/lists'],
-    ])
-    // No link left loose beside the groups, and none in two of them.
-    const all = within(menu).getAllByRole('link')
-    const grouped = groups.flatMap((group) => within(group).getAllByRole('link'))
-    expect(grouped).toHaveLength(all.length)
-    expect(new Set(all.map((link) => link.getAttribute('href'))).size).toBe(16)
   })
 
   it('routes /order-lookup to the order lookup page', async () => {
@@ -184,11 +128,6 @@ describe('management console shell', () => {
     ).toBeTruthy()
   })
 
-  it('links to the Lots page', () => {
-    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
-    expect(screen.getByRole('link', { name: /^lots$/i })).toBeInTheDocument()
-  })
-
   it('routes /lots to the sales lots page', async () => {
     // The link above proves only that the link renders. Deleting the
     // <Route path="/lots" ...> line leaves it in place and lands the operator
@@ -199,29 +138,11 @@ describe('management console shell', () => {
     ).toBeInTheDocument()
   })
 
-  it('links to the Auctions page, after Lots and nowhere else', () => {
-    // Auctions follows Lots, inside the Selling group.
-    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
-    const links = screen.getAllByRole('link').map((link) => link.textContent)
-    const lotsIndex = links.indexOf('Lots')
-    expect(lotsIndex).toBeGreaterThan(-1)
-    expect(links[lotsIndex + 1]).toBe('Auctions')
-  })
-
   it('routes /auctions to the auctions page', async () => {
     renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/auctions' })
     expect(
       await screen.findByRole('heading', { name: /^auctions$/i }),
     ).toBeInTheDocument()
-  })
-
-  it('links to Reports from a group of its own', () => {
-    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
-    const reports = screen.getByRole('group', { name: 'Reports' })
-    expect(within(reports).getByRole('link', { name: 'Reports' })).toHaveAttribute(
-      'href',
-      '/reports',
-    )
   })
 
   it('routes /reports to the reports page', async () => {

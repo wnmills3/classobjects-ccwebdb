@@ -1,6 +1,7 @@
-import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { useAuth } from '../shared/auth-context'
+import ConsoleMenu from './ConsoleMenu'
 import { HelpBar, HelpProvider } from './HelpBar'
 import AdminPeople from './pages/AdminPeople'
 import Auctions from './pages/Auctions'
@@ -18,52 +19,6 @@ import Receiving from './pages/Receiving'
 import Reports from './pages/Reports'
 import SpotPrices from './pages/SpotPrices'
 import Vocabularies from './pages/Vocabularies'
-
-//: The console's menu, grouped by what the work is for rather than listed
-//: flat: what is held, buying it, selling it, the reports over all of it,
-//: and the setup the rest relies on. Each group is a label and its pages,
-//: in the order the work is done -- a purchase is entered before it is
-//: received; an item is listed, grouped into a lot or an auction, and
-//: then sold. A labelled group rather than a menu that opens: every page
-//: is one click away, and a screen reader announces the group.
-const MENU = [
-  [
-    'Inventory',
-    [
-      ['/inventory/coins', 'Coins'],
-      ['/inventory/currency', 'Currency'],
-      ['/photos', 'Photos'],
-      ['/order-lookup', 'Order lookup'],
-    ],
-  ],
-  [
-    'Procurement',
-    [
-      ['/purchases', 'Purchases'],
-      ['/receiving', 'Receive'],
-    ],
-  ],
-  [
-    'Selling',
-    [
-      ['/listings', 'Listings'],
-      ['/lots', 'Lots'],
-      ['/auctions', 'Auctions'],
-      ['/sales', 'Sales'],
-      ['/platforms', 'Platforms'],
-      ['/spot-prices', 'Spot prices'],
-    ],
-  ],
-  ['Reports', [['/reports', 'Reports']]],
-  [
-    'Settings',
-    [
-      ['/people', 'People'],
-      ['/vocabularies', 'Vocabularies'],
-      ['/lists', 'Lists'],
-    ],
-  ],
-]
 
 /**
  * Guard for the whole console rather than for each route.
@@ -105,22 +60,7 @@ function Console() {
             <span className="brand-sub">Console</span>
           </span>
 
-          <nav className="nav" aria-label="Console">
-            {MENU.map(([group, links]) => (
-              <span key={group} className="nav-group" role="group" aria-label={group}>
-                <span className="nav-group-label" aria-hidden="true">
-                  {group}
-                </span>
-                <span className="nav-group-links">
-                  {links.map(([to, text]) => (
-                    <NavLink key={to} to={to}>
-                      {text}
-                    </NavLink>
-                  ))}
-                </span>
-              </span>
-            ))}
-          </nav>
+          <ConsoleMenu />
 
           <div className="account">
             <span className="muted">{user.email}</span>

@@ -542,13 +542,11 @@ fieldset.identify {
 .console-app > .topbar {
   flex: none;
 }
-/* The menu wraps onto a second line in a window too narrow for it. Unwrapped,
-   its fourteen links set a floor of about 1000px under the whole page: below
-   that the window scrolls sideways and the menu's end is off screen. */
+/* The menu wraps onto a second line in a window too narrow for it, rather
+   than setting a floor under the whole page's width. */
 .console-app .nav {
-  align-items: flex-start;
   flex-wrap: wrap;
-  gap: 12px 0;
+  gap: 8px 20px;
   min-width: 0;
 }
 .console-app > .content {
@@ -603,31 +601,56 @@ fieldset.identify {
   gap: 0.5rem;
 }
 
-/* The menu's groups: each a small label over its own pages, with a rule
-   between one group and the next. */
-.nav-group {
-  align-items: flex-start;
-  border-left: 1px solid var(--border);
+/* The menu's groups: each a button in the bar, with its pages in a list
+   that drops under it while it is open. The list lies over the page rather
+   than pushing it down. */
+.menu-group {
+  position: relative;
+}
+.menu-button {
+  padding: 0 0 2px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.menu-button:hover,
+.menu-button[aria-expanded='true'] {
+  color: var(--accent);
+}
+/* The group the page shown belongs to, as a page's own link is marked. */
+.menu-button.current {
+  border-bottom-color: var(--accent);
+}
+.menu-list {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: -12px;
+  z-index: 30;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 0 16px;
+  min-width: 11rem;
+  padding: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
 }
-.nav-group:first-child {
-  border-left: none;
-  padding-left: 0;
+.console-menu .menu-list a {
+  padding: 6px 12px;
+  border-bottom: none;
+  border-left: 3px solid transparent;
+  white-space: nowrap;
 }
-.nav-group-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
+.console-menu .menu-list a:hover,
+.console-menu .menu-list a:focus-visible {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
 }
-
-.nav-group-label {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+.console-menu .menu-list a.active {
+  border-left-color: var(--accent);
 }
 
 /* --- Reports ------------------------------------------------------------- */

@@ -41,11 +41,14 @@ is structured).
 **Where things are done.** Everything in the console is under the
 **management console** at `/management`, a separate application from the shop
 (`docs/specs/management-console-separation-design.md`); none of it is
-reachable from the storefront. Its menu is grouped by what the work is for,
-each group a label over its pages: **Inventory** (Coins, Currency, Photos,
-Order lookup), **Procurement** (Purchases, Receive), **Selling** (Listings, Lots, Auctions,
-Sales, Platforms, Spot prices), **Reports**, and **Settings** (People,
-Vocabularies, Lists). Command-line examples are cmd: `python -m`
+reachable from the storefront. Its menu is one row of groups, named for what the
+work is for, each opening a list of its pages: **Inventory** (Coins,
+Currency, Photos, Order lookup), **Procurement** (Purchases, Receive),
+**Selling** (Listings, Lots, Auctions, Sales, Platforms, Spot prices), and
+**Settings** (People, Vocabularies, Lists); **Reports**, a single page, is a
+plain link between Selling and Settings. A list closes when a page is
+chosen, on Escape, or on a click elsewhere, and the group holding the page
+shown is underlined. Command-line examples are cmd: `python -m`
 commands run from `backend\` with the `ccwebdb` conda environment active;
 `.\scripts\...` commands run from the repository root.
 
