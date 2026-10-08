@@ -29,10 +29,13 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from ..inventory_search import view_path
 from ..live import OUTSTANDING_STATUSES, live_item
 from ..models import (
+    CoinDetail,
+    CurrencyDetail,
     InventoryItem,
     ItemKind,
     ItemStatus,
     ItemStatusHistory,
+    Mint,
     PurchaseOrder,
     Seller,
     Vendor,
@@ -603,7 +606,8 @@ def _arrivals(
     come from `receipts.received_transitions`, the one query `sl_aging`
     also reads. The purchase and vendor are outer joins: an item recorded
     with no purchase still arrived, so its receipt is kept under
-    `_NO_PURCHASE` rather than silently dropped.
+    `_NO_PURCHASE` rather than silently dropped. The purchase's seller is
+    joined the same way, for a caller that lists it.
 
     Every row carries `inventory_item_id`, `split_at` and `vendor_name`,
     then `columns`. `vendor`, when given, keeps only that vendor's arrivals.
@@ -619,6 +623,7 @@ def _arrivals(
         .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
         .outerjoin(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
         .outerjoin(Vendor, Vendor.id == PurchaseOrder.vendor_id)
+        .outerjoin(Seller, Seller.id == PurchaseOrder.seller_id)
         .where(InventoryItem.deleted_at.is_(None), *_received_prefilter(params))
     )
     if vendor is not None:
@@ -765,11 +770,18 @@ class ReceivedItemsParams(DateRange):
 _RECEIVED_ITEMS_COLUMNS = [
     Column("day", "Day", "date"),
     Column("item", "Item", "text"),
+    Column("year", "Year", "text"),
+    Column("mint", "Mint", "text"),
+    Column("serial", "Serial number", "text"),
     Column("title", "Title", "text"),
     Column("vendor", "Vendor", "text"),
+    Column("seller", "Seller", "text"),
     Column("order", "Order", "text"),
     Column("total_cost", "Total cost", "money"),
 ]
+
+#: What the year column says for a piece recorded as carrying no date.
+_NO_DATE = "No date"
 
 _SPLIT_PIECES_NOTE = (
     "The pieces of a lot that was split are listed on the day the lot arrived."
@@ -779,7 +791,7 @@ _SPLIT_PIECES_NOTE = (
 def _received_children(
     db: Session, parent_ids: set[int]
 ) -> dict[int, list[RowMapping]]:
-    """Each split parent's own live children: code, title, kind and cost.
+    """Each split parent's own live children: id, code, title, kind and cost.
 
     One query over every parent the arrivals named, as
     `_received_children_totals` is, and the same rows that one counts: a
@@ -791,6 +803,7 @@ def _received_children(
     stmt = (
         select(
             InventoryItem.parent_item_id.label("parent_id"),
+            InventoryItem.id.label("inventory_item_id"),
             InventoryItem.item_code,
             InventoryItem.source_title,
             InventoryItem.total_cost,
@@ -802,6 +815,61 @@ def _received_children(
     for row in db.execute(stmt).mappings().all():
         children[row["parent_id"]].append(row)
     return children
+
+
+def _year_text(row: RowMapping) -> str:
+    """What a piece is dated: a coin's year or years, a note's series.
+
+    A note's is its series designation (`1935A`), since a note holds no year
+    of its own; any other kind's is its year, a range (`1999-2009`) or
+    `_NO_DATE` for a piece recorded as undated. Empty when none is recorded.
+    """
+    if row["kind_code"] == "currency":
+        return row["series_designation"] or ""
+    if row["no_date"]:
+        return _NO_DATE
+    start, end = row["year_start"], row["year_end"]
+    if start is None:
+        return ""
+    return str(start) if end in (None, start) else f"{start}-{end}"
+
+
+def _received_identity(db: Session, item_ids: set[int]) -> dict[int, dict[str, str]]:
+    """What tells one listed piece from the next: its year, mint and serial.
+
+    A coin's date and mint, a note's series and printed serial number --
+    each read from the detail row its own kind keeps, both outer joins, so
+    a piece with neither still has an (empty) entry. One query for every
+    piece listed, a split lot's children included, rather than three more
+    joins on the arrivals `pr_received` also reads and has no use for.
+    """
+    if not item_ids:
+        return {}
+    stmt = (
+        select(
+            InventoryItem.id,
+            InventoryItem.year_start,
+            InventoryItem.year_end,
+            InventoryItem.no_date,
+            ItemKind.code.label("kind_code"),
+            Mint.label.label("mint_label"),
+            CurrencyDetail.series_designation,
+            CurrencyDetail.serial_number,
+        )
+        .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
+        .outerjoin(CoinDetail, CoinDetail.inventory_item_id == InventoryItem.id)
+        .outerjoin(Mint, Mint.id == CoinDetail.mint_id)
+        .outerjoin(CurrencyDetail, CurrencyDetail.inventory_item_id == InventoryItem.id)
+        .where(InventoryItem.id.in_(item_ids))
+    )
+    return {
+        row["id"]: {
+            "year": _year_text(row),
+            "mint": row["mint_label"] or "",
+            "serial": row["serial_number"] or "",
+        }
+        for row in db.execute(stmt).mappings().all()
+    }
 
 
 def _order_text(row: RowMapping) -> str:
@@ -816,8 +884,10 @@ def _pr_received_items(db: Session, params: ReceivedItemsParams) -> ReportResult
 
     The items `pr_received` counts, and no others: an item received twice
     is listed once for each receipt, and a split parent's receipt lists its
-    own live children (`_received_children`) on the parent's day, vendor
-    and order. Within a day, by vendor and then item code.
+    own live children (`_received_children`) on the parent's day, vendor,
+    seller and order. Within a day, by vendor and then item code. Each
+    piece carries what identifies it (`_received_identity`): a coin's year
+    and mint, a note's series and serial number.
 
     Each row drills to its own item, by its kind's search page.
     """
@@ -831,6 +901,7 @@ def _pr_received_items(db: Session, params: ReceivedItemsParams) -> ReportResult
         ItemKind.code.label("kind_code"),
         PurchaseOrder.id.label("order_id"),
         PurchaseOrder.order_number,
+        Seller.name.label("seller_name"),
         vendor=vendor,
     )
     children = _received_children(
@@ -842,15 +913,13 @@ def _pr_received_items(db: Session, params: ReceivedItemsParams) -> ReportResult
         },
     )
 
-    # (day, vendor, order text, the item's own row)
-    listed: list[tuple[date, str, str, RowMapping]] = []
+    # (day, the arrival's own row, the item's own row)
+    listed: list[tuple[date, RowMapping, RowMapping]] = []
     for day, row in arrivals:
         pieces = (
             [row] if row["split_at"] is None else children[row["inventory_item_id"]]
         )
-        listed.extend(
-            (day, row["vendor_name"], _order_text(row), piece) for piece in pieces
-        )
+        listed.extend((day, row, piece) for piece in pieces)
 
     if not listed:
         return ReportResult(
@@ -863,19 +932,28 @@ def _pr_received_items(db: Session, params: ReceivedItemsParams) -> ReportResult
         )
 
     listed.sort(
-        key=lambda entry: (-entry[0].toordinal(), entry[1], entry[3]["item_code"])
+        key=lambda entry: (
+            -entry[0].toordinal(),
+            entry[1]["vendor_name"],
+            entry[2]["item_code"],
+        )
+    )
+    identity = _received_identity(
+        db, {piece["inventory_item_id"] for _day, _row, piece in listed}
     )
     rows: list[dict[str, object]] = []
     drills: list[str | None] = []
     total_cost = Decimal("0")
-    for day, vendor_name, order_text, piece in listed:
+    for day, row, piece in listed:
         rows.append(
             {
                 "day": day,
                 "item": piece["item_code"],
+                **identity[piece["inventory_item_id"]],
                 "title": piece["source_title"],
-                "vendor": vendor_name,
-                "order": order_text,
+                "vendor": row["vendor_name"],
+                "seller": row["seller_name"] or "",
+                "order": _order_text(row),
                 "total_cost": piece["total_cost"],
             }
         )
@@ -886,8 +964,12 @@ def _pr_received_items(db: Session, params: ReceivedItemsParams) -> ReportResult
     totals: dict[str, object] = {
         "day": None,
         "item": None,
+        "year": None,
+        "mint": None,
+        "serial": None,
         "title": "All items",
         "vendor": None,
+        "seller": None,
         "order": None,
         "total_cost": total_cost,
     }
@@ -906,8 +988,9 @@ PR_RECEIVED_ITEMS = register(
         id="pr_received_items",
         group=_GROUP,
         title="Received items",
-        purpose="One row per item received, newest first: day, item, vendor, "
-        "order and total cost. Vendor is a vendor's name, or all.",
+        purpose="One row per item received, newest first: day, item, a coin's "
+        "year and mint, a note's serial number, vendor, seller, order and "
+        "total cost. Vendor is a vendor's name, or all.",
         params=ReceivedItemsParams,
         run=_pr_received_items,
     )
