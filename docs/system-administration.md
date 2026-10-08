@@ -905,7 +905,10 @@ ounces held across the live items, and what they melt for at that price. Type
 a price in a metal's **New price** box and press **Record** (or Enter):
 
 - A price is dollars per troy ounce with up to four decimal places -- `31.50`
-  for silver, `0.2875` for copper.
+  for silver, `0.2875` for copper. A dollar sign in front and commas between
+  thousands are read as written: `$4,012.50` is 4012.50. **Record** pressed
+  with an empty box, or with something that is not a price, says what to
+  type and records nothing.
 - A price is never edited. Recording one adds a quote and makes it the
   metal's price; the one before is kept, so what the holdings were worth at
   an earlier date can still be worked out. A price typed wrong is put right

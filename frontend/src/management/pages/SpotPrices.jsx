@@ -9,9 +9,18 @@ import { useRequest } from '../../shared/useRequest'
 //: (copper is quoted in cents an ounce), which is what the column holds.
 const PRICE = /^\d{1,8}(\.\d{1,4})?$/
 
-/** Whether `text` is a spot price the server will take. */
-function isPrice(text) {
-  return PRICE.test(text.trim())
+/**
+ * A price as a person types it, in the form the server takes: `$4,012.50`
+ * is `4012.50`. A dollar sign in front and commas between thousands are how
+ * a price is written and copied from a quote, and are not part of the
+ * number. '' for text that is not a price.
+ */
+function priceOf(text) {
+  const plain = text
+    .trim()
+    .replace(/^\$\s*/, '')
+    .replace(/,/g, '')
+  return PRICE.test(plain) ? plain : ''
 }
 
 /**
@@ -63,10 +72,18 @@ export default function SpotPrices() {
   const rows = recorded ?? loaded.data ?? []
 
   async function record(row) {
-    const price = (drafts[row.metal] ?? '').trim()
+    const price = priceOf(drafts[row.metal] ?? '')
+    setSaid('')
+    if (price === '') {
+      // Said, not left as a button that does nothing.
+      setError(
+        `${row.label}: enter the price of one troy ounce as an amount, like ` +
+          '31.50 or 4,012.50 -- up to four decimal places.',
+      )
+      return
+    }
     setSaving(row.metal)
     setError('')
-    setSaid('')
     try {
       setRecorded(
         await api.recordMetalPrice({ metal: row.metal, price_per_ozt: price }),
@@ -91,8 +108,10 @@ export default function SpotPrices() {
     <HelpScope>
       <h1>Spot prices</h1>
       <p className="muted">
-        What a troy ounce of each metal is quoted at. Recording a price makes it the
-        metal&apos;s price from now on; the one before is kept.
+        What a troy ounce of each metal is quoted at. To set one, click in the
+        metal&apos;s <strong>New price</strong> box, type today&apos;s price and press{' '}
+        <strong>Record</strong>. That becomes the metal&apos;s price from now on; the
+        one before is kept.
       </p>
       {loaded.error && <p className="error">{loaded.error}</p>}
       {error && <p className="error">{error}</p>}
@@ -126,15 +145,18 @@ export default function SpotPrices() {
                   <td>{row.melt_value === null ? '--' : money(row.melt_value)}</td>
                   <td>
                     <form
-                      className="row"
+                      className="spot-price-entry"
                       onSubmit={(e) => {
                         e.preventDefault()
-                        if (isPrice(draft) && !saving) record(row)
+                        if (!saving) record(row)
                       }}
                     >
                       <input
                         inputMode="decimal"
                         size={10}
+                        // Words, not `0.00`: a number here reads as the
+                        // metal's price, and the box as not a box at all.
+                        placeholder="type a price"
                         data-help="spot_price"
                         aria-label={`New price for ${row.label}`}
                         value={draft}
@@ -145,7 +167,11 @@ export default function SpotPrices() {
                           }))
                         }
                       />
-                      <button type="submit" disabled={!isPrice(draft) || saving !== ''}>
+                      {/* Never greyed out for want of a price: a column of
+                          dimmed buttons reads as a page that takes no
+                          input. Pressed with nothing, or with something
+                          that is not a price, it says what to type. */}
+                      <button type="submit" disabled={saving !== ''}>
                         {saving === row.metal ? 'Recording...' : 'Record'}
                       </button>
                     </form>

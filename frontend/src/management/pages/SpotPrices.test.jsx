@@ -141,17 +141,89 @@ describe('SpotPrices', () => {
     })
   })
 
-  it.each(['', 'abc', '-5', '31.123456', '1,000'])(
-    'will not record "%s"',
+  it.each([
+    // As a price is written and copied from a quote.
+    ['$31.50', '31.50'],
+    ['4,012.50', '4012.50'],
+    ['$ 4,012.50', '4012.50'],
+    [' $1,234,567.8912 ', '1234567.8912'],
+    ['0.2875', '0.2875'],
+  ])('reads "%s" as the price %s', async (typed, sent) => {
+    const user = await open()
+    api.recordMetalPrice.mockResolvedValue([SILVER, GOLD, COPPER])
+
+    await user.type(screen.getByLabelText('New price for Gold'), typed)
+    await user.click(within(row('Gold')).getByRole('button', { name: 'Record' }))
+
+    expect(api.recordMetalPrice).toHaveBeenCalledWith({
+      metal: 'gold',
+      price_per_ozt: sent,
+    })
+  })
+
+  it.each(['abc', '-5', '31.123456', '31.5.0', '$', '31 dollars'])(
+    'says why "%s" is not a price, and sends nothing',
+    async (typed) => {
+      const user = await open()
+      const box = screen.getByLabelText('New price for Silver')
+      await user.type(box, typed)
+      // The button answers: a greyed-out one explains nothing.
+      const button = within(row('Silver')).getByRole('button', { name: 'Record' })
+      expect(button).toBeEnabled()
+
+      await user.click(button)
+
+      expect(
+        screen.getByText(
+          'Silver: enter the price of one troy ounce as an amount, like 31.50 ' +
+            'or 4,012.50 -- up to four decimal places.',
+        ),
+      ).toBeVisible()
+      expect(api.recordMetalPrice).not.toHaveBeenCalled()
+      // What was typed stays, to be corrected.
+      expect(box).toHaveValue(typed)
+    },
+  )
+
+  it('says why with Enter too, and clears it once a price is recorded', async () => {
+    const user = await open()
+    api.recordMetalPrice.mockResolvedValue([SILVER, GOLD, COPPER])
+    const box = screen.getByLabelText('New price for Silver')
+
+    await user.type(box, 'abc{Enter}')
+    expect(screen.getByText(/Silver: enter the price of one troy ounce/)).toBeVisible()
+
+    await user.clear(box)
+    await user.type(box, '31.50{Enter}')
+    await waitFor(() => expect(api.recordMetalPrice).toHaveBeenCalled())
+    expect(screen.queryByText(/enter the price of one troy ounce/)).toBeNull()
+  })
+
+  it('looks ready for a price: a box that says what it is for, and a live button', async () => {
+    await open()
+    for (const metal of ['Silver', 'Gold', 'Copper']) {
+      const box = screen.getByLabelText(`New price for ${metal}`)
+      // Words, not a figure: `0.00` here read as the metal's price.
+      expect(box).toHaveAttribute('placeholder', 'type a price')
+      expect(box).toBeEnabled()
+      // Not greyed out before anything is typed: that read as a dead page.
+      expect(within(row(metal)).getByRole('button', { name: 'Record' })).toBeEnabled()
+    }
+    expect(screen.getByText(/click in the\s+metal.s/)).toBeVisible()
+  })
+
+  it.each(['', '   '])(
+    'asked to record an empty box ("%s"), says what to type',
     async (typed) => {
       const user = await open()
       const box = screen.getByLabelText('New price for Silver')
       if (typed) await user.type(box, typed)
-      expect(
-        within(row('Silver')).getByRole('button', { name: 'Record' }),
-      ).toBeDisabled()
 
-      await user.type(box, '{Enter}')
+      await user.click(within(row('Silver')).getByRole('button', { name: 'Record' }))
+
+      expect(
+        screen.getByText(/Silver: enter the price of one troy ounce/),
+      ).toBeVisible()
       expect(api.recordMetalPrice).not.toHaveBeenCalled()
     },
   )
@@ -174,8 +246,30 @@ describe('SpotPrices', () => {
     await user.type(screen.getByLabelText('New price for Silver'), '31.50')
 
     expect(screen.getByLabelText('New price for Gold')).toHaveValue('')
+    expect(screen.getByLabelText('New price for Silver')).toHaveValue('31.50')
+  })
+
+  it('greys the buttons out only while a price is being recorded', async () => {
+    const user = await open()
+    let answer
+    api.recordMetalPrice.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve
+      }),
+    )
+
+    await user.type(screen.getByLabelText('New price for Silver'), '31.50{Enter}')
+
+    expect(
+      within(row('Silver')).getByRole('button', { name: 'Recording...' }),
+    ).toBeDisabled()
+    // One at a time: a second price is not sent behind the first.
     expect(within(row('Gold')).getByRole('button', { name: 'Record' })).toBeDisabled()
-    expect(within(row('Silver')).getByRole('button', { name: 'Record' })).toBeEnabled()
+
+    answer([SILVER, GOLD, COPPER])
+    await waitFor(() =>
+      expect(within(row('Gold')).getByRole('button', { name: 'Record' })).toBeEnabled(),
+    )
   })
 
   it('says so when the prices cannot be loaded', async () => {

@@ -445,6 +445,26 @@ fieldset.identify {
   font-size: 0.85rem;
   gap: 0.25rem;
 }
+/* A spot price's box and its Record button, side by side in the table cell:
+   stacked, the button reads as belonging to the row below. */
+.spot-price-entry {
+  align-items: center;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+}
+/* The box must read as a place to type: in a table of figures, the usual
+   faint border on the table's own colour looks like one more cell. */
+.spot-price-entry input:not([type='checkbox']):not([type='radio']) {
+  background: var(--bg);
+  border: 2px solid var(--accent);
+  margin-top: 0;
+  width: 9rem;
+}
+.spot-price-entry input::placeholder {
+  color: var(--muted);
+  font-style: italic;
+}
 /* Tinted from the surface, like .for-sale, so it reads in either scheme. */
 .bulk-bar {
   align-items: center;
