@@ -2712,7 +2712,9 @@ class FriedbergNumberUpdate(BaseModel):
     """A correction to a catalog row; only the fields sent change.
 
     The attributes that identify the type are not among them: a type recorded
-    with a wrong attribute is deleted, if unused, and recorded again.
+    with a wrong attribute is deleted, if unused, and recorded again. A row
+    with no district does take the district of a number corrected to carry
+    one (`9907` to `9907-L`).
     """
 
     model_config = ConfigDict(extra="forbid")

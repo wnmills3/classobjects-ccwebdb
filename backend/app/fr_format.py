@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["fr_problem", "fr_traits", "normalize_fr", "seal_shade"]
+__all__ = ["fr_district", "fr_problem", "fr_traits", "normalize_fr", "seal_shade"]
 
 #: `Fr.`, `Fr#`, `FR-`, `Fr. #` -- a label for the number, not part of it --
 #: taken off only where digits follow, so a word starting "fr" is left whole.
@@ -33,7 +33,8 @@ _PREFIX = re.compile(r"^fr[\s.#-]*(?=(?a:\d))", re.IGNORECASE)
 #: `re.ASCII`, `\d` would take any script's, which the console's copy of the
 #: rule refuses.
 _FORM = re.compile(
-    r"^(?P<digits>\d+)[A-Za-z]?(?:-[A-L]m?)?\*?(?: (?:LGS|DGS))?$", re.ASCII
+    r"^(?P<digits>\d+)[A-Za-z]?(?:-(?P<district>[A-L])m?)?\*?(?: (?:LGS|DGS))?$",
+    re.ASCII,
 )
 #: The letters of a seal shade typed at the end, any case: with space before
 #: them they are taken off before the rest is cleaned, and put back as
@@ -122,6 +123,17 @@ def fr_traits(number: str) -> tuple[bool, bool]:
     """
     base = re.sub(r" (?:LGS|DGS)$", "", number)
     return base.endswith("*"), base.rstrip("*").endswith("m")
+
+
+def fr_district(number: str) -> str | None:
+    """The district letter `number` (already normalized) carries, or None.
+
+    `9907-L` is district L's number whatever else is known of the note, so a
+    row recorded from a note with no district on it still has one. None for
+    a number without a district, and for text not in a number's form.
+    """
+    match = _FORM.match(number)
+    return match["district"] if match else None
 
 
 def fr_problem(number: str) -> str | None:

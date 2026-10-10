@@ -522,6 +522,80 @@ def test_a_district_letter_is_kept_in_capitals(
     assert again.json()["existing"]["fr_number"] == "9953-B"
 
 
+def test_two_districts_numbers_recorded_without_a_district_are_two_types(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A number's own district is its row's when the note records none.
+
+    Left unknown, the first number recorded for a series would hold the
+    combination for every district, and the next district's number would be
+    refused as that type recorded twice.
+    """
+    unplaced = {**_typed("", None), "district_letter": None}
+
+    first = client.post(
+        "/api/friedberg", json=unplaced | {"fr_number": "9961-E"}, headers=admin_headers
+    )
+    second = client.post(
+        "/api/friedberg", json=unplaced | {"fr_number": "9961-G"}, headers=admin_headers
+    )
+
+    assert first.status_code == 201, first.text
+    assert first.json()["district_letter"] == "E"
+    assert second.status_code == 201, second.text
+    assert second.json()["district_letter"] == "G"
+    # The same district again is still the same type.
+    again = client.post(
+        "/api/friedberg", json=unplaced | {"fr_number": "9962-G"}, headers=admin_headers
+    )
+    assert again.status_code == 409, again.text
+    assert again.json()["existing"]["fr_number"] == "9961-G"
+
+
+def test_a_district_given_is_kept_over_the_numbers(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """What the form says the district is, is what is recorded."""
+    resp = client.post(
+        "/api/friedberg", json=_typed("9963-C", None), headers=admin_headers
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["district_letter"] == "B"
+
+
+def test_correcting_a_number_to_one_with_a_district_records_the_district(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A row with no district takes its corrected number's.
+
+    And is refused where that district's type is already on file.
+    """
+    unplaced = {**_typed("", None), "district_letter": None}
+    bare = client.post(
+        "/api/friedberg", json=unplaced | {"fr_number": "9964"}, headers=admin_headers
+    ).json()
+    assert bare["district_letter"] is None
+
+    corrected = client.patch(
+        f"/api/friedberg/{bare['id']}",
+        json={"fr_number": "9964-L"},
+        headers=admin_headers,
+    )
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["district_letter"] == "L"
+
+    other = client.post(
+        "/api/friedberg", json=unplaced | {"fr_number": "9965"}, headers=admin_headers
+    ).json()
+    refused = client.patch(
+        f"/api/friedberg/{other['id']}",
+        json={"fr_number": "9965-L"},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["existing"]["id"] == bare["id"]
+
+
 def test_a_district_letter_past_l_is_refused(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

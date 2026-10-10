@@ -24,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from ..deps import AdminUser, DbSession
-from ..fr_format import fr_problem, fr_traits, seal_shade
+from ..fr_format import fr_district, fr_problem, fr_traits, seal_shade
 from ..models import (
     CurrencyDetail,
     Denomination,
@@ -101,6 +101,18 @@ _IDENTITY = (
 )
 
 
+def _district_of(recorded: str | None, fr_number: str) -> str | None:
+    """A row's district: the one recorded, else the one its number carries.
+
+    A note with no district entered gives the lookup none to record, but
+    `9907-G` is district G's number all the same. Left unknown, the first
+    number recorded for a series would hold the combination for every
+    district, and the next district's number would be refused as that type
+    recorded twice.
+    """
+    return recorded or fr_district(fr_number)
+
+
 def _same_combination(
     db: Session, row: FriedbergNumber, *, fr_number: str | None = None
 ) -> FriedbergNumber | None:
@@ -113,6 +125,9 @@ def _same_combination(
     from `row.is_star`/`is_mule`, which the database generates and a row not
     yet flushed -- or one about to take a corrected `fr_number` -- does not
     hold yet.
+
+    The district is read from the number too (`_district_of`) where the row
+    has none, as it is when the row is saved.
     """
     if (
         row.denomination_id is None
@@ -120,10 +135,13 @@ def _same_combination(
         or row.note_type_id is None
     ):
         return None
-    star, mule = fr_traits(fr_number if fr_number is not None else row.fr_number)
+    number = fr_number if fr_number is not None else row.fr_number
+    star, mule = fr_traits(number)
+    identity = {column: getattr(row, column) for column in _IDENTITY}
+    identity["district_letter"] = _district_of(row.district_letter, number)
     conditions = [
-        getattr(FriedbergNumber, column).is_not_distinct_from(getattr(row, column))
-        for column in _IDENTITY
+        getattr(FriedbergNumber, column).is_not_distinct_from(value)
+        for column, value in identity.items()
     ]
     conditions += [FriedbergNumber.is_star.is_(star), FriedbergNumber.is_mule.is_(mule)]
     if row.id is not None:
@@ -406,7 +424,7 @@ def create_friedberg_number(
             payload.signature_combination,
             "signature_combination",
         ),
-        district_letter=payload.district_letter,
+        district_letter=_district_of(payload.district_letter, payload.fr_number),
         size_class=payload.size_class,
         web_press=payload.web_press,
         printing_facility=payload.printing_facility,
@@ -509,6 +527,7 @@ def update_catalog_row(
         held = _same_combination(db, row, fr_number=payload.fr_number)
         if held is not None:
             raise CombinationRecorded(held)
+        row.district_letter = _district_of(row.district_letter, payload.fr_number)
         row.fr_number = payload.fr_number
     if "description" in sent:
         row.description = payload.description
