@@ -85,12 +85,12 @@ export default function LocationSelect({ value, onChange, disabled = false }) {
         }}
       >
         <option value="">--</option>
+        <option value="__add__">+ Add a location...</option>
         {locations.map((loc) => (
           <option key={loc.id} value={String(loc.id)}>
             {loc.label}
           </option>
         ))}
-        <option value="__add__">+ Add a location...</option>
       </select>
       {/* Said, because without the list "--" shows for an item that has a
           location as well as for one that has none. */}

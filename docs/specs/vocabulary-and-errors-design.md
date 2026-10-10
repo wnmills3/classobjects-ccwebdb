@@ -174,7 +174,9 @@ and tells the pickers their copy is stale.
 ## Adding a value while entering
 
 A value can also be created from a field's picker: "+ Add a new value..." at
-the foot of a `ReferenceSelect`, which posts to the same endpoint
+the top of a `ReferenceSelect`, under its blank and above its values so a
+long list does not put it a scroll away (the vendor, seller and storage
+location pickers place theirs the same), which posts to the same endpoint
 (staff only, recorded `manual`, so additions stay distinguishable from the
 shipped vocabulary and are left out of an export by default). A picker whose
 values the code branches on, or that an add-by-label form cannot describe,

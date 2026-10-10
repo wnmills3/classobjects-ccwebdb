@@ -99,8 +99,8 @@ describe('ReferenceSelect find box', () => {
 
     expect(offered()).toEqual([
       '--',
-      'Walking Liberty Half Dollar (Walker)',
       '+ Add a new value...',
+      'Walking Liberty Half Dollar (Walker)',
     ])
   })
 
@@ -136,9 +136,9 @@ describe('ReferenceSelect find box', () => {
 
     expect(offered()).toEqual([
       '--',
+      '+ Add a new value...',
       'Winged Liberty Head Dime',
       'Walking Liberty Half Dollar (Walker)',
-      '+ Add a new value...',
     ])
   })
 
@@ -166,9 +166,9 @@ describe('ReferenceSelect find box', () => {
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
     expect(offered()).toEqual([
       '--',
+      '+ Add a new value...',
       'Walking Liberty Half Dollar',
       'Winged Liberty Head Dime',
-      '+ Add a new value...',
     ])
   })
 })

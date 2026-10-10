@@ -1635,9 +1635,9 @@ describe('Attributes', () => {
     })
     expect(offered()).toEqual([
       '--',
+      '+ Add a new value...',
       'No Motto',
       'First Strike',
-      '+ Add a new value...',
     ])
   })
 

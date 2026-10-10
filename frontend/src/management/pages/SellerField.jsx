@@ -88,12 +88,12 @@ export default function SellerField({ value, onChange }) {
         aria-label="Seller"
       >
         <option value="">--</option>
+        <option value="__add__">+ Add a seller...</option>
         {sellers.map((s) => (
           <option key={s.id} value={String(s.id)}>
             {s.name}
           </option>
         ))}
-        <option value="__add__">+ Add a seller...</option>
       </select>
       {/* A list that could not be read is not an empty one. */}
       {loaded.error && <span className="error">{loaded.error}</span>}
