@@ -14,7 +14,7 @@ const BLANK_DRAFT = { kind: '', institution: '', identifier: '' }
 
 /**
  * Where an item is kept: a select over the storage locations, "--" for not
- * recorded, ending in "+ Add a location..." for an inline kind / place / box
+ * recorded, opening with "+ Add a location..." for an inline kind / place / box
  * form -- the vendor and seller pickers' shape. Optional everywhere it is
  * offered.
  *
