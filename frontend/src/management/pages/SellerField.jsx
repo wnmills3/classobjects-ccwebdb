@@ -9,7 +9,7 @@ const BLANK_DRAFT = { name: '', store_url: '' }
 
 /**
  * The seller picker: who sold a purchase on the marketplace its vendor
- * names. A select over `listSellers()`, ending in "+ Add a seller..." for an
+ * names. A select over `listSellers()`, opening with "+ Add a seller..." for an
  * inline store and name form -- the vendor picker's shape: the store's
  * address is asked first and proposes the name (`siteName`).
  *
