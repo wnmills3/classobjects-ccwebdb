@@ -194,7 +194,10 @@ error belongs to that order and clears when the address changes.
   A number whose type is already recorded under another number is refused
   with that row named, and **Correct 3007- to 3007-L** renames the recorded
   row and uses it. In the item editor the choice is held until the editor's
-  Save.
+  Save. The search is by the note's district -- the one it records, else,
+  for a Federal Reserve Note, the one its serial names (`serialDistrict`:
+  the letter next to the digits, read even from a serial a digit short or
+  long) -- so only that district's numbers are offered.
 - *Photo* takes files from the file box, dropped onto it, or pasted into it
   with Ctrl+V; anything that is not an image is refused with its name.
   Photographs upload after the receipt, the first as primary, carrying the

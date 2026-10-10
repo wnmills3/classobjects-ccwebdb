@@ -6,8 +6,16 @@ says which note any of them belongs to.
 
 from __future__ import annotations
 
+import re
+
 import pytest
-from app.fr_format import fr_district, fr_problem, fr_traits, normalize_fr
+from app.fr_format import (
+    DISTRICT_SQL_PATTERN,
+    fr_district,
+    fr_problem,
+    fr_traits,
+    normalize_fr,
+)
 
 
 @pytest.mark.parametrize(
@@ -169,3 +177,8 @@ def test_the_district_is_read_from_the_number(
     number: str, district: str | None
 ) -> None:
     assert fr_district(number) == district
+    # The pattern a search reads it with says the same. Its own flavour of
+    # regular expression is close enough to Python's for these to agree;
+    # `test_friedberg.py` asks the database itself.
+    found = re.search(DISTRICT_SQL_PATTERN, number)
+    assert (found.group(1) if found else None) == district

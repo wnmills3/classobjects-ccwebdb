@@ -552,15 +552,92 @@ def test_two_districts_numbers_recorded_without_a_district_are_two_types(
     assert again.json()["existing"]["fr_number"] == "9961-G"
 
 
-def test_a_district_given_is_kept_over_the_numbers(
+def test_a_number_of_another_district_than_the_notes_is_refused(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """What the form says the district is, is what is recorded."""
+    """District C's number is not recorded for a district B note.
+
+    One of the two is a slip, and saved it would be offered to every later
+    district B note of the series.
+    """
     resp = client.post(
         "/api/friedberg", json=_typed("9963-C", None), headers=admin_headers
     )
-    assert resp.status_code == 201, resp.text
-    assert resp.json()["district_letter"] == "B"
+    assert resp.status_code == 422, resp.text
+    assert "district C" in resp.text
+    assert "district B" in resp.text
+    listed = client.get("/api/friedberg", headers=admin_headers).json()
+    assert listed == []
+
+
+def test_a_search_by_district_leaves_out_another_districts_number(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A row with no district is still its number's district's.
+
+    `9971-E` recorded before a number's district was kept would otherwise
+    be offered, as unknown, to a note of any district.
+    """
+    typed = {
+        "note_type_id": code_id(db, NoteType, "frn"),
+        "denomination_id": code_id(db, Denomination, "usd_note_1"),
+        "series_year": 1995,
+    }
+    richmond = _add_friedberg(db, fr_number="9971-E", **typed)
+    mule = _add_friedberg(db, fr_number="9971-Em* LGS", **typed)
+    unplaced = _add_friedberg(db, fr_number="9972", series_letter="A", **typed)
+    asked = {"note_type": "frn", "denomination": "usd_note_1", "series_year": 1995}
+
+    def found(**more: str) -> set[int]:
+        resp = client.get("/api/friedberg", params=asked | more, headers=admin_headers)
+        assert resp.status_code == 200, resp.text
+        return _ids(resp.json())
+
+    # A number with no district may be any district's: still found.
+    assert found(district_letter="G") == {unplaced.id}
+    assert found(district_letter="E") == {richmond.id, mule.id, unplaced.id}
+    assert found() == {richmond.id, mule.id, unplaced.id}
+    # The number's district is something the row knows: asked for alone, it
+    # finds the row, as a recorded district would.
+    resp = client.get(
+        "/api/friedberg", params={"district_letter": "E"}, headers=admin_headers
+    )
+    assert _ids(resp.json()) == {richmond.id, mule.id}
+
+
+def test_correcting_a_number_to_another_districts_moves_the_row(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A row's district follows a corrected number that names another.
+
+    The number is what was wrong, so the district read from it was too; and
+    the type it becomes may already be on file.
+    """
+    row = client.post(
+        "/api/friedberg",
+        json=_typed("9973-B", None) | {"district_letter": None},
+        headers=admin_headers,
+    ).json()
+    assert row["district_letter"] == "B"
+
+    corrected = client.patch(
+        f"/api/friedberg/{row['id']}",
+        json={"fr_number": "9973-C"},
+        headers=admin_headers,
+    )
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["district_letter"] == "C"
+
+    other = client.post(
+        "/api/friedberg", json=_typed("9974-B", None), headers=admin_headers
+    ).json()
+    refused = client.patch(
+        f"/api/friedberg/{other['id']}",
+        json={"fr_number": "9974-C"},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["existing"]["id"] == row["id"]
 
 
 def test_correcting_a_number_to_one_with_a_district_records_the_district(

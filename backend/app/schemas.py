@@ -29,7 +29,7 @@ from pydantic import (
 )
 
 from . import plates
-from .fr_format import fr_problem, normalize_fr
+from .fr_format import fr_district, fr_problem, normalize_fr
 from .models import AddressKind, UserRole
 
 #: A price, cost, fee or reserve in dollars and cents. Never negative, and
@@ -2712,9 +2712,9 @@ class FriedbergNumberUpdate(BaseModel):
     """A correction to a catalog row; only the fields sent change.
 
     The attributes that identify the type are not among them: a type recorded
-    with a wrong attribute is deleted, if unused, and recorded again. A row
-    with no district does take the district of a number corrected to carry
-    one (`9907` to `9907-L`).
+    with a wrong attribute is deleted, if unused, and recorded again. The
+    district is the exception: it follows a number corrected to carry one
+    (`9907` or `9907-E` to `9907-L`).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -2780,6 +2780,23 @@ class FriedbergNumberCreate(BaseModel):
     web_press: bool | None = None
     printing_facility: str | None = Field(default=None, pattern=_PRINTING_FACILITY)
     description: str | None = None
+
+    @model_validator(mode="after")
+    def _number_of_the_notes_district(self) -> FriedbergNumberCreate:
+        """A number that carries a district carries the note's.
+
+        `9907-E` for a district K note is a slip in one or the other, and
+        recorded it would be offered to every later district K note of the
+        series.
+        """
+        carried = fr_district(self.fr_number)
+        if carried and self.district_letter and carried != self.district_letter:
+            raise ValueError(
+                f"{self.fr_number} is a district {carried} number, but this is a "
+                f"district {self.district_letter} note. Correct the number, or "
+                "the district."
+            )
+        return self
 
 
 class SignatureChoice(BaseModel):

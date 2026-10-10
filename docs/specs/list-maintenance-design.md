@@ -37,12 +37,19 @@ is not edited here: a type recorded with a wrong attribute is deleted, if
 unused, and recorded again from the note.
 
 The district is the one exception. A number that carries a district
-(`3005-D`) says which district its type is, so a row recorded from a note
-with no district entered takes the number's (`fr_district`), and a row with
-none takes the district of a number corrected to carry one. A district that
-was entered is kept. Without this the first number recorded for a series
-would hold the combination for every district, and the next district's
-number would be refused as that type recorded twice.
+(`3005-D`) says which district its type is (`fr_district`):
+
+- A row recorded from a note with no district entered takes the number's.
+  Without this the first number recorded for a series would hold the
+  combination for every district, and the next district's number would be
+  refused as that type recorded twice.
+- A number recorded for a note of another district is refused (422): one of
+  the two is a slip.
+- A row's district follows its number when the number is corrected here to
+  carry one, or to carry another.
+- The lookup's search reads a row's district from its number where the row
+  records none, so one district's number is never offered to another
+  district's note.
 
 Correcting a Friedberg number keeps every note that uses it attached -- the
 items hold the catalog row, not its text. Undoing a confirmation clears the

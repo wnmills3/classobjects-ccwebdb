@@ -16,7 +16,14 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["fr_district", "fr_problem", "fr_traits", "normalize_fr", "seal_shade"]
+__all__ = [
+    "DISTRICT_SQL_PATTERN",
+    "fr_district",
+    "fr_problem",
+    "fr_traits",
+    "normalize_fr",
+    "seal_shade",
+]
 
 #: `Fr.`, `Fr#`, `FR-`, `Fr. #` -- a label for the number, not part of it --
 #: taken off only where digits follow, so a word starting "fr" is left whole.
@@ -36,6 +43,10 @@ _FORM = re.compile(
     r"^(?P<digits>\d+)[A-Za-z]?(?:-(?P<district>[A-L])m?)?\*?(?: (?:LGS|DGS))?$",
     re.ASCII,
 )
+#: `_FORM`'s district for PostgreSQL, whose `substring(text, pattern)` gives
+#: what the one capturing group matched: the same answer as `fr_district`,
+#: for a search that has to read it from every row.
+DISTRICT_SQL_PATTERN = r"^[0-9]+[A-Za-z]?-([A-L])m?[*]?(?: (?:LGS|DGS))?$"
 #: The letters of a seal shade typed at the end, any case: with space before
 #: them they are taken off before the rest is cleaned, and put back as
 #: ` LGS` / ` DGS`.
@@ -131,6 +142,7 @@ def fr_district(number: str) -> str | None:
     `9907-L` is district L's number whatever else is known of the note, so a
     row recorded from a note with no district on it still has one. None for
     a number without a district, and for text not in a number's form.
+    `DISTRICT_SQL_PATTERN` is the same rule for a query.
     """
     match = _FORM.match(number)
     return match["district"] if match else None

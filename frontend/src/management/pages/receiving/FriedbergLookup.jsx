@@ -5,6 +5,7 @@ import { frProblem, normalizeFr } from '../../friedberg-format'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { PRINTING_FACILITIES } from '../../../shared/kinds'
+import { serialDistrict } from './serialDistrict'
 import { webSearchText } from './webSearchText'
 import { useDebounced } from '../../../shared/useDebounced'
 import { useRequest } from '../../../shared/useRequest'
@@ -87,6 +88,7 @@ function labelsOf(values) {
  * The search fields as the note already records them, so the owner starts
  * from what the item says rather than retyping it. Only Web Press can be
  * read from an attribute, and only as "yes": its absence proves nothing.
+ * A district the note does not record is read from its serial.
  */
 function fromItem(item) {
   return {
@@ -96,7 +98,9 @@ function fromItem(item) {
     seriesYear: item?.series_year != null ? String(item.series_year) : '',
     seriesLetter: item?.series_letter ?? '',
     signatureCombination: item?.signature_combination ?? '',
-    district: item?.fed_district ?? '',
+    // What the note records, else what its serial names: a search with no
+    // district is offered every district's number.
+    district: item?.fed_district || serialDistrict(item),
     press: (item?.attributes ?? []).some((a) => a.code === 'web_press') ? 'yes' : '',
     printing: item?.printing_facility ?? '',
     facePlate: item?.face_plate_number ?? '',
