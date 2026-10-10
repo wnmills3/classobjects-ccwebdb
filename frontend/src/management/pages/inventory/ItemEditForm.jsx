@@ -33,6 +33,7 @@ import FriedbergPanel from './FriedbergPanel'
 import HelpScope from '../../HelpScope'
 import HistoryPanel from './HistoryPanel'
 import NoteFields from './NoteFields'
+import SerialPair from './SerialPair'
 import OffersPanel from './OffersPanel'
 import PhotosPanel from './PhotosPanel'
 import SaleHistory from './SaleHistory'
@@ -1146,6 +1147,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           setField={(key, next) => setDraft({ ...draft, [key]: next })}
           side={side}
         />
+      )}
+      {value('item_kind') === 'currency' && (
+        <SerialPair itemId={itemId} serial={value('serial_number')} />
       )}
     </Fragment>
   )

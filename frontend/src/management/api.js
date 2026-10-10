@@ -89,6 +89,10 @@ export const api = {
   // Errors: several per item -- a bill is commonly miscut AND misprinted --
   // each with its own note. PUT replaces the whole set.
   getItemErrors: (id) => send(`/api/inventory/${id}/errors`),
+  // The star note of a note's serial number already in the collection, or a
+  // star note's plain twin. `serial` is the one typed, saved or not.
+  getSerialPairs: (id, serial) =>
+    send(withQuery(`/api/inventory/${id}/serial-pairs`, { serial_number: serial })),
   setItemErrors: (id, errors, { acknowledgeForSale = false } = {}) =>
     send(`/api/inventory/${id}/errors`, {
       method: 'PUT',

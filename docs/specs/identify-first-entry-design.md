@@ -50,6 +50,28 @@ record, so a mistyped letter (1953E for 1953B) is caught at once.
 Saving the item then runs the same rules for real (`refresh_items` and
 `refresh_series`; `series-classification-design.md`, "On save").
 
+## The other half of a star-note pair
+
+A star note whose eight digits are those of an ordinary note in the
+collection is a pair to keep together, and easy to own without knowing it.
+Wherever a note's serial number is entered -- the Identify section and the
+item editor -- `SerialPair` asks `GET /api/inventory/{id}/serial-pairs`
+(`app.serial_pairs`) after a 250 ms pause in typing, and says so when there
+is one: for a note, the star notes of its digits; for a star note, the notes
+without the star. Each is named by item code and serial, with its
+denomination and series.
+
+- Only the digits are compared. The letters round them say which Bank and
+  block, and a pair across two Banks or two denominations is still told of;
+  the denomination and series shown are for judging which it is.
+- The serial as typed is what is matched (`serial_number` on the request),
+  so the notice shows before the note is saved and stays after. Without the
+  parameter the saved serial is.
+- Nothing is asked or matched until the serial has exactly eight digits: one
+  cut short would match every other cut short the same way.
+- Deleted and split items are not offered. A search that fails shows
+  nothing: it is a convenience, and never stands in the way of a save.
+
 ## Receiving
 
 The receipt dialog (`receiving/ReceiptPanel.jsx`) opens with an **Identify**
@@ -85,5 +107,6 @@ single item:
 ## Tests
 
 Backend: `tests/test_entry_suggestions.py`, `tests/test_series_refresh.py`,
-`tests/test_series_classify.py`. Frontend: `management/identify.test.js`,
-`pages/receiving/ReceiptPanel.test.jsx`.
+`tests/test_series_classify.py`, `tests/test_serial_pairs.py`. Frontend:
+`management/identify.test.js`, `pages/receiving/ReceiptPanel.test.jsx`,
+`pages/inventory/SerialPair.test.jsx`.

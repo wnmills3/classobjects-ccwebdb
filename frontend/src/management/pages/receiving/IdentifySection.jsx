@@ -5,6 +5,7 @@ import { NUMBERS, identifyKeys } from '../../identify'
 import { fitsKind, isCurrencyKind } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
+import SerialPair from '../inventory/SerialPair'
 
 //: How long typing must pause before the facts are looked up again.
 const SUGGEST_DELAY_MS = 250
@@ -177,6 +178,9 @@ export default function IdentifySection({ item, values, onChange, disabled }) {
         ))}
       </div>
       <Decided item={item} values={values} />
+      {isCurrencyKind(kind) && (
+        <SerialPair itemId={item.id} serial={values.serial_number} />
+      )}
     </fieldset>
   )
 }
