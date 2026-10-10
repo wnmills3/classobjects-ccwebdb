@@ -395,6 +395,9 @@ export function ReferenceSelect({
         disabled={disabled}
       >
         {allowBlank && <option value="">--</option>}
+        {/* Above the values, not below: under a long list it is a scroll
+            away, and not known to be there. */}
+        {allowAdd && <option value="__add__">+ Add a new value...</option>}
         {offered.map(({ entry, match }) => (
           <option key={entry.code} value={entry.code}>
             {entry.label}
@@ -407,7 +410,6 @@ export function ReferenceSelect({
             nothing matches {find}
           </option>
         )}
-        {allowAdd && <option value="__add__">+ Add a new value...</option>}
       </select>
       {notice && <output className="muted">{notice}</output>}
     </div>

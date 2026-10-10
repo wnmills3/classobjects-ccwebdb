@@ -68,6 +68,10 @@ describe('LocationSelect', () => {
       ).toBeInTheDocument(),
     )
     expect(pick).toHaveValue('')
+    // Adding one is offered above the locations, not a scroll below them.
+    const options = [...pick.options].map((o) => o.textContent)
+    expect(options.slice(0, 2)).toEqual(['--', '+ Add a location...'])
+    expect(options.length).toBeGreaterThan(2)
   })
 
   it('adds a location by kind, place and box, and chooses it', async () => {

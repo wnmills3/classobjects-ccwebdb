@@ -111,12 +111,12 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
       aria-label="Vendor"
     >
       <option value="">--</option>
+      <option value="__add__">+ Add a vendor...</option>
       {vendors.map((v) => (
         <option key={v.id} value={v.id}>
           {v.name}
         </option>
       ))}
-      <option value="__add__">+ Add a vendor...</option>
     </select>
   )
 }
