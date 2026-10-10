@@ -522,6 +522,7 @@ relisting, because a returned item resumes its own history.
 | `POST /api/inventory/bulk` | the same change across many items, one transaction, all or nothing. A `storage_location_id` moves each item there and records the move in its location history; the Coins and Currency pages' bulk bar offers it as **Location**, with the item editor's picker |
 | `POST /api/inventory/receive` | record what arrived -- see *Receiving* |
 | `PUT /api/inventory/{id}/errors` | replace the item's recorded errors -- see *Errors* |
+| `GET /api/inventory/{id}/serial-pairs` | the star notes of this note's serial number already in the collection, or a star note's plain twins; `serial_number` matches a serial being typed in place of the saved one (`specs/identify-first-entry-design.md`) |
 
 **Editable scalars:** `source_title`, `description`, `rating`, `sellers_item_id`,
 `listing_url`, `year_start`, `year_end`, `fineness`, `gross_weight_ozt`,

@@ -1500,6 +1500,18 @@ class ItemErrorsOut(BaseModel):
     errors: list[ItemErrorOut]
 
 
+class SerialPairOut(BaseModel):
+    """A note whose serial pairs with another's: one a star note, one not."""
+
+    id: int
+    item_code: str
+    serial_number: str
+    #: The denomination's label and the series as printed (`2017A`), for
+    #: telling a pair of one issue from two notes that share only digits.
+    denomination: str | None
+    series: str | None
+
+
 # --------------------------------------------------------------------------
 # Inventory browse
 # --------------------------------------------------------------------------

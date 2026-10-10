@@ -130,11 +130,13 @@ from ..schemas import (
     ItemSuggestIn,
     ReceiveRequest,
     SaleUseOut,
+    SerialPairOut,
     SplitPieceIn,
     SplitRequest,
     SplitResultOut,
     SuggestedDescriptionOut,
 )
+from ..serial_pairs import serial_pairs
 from ..splitting import SplitError, SplitPiece, split_item
 from ..years import YEAR_FIELDS, backwards, refuse_backwards, resolve_years
 from ._resolve import (
@@ -3237,6 +3239,42 @@ def get_item_errors(item_id: int, db: DbSession, _admin: AdminUser) -> ItemError
     """Every mint or printing error recorded against this item."""
     item = _get_item(db, item_id)
     return ItemErrorsOut(inventory_item_id=item.id, errors=_item_errors(db, item.id))
+
+
+@router.get("/{item_id}/serial-pairs")
+def get_serial_pairs(
+    item_id: int,
+    db: DbSession,
+    _admin: AdminUser,
+    serial_number: Annotated[
+        str | None,
+        Query(max_length=64, description="The serial being typed, not yet saved"),
+    ] = None,
+) -> list[SerialPairOut]:
+    """The star notes of this note's serial -- or, for a star note, the notes.
+
+    The other half of a pair already in the collection (`app.serial_pairs`).
+    `serial_number` is matched in place of the one saved, so the entry forms
+    can say so before the note is saved; without it the saved serial is.
+    """
+    item = _get_item(db, item_id)
+    serial = serial_number
+    if serial is None:
+        serial = db.scalar(
+            select(CurrencyDetail.serial_number).where(
+                CurrencyDetail.inventory_item_id == item.id
+            )
+        )
+    return [
+        SerialPairOut(
+            id=pair.id,
+            item_code=pair.item_code,
+            serial_number=pair.serial_number,
+            denomination=pair.denomination,
+            series=pair.series,
+        )
+        for pair in serial_pairs(db, serial, item.id)
+    ]
 
 
 @router.put("/{item_id}/errors")

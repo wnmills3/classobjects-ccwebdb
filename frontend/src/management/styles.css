@@ -805,6 +805,12 @@ fieldset.identify {
   display: block;
   margin: 1em 0;
 }
+/* The other half of a star-note pair, said under the note's facts: a block
+   of its own, with room above it that `.notice` gives only below. */
+output.serial-pair {
+  display: block;
+  margin-top: 1rem;
+}
 /* The same for a page's own status line: how many purchases were found, and
    what a recording did. */
 :where(output.status-line) {
