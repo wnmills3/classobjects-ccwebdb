@@ -7,7 +7,7 @@ says which note any of them belongs to.
 from __future__ import annotations
 
 import pytest
-from app.fr_format import fr_problem, fr_traits, normalize_fr
+from app.fr_format import fr_district, fr_problem, fr_traits, normalize_fr
 
 
 @pytest.mark.parametrize(
@@ -142,3 +142,30 @@ def test_star_and_mule_are_read_from_the_number(
     number: str, traits: tuple[bool, bool]
 ) -> None:
     assert fr_traits(number) == traits
+
+
+@pytest.mark.parametrize(
+    ("number", "district"),
+    [
+        ("9901-L", "L"),
+        ("9901-A*", "A"),
+        ("12a-B", "B"),
+        ("9907-Em", "E"),
+        ("9907-Em*", "E"),
+        ("9908-B LGS", "B"),
+        ("9908-Em* DGS", "E"),
+        # No district in the number: none is read from a letter or a mule's m.
+        ("9901", None),
+        ("12a", None),
+        ("9901m", None),
+        ("9908 LGS", None),
+        # Not in a number's form: nothing is read from it.
+        ("9907-", None),
+        ("9907-M", None),
+        ("L-9907", None),
+    ],
+)
+def test_the_district_is_read_from_the_number(
+    number: str, district: str | None
+) -> None:
+    assert fr_district(number) == district
