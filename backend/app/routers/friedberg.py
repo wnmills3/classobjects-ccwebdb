@@ -22,9 +22,16 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from ..deps import AdminUser, DbSession
-from ..fr_format import fr_district, fr_problem, fr_traits, seal_shade
+from ..fr_format import (
+    DISTRICT_SQL_PATTERN,
+    fr_district,
+    fr_problem,
+    fr_traits,
+    seal_shade,
+)
 from ..models import (
     CurrencyDetail,
     Denomination,
@@ -102,15 +109,30 @@ _IDENTITY = (
 
 
 def _district_of(recorded: str | None, fr_number: str) -> str | None:
-    """A row's district: the one recorded, else the one its number carries.
+    """A row's district: the one its number carries, else the one recorded.
 
     A note with no district entered gives the lookup none to record, but
     `9907-G` is district G's number all the same. Left unknown, the first
     number recorded for a series would hold the combination for every
     district, and the next district's number would be refused as that type
     recorded twice.
+
+    The number's comes first for a correction's sake: a row whose number is
+    corrected from one district's to another's moves with it. A number
+    recorded new never disagrees with the district sent beside it --
+    `FriedbergNumberCreate` refuses that.
     """
-    return recorded or fr_district(fr_number)
+    return fr_district(fr_number) or recorded
+
+
+#: A row's district for a search: the one recorded, else the one its number
+#: carries. Rows recorded before a number's district was kept have none of
+#: their own, and read as unknown they would be offered to a note of any
+#: district.
+_SEARCH_DISTRICT = func.coalesce(
+    FriedbergNumber.district_letter,
+    func.substring(FriedbergNumber.fr_number, DISTRICT_SQL_PATTERN),
+)
 
 
 def _same_combination(
@@ -271,11 +293,15 @@ def search_friedberg(
 
     With no filters at all, both conditions are vacuous and every row comes
     back -- browsing the whole catalog is a valid use of this endpoint too.
+
+    A row's district is the one it records or else the one its number
+    carries (`_SEARCH_DISTRICT`): `9907-E` is never offered to a district G
+    note, whatever the row was recorded with.
     """
     # Resolved in this order, so an unknown code is refused the same way
     # whichever others were sent too. Washington or Fort Worth: the two
     # facilities' printings of one series carry different numbers.
-    filters: list[tuple[InstrumentedAttribute[Any], object]] = [
+    filters: list[tuple[InstrumentedAttribute[Any] | ColumnElement[Any], object]] = [
         (
             FriedbergNumber.note_type_id,
             code_to_id(db, NoteType, note_type, "note_type"),
@@ -296,7 +322,7 @@ def search_friedberg(
                 db, SignatureCombination, signature_combination, "signature_combination"
             ),
         ),
-        (FriedbergNumber.district_letter, district_letter),
+        (_SEARCH_DISTRICT, district_letter),
         (FriedbergNumber.web_press, web_press),
         (FriedbergNumber.printing_facility, printing_facility),
     ]

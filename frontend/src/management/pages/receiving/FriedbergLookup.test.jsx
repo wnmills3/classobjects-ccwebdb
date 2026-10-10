@@ -330,6 +330,46 @@ describe('FriedbergLookup', () => {
     )
   })
 
+  it('searches by the district the serial names when the note records none', async () => {
+    // A serial typed a digit long: the entry form suggests no district for
+    // it, but its letter still says whose note it is.
+    const item = {
+      id: 412,
+      denomination: 'usd_note_1',
+      note_type: 'frn',
+      series_year: 2017,
+      fed_district: null,
+      serial_number: 'G288888882E',
+    }
+    renderWithProviders(<FriedbergLookup itemId={412} item={item} searchNow />)
+
+    await waitFor(() =>
+      expect(api.searchFriedberg).toHaveBeenCalledWith({
+        denomination: 'usd_note_1',
+        note_type: 'frn',
+        series_year: 2017,
+        district_letter: 'G',
+      }),
+    )
+  })
+
+  it('keeps the district the note records over the one its serial names', async () => {
+    const item = {
+      id: 412,
+      note_type: 'frn',
+      fed_district: 'B',
+      serial_number: 'G28888882E',
+    }
+    renderWithProviders(<FriedbergLookup itemId={412} item={item} searchNow />)
+
+    await waitFor(() =>
+      expect(api.searchFriedberg).toHaveBeenCalledWith({
+        note_type: 'frn',
+        district_letter: 'B',
+      }),
+    )
+  })
+
   it('searches by where the note was printed, from what it records', async () => {
     // A 2017-A $1 is one number from Washington and another from Fort Worth.
     const item = {
