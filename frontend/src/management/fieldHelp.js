@@ -149,6 +149,14 @@ export const FIELD_HELP = {
     title: 'Year',
     text: "This piece's year. Blank keeps the lot's.",
   },
+  delete_item: {
+    title: 'Delete item',
+    text:
+      'Removes an item that should never have been entered -- one purchase ' +
+      'recorded twice. It asks first. An item with pieces split from it, one ' +
+      'that has ever been offered, or one in a sales lot cannot be deleted, ' +
+      'and the reason is shown.',
+  },
   split_items: {
     title: 'Items',
     text:

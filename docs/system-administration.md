@@ -748,7 +748,9 @@ preview names up to ten such items). Editing the listing itself
 
 `DELETE /api/inventory/{id}` is a **soft delete** meaning *this row should
 never have existed* -- a typo, a duplicate. Something sold, lost or given away
-changes its `disposition` or `status` and keeps its history.
+changes its `disposition` or `status` and keeps its history. In the console
+it is **Delete item...** at the foot of the item editor, which asks first and
+shows a refusal's reason beside the button.
 
 Three cases are refused with 409:
 

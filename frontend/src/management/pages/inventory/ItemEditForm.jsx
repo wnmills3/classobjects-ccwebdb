@@ -423,6 +423,8 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // The Split dialog, while open; and what the last split made, to say so.
   const [splitting, setSplitting] = useState(false)
   const [splitNote, setSplitNote] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   // Counts the saves made here. Errors and photographs are saved without
   // moving the item's version, so the history is read again on this too.
   const [saves, setSaves] = useState(0)
@@ -1081,6 +1083,27 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     else onSaved?.()
   }
 
+  // Deleting is for a row that should never have existed, and leaves the
+  // editor: `onSaved` closes it and has the list behind read again. A
+  // refusal -- the item has pieces, has been offered, is in a sales lot --
+  // is said beside the button, in the server's words.
+  async function deleteItem() {
+    const edits = Object.keys(draft).length > 0 ? ' Your unsaved changes are lost.' : ''
+    const asked =
+      `Delete ${item.item_code}? It leaves every list and report, as an item ` +
+      `that should never have been entered.${edits}`
+    if (!window.confirm(asked)) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await api.deleteInventoryItem(item.id)
+      onSaved?.()
+    } catch (err) {
+      setDeleteError(err.message)
+      setDeleting(false)
+    }
+  }
+
   const textRow = ([label, key, letter]) => (
     <label key={key} className="field" data-help={key}>
       <AccessLabel text={label} accessKey={letter} />
@@ -1598,7 +1621,20 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               )}
             </>
           )}
+          {/* For a row that should never have existed -- one purchase entered
+              twice. Asked about first, and the server refuses what must
+              stay: a lot with pieces, an item ever offered, one in a sales
+              lot. Its reason is shown where a failed save's is. */}
+          <button
+            type="button"
+            data-help="delete_item"
+            disabled={deleting}
+            onClick={deleteItem}
+          >
+            Delete item...
+          </button>
         </div>
+        {deleteError && <p className="error">{deleteError}</p>}
         {splitting && (
           <SplitDialog
             item={item}

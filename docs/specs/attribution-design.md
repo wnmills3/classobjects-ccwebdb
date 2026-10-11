@@ -93,6 +93,10 @@ what happened to a coin, and "this row was created by mistake" is not
 something that happened to a coin. Every view filters `deleted_at IS NULL`
 beside `split_at IS NULL`.
 
+The console's item editor (`ItemEditForm`) has **Delete item...** beside Save:
+it asks first, closes the editor when the item is deleted, and shows a
+refusal's reason beside the button.
+
 Delete refuses with a 409, checked in this order:
 
 1. **The item has pieces split from it.** Detach them first.
