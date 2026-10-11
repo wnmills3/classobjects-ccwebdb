@@ -406,6 +406,24 @@ _SHARED_FACETS: dict[str, Facet] = {
     "country": Facet("country_id", "country"),
     "status": Facet("status_id", "item_status"),
     "disposition": Facet("disposition_id", "disposition"),
+    # Held on link tables, an item carrying several of each. The join lists
+    # an item once per error or attribute, which is what is counted: a value
+    # is on an item at most once, so each count is still a count of items.
+    "error_type": Facet(
+        "error_type_id",
+        "error_type",
+        ("JOIN item_error fie ON fie.inventory_item_id = i.id",),
+        "fie",
+    ),
+    "attribute": Facet(
+        "item_attribute_id",
+        "item_attribute",
+        (
+            "JOIN item_attribute_link fal ON fal.inventory_item_id = i.id "
+            "AND fal.removed_at IS NULL",
+        ),
+        "fal",
+    ),
 }
 
 

@@ -23,6 +23,8 @@ const HELP_FOR = {
   serial_number: 'serial_filter',
   item_code: 'item_code_filter',
   sellers_item_id: 'sellers_item_id_filter',
+  error_type: 'error_filter',
+  attribute: 'attribute_filter',
 }
 /** The help topic for a filter parameter: its own name unless listed above. */
 const helpFor = (param) => HELP_FOR[param] ?? param

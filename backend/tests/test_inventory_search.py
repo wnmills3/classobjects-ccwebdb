@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 
 from app.models import (
     CurrencyDetail,
@@ -13,6 +14,8 @@ from app.models import (
     Grade,
     Image,
     InventoryItem,
+    ItemAttribute,
+    ItemAttributeLink,
     ItemError,
     ItemImage,
     ItemKind,
@@ -436,6 +439,66 @@ def test_error_type_filter_excludes_an_item_without_that_error(
 
     body = search(client, "coins", admin_headers, error_type="doubled_die").json()
     assert body["total"] == 0
+
+
+def test_errors_and_attributes_are_offered_with_how_many_items_carry_each(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The pickers list what the matching items carry, counted in items.
+
+    An item with two errors is one item under each. An attribute a person
+    removed is not counted. Each picker goes on offering its other values
+    once one is chosen, and the other picker is counted under the choice.
+    """
+    both = coin(db)
+    one = coin(db)
+    coin(db)
+    star = code_id(db, ItemAttribute, "star")
+    db.add_all(
+        [
+            ItemError(
+                inventory_item_id=both.id,
+                error_type_id=code_id(db, ErrorType, "doubled_die"),
+            ),
+            ItemError(
+                inventory_item_id=both.id,
+                error_type_id=code_id(db, ErrorType, "off_center"),
+            ),
+            ItemError(
+                inventory_item_id=one.id,
+                error_type_id=code_id(db, ErrorType, "off_center"),
+            ),
+            ItemAttributeLink(inventory_item_id=both.id, item_attribute_id=star),
+            ItemAttributeLink(
+                inventory_item_id=one.id,
+                item_attribute_id=star,
+                removed_at=datetime.now(UTC),
+            ),
+        ]
+    )
+    db.commit()
+
+    def counts(body: dict[str, Any], facet: str) -> dict[str, int]:
+        return {f["value"]: f["count"] for f in body["facets"][facet]}
+
+    body = search(client, "coins", admin_headers, facets=True).json()
+    assert counts(body, "error_type") == {"off_center": 2, "doubled_die": 1}
+    assert counts(body, "attribute") == {"star": 1}
+    labels = {f["value"]: f["label"] for f in body["facets"]["attribute"]}
+    assert labels["star"]
+
+    picked = search(
+        client, "coins", admin_headers, facets=True, error_type="doubled_die"
+    ).json()
+    assert [r["id"] for r in picked["rows"]] == [both.id]
+    assert counts(picked, "error_type") == {"off_center": 2, "doubled_die": 1}
+    assert counts(picked, "attribute") == {"star": 1}
+
+    by_attribute = search(
+        client, "coins", admin_headers, facets=True, attribute="star"
+    ).json()
+    assert [r["id"] for r in by_attribute["rows"]] == [both.id]
+    assert counts(by_attribute, "error_type") == {"off_center": 1, "doubled_die": 1}
 
 
 def test_an_unknown_filter_is_refused_rather_than_ignored(

@@ -111,7 +111,9 @@ derived_by). `POST /api/inventory` and `PATCH /api/inventory/{id}` take
 change in the same request; an unknown code or one of the other kind is a 422
 naming it. A change moves the item's version, so a stale form is a 409. Bulk
 edit refuses `attributes`. Search matches attribute names and aliases and
-filters on `attribute=<code>`.
+filters on `attribute=<code>`; the Coins and Currency filter panels have an
+**Attribute** picker for it, listing the attributes the matching items carry
+with a count of items each (the `attribute` facet).
 
 Console: `AttributesField`, in the item editor, shows
 chips (marked *read*, with the rule in the tooltip, when a rule made them)

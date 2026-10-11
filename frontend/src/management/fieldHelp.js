@@ -558,6 +558,19 @@ export const FIELD_HELP = {
       'All or part of a serial, anywhere in it. _ stands for exactly one ' +
       'character, so B0808450_ finds a run of consecutive notes; % for any run.',
   },
+  error_filter: {
+    title: 'Error',
+    text:
+      'Only items with this printing or minting error recorded on them. The ' +
+      'list is of the errors the matching items carry, each with how many.',
+  },
+  attribute_filter: {
+    title: 'Attribute',
+    text:
+      'Only items carrying this attribute: Star Note, Radar, First Strike, CAC ' +
+      'and the like. The list is of the attributes the matching items carry, ' +
+      'each with how many.',
+  },
   item_code_filter: {
     title: 'Item code',
     text: 'All or part of an item code: CC-006140, or 6140.',
