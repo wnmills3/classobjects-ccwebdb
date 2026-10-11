@@ -190,7 +190,6 @@ function ReportTable({ result, onOpenItem }) {
                   column={column}
                   value={row[column.key]}
                   drill={drill}
-                  own={result.column_drills?.[column.key]?.[index]}
                   linked={column.key === linkKey}
                   onOpenItem={onOpenItem}
                 />
@@ -227,14 +226,9 @@ function alignment(column) {
  * link to the drill's page otherwise. A percent column links to the same
  * drill narrowed to the rows that column counts as missing. A blank value
  * is never a link.
- *
- * `own` is a link the result gives this column itself (`column_drills`): a
- * row may open two things, such as a note from its item code and the list
- * of the notes it matches from their digits.
  */
-function Cell({ column, value, drill, own, linked, onOpenItem }) {
+function Cell({ column, value, drill, linked, onOpenItem }) {
   const text = cellText(column.kind, value)
-  if (own && !isBlank(value)) return <Link to={own}>{text}</Link>
   if (!drill || isBlank(value)) return text
   if (linked) {
     // A drill naming one item opens its editor over the report, so closing

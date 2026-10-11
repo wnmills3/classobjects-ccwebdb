@@ -1,4 +1,4 @@
-"""`cb_serials`: notes whose serial numbers match one another.
+"""`cb_serials`: sets of notes whose serial numbers match one another.
 
 Every serial here is made up.
 """
@@ -6,6 +6,7 @@ Every serial here is made up.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from app.models import (
     CurrencyDetail,
@@ -24,11 +25,12 @@ from tests.builders import build_bare_item, code_id
 def _note(
     db: Session, serial: str | None, denomination: str = "usd_note_1", **over: object
 ) -> InventoryItem:
-    """A note of this serial and denomination."""
+    """A note of this serial and denomination, costing exactly 100.00."""
     item = build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "currency"),
         denomination_id=code_id(db, Denomination, denomination),
+        tax_rate=Decimal("0"),
         **over,
     )
     db.add(CurrencyDetail(inventory_item_id=item.id, serial_number=serial))
@@ -37,20 +39,21 @@ def _note(
     return item
 
 
+def _codes(drill: str | None) -> set[str]:
+    """The item codes a row's link lists."""
+    path, _, query = str(drill).partition("?")
+    assert path == "/inventory/currency"
+    name, _, listed = query.partition("=")
+    assert name == "item_codes"
+    return set(listed.split("%2C"))
+
+
 def _sets(db: Session, **params: str) -> list[set[str]]:
-    """The report's sets, each as its item codes, in the order shown."""
+    """The report's sets, each as the item codes its row opens, in order."""
     result = CB_SERIALS.run(db, SerialsParams.model_validate(params))
-    sets: list[set[str]] = []
-    at = 0
-    while at < len(result.rows):
-        size = result.rows[at]["notes"]
-        assert isinstance(size, int)
-        members = result.rows[at : at + size]
-        # A set is consecutive rows, each saying how many it has.
-        assert {row["notes"] for row in members} == {size}
-        assert len({row["digits"] for row in members}) == 1
-        sets.append({str(row["item"]) for row in members})
-        at += size
+    sets = [_codes(drill) for drill in result.drills]
+    # A row says how many notes its link lists.
+    assert [row["notes"] for row in result.rows] == [len(codes) for codes in sets]
     return sets
 
 
@@ -65,35 +68,58 @@ def test_by_default_the_digits_alone_are_matched(db: Session) -> None:
 
     assert _sets(db) == [{a.item_code, b.item_code, star.item_code}]
 
+
+def test_a_set_is_one_row_saying_what_its_notes_are(db: Session) -> None:
+    """The serials as written, each different denomination once, the cost summed."""
+    _note(db, "B12345678A")
+    _note(db, "C12345678D")
+    _note(db, "G12345678*", "usd_note_5")
+    _note(db, "H87654321*")
+    _note(db, "H87654321J")
+
     result = CB_SERIALS.run(db, SerialsParams())
-    assert result.notes == ["1 sets, 3 notes."]
-    assert result.link_column == "item"
-    first = result.rows[0]
+
+    assert [column.key for column in result.columns] == [
+        "digits",
+        "notes",
+        "stars",
+        "serials",
+        "denominations",
+        "series",
+        "districts",
+        "total_cost",
+    ]
+    first, second = result.rows
     assert first["digits"] == "12345678"
     assert first["notes"] == 3
-    assert first["serial"] == "B12345678A"
-    assert first["star"] == ""
-    assert "$1" in str(first["denomination"])
-    assert result.rows[2]["star"] == "Star"
-    assert result.drills[0] == f"/inventory/currency?item={a.item_code}"
-    # From the digits, the list of exactly the set: the same link on each row.
-    listed = "%2C".join([a.item_code, b.item_code, star.item_code])
-    assert result.column_drills == {
-        "digits": [f"/inventory/currency?item_codes={listed}"] * 3
-    }
+    assert first["stars"] == 1
+    assert first["serials"] == "B12345678A, C12345678D, G12345678*"
+    denominations = str(first["denominations"]).split(", ")
+    assert len(denominations) == 2
+    assert "$1" in denominations[0]
+    assert "$5" in denominations[1]
+    assert first["total_cost"] == Decimal("300.00")
+    assert second["digits"] == "87654321"
+    # The row's own link, on its first column: there is no other.
+    assert result.link_column is None
+    assert result.notes == []
+    assert result.totals is not None
+    assert result.totals["digits"] == "2 sets"
+    assert result.totals["notes"] == 5
+    assert result.totals["stars"] == 2
+    assert result.totals["total_cost"] == Decimal("500.00")
 
 
 def test_a_sets_link_lists_exactly_its_notes(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """The link the digits carry opens those notes and no other."""
+    """The link a row carries opens those notes and no other."""
     a = _note(db, "B12345678A")
     b = _note(db, "C12345678*")
     _note(db, "B12345679A")
 
     result = CB_SERIALS.run(db, SerialsParams())
-    path, _, query = str(result.column_drills["digits"][0]).partition("?")
-    assert path == "/inventory/currency"
+    query = str(result.drills[0]).partition("?")[2]
     found = client.get(f"/api/inventory/currency/search?{query}", headers=admin_headers)
 
     assert found.status_code == 200, found.text
@@ -175,6 +201,7 @@ def test_only_live_notes_of_the_status_asked_for_are_matched(db: Session) -> Non
     result = CB_SERIALS.run(db, SerialsParams())
 
     assert result.rows == []
+    assert result.totals is None
     assert result.notes == [NO_MATCHES]
     assert _sets(db, status="all") == [{held.item_code, ordered.item_code}]
 

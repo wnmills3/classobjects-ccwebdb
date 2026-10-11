@@ -53,7 +53,7 @@ or ever sold.
 | `cb_grades` | Grades | View (Coins or Currency) x grade band (1-49, 50-59, 60-64, 65-70, or "No numeric grade") x strike type x grading service ("Raw" when none): items, total cost, with an overall total. A row's drill is decided from its own group-by key, never by running a search at report time: it is kept only when no other row would be swept into the same search, and omitted for a band with no numeric grade, since no search term states that band. |
 | `cb_metal` | Precious metal | Metal x form (Coin, a bullion form, or the kind's own label), over items with a recorded fine weight: items, fine troy ounces, total cost, and melt value at the latest recorded spot price. A metal with no recorded price contributes to items, ounces and cost but not melt; the melt total is empty (not zero) when nothing is priced, and a note names every metal left out. A row's drill, like `cb_grades`, is decided structurally, not by a run-time search; currency and a bullion row with no form are never drilled. |
 | `cb_attributes` | Attributes and errors | Every attribute and error type a live item carries, split by the view it was recorded on (an attribute or error type that applies to either kind is two rows, one per view): items; attributes first, then errors, each in its vocabulary's own order (then label). No total: an item can carry several at once. A row drills to that view's search narrowed to the attribute or error type. |
-| `cb_serials` | Matching serial numbers | Every set of two or more notes whose serial numbers match (`reports/serials.py`), one row per note, the sets in order of their digits and consecutive: serial digits, notes in the set, item, serial as written, star, denomination, series, district, total cost. No total. A row opens its item from the item code, and from the serial digits the Currency list of exactly the notes of its set (`item_codes=<code>,<code>`; `column_drills`). A serial with no digit matches nothing. |
+| `cb_serials` | Matching serial numbers | Every set of two or more notes whose serial numbers match (`reports/serials.py`), one row per set, in order of the digits: serial digits, notes, star notes among them, the serials as written, and the denominations, series and districts among them (each different value once), total cost; notes, star notes and cost are totalled. A row drills to the Currency list of exactly the notes of its set (`item_codes=<code>,<code>`), whatever status they are in now. A serial with no digit matches nothing. |
 
 `cb_serials` takes three parameters beyond status and disposition, each
 defaulting to its widest reading:
@@ -134,9 +134,7 @@ spacing are not part of a serial.
   index-aligned with `rows` and checked to be so -- `link_column`, the key
   of the column whose cell carries a row's link (`None` for the first
   column; checked to name a column; `sl_offered` links on `offers`,
-  `dq_issues` on `check`), `column_drills` -- links of its own for a second
-  column, keyed by column and index-aligned as `drills` is, where a row opens
-  two things (`cb_serials`: the item, and the list of its set) -- and `notes`: anything the reader must know to
+  `dq_issues` on `check`), and `notes`: anything the reader must know to
   read it right, such as "Melt value leaves out metals with no recorded
   price: ...".
 - **Grouped by module**: `collection.py`, `data_quality.py`, `money.py`,
@@ -201,7 +199,7 @@ spacing are not part of a serial.
   address is ISO `YYYY-MM-DD`.
 - `GET /api/reports/{id}?<params>` -- the result as JSON:
   `{id, group, title, params (resolved), run_at (ISO, local), columns, rows,
-  totals, drills, link_column, column_drills, notes}`. A `Decimal` crosses as the string it prints, a
+  totals, drills, link_column, notes}`. A `Decimal` crosses as the string it prints, a
   `date` as its ISO text. 404 for an unknown report; 422 for an unknown
   parameter name or a value its params model rejects -- validated by that
   model itself, the one thing `resolve_params` shares with the command line,

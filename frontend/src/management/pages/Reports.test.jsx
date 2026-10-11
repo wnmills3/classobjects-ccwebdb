@@ -591,29 +591,6 @@ describe('Reports page', () => {
     expect(screen.queryByRole('link', { name: 'Order-0020' })).not.toBeInTheDocument()
   })
 
-  it('gives a second column links of its own, beside the row link', async () => {
-    api.runReport.mockImplementation((_id, params) => {
-      const result = outstanding(params)
-      return Promise.resolve({
-        ...result,
-        column_drills: {
-          vendor: result.rows.map(
-            (row) => `/inventory/currency?item_codes=${row.vendor}`,
-          ),
-        },
-      })
-    })
-    renderAt('/reports?report=pr_outstanding&overdue_days=30')
-
-    const own = await screen.findByRole('link', { name: 'Abbott' })
-    expect(own).toHaveAttribute('href', '/inventory/currency?item_codes=Abbott')
-    // The row's own link is where it was.
-    expect(screen.getByRole('link', { name: 'Order-0020' })).toHaveAttribute(
-      'href',
-      '/receiving?order=20',
-    )
-  })
-
   it('links a percent cell to the items missing that field', async () => {
     renderAt('/reports?report=dq_completeness')
 

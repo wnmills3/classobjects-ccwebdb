@@ -1,7 +1,7 @@
 """Collection: notes whose serial numbers match one another.
 
 `cb_serials`: every set of two or more live notes sharing a serial number,
-one row per note, the sets one after another. Three parameters say what
+one row per set, which opens the list of its notes. Three parameters say what
 "sharing" means -- whether the denomination must match too, whether the
 letters round the digits count, and whether a star note matches the note
 without the star.
@@ -16,7 +16,8 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Hashable, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from decimal import Decimal
+from typing import Literal, cast
 from urllib.parse import urlencode
 
 from pydantic import Field
@@ -26,7 +27,7 @@ from sqlalchemy.orm import Session
 from ..inventory_search import view_path
 from ..models import CurrencyDetail, Denomination, FedDistrict
 from ..serial_patterns import digits_of
-from .base import Column, Report, ReportResult
+from .base import ZERO_MONEY, Column, Report, ReportResult
 from .live_params import LiveParams, live_where
 from .registry import register
 from .tables import ITEM as _I
@@ -156,28 +157,34 @@ def _sets(
 
 _COLUMNS = [
     Column("digits", "Serial digits", "text"),
-    Column("notes", "Notes in set", "count"),
-    Column("item", "Item", "text"),
-    Column("serial", "Serial number", "text"),
-    Column("star", "Star", "text"),
-    Column("denomination", "Denomination", "text"),
+    Column("notes", "Notes", "count"),
+    Column("stars", "Star notes", "count"),
+    Column("serials", "Serial numbers", "text"),
+    Column("denominations", "Denominations", "text"),
     Column("series", "Series", "text"),
-    Column("district", "District", "text"),
+    Column("districts", "Districts", "text"),
     Column("total_cost", "Total cost", "money"),
 ]
+
+
+def _listed(values: Sequence[object]) -> str:
+    """The different values among `values`, as first met, blanks left out."""
+    return ", ".join(dict.fromkeys(str(value) for value in values if value))
+
 
 #: Shown in place of rows when no two notes match.
 NO_MATCHES = "No two notes match on these settings."
 
 
 def _cb_serials(db: Session, params: SerialsParams) -> ReportResult:
-    """Every set of live notes whose serial numbers match, a row per note.
+    """Every set of live notes whose serial numbers match, a row per set.
 
-    The sets are in order of their digits and the notes of a set in order
-    of item code, so a set reads as consecutive rows. Each row opens its
-    item from the item code, and from the digits the Currency list of
-    exactly its set (`item_codes=`), whatever status they are in. A serial
-    with no digit in it is matched with nothing.
+    A row says what its notes are -- how many, how many of them star notes,
+    the serials as written, and the denominations, series and districts
+    among them -- and opens the Currency list of exactly those notes
+    (`item_codes=`), whatever status they are in now. The sets are in order
+    of their digits; the notes and the cost are totalled. A serial with no
+    digit in it is matched with nothing.
     """
     src: FromClause = (
         _I.join(_CUD, _CUD.c.inventory_item_id == _I.c.id)
@@ -215,37 +222,41 @@ def _cb_serials(db: Session, params: SerialsParams) -> ReportResult:
     path = view_path("currency")
     rows: list[dict[str, object]] = []
     drills: list[str | None] = []
-    set_drills: list[str | None] = []
     # Members are in item-code order already; a set is placed by its digits,
     # then by its first item.
     for members in sorted(sets, key=lambda m: (notes[m[0]][1].digits, m[0])):
-        codes = ",".join(notes[i][0]["item_code"] for i in members)
-        whole_set = f"{path}?{urlencode({'item_codes': codes})}"
-        for i in members:
-            set_drills.append(whole_set)
-            row, parsed = notes[i]
-            rows.append(
-                {
-                    "digits": parsed.digits,
-                    "notes": len(members),
-                    "item": row["item_code"],
-                    "serial": row["serial_number"],
-                    "star": "Star" if parsed.star else "",
-                    "denomination": row["denomination"] or "",
-                    "series": row["series_designation"] or "",
-                    "district": row["district"] or "",
-                    "total_cost": row["total_cost"],
-                }
-            )
-            drills.append(f"{path}?{urlencode({'item': row['item_code']})}")
+        held = [notes[i] for i in members]
+        rows.append(
+            {
+                "digits": held[0][1].digits,
+                "notes": len(held),
+                "stars": sum(1 for _, parsed in held if parsed.star),
+                "serials": _listed([row["serial_number"] for row, _ in held]),
+                "denominations": _listed([row["denomination"] for row, _ in held]),
+                "series": _listed([row["series_designation"] for row, _ in held]),
+                "districts": _listed([row["district"] for row, _ in held]),
+                "total_cost": sum((row["total_cost"] for row, _ in held), ZERO_MONEY),
+            }
+        )
+        codes = ",".join(row["item_code"] for row, _ in held)
+        drills.append(f"{path}?{urlencode({'item_codes': codes})}")
 
     return ReportResult(
         columns=_COLUMNS,
         rows=rows,
         drills=drills,
-        link_column="item",
-        column_drills={"digits": set_drills},
-        notes=[f"{len(sets)} sets, {len(rows)} notes."],
+        totals={
+            "digits": f"{len(rows)} sets",
+            "notes": sum(cast(int, row["notes"]) for row in rows),
+            "stars": sum(cast(int, row["stars"]) for row in rows),
+            "serials": None,
+            "denominations": None,
+            "series": None,
+            "districts": None,
+            "total_cost": sum(
+                (cast(Decimal, row["total_cost"]) for row in rows), ZERO_MONEY
+            ),
+        },
     )
 
 
@@ -254,9 +265,10 @@ CB_SERIALS = register(
         id="cb_serials",
         group="Collection",
         title="Matching serial numbers",
-        purpose="Notes whose serial numbers match one another, a set after a "
-        "set: on the digits alone or with the letters, on any denomination or "
-        "the same one, a star note beside the note without the star or not.",
+        purpose="Sets of notes whose serial numbers match one another: on the "
+        "digits alone or with the letters, on any denomination or the same "
+        "one, a star note beside the note without the star or not. A set "
+        "opens the list of its notes.",
         params=SerialsParams,
         run=_cb_serials,
     )
