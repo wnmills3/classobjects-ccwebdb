@@ -137,6 +137,45 @@ describe('ItemEditForm', () => {
     expect(onSaved).not.toHaveBeenCalled()
   })
 
+  it('deletes the item once asked, and closes over a list read again', async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    const asked = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    api.deleteInventoryItem = vi.fn().mockResolvedValue(null)
+    render(<ItemEditForm itemId={12} onSaved={onSaved} onClose={vi.fn()} />)
+    const button = await screen.findByRole('button', { name: 'Delete item...' })
+
+    // Answered no: nothing is deleted and the editor stays.
+    await user.click(button)
+    expect(asked).toHaveBeenCalledWith(expect.stringContaining('Delete C-012?'))
+    expect(api.deleteInventoryItem).not.toHaveBeenCalled()
+
+    asked.mockReturnValueOnce(true)
+    await user.click(button)
+    expect(api.deleteInventoryItem).toHaveBeenCalledWith(12)
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    asked.mockRestore()
+  })
+
+  it("says why an item was not deleted, in the server's words, and stays open", async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    const asked = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    api.deleteInventoryItem = vi
+      .fn()
+      .mockRejectedValue(new Error('C-012 has been offered and cannot be deleted.'))
+    render(<ItemEditForm itemId={12} onSaved={onSaved} onClose={vi.fn()} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Delete item...' }))
+
+    expect(
+      await screen.findByText('C-012 has been offered and cannot be deleted.'),
+    ).toBeInTheDocument()
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Delete item...' })).toBeEnabled()
+    asked.mockRestore()
+  })
+
   it('splits only what is saved', async () => {
     const user = userEvent.setup()
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
