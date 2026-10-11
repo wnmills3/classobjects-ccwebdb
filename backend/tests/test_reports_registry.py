@@ -110,20 +110,6 @@ def test_a_result_with_mismatched_drills_is_refused() -> None:
         )
 
 
-def test_a_columns_own_links_are_checked_as_the_row_links_are() -> None:
-    """`column_drills` must name a column and be one link per row."""
-    columns = [Column("n", "Count", "count")]
-    with pytest.raises(ValueError, match="which is no column"):
-        ReportResult(columns=columns, rows=[], column_drills={"nope": []})
-    with pytest.raises(ValueError, match="index-aligned"):
-        ReportResult(
-            columns=columns,
-            rows=[{"n": 1}],
-            drills=[None],
-            column_drills={"n": []},
-        )
-
-
 def test_a_link_column_naming_no_column_is_refused() -> None:
     with pytest.raises(ValueError, match="link_column 'nope'"):
         ReportResult(

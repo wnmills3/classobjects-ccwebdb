@@ -65,11 +65,6 @@ class ReportResult:
     listing's item code rather than its venue. `None` means the first
     column. A key that names no column is refused here, for the same reason
     the drills are checked: a typo would silently drop every row's link.
-
-    `column_drills` gives a second column links of its own, where a row
-    opens two things -- a note its item, and its set of matching notes the
-    list of them. Keyed by column, each list index-aligned with `rows` as
-    `drills` is, and checked the same way.
     """
 
     columns: list[Column]
@@ -78,18 +73,9 @@ class ReportResult:
     drills: list[str | None] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     link_column: str | None = None
-    column_drills: dict[str, list[str | None]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Refuse misaligned drills, or a link naming no column."""
-        for key, links in self.column_drills.items():
-            if key not in [column.key for column in self.columns]:
-                raise ValueError(f"column_drills names {key!r}, which is no column")
-            if len(links) != len(self.rows):
-                raise ValueError(
-                    f"column_drills[{key!r}] has {len(links)} entries for "
-                    f"{len(self.rows)} rows -- they must be index-aligned"
-                )
+        """Refuse misaligned `drills`, or a `link_column` naming no column."""
         if len(self.drills) != len(self.rows):
             raise ValueError(
                 f"drills has {len(self.drills)} entries for "
