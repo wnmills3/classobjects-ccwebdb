@@ -1137,6 +1137,7 @@ parameters and its table. Groups appear in the order the API lists them:
 | `cb_grades` | Collection | Grades | Grade band x strike type x grading service, across coins and currency, with items and total cost | Status, Disposition |
 | `cb_metal` | Collection | Precious metal | Metal x form, over items with a fine weight: items, ounces, cost, and melt value at the latest spot price | Status, Disposition |
 | `cb_attributes` | Collection | Attributes and errors | Every attribute and error type a live item carries, split by view, with items | Status, Disposition |
+| `cb_serials` | Collection | Matching serial numbers | Notes whose serial numbers match one another, a set after a set, a row per note | Status, Disposition, Denomination (any, or must match), Letters (ignore, or must match), Star notes (match plain notes, or only other stars) |
 | `dq_issues` | Data quality | Open issues | Every named data-quality check, counted across coins and currency | none |
 | `dq_completeness` | Data quality | Field completeness | Percent of live items with each field filled in, by kind | none |
 | `dq_photos` | Data quality | Photographs | Live items with no photograph, by kind and status, plus photographs filed against no item | none |

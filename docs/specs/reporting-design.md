@@ -53,6 +53,22 @@ or ever sold.
 | `cb_grades` | Grades | View (Coins or Currency) x grade band (1-49, 50-59, 60-64, 65-70, or "No numeric grade") x strike type x grading service ("Raw" when none): items, total cost, with an overall total. A row's drill is decided from its own group-by key, never by running a search at report time: it is kept only when no other row would be swept into the same search, and omitted for a band with no numeric grade, since no search term states that band. |
 | `cb_metal` | Precious metal | Metal x form (Coin, a bullion form, or the kind's own label), over items with a recorded fine weight: items, fine troy ounces, total cost, and melt value at the latest recorded spot price. A metal with no recorded price contributes to items, ounces and cost but not melt; the melt total is empty (not zero) when nothing is priced, and a note names every metal left out. A row's drill, like `cb_grades`, is decided structurally, not by a run-time search; currency and a bullion row with no form are never drilled. |
 | `cb_attributes` | Attributes and errors | Every attribute and error type a live item carries, split by the view it was recorded on (an attribute or error type that applies to either kind is two rows, one per view): items; attributes first, then errors, each in its vocabulary's own order (then label). No total: an item can carry several at once. A row drills to that view's search narrowed to the attribute or error type. |
+| `cb_serials` | Matching serial numbers | Every set of two or more notes whose serial numbers match (`reports/serials.py`), one row per note, the sets in order of their digits and consecutive: serial digits, notes in the set, item, serial as written, star, denomination, series, district, total cost. No total. A row opens its item. A serial with no digit matches nothing. |
+
+`cb_serials` takes three parameters beyond status and disposition, each
+defaulting to its widest reading:
+
+| Parameter | Choices | Meaning |
+|---|---|---|
+| Denomination | `any` (default), `must_match` | Whether two notes must also be of one denomination. |
+| Letters | `ignore` (default), `must_match` | Whether the letters before and after the digits count. Ignored, `B00003333A` matches `F00003333C`. |
+| Star notes | `match_plain_notes` (default), `only_other_stars` | Whether a star note matches a note without the star. |
+
+With the letters counted and star notes matching plain ones, the star stands
+where a letter would: `F01011010*` matches `F01011010H`, and a star note
+brings every plain note it matches into one set. Two plain notes differing in
+one letter are never matched without a star note between them. Case and
+spacing are not part of a serial.
 
 ### Data quality -- what is missing or wrong
 
