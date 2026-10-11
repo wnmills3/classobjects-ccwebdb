@@ -72,10 +72,21 @@ class Col:
     clause needed by two different columns is emitted once. Concatenating them
     makes deduplication compare whole strings, and PostgreSQL rejects the same
     alias twice.
+
+    `order` is what the column is sorted by where that is not what it shows:
+    a grade reads MS65 and is ordered by its rank, a denomination reads
+    "$10 Bill" and is ordered by its face value. It may use only the
+    column's own joins.
     """
 
     sql: str
     join: tuple[str, ...] = ()
+    order: str | None = None
+
+    @property
+    def sort_sql(self) -> str:
+        """The SQL a sort on this column orders by."""
+        return self.order or self.sql
 
 
 @dataclass(frozen=True)
@@ -266,6 +277,7 @@ _C_RATING = "i.rating"
 _C_YEAR_START = "i.year_start"
 _C_SERIES_YEAR = "cud.series_year"
 _C_GRADE_VALUE = "g.numeric_value"
+_C_GRADE_RANK = "g.grade_rank"
 #: MS65, PR69+ -- composed the same way the inventory views compose it.
 _C_GRADE_DISPLAY = (
     "grade_display(stk.prefix, stk.suffix, g.numeric_value, g.is_plus, "
@@ -309,19 +321,24 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "created_at": Col("i.created_at"),
     # As collectors write it: MS65 is a business strike graded 65. The
     # parts are `strike_type` and `grade_code`.
-    "grade": Col(_C_GRADE_DISPLAY, (_J_GRADE, _J_GRADE_SCALE, _J_STRIKE)),
+    # Ordered by rank, as is the label below: as text, AU58 would sort before
+    # G4 and "Choice Uncirculated 64" before "Fine 12".
+    "grade": Col(
+        _C_GRADE_DISPLAY, (_J_GRADE, _J_GRADE_SCALE, _J_STRIKE), _C_GRADE_RANK
+    ),
     "grade_code": Col("g.code", (_J_GRADE,)),
     "strike_type": Col("stk.code", (_J_STRIKE,)),
     # What is read, rather than what is filtered on: a note's grade code is
     # `N64` and its label "Choice Uncirculated 64".
-    "grade_label": Col("g.label", (_J_GRADE,)),
+    "grade_label": Col("g.label", (_J_GRADE,), _C_GRADE_RANK),
     "grade_value": Col(_C_GRADE_VALUE, (_J_GRADE,)),
-    "grade_rank": Col("g.grade_rank", (_J_GRADE,)),
+    "grade_rank": Col(_C_GRADE_RANK, (_J_GRADE,)),
     "grade_designation": Col("gd.code", (_J_GRADE_DES,)),
     "grading_service": Col("gs.code", (_J_SERVICE,)),
     "country": Col("c.code", (_J_COUNTRY,)),
     "denomination": Col("d.code", (_J_DENOM,)),
-    "denomination_label": Col("d.label", (_J_DENOM,)),
+    # Ordered by face value: as text, "$10 Bill" sorts before "$2 Bill".
+    "denomination_label": Col("d.label", (_J_DENOM,), "d.face_value"),
     "status": Col("st.code", (_J_STATUS,)),
     "disposition": Col("disp.code", (_J_DISP,)),
     "storage_form": Col("stf.code", (_J_STORAGE,)),
@@ -372,6 +389,13 @@ _SHARED_SORT = (
     "grade_value",
     "grade_rank",
     "created_at",
+    # The rest of what the tables show: every header there is one to sort by.
+    "denomination_label",
+    "series_label",
+    "grade",
+    "grade_label",
+    "order_number",
+    "status",
 )
 
 _SHARED_FACETS: dict[str, Facet] = {
@@ -424,7 +448,14 @@ COIN_VIEW = ViewSpec(
         *_NAMED_SHARED,
         Named("mint", Mint, _held_in("coin_detail", "mint_id")),
     ),
-    sortable=(*_SHARED_SORT, "fine_weight_ozt"),
+    sortable=(
+        *_SHARED_SORT,
+        "fine_weight_ozt",
+        "mint_mark",
+        "item_kind",
+        "metal",
+        "piece_count",
+    ),
     facets={
         **_SHARED_FACETS,
         "item_kind": Facet("item_kind_id", "item_kind", filter="kind"),
@@ -460,7 +491,13 @@ CURRENCY_VIEW = ViewSpec(
         "fed_district_letter": Col("fd.letter", (_J_CUR_DETAIL, _J_DISTRICT)),
         "fed_district_city": Col("fd.city", (_J_CUR_DETAIL, _J_DISTRICT)),
         "serial_number": Col("cud.serial_number", (_J_CUR_DETAIL,)),
-        "friedberg_number": Col("fr.fr_number", (_J_CUR_DETAIL, _J_FRIEDBERG)),
+        # Ordered by the number it opens with, then as written: as text,
+        # 1500 would sort before 16.
+        "friedberg_number": Col(
+            "fr.fr_number",
+            (_J_CUR_DETAIL, _J_FRIEDBERG),
+            "lpad(substring(fr.fr_number from '^[0-9]+'), 8, '0') || fr.fr_number",
+        ),
         "friedberg_status": Col("cud.friedberg_status", (_J_CUR_DETAIL,)),
     },
     filters={
@@ -486,7 +523,15 @@ CURRENCY_VIEW = ViewSpec(
         *_NAMED_SHARED,
         Named("note_type", NoteType, _held_in("currency_detail", "note_type_id")),
     ),
-    sortable=(*_SHARED_SORT, "series_year", "series_designation"),
+    sortable=(
+        *_SHARED_SORT,
+        "series_year",
+        "series_designation",
+        "seal_color",
+        "fed_district_letter",
+        "serial_number",
+        "friedberg_number",
+    ),
     facets={
         **_SHARED_FACETS,
         "note_type": Facet("note_type_id", "note_type", (_J_CUR_DETAIL,), "cud"),
@@ -964,7 +1009,7 @@ def search(
 
     select_parts = [f"{col.sql} AS {name}" for name, col in spec.columns.items()]
     display_joins = spec.joins_for([c.join for c in spec.columns.values()])
-    sort_sql = spec.columns[sort_key].sql
+    sort_sql = spec.columns[sort_key].sort_sql
     direction = "DESC" if descending else "ASC"
 
     # Two steps, because one is many times slower.
