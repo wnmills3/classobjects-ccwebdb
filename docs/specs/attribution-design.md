@@ -156,6 +156,19 @@ Three structural filters join them:
 
 A filter is never silently ignored.
 
+### Sorting
+
+`sort=<column>` with `desc=true` for the other way; the default is the item
+code. Every column either table shows is one to sort by: each page carries
+`sortable`, the names the view accepts (`ViewSpec.sortable`), the table makes
+those headers clickable, and any other name is a 422 listing them. A click
+sorts ascending, a second descending. An empty value sorts last both ways,
+and items equal in the column are in item-code order.
+
+A column is ordered by what it means where that is not its text (`Col.order`):
+a grade by its rank, a denomination by its face value, a Friedberg number by
+the number it opens with.
+
 ### Identity checks surface candidates, never merge
 
 `repeated_identity` covers only fields that identify a physical object: a

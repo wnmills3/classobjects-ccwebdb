@@ -9,6 +9,7 @@ from app.models import (
     CurrencyDetail,
     Denomination,
     ErrorType,
+    FriedbergNumber,
     Grade,
     Image,
     InventoryItem,
@@ -16,6 +17,7 @@ from app.models import (
     ItemImage,
     ItemKind,
     ItemStatus,
+    ProvenanceSource,
     PurchaseOrder,
     SealColor,
 )
@@ -527,9 +529,10 @@ def test_each_page_names_every_column_it_can_sort_by(
 ) -> None:
     """The table makes a header clickable only when the server lists it.
 
-    The server refuses most columns as a sort, so a header that merely looked
-    sortable would put an error on the page when clicked. Each listed name is
-    actually sorted by here, so the list cannot claim a sort that would fail.
+    The server refuses a column it does not list, so a header that merely
+    looked sortable would put an error on the page when clicked. Each listed
+    name is actually sorted by here, both ways, so the list cannot claim a
+    sort that would fail.
     """
     coin(db)
     note(db)
@@ -538,10 +541,124 @@ def test_each_page_names_every_column_it_can_sort_by(
         listed = search(client, view, admin_headers).json()["sortable"]
 
         assert "item_code" in listed, view
-        assert "grade" not in listed, view
         for key in listed:
-            response = search(client, view, admin_headers, sort=key)
-            assert response.status_code == 200, (view, key)
+            for desc in (False, True):
+                response = search(client, view, admin_headers, sort=key, desc=desc)
+                assert response.status_code == 200, (view, key, desc)
+
+
+#: The columns each table shows -- `columns` in the console's
+#: `inventory/specs.js`, which is where a column added there is added here.
+_SHOWN = {
+    "coins": (
+        "item_code",
+        "denomination_label",
+        "year_start",
+        "mint_mark",
+        "series_label",
+        "item_kind",
+        "grade",
+        "metal",
+        "fine_weight_ozt",
+        "piece_count",
+        "total_cost",
+        "order_number",
+        "status",
+    ),
+    "currency": (
+        "item_code",
+        "denomination_label",
+        "series_label",
+        "series_designation",
+        "seal_color",
+        "fed_district_letter",
+        "serial_number",
+        "friedberg_number",
+        "grade_label",
+        "total_cost",
+        "order_number",
+        "status",
+    ),
+}
+
+
+def test_every_column_a_table_shows_can_be_sorted_by(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """No header in either table is one that cannot be clicked."""
+    coin(db)
+    note(db)
+
+    for view, shown in _SHOWN.items():
+        listed = search(client, view, admin_headers).json()["sortable"]
+        assert set(shown) <= set(listed), (view, set(shown) - set(listed))
+
+
+def _order_of(
+    client: TestClient, headers: dict[str, str], view: str, sort: str, **params: object
+) -> list[int]:
+    """The ids of a view's items, as sorting by `sort` orders them."""
+    body = search(client, view, headers, sort=sort, **params).json()
+    return [row["id"] for row in body["rows"]]
+
+
+def test_a_grade_is_sorted_by_its_rank_not_its_text(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """As text, 58 sorts after 4 only by luck and "Fine 12" after "Choice 64"."""
+    low = coin(db, grade_id=code_id(db, Grade, "4"))
+    high = coin(db, grade_id=code_id(db, Grade, "58"))
+    ungraded = coin(db)
+    fine = note(db, grade_id=code_id(db, Grade, "N12"))
+    choice = note(db, grade_id=code_id(db, Grade, "N64"))
+
+    up = _order_of(client, admin_headers, "coins", "grade")
+    down = _order_of(client, admin_headers, "coins", "grade", desc=True)
+    notes = _order_of(client, admin_headers, "currency", "grade_label")
+
+    # Unrecorded last, whichever way: it is not the lowest grade.
+    assert up == [low.id, high.id, ungraded.id]
+    assert down == [high.id, low.id, ungraded.id]
+    assert notes == [fine.id, choice.id]
+
+
+def test_a_denomination_is_sorted_by_its_face_value(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """As text, "$10 Bill" sorts before "$2 Bill"."""
+    ten = note(db, denomination_id=code_id(db, Denomination, "usd_note_10"))
+    two = note(db, denomination_id=code_id(db, Denomination, "usd_note_2"))
+
+    shown = _order_of(client, admin_headers, "currency", "denomination_label")
+
+    assert shown == [two.id, ten.id]
+
+
+def test_a_friedberg_number_is_sorted_by_the_number_it_opens_with(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """As text, 99000 sorts before 9901. Both numbers are made up."""
+    items = {}
+    for number in ("99000", "9901-B", "9901-A"):
+        row = FriedbergNumber(fr_number=number, source=ProvenanceSource.manual)
+        db.add(row)
+        db.flush()
+        item = note(db)
+        detail = db.get(CurrencyDetail, item.id)
+        assert detail is not None
+        detail.friedberg_id = row.id
+        db.commit()
+        items[number] = item.id
+    unnumbered = note(db)
+
+    shown = _order_of(client, admin_headers, "currency", "friedberg_number")
+
+    assert shown == [
+        items["9901-A"],
+        items["9901-B"],
+        items["99000"],
+        unnumbered.id,
+    ]
 
 
 def test_paging_reports_the_total_not_the_page(
