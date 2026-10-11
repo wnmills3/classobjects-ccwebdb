@@ -41,6 +41,15 @@ export const SHARED_KEYS = {
 //: field's on one view or the other.
 const SELLERS_ITEM_ID = ["Seller's item id", 'sellers_item_id', '126845170680', null]
 
+//: What an item carries rather than what it is: a recorded error (off
+//: center, miscut) and an attribute (Star Note, Radar, First Strike). On
+//: both views, each offering only the values some matching item has. No
+//: letter, for the reason the seller's item id has none.
+const CARRIED = [
+  ['Error', 'error_type', 'error_type', null],
+  ['Attribute', 'attribute', 'attribute', null],
+]
+
 export const COIN_VIEW = {
   view: 'coins',
   title: 'Coins & bullion',
@@ -104,6 +113,7 @@ export const COIN_VIEW = {
     // A, not U as on the currency view: Country can only take U here.
     ['Status', 'status', 'status', 'a'],
     ['Disposition', 'disposition', 'disposition', 'n'],
+    ...CARRIED,
   ],
   // Named diagnostics. The code is the contract, appears in bookmarked URLs,
   // and is what the chip's label is derived from; the explanation on its
@@ -180,6 +190,7 @@ export const CURRENCY_VIEW = {
     ['Series year', 'series_year', 'series_year', 'a'],
     ['Status', 'status', 'status', 'u'],
     ['Disposition', 'disposition', 'disposition', 'n'],
+    ...CARRIED,
   ],
   // Named diagnostics. The code is the contract, appears in bookmarked URLs,
   // and is what the chip's label is derived from; the explanation on its

@@ -234,14 +234,45 @@ describe('FilterPanel keyboard accelerators', () => {
     ]
     const own = [...view.facetFilters, ...view.textFilters]
       .map((f) => [f[0], f[3]])
-      // The one field with no letter, by name, so a second cannot slip in.
-      .filter(([label, letter]) => !(label === NO_LETTER && letter === null))
+      // The fields with no letter, by name, so another cannot slip in.
+      .filter(([label, letter]) => !(LETTERLESS.includes(label) && letter === null))
     return [...shared, ...own]
   }
 
   //: Its label holds no letter the browser leaves free that another field on
   //: one view or the other does not already use.
   const NO_LETTER = "Seller's item id"
+  //: Nor do these two: every free letter of "Error" and "Attribute" is
+  //: another field's on the currency view.
+  const LETTERLESS = [NO_LETTER, 'Error', 'Attribute']
+
+  it('offers an error and an attribute picker on both views, with no letter', () => {
+    for (const view of [COIN_VIEW, CURRENCY_VIEW]) {
+      expect(view.facetFilters, view.view).toContainEqual([
+        'Error',
+        'error_type',
+        'error_type',
+        null,
+      ])
+      expect(view.facetFilters, view.view).toContainEqual([
+        'Attribute',
+        'attribute',
+        'attribute',
+        null,
+      ])
+    }
+  })
+
+  it('narrows to the attribute picked, shown by its label and count', async () => {
+    const { props } = setup({
+      config: { ...config, ...CURRENCY_VIEW },
+      facets: { attribute: [{ value: 'star', label: 'Star Note', count: 199 }] },
+    })
+    const picker = screen.getByRole('combobox', { name: 'Attribute' })
+    expect(picker).not.toHaveAttribute('accesskey')
+    await userEvent.selectOptions(picker, 'Star Note (199)')
+    expect(props.apply).toHaveBeenCalledWith({ attribute: 'star' })
+  })
 
   it("offers the seller's item id on both views, with no letter", () => {
     for (const view of [COIN_VIEW, CURRENCY_VIEW]) {

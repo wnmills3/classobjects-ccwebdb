@@ -246,4 +246,6 @@ recorded is not offered again, and the type picker is filtered by `applies_to`.
 - Plate numbers and position for an error note live on the note's own detail
   fields.
 - Searching by error: the inventory views' `error_type=` filter and
-  `error_types` column (`inventory_search`).
+  `error_types` column (`inventory_search`). The Coins and Currency filter
+  panels have an **Error** picker for it, listing the errors the matching
+  items carry with a count of items each (the `error_type` facet).
