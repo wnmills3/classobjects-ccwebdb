@@ -785,6 +785,22 @@ def _attribute_clause(params: dict[str, Any], bound: dict[str, Any]) -> str | No
     )
 
 
+def _item_codes_clause(params: dict[str, Any], bound: dict[str, Any]) -> str | None:
+    """Exactly the items named: `item_codes=CC-000001,CC-000002`.
+
+    How a report opens the items of one of its rows as a list. Whole codes,
+    unlike `item_code`, which matches part of one. Case and the space round
+    a code are not part of it.
+    """
+    listed = params.pop("item_codes", None)
+    if not listed:
+        return None
+    bound["p_item_codes"] = [
+        code.strip().upper() for code in str(listed).split(",") if code.strip()
+    ]
+    return "i.item_code = ANY(:p_item_codes)"
+
+
 #: The grade parameters, read as search terms rather than codes.
 GRADE_PARAMS = ("grade", "grade_min", "grade_max")
 
@@ -958,6 +974,7 @@ def _conditions(
         _missing_clause(params, bound, joins),
         _error_type_clause(params, bound),
         _attribute_clause(params, bound),
+        _item_codes_clause(params, bound),
         _grade_clause(params, bound, joins),
     ):
         if clause is not None:

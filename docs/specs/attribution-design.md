@@ -144,7 +144,7 @@ item can appear in. `mixed_marker` is separate from `no_grade` because it
 means "known to vary": the row stands for several different coins, and the
 remedy is to split the lot, not fill the field.
 
-Three structural filters join them:
+Four structural filters join them:
 
 - `missing=<field>` -- the field is empty, only for the kinds it applies to
   (`inventory_search.MISSING_FIELDS`: year, denomination, grade, country,
@@ -152,6 +152,9 @@ Three structural filters join them:
   The data-quality reports drill into the inventory through it.
 - `lot=<item code>` -- everything split from that item; an unknown code is a
   422.
+- `item_codes=<code>,<code>` -- exactly the items named, by whole code. How
+  a report opens the items of one row as a list; the filter panel shows it as
+  a chip ("Only these 3 items") that a click removes.
 - `deleted=no|only|any`, default `no`; an unrecognised value is a 422.
 
 A filter is never silently ignored.

@@ -120,6 +120,18 @@ describe('FilterPanel', () => {
     expect(screen.queryByRole('button', { name: /Missing:/ })).toBeNull()
   })
 
+  it('says when the list is only the items a report named, and removes that on a click', async () => {
+    const user = userEvent.setup()
+    const { props } = setup({ current: { item_codes: 'CC-000001,CC-000002' } })
+    const chip = screen.getByRole('button', {
+      name: 'Remove filter Only these 2 items',
+    })
+    expect(chip.closest('[data-help]').dataset.help).toBe('item_codes_filter')
+
+    await user.click(chip)
+    expect(props.apply).toHaveBeenCalledWith({ item_codes: '' })
+  })
+
   it('names an active missing field in words, and removes it on a click', async () => {
     const user = userEvent.setup()
     const { props } = setup({

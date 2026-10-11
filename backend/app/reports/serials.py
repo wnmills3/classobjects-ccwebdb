@@ -175,7 +175,9 @@ def _cb_serials(db: Session, params: SerialsParams) -> ReportResult:
 
     The sets are in order of their digits and the notes of a set in order
     of item code, so a set reads as consecutive rows. Each row opens its
-    item. A serial with no digit in it is matched with nothing.
+    item from the item code, and from the digits the Currency list of
+    exactly its set (`item_codes=`), whatever status they are in. A serial
+    with no digit in it is matched with nothing.
     """
     src: FromClause = (
         _I.join(_CUD, _CUD.c.inventory_item_id == _I.c.id)
@@ -213,10 +215,14 @@ def _cb_serials(db: Session, params: SerialsParams) -> ReportResult:
     path = view_path("currency")
     rows: list[dict[str, object]] = []
     drills: list[str | None] = []
+    set_drills: list[str | None] = []
     # Members are in item-code order already; a set is placed by its digits,
     # then by its first item.
     for members in sorted(sets, key=lambda m: (notes[m[0]][1].digits, m[0])):
+        codes = ",".join(notes[i][0]["item_code"] for i in members)
+        whole_set = f"{path}?{urlencode({'item_codes': codes})}"
         for i in members:
+            set_drills.append(whole_set)
             row, parsed = notes[i]
             rows.append(
                 {
@@ -238,6 +244,7 @@ def _cb_serials(db: Session, params: SerialsParams) -> ReportResult:
         rows=rows,
         drills=drills,
         link_column="item",
+        column_drills={"digits": set_drills},
         notes=[f"{len(sets)} sets, {len(rows)} notes."],
     )
 
