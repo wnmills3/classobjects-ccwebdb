@@ -126,5 +126,6 @@ def serialize_result(
         "totals": _wire_row(result.totals) if result.totals is not None else None,
         "drills": result.drills,
         "link_column": result.linked_key,
+        "column_drills": result.column_drills,
         "notes": result.notes,
     }

@@ -603,6 +603,12 @@ export const FIELD_HELP = {
       'Only items with this field left empty -- usually set by following a link ' +
       'from a report. Click it to remove it and show the rest again.',
   },
+  item_codes_filter: {
+    title: 'Only these items',
+    text:
+      'The list is narrowed to items a report named -- the notes of one set of ' +
+      'matching serial numbers. Click it to remove it and show the rest again.',
+  },
   clear_filters: {
     title: 'Clear filters',
     text: 'Empties the search box and every filter, showing everything in this view.',

@@ -76,6 +76,35 @@ def test_by_default_the_digits_alone_are_matched(db: Session) -> None:
     assert "$1" in str(first["denomination"])
     assert result.rows[2]["star"] == "Star"
     assert result.drills[0] == f"/inventory/currency?item={a.item_code}"
+    # From the digits, the list of exactly the set: the same link on each row.
+    listed = "%2C".join([a.item_code, b.item_code, star.item_code])
+    assert result.column_drills == {
+        "digits": [f"/inventory/currency?item_codes={listed}"] * 3
+    }
+
+
+def test_a_sets_link_lists_exactly_its_notes(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The link the digits carry opens those notes and no other."""
+    a = _note(db, "B12345678A")
+    b = _note(db, "C12345678*")
+    _note(db, "B12345679A")
+
+    result = CB_SERIALS.run(db, SerialsParams())
+    path, _, query = str(result.column_drills["digits"][0]).partition("?")
+    assert path == "/inventory/currency"
+    found = client.get(f"/api/inventory/currency/search?{query}", headers=admin_headers)
+
+    assert found.status_code == 200, found.text
+    assert {row["id"] for row in found.json()["rows"]} == {a.id, b.id}
+    # Whole codes, however typed: part of one names nothing.
+    partial = client.get(
+        "/api/inventory/currency/search",
+        params={"item_codes": f" {a.item_code.lower()} , CC-"},
+        headers=admin_headers,
+    )
+    assert [row["id"] for row in partial.json()["rows"]] == [a.id]
 
 
 def test_the_denomination_can_be_made_to_match(db: Session) -> None:

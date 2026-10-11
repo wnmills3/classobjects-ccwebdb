@@ -26,6 +26,12 @@ const HELP_FOR = {
   error_type: 'error_filter',
   attribute: 'attribute_filter',
 }
+/** An `item_codes=` filter in words: "Only these 3 items". */
+function chosenItems(codes) {
+  const count = codes.split(',').filter((code) => code.trim()).length
+  return count === 1 ? 'Only this 1 item' : `Only these ${count} items`
+}
+
 /** The help topic for a filter parameter: its own name unless listed above. */
 const helpFor = (param) => HELP_FOR[param] ?? param
 
@@ -235,6 +241,22 @@ export default function FilterPanel({
               onClick={() => apply({ missing: '' })}
             >
               {missingLabel(current.missing)} <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+        )}
+
+        {/* `item_codes=` arrives from a report too -- the notes of one set of
+          matching serials -- and has no control either. */}
+        {current.item_codes && (
+          <div className="issue-checks" data-help="item_codes_filter">
+            <button
+              type="button"
+              className="chip chip-on"
+              aria-label={`Remove filter ${chosenItems(current.item_codes)}`}
+              title="Remove this filter"
+              onClick={() => apply({ item_codes: '' })}
+            >
+              {chosenItems(current.item_codes)} <span aria-hidden="true">✕</span>
             </button>
           </div>
         )}
