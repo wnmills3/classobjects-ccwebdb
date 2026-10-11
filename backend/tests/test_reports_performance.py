@@ -20,6 +20,7 @@ from decimal import Decimal
 import pytest
 from app.models import (
     Auction,
+    CurrencyDetail,
     Customer,
     Denomination,
     Image,
@@ -150,7 +151,7 @@ def _build_modest_collection(db: Session, tag: str = "") -> None:
 
     for index in range(12):
         denom = _NOTE_DENOMINATIONS[index % len(_NOTE_DENOMINATIONS)]
-        build_bare_item(
+        note = build_bare_item(
             db,
             item_kind_id=code_id(db, ItemKind, "currency"),
             denomination_id=code_id(db, Denomination, denom),
@@ -158,6 +159,12 @@ def _build_modest_collection(db: Session, tag: str = "") -> None:
             tax_rate=Decimal("0"),
             shipping_cost=Decimal("0"),
         )
+        # `cb_serials` reads serials: a note and the star note of its
+        # digits, so it has a set to report. Both serials are made up.
+        if index < 2:
+            serial = "B12345678A" if index == 0 else "C12345678*"
+            db.add(CurrencyDetail(inventory_item_id=note.id, serial_number=serial))
+            db.commit()
 
     today = date.today()
     for index in range(10):

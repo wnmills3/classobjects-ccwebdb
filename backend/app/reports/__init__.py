@@ -48,6 +48,7 @@ from .selling import (
     SL_READY,
     SL_SALES,
 )
+from .serials import CB_SERIALS
 
 __all__ = [
     "CB_ATTRIBUTES",
@@ -56,6 +57,7 @@ __all__ = [
     "CB_HOLDINGS",
     "CB_METAL",
     "CB_NOTES",
+    "CB_SERIALS",
     "DQ_COMPLETENESS",
     "DQ_DERIVED",
     "DQ_ISSUES",

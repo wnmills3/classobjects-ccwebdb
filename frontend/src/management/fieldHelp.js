@@ -713,6 +713,24 @@ export const FIELD_HELP = {
       'Which items to count by where they are in selling: held (still owned) by ' +
       'default, or listed, sold, shipped, delivered, returned by the buyer -- or all.',
   },
+  report_denomination: {
+    title: 'Denomination',
+    text:
+      'Whether matching notes must be of the same denomination: any, so a $1 ' +
+      'and a $5 of one serial are a set, or must match.',
+  },
+  report_letters: {
+    title: 'Letters',
+    text:
+      'Whether the letters before and after the digits count: ignore, so ' +
+      'B00003333A matches F00003333C on the digits alone, or must match.',
+  },
+  report_stars: {
+    title: 'Star notes',
+    text:
+      'Whether a star note matches the note without the star, the star ' +
+      'standing where a letter would, or only another star note.',
+  },
   report_overdue_days: {
     title: 'Overdue after (days)',
     text:
