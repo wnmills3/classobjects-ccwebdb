@@ -153,8 +153,9 @@ Receiving
   that is counted and shown ("N more match than are shown"), never dropped
   silently.
 
-**`?order=<id>`** -- the link from the inventory screens' Order column and
-from Purchases' *Receive these*. The page loads that purchase, shows its
+**`?order=<id>`** -- the link from Purchases' *Receive these*. (The inventory
+screens' Order column opens the purchase itself, `/purchases?order=<id>`, as
+Find a purchase does.) The page loads that purchase, shows its
 header (purchase `#id`, order number, vendor, order date, a link to the
 vendor's page, and the seller, linked when their page is known) and runs the
 search at once **by the purchase's id** (the `purchase_order_id`

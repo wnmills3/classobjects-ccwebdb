@@ -140,7 +140,7 @@ describe('the order column', () => {
     ],
   }
 
-  it('links a numbered order to Receiving, named by its number', () => {
+  it('links a numbered order to its purchase, named by its number', () => {
     setup({
       config: orderConfig,
       rows: [
@@ -148,7 +148,7 @@ describe('the order column', () => {
       ],
     })
     const link = screen.getByRole('link', { name: '123-456' })
-    expect(link.getAttribute('href')).toMatch(/\/receiving\?order=7$/)
+    expect(link.getAttribute('href')).toMatch(/\/purchases\?order=7$/)
   })
 
   it('links an unnumbered order by its vendor and date', () => {
@@ -168,7 +168,7 @@ describe('the order column', () => {
     const link = screen.getByRole('link')
     expect(link).toHaveTextContent('ebay.com')
     expect(link).toHaveTextContent(date('2025-01-09'))
-    expect(link.getAttribute('href')).toMatch(/\/receiving\?order=8$/)
+    expect(link.getAttribute('href')).toMatch(/\/purchases\?order=8$/)
   })
 
   it('shows a dash and no link when the item has no purchase order', () => {

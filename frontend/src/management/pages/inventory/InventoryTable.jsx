@@ -18,8 +18,8 @@ function cell(row, key, kind) {
 }
 
 /**
- * The order column: a link into Receiving for the purchase order an item
- * arrived on, or a dash when none is recorded.
+ * The order column: a link to the purchase an item arrived on, opened in
+ * Purchases as Find a purchase opens it, or a dash when none is recorded.
  *
  * Named by its own number when the vendor issued one; many eBay listings
  * have no vendor order number, so those fall back to the vendor and the
@@ -30,7 +30,7 @@ function orderCell(row) {
   const label =
     row.order_number ?? `${row.vendor ?? 'order'} ${date(row.ordered_on)}`.trim()
   return (
-    <Link className="mono" to={`/receiving?order=${row.purchase_order_id}`}>
+    <Link className="mono" to={`/purchases?order=${row.purchase_order_id}`}>
       {label}
     </Link>
   )
