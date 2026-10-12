@@ -10,6 +10,7 @@ import ItemEditDialog from './inventory/ItemEditDialog'
 import HelpScope from '../HelpScope'
 import { purchaseNumber } from '../purchase-number'
 import { matchesFilter, sortPurchases } from '../purchase-list'
+import { ADD, useAddOption } from '../../shared/add-option'
 import { ReferenceSelect } from '../../shared/reference'
 import { date } from '../../shared/format'
 import { orNull } from '../../shared/text'
@@ -45,6 +46,7 @@ const BLANK_VENDOR_DRAFT = { name: '', vendor_kind: '', url: '' }
  * small component rather than a reuse of that one.
  */
 function VendorField({ vendors, value, onChange, onVendorAdded }) {
+  const addOption = useAddOption()
   const { adding, setAdding, draft, setDraft, error, add, wrapper, ready } =
     useInlineAdd({
       blank: BLANK_VENDOR_DRAFT,
@@ -104,14 +106,21 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
   return (
     <select
       value={value ?? ''}
+      onKeyDown={addOption.onKeyDown}
       onChange={(e) => {
-        if (e.target.value === '__add__') setAdding(true)
-        else onChange(Number(e.target.value))
+        if (e.target.value !== ADD) {
+          onChange(Number(e.target.value))
+          return
+        }
+        // An arrow steps over Add; only choosing it opens the form.
+        const meant = addOption.steppedOver(e.target)
+        if (meant === undefined) setAdding(true)
+        else if (meant !== null) onChange(Number(meant))
       }}
       aria-label="Vendor"
     >
       <option value="">--</option>
-      <option value="__add__">+ Add a vendor...</option>
+      <option value={ADD}>+ Add a vendor...</option>
       {vendors.map((v) => (
         <option key={v.id} value={v.id}>
           {v.name}

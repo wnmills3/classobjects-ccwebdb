@@ -1,5 +1,12 @@
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import {
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { StrictMode, useContext, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -378,6 +385,73 @@ describe('ReferenceSelect adding a value by its label alone', () => {
 
       expect(api.addReferenceValue).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('ReferenceSelect from the keyboard', () => {
+  // A closed select takes an arrow as a choice: the key, then the change.
+  function arrowOnto(select, key, landsOn) {
+    fireEvent.keyDown(select, { key })
+    fireEvent.change(select, { target: { value: landsOn } })
+  }
+
+  it('steps a down arrow over Add to the first value', () => {
+    const onChange = renderPicker()
+    const select = screen.getByRole('combobox', { name: 'series' })
+
+    arrowOnto(select, 'ArrowDown', '__add__')
+
+    expect(screen.queryByPlaceholderText('label')).toBeNull()
+    expect(onChange).toHaveBeenCalledWith({ target: { value: WALKER.code } })
+  })
+
+  it('steps an up arrow over Add back to no value', () => {
+    const onChange = renderPicker({ value: WALKER.code })
+    const select = screen.getByRole('combobox', { name: 'series' })
+
+    arrowOnto(select, 'ArrowUp', '__add__')
+
+    expect(screen.queryByPlaceholderText('label')).toBeNull()
+    expect(onChange).toHaveBeenCalledWith({ target: { value: '' } })
+  })
+
+  it('opens the add form when Add is chosen from the open list with Enter', () => {
+    const onChange = renderPicker()
+    const select = screen.getByRole('combobox', { name: 'series' })
+
+    // In the open list an arrow only moves the highlight; Enter chooses.
+    fireEvent.keyDown(select, { key: 'ArrowDown' })
+    arrowOnto(select, 'Enter', '__add__')
+
+    expect(screen.getByPlaceholderText('label')).toBeInTheDocument()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('cancels the add form on Escape and lets the Escape go no further', async () => {
+    const user = userEvent.setup()
+    const outer = vi.fn()
+    const onChange = vi.fn()
+    renderWithProviders(
+      // Stands in for the dialog the picker sits in, which Escape closes.
+      <div onKeyDown={outer}>
+        <ReferenceSelect table="series" value="" onChange={onChange} />
+      </div>,
+      { reference: emptyReference({ tables: { series: SERIES } }) },
+    )
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'series' }),
+      '__add__',
+    )
+    const label = screen.getByPlaceholderText('label')
+
+    const escape = createEvent.keyDown(label, { key: 'Escape' })
+    fireEvent(label, escape)
+
+    expect(escape.defaultPrevented).toBe(true)
+    expect(outer).not.toHaveBeenCalled()
+    expect(screen.queryByPlaceholderText('label')).toBeNull()
+    expect(screen.getByRole('combobox', { name: 'series' })).toBeInTheDocument()
+    expect(onChange).not.toHaveBeenCalled()
   })
 })
 

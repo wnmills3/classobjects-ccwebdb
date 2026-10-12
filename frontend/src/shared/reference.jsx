@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
+import { ADD, useAddOption, useEscapeCancels } from './add-option'
 import { api } from './api'
 import { codeFromLabel } from './reference-codes'
 import { ReferenceContext, useReference } from './reference-context'
@@ -202,6 +203,9 @@ export function ReferenceSelect({
   // nothing. Cleared by the next pick.
   const [notice, setNotice] = useState('')
   const [find, setFind] = useState('')
+  const addOption = useAddOption()
+  // Escape in the add form cancels the add, not the dialog the form is in.
+  const addForm = useEscapeCancels(() => setAdding(false))
   // Always derived: a label-only form stores it, and the code-and-label
   // form falls back to it when the code box is left empty.
   const derivedCode = codeFromLabel(draft.label)
@@ -263,7 +267,7 @@ export function ReferenceSelect({
         (!groupField || draft.group !== '')
       : draft.label.trim() !== '' && (draft.code.trim() !== '' || derivedCode !== '')
     return (
-      <div className="add-reference">
+      <div className="add-reference" ref={addForm}>
         {labelOnly ? (
           <>
             <input
@@ -384,10 +388,18 @@ export function ReferenceSelect({
       )}
       <select
         value={value ?? ''}
+        onKeyDown={addOption.onKeyDown}
         onChange={(e) => {
           setNotice('')
-          if (allowAdd && e.target.value === '__add__') setAdding(true)
-          else onChange(e)
+          if (!allowAdd || e.target.value !== ADD) {
+            onChange(e)
+            return
+          }
+          // An arrow on its way down the list steps over Add; only choosing
+          // it opens the form.
+          const meant = addOption.steppedOver(e.target)
+          if (meant === undefined) setAdding(true)
+          else if (meant !== null) onChange({ target: { value: meant } })
         }}
         aria-label={table}
         accessKey={accessKey}
@@ -397,7 +409,7 @@ export function ReferenceSelect({
         {allowBlank && <option value="">--</option>}
         {/* Above the values, not below: under a long list it is a scroll
             away, and not known to be there. */}
-        {allowAdd && <option value="__add__">+ Add a new value...</option>}
+        {allowAdd && <option value={ADD}>+ Add a new value...</option>}
         {offered.map(({ entry, match }) => (
           <option key={entry.code} value={entry.code}>
             {entry.label}

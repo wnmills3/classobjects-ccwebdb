@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { api } from './api'
+import { ADD, useAddOption } from '../shared/add-option'
 import { useRequest } from '../shared/useRequest'
 import { ReferenceSelect } from '../shared/reference'
 import { orNull } from '../shared/text'
@@ -26,6 +27,7 @@ const BLANK_DRAFT = { kind: '', institution: '', identifier: '' }
 export default function LocationSelect({ value, onChange, disabled = false }) {
   const loaded = useRequest('locations', () => api.listStorageLocations())
   const [added, setAdded] = useState([])
+  const addOption = useAddOption()
   const locations = [...(loaded.data ?? []), ...added]
   const { adding, setAdding, draft, setDraft, error, add, wrapper, ready } =
     useInlineAdd({
@@ -79,13 +81,20 @@ export default function LocationSelect({ value, onChange, disabled = false }) {
       <select
         value={value ?? ''}
         disabled={disabled}
+        onKeyDown={addOption.onKeyDown}
         onChange={(e) => {
-          if (e.target.value === '__add__') setAdding(true)
-          else onChange(e.target.value)
+          if (e.target.value !== ADD) {
+            onChange(e.target.value)
+            return
+          }
+          // An arrow steps over Add; only choosing it opens the form.
+          const meant = addOption.steppedOver(e.target)
+          if (meant === undefined) setAdding(true)
+          else if (meant !== null) onChange(meant)
         }}
       >
         <option value="">--</option>
-        <option value="__add__">+ Add a location...</option>
+        <option value={ADD}>+ Add a location...</option>
         {locations.map((loc) => (
           <option key={loc.id} value={String(loc.id)}>
             {loc.label}
