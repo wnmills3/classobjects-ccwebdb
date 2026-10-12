@@ -126,9 +126,8 @@ def _district_of(recorded: str | None, fr_number: str) -> str | None:
 
 
 #: A row's district for a search: the one recorded, else the one its number
-#: carries. Rows recorded before a number's district was kept have none of
-#: their own, and read as unknown they would be offered to a note of any
-#: district.
+#: carries. Some rows have none of their own, and read as unknown they
+#: would be offered to a note of any district.
 _SEARCH_DISTRICT = func.coalesce(
     FriedbergNumber.district_letter,
     func.substring(FriedbergNumber.fr_number, DISTRICT_SQL_PATTERN),

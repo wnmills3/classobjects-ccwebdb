@@ -112,20 +112,22 @@ def test_a_note_entered_at_a_cost_is_no_gift(
 def test_a_coin_entered_at_no_cost_is_no_gift(
     client: TestClient, admin_headers: Headers, db: Session
 ) -> None:
-    res = client.post(
-        "/api/inventory",
-        json={
+    made = _make(
+        client,
+        admin_headers,
+        {
             "purchase_order_id": build_purchase_order(db, vendor_name="Coin Gift").id,
             "item_kind": "coin",
             "source_title": "Gift 1881-S Morgan Dollar",
             "item_cost": "0.00",
             "year_start": 1881,
         },
-        headers=admin_headers,
     )
-    assert res.status_code == 201, res.text
-    assert _gift(res.json()) is None
-    assert res.json()["source_title"] == "Gift 1881-S Morgan Dollar"
+    # The editor's save is what runs the rule, so that is what must leave it.
+    coin = _save(client, admin_headers, made, source_title=made["source_title"])
+    assert coin["item_cost"] == "0.00"
+    assert _gift(coin) is None
+    assert coin["source_title"] == "Gift 1881-S Morgan Dollar"
 
 
 def test_the_word_leaves_the_title_of_a_gift(

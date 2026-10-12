@@ -5,7 +5,7 @@ as a whole: what is missing or wrong in the record, what the collection is
 made of, what has been bought and not yet arrived, what is on offer and what
 has sold, and what it all cost. They are for the owner and managers only,
 on the management console's **Reports** page (`/management/reports`), and
-the same 29 reports run from the command line and export to a workbook or
+the same 30 reports run from the command line and export to a workbook or
 print on paper.
 
 Reports read; they never write. Fixing what a report finds is done where it
@@ -139,13 +139,15 @@ spacing are not part of a serial.
   price: ...".
 - **Grouped by module**: `collection.py`, `data_quality.py`, `money.py`,
   `purchasing.py` and `selling.py`, each defining its own reports and
-  registering them. Four small modules hold logic more than one group
+  registering them, and `serials.py`, which holds the one Collection report
+  that matches its rows in Python (`cb_serials`). Four small modules hold logic more than one group
   module shares, rather than each restating it: `tables.py` (the
   `inventory_item`/`item_kind` aliases and the live-row predicate on them,
   shared by every report that groups over live items), `live_params.py`
   (the status/disposition parameters, their filter, a kind's drill-down and
-  the "Nothing matches these settings." note, shared by every Collection
-  report and `mn_value`), `receipts.py` (one
+  the "Nothing matches these settings." note, shared by `mn_value` and
+  every Collection report but `cb_serials`, which says "No two notes match
+  on these settings."), `receipts.py` (one
   definition of "an item's receipt" -- a status transition *to* `received`,
   never an opening row -- shared by `pr_received`, `pr_received_items` and
   `sl_aging`), and
@@ -169,7 +171,10 @@ spacing are not part of a serial.
   row's own count, and omit the drill when it would; no report issues a
   second query against the search itself to check.
 - **Queries** are SQLAlchemy Core on the base tables, grouped by a
-  foreign-key id or code together with its label. Parameters are bound;
+  foreign-key id or code together with its label. `cb_serials` is the
+  exception: it reads every live note's serial once and groups them in
+  Python, because a star stands where a letter would and no `GROUP BY`
+  says that. Parameters are bound;
   column names come from allowlists, never from a request.
 - **Money** is `Decimal`: summed in SQL where the grouping allows, else
   added as `Decimal` in Python, which is exact; never a float. It is sent as
@@ -363,7 +368,7 @@ snapshots over time, which need history the database does not keep.
   including a deleted and a split item that must not count, and an item of a
   kind a field does not apply to (`tests/test_reports_collection.py`,
   `_data_quality`, `_purchasing`, `_selling`, `_money`; `sl_ready` in
-  `_ready`; date ranges and periods in `_dates`; the period-by-vendor table
+  `_ready`; `cb_serials` in `_serials`; date ranges and periods in `_dates`; the period-by-vendor table
   `pr_spend` and `mn_tax` share in `test_period_by_vendor.py`; the
   registry's ordering and refusals in `_registry`).
 - The API (`test_reports_api.py`): catalog shape, a parameter default, a

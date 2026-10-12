@@ -32,7 +32,7 @@ from .live_params import LiveParams, live_where
 from .registry import register
 from .tables import ITEM as _I
 
-__all__ = ["CB_SERIALS", "SerialsParams"]
+__all__ = ["CB_SERIALS", "NO_MATCHES", "SerialsParams"]
 
 _CUD = CurrencyDetail.__table__.alias("cud")
 _D = Denomination.__table__.alias("d")
@@ -75,7 +75,8 @@ def _parse(serial: str) -> _Serial | None:
     """`serial` taken apart, or None when it has no digit to match on.
 
     Case and spacing are not part of a serial. Anything that is neither a
-    digit nor a star counts as a letter, on the side of the digits it is.
+    digit nor a star counts as a letter, on the side of the digits it is;
+    one between two digits is on neither side and is left out.
     """
     text = "".join(serial.split()).upper()
     digits = digits_of(text)

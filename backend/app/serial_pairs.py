@@ -40,7 +40,7 @@ def serial_pairs(db: Session, serial: str | None, item_id: int) -> list[SerialPa
     """The notes that pair with `serial`, other than item `item_id` itself.
 
     Star notes of its digits when `serial` has no star; notes without one
-    when it has. None for a serial that is not eight digits long: one cut
+    when it has. Nothing for a serial that is not eight digits long: one cut
     short would match every other cut short the same way, and says nothing of
     the note in hand. Deleted and split items are left out.
     """

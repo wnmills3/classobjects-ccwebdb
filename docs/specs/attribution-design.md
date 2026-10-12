@@ -219,7 +219,7 @@ varied than any rule written in advance.
 ```
 useInventorySearch.js   URL state, fetch, cancellation, counts
 InventoryTable.jsx      rows, sorting, selection
-FilterPanel.jsx         text, facet selects, issue checks, a missing= chip
+FilterPanel.jsx         text, facet selects, issue checks, missing= and item_codes= chips
 missingFields.js        the missing= fields as a person reads them
 specs.js                coin and currency column and filter specifications
 BulkEditBar.jsx         appears with a selection
@@ -228,6 +228,7 @@ ItemEditDialog.jsx      the editor, opened over the results
 ItemEditForm.jsx        fields, lot claims, suggested marks
 kindChange.js           what a change of kind empties
 NoteFields.jsx          a note's own classifiers and printing facts
+SerialPair.jsx          the star note of a serial already held, or its plain twin
 AttributesField.jsx     the item's attributes, with where each was read
 ErrorsPanel.jsx         mint and printing errors
 FriedbergPanel.jsx      the note's Friedberg number

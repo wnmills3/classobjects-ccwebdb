@@ -465,6 +465,14 @@ the **Serial number** box, match part of the value and take the same `%` and
 was bought from -- eBay's item number -- so one number finds every piece split
 from that listing.
 
+The **Error** and **Attribute** dropdowns find the items recorded with one
+mint or printing error, or holding one attribute (Star Note, Gift, First
+Strike); like the others, each lists only what the matching items hold.
+
+A click on a column's header sorts the table by that column, and a second
+click sorts it the other way. Items with nothing in the column come last
+either way, and items equal in it are in item-code order.
+
 The **Grade** box takes a grade, not text:
 
 | Type | Finds |
@@ -480,12 +488,15 @@ The **Grade** box takes a grade, not text:
 
 Anything else is refused with the examples. The API's `grade_min` and
 `grade_max` read the same terms: `grade_max=64` stops below 64+. The API also
-takes `attribute`, `error_type`, `issue`, `missing`, `lot`, `sellers_item_id`
+takes `issue`, `missing`, `lot`, `item_codes` (a list of item codes, exactly)
 and `deleted` (`no`, `only`, `any`) as filters (`app/inventory_search.py`);
-reports' drill-down links use several of them. An unknown filter name is
-refused.
+reports' drill-down links use several of them, and the page shows a
+`missing` or `item_codes` filter a link brought as a chip that removes it.
+An unknown filter name is
+refused, and so is a `sort` naming a column the table does not show.
 
-**Every field but Seller's item id has an Alt+letter shortcut**, underlined in
+**Every field but Seller's item id, Error and Attribute has an Alt+letter
+shortcut**, underlined in
 its label: Alt+S the search box, Alt+H the tips, Alt+C clear, Alt+Y and Alt+O
 the years, Alt+P the coins' **Strike type**. No field uses D, E or F, which the
 browser keeps. A
@@ -518,7 +529,7 @@ relisting, because a returned item resumes its own history.
 
 | Endpoint | Use |
 |---|---|
-| `PATCH /api/inventory/{id}` | one item, any editable field |
+| `PATCH /api/inventory/{id}` | one item, any editable field. A banknote saved at an item cost of $0 is given the Gift attribute, and the change log names what that moved -- see *Attributes* |
 | `POST /api/inventory/bulk` | the same change across many items, one transaction, all or nothing. A `storage_location_id` moves each item there and records the move in its location history; the Coins and Currency pages' bulk bar offers it as **Location**, with the item editor's picker |
 | `POST /api/inventory/receive` | record what arrived -- see *Receiving* |
 | `PUT /api/inventory/{id}/errors` | replace the item's recorded errors -- see *Errors* |
@@ -1291,8 +1302,11 @@ picker that needs it passes it as its `filter`. A banknote's denomination
 picker never lists a coin's, and its error-type picker never lists mint
 errors.
 
-**Adding a value while entering.** Every descriptive vocabulary's picker ends
-with "+ Add a new value..." (`POST /api/reference/{table}`). Attributes and
+**Adding a value while entering.** Every descriptive vocabulary's picker
+opens with "+ Add a new value...", under "--" (`POST /api/reference/{table}`).
+An arrow key on a closed picker steps over it to the next value, so it opens
+only when chosen from the open list; Escape in its form cancels the form and
+leaves the editor open. Attributes and
 error types ask for the label alone; the rest ask for a code and a label.
 Where the label is enough:
 
@@ -1373,7 +1387,11 @@ the picker adds one, offering only attributes for that kind of item. They are
 also editable in Receiving's "Confirm or correct fields" pane.
 
 An attribute marked **read** was found by a rule (the serial, the rating, the
-series) rather than set by a person. **Removing one keeps it removed**: no
+series, the cost) rather than set by a person. The cost's rule is **Gift**: a
+banknote saved in the editor at an item cost of $0 is given it, the word Gift
+leaves its title, and a description the system generated is written again to
+say so. A note later given a cost loses the Gift the rule gave it and keeps
+one a person set (`specs/item-attributes-design.md`). **Removing one keeps it removed**: no
 rule adds it back. Setting it again restores it. Search finds items by an
 attribute's name or alias (`godless`, `first strike`).
 
