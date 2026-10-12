@@ -50,10 +50,14 @@ def _note(
     denomination: str = "usd_note_1",
     **detail: object,
 ) -> InventoryItem:
-    """A banknote of this series year and letter, its title saying nothing more."""
+    """A banknote of this series year and letter, its title saying nothing more.
+
+    Bought, not given: a note at no cost would be a Gift as well.
+    """
     item = make_item(
         kind="currency",
         title="Plain note",
+        item_cost=Decimal("5.00"),
         grade_id=None,
         strike_type_id=None,
         denomination_id=code_id(db, Denomination, denomination),
