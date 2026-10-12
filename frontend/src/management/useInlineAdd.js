@@ -1,5 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
+import { isCancellingEscape } from '../shared/add-option'
+
 /**
  * The small form a picker opens from its "+ Add ..." option: the vendor,
  * seller and storage location pickers' shared state and behaviour.
@@ -47,6 +49,11 @@ export function useInlineAdd({ blank, ready, create, onCreated }) {
   }
 
   function onKeyDown(e) {
+    // Escape cancels this form, not the dialog it sits in.
+    if (isCancellingEscape(e)) {
+      setAdding(false)
+      return
+    }
     if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return
     e.preventDefault()
     if (ready(draft)) add()

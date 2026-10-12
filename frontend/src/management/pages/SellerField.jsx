@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { api } from '../api'
+import { ADD, useAddOption } from '../../shared/add-option'
 import { useRequest } from '../../shared/useRequest'
 import { siteName, withScheme } from '../site-name'
 import { useInlineAdd } from '../useInlineAdd'
@@ -20,6 +21,7 @@ const BLANK_DRAFT = { name: '', store_url: '' }
 export default function SellerField({ value, onChange }) {
   const loaded = useRequest('sellers', () => api.listSellers())
   const [added, setAdded] = useState([])
+  const addOption = useAddOption()
   const sellers = [...(loaded.data ?? []), ...added].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
   )
@@ -81,14 +83,21 @@ export default function SellerField({ value, onChange }) {
     <>
       <select
         value={value ?? ''}
+        onKeyDown={addOption.onKeyDown}
         onChange={(e) => {
-          if (e.target.value === '__add__') setAdding(true)
-          else onChange(e.target.value)
+          if (e.target.value !== ADD) {
+            onChange(e.target.value)
+            return
+          }
+          // An arrow steps over Add; only choosing it opens the form.
+          const meant = addOption.steppedOver(e.target)
+          if (meant === undefined) setAdding(true)
+          else if (meant !== null) onChange(meant)
         }}
         aria-label="Seller"
       >
         <option value="">--</option>
-        <option value="__add__">+ Add a seller...</option>
+        <option value={ADD}>+ Add a seller...</option>
         {sellers.map((s) => (
           <option key={s.id} value={String(s.id)}>
             {s.name}
