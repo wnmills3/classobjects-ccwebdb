@@ -120,10 +120,13 @@ describe('AddItem', () => {
       grading_service: 'PMG',
       metal: null,
       mint: null,
+      // One listing, one price and one shipping charge: copied.
+      item_cost: '60.00',
+      shipping_cost: '4.20',
       // Per piece: never copied.
       grade: '65',
       serial_number: 'PF55577555G',
-      item_cost: '60.00',
+      description: 'Gem Unc 65 2017A $20 S/N PF55577555G.',
     })
     api.createInventoryItem.mockResolvedValue({ id: 31, item_code: 'CC-000031' })
     await user.click(screen.getByRole('button', { name: 'Add another like CC-000030' }))
@@ -133,6 +136,8 @@ describe('AddItem', () => {
         purchase_order_id: 22,
         item_kind: 'currency',
         source_title: '$20 lot',
+        item_cost: '60.00',
+        shipping_cost: '4.20',
         listing_url: 'https://www.ebay.com/itm/1',
         sellers_item_id: '1',
         status: 'received',

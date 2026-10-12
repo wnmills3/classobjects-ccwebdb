@@ -6,11 +6,14 @@ import ItemEditDialog from '../inventory/ItemEditDialog'
 
 //: What the next piece of one purchase shares with the last, copied by "Add
 //: another like it". The pieces entered one after another usually came from
-//: one listing and are put away in one place; what varies piece to piece --
-//: grade, serial, certificate, cost, the years -- is left for the editor.
+//: one listing, at one price and one shipping charge, and are put away in one
+//: place; what varies piece to piece -- grade, serial, certificate, the
+//: years, the description -- is left for the editor.
 const SHARED_ON_REPEAT = [
   'item_kind',
   'source_title',
+  'item_cost',
+  'shipping_cost',
   'sellers_item_id',
   'listing_url',
   'status',

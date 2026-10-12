@@ -1255,9 +1255,8 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     # Whatever the form did not fill, the facts may: a coin's composition, a
     # note's signatures. Nothing the person sent is replaced.
     refresh_items(db, [item.id])
-    # After the defaults, so a description written here names the note's class.
-    db.flush()
-    gift_rule.apply(db, item)
+    # No Gift rule here (`app.gift_rule`): the row is made before its cost is
+    # typed, so $0 means "not entered yet". The editor's first save decides.
     db.commit()
 
     return get_item(item.id, db, admin)
@@ -1809,12 +1808,14 @@ def suggest_description_for(
         db.expire_all()
         item = _get_item(db, item_id)
         # Save would give a note at no cost its Gift: describe it with one.
-        if (
-            attributes is not None
-            and gift_rule.GIFT not in attributes
-            and gift_rule.would_add(db, item)
-        ):
-            attributes = [*attributes, gift_rule.GIFT]
+        if gift_rule.would_add(db, item):
+            held = (
+                attributes
+                if attributes is not None
+                else [h.code for h in item_attributes.held_attributes(db, item.id)]
+            )
+            if gift_rule.GIFT not in held:
+                attributes = [*held, gift_rule.GIFT]
         saved = saved_features(db, item)
         features = Features(
             attributes=(

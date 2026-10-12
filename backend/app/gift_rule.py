@@ -1,10 +1,11 @@
 """Gift: the attribute of a banknote that cost nothing.
 
 docs/specs/item-attributes-design.md, section 2, "Attributes from facts: Gift".
-A note entered or saved in the item editor at an item cost of $0 is a gift,
-so the save gives it the attribute, takes the word out of its title -- the
-attribute says it now -- and writes the description again where the
-description was the generated one.
+A note saved in the item editor at an item cost of $0 is a gift, so the save
+gives it the attribute, takes the word out of its title -- the attribute
+says it now -- and writes the description again where the description was
+the generated one. Making the row (`POST /api/inventory`) does not run this:
+a new item is made before its cost is typed, and opens in the editor.
 
 The link is a derived one (`derived_by` `no_cost`). Like every rule's, it is
 added only where the note has no link for the attribute at all, so a person

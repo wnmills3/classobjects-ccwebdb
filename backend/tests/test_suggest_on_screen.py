@@ -36,6 +36,8 @@ NOTE = {
     "note_type": "silver_certificate",
     "seal_color": "blue",
     "serial_number": "A31415926B",
+    # Bought: a note at no cost is suggested as the Gift a save would make it.
+    "item_cost": "20.00",
 }
 
 

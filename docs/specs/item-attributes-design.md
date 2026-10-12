@@ -147,9 +147,11 @@ is reported as *needs evidence*; a later note with it as *disagrees*.
 ### Attributes from facts: Gift
 
 A banknote whose item cost is $0 is a gift. `app/gift_rule.py` applies that
-when a note is entered (`POST /api/inventory`) or edited
-(`PATCH /api/inventory/{id}`), after the save's other writes; no batch pass
-and no bulk edit runs it. Coins are left alone.
+when a note is saved in the item editor (`PATCH /api/inventory/{id}`), after
+the save's other writes; no batch pass and no bulk edit runs it. Making the
+row (`POST /api/inventory`) does not either: a new item is made before its
+cost is typed and opens in the editor, whose first save decides. Coins are
+left alone.
 
 | The note, as the save leaves it | What the save does |
 |---|---|
