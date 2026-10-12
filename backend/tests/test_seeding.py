@@ -12,11 +12,12 @@ from __future__ import annotations
 import json
 from collections import Counter
 from collections.abc import Callable
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
-from app.models import Grade, Metal, ProvenanceSource
+from app.models import Composition, Grade, Metal, ProvenanceSource, Series
 from app.seeding import (
     SEEDABLE,
     SeedError,
@@ -61,6 +62,37 @@ def test_loading_is_idempotent(db: Session) -> None:
     }
     assert touched == {}
     assert sum(counter["unchanged"] for counter in stats.values()) > 0
+
+
+def test_a_composition_row_names_a_coin_and_holds_no_more_metal_than_it_weighs() -> (
+    None
+):
+    rows = load_seed_data()["composition"]
+
+    assert all("denomination" in row or "series" in row for row in rows)
+    heavier = [
+        row["note"]
+        for row in rows
+        if "gross_weight_ozt" in row
+        and Decimal(row["fine_weight_ozt"]) > Decimal(row["gross_weight_ozt"])
+    ]
+    assert heavier == []
+
+
+def test_a_composition_of_a_design_alone_is_loaded_without_a_denomination(
+    db: Session,
+) -> None:
+    """The Silver Eagle's series carries no denomination, and neither does its row."""
+    eagle = db.execute(
+        select(Series.id).where(Series.code == "american_silver_eagle")
+    ).scalar_one()
+
+    row = db.execute(
+        select(Composition).where(Composition.series_id == eagle)
+    ).scalar_one()
+
+    assert row.denomination_id is None
+    assert row.fine_weight_ozt == Decimal("1.000000")
 
 
 def test_a_reworded_label_updates_in_place(db: Session) -> None:

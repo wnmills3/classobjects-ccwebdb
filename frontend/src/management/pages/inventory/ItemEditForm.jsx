@@ -163,7 +163,7 @@ const CLASSIFIERS = [
 const DERIVED_FROM = {
   note_issue: "Filled from the note's denomination and series",
   serial_district: 'Filled from the serial number',
-  composition: 'Filled from the published composition for its year',
+  composition: 'Filled from the published composition for its year or design',
   series_classify: 'Filled from the denomination and year',
   series_match: 'Filled from the description',
   series_backfill: 'Filled from the description or from denomination and year',

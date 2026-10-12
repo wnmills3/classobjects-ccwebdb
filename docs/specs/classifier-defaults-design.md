@@ -123,8 +123,25 @@ These are historical facts (who signed, which class, which seal) and are safe
 to seed. No Friedberg number is involved or implied.
 
 Coin compositions come from `composition.json` (`app.composition`): the
-legislated metal, fineness and weights per denomination, country and span of
-years.
+legislated metal, fineness and weights per country and span of years, for a
+denomination, a design series, or both. A row naming a series is that
+design's own and outranks the denomination's row -- a Morgan dollar of 2021
+is .999 silver, a Sacagawea dollar of that year is not silver, and a
+commemorative dollar of 1986 is 90% silver, though all are dollar coins. A
+bullion design struck in one size (the Silver Eagle) names only its series;
+one struck in several (the Gold Eagle) has a row per face value, and an item
+of it with no denomination gets none. The denomination's row is every other
+coin's of that face value and year; a design struck at one face value
+supplies it for an item recorded with none.
+
+**A coin with a series and no year** has the composition its design was
+struck in, where that was one: every run of the design's years
+(`series_year_range`, or the series' own span) resolves to the same row. A
+Morgan or Franklin half does; a Roosevelt dime, silver and then clad, does
+not, and waits for its year. A run starting more than fifty years after the
+one before it ended (`RESTRIKE_GAP`) is a commemorative restrike -- the
+Morgan of 2021, the gold Winged Liberty Head dime of 2016 -- and is not
+read: an undated coin is not taken for one.
 
 ### Serial numbers (BEP)
 
@@ -158,13 +175,13 @@ mule is found.
 | seal color | the issue | the issue has one seal |
 | signature combination | the issue | one pair signed it |
 | Federal Reserve district | serial number | the class is Federal Reserve Note and the serial is well formed |
-| composition, metal, fineness, gross and fine weight | denomination, country, year | one composition covers every year of the item's range |
+| composition, metal, fineness, gross and fine weight | denomination or design series, country, year | one composition covers every year of the item's range, or, with no year, every run of its design |
 | fine weight | gross weight times fineness | the item is not a note, has both, and no composition decides its fine weight |
 
 Note type is decided first, because seal, signatures and Bank depend on it.
 
 **Weight.** A coin's weight is its composition's. A bar, a round or a medal
-has no denomination, so its gross weight and fineness are entered by hand --
+has no composition, so its gross weight and fineness are entered by hand --
 per piece, in troy ounces or grams, kept in troy ounces -- and the fine weight
 is worked out from them: filled when empty, kept in step with the two while
 it is the rule's, cleared when either is gone, and left alone once a person
@@ -201,7 +218,9 @@ Reported and never written:
 - **On every write.** Creating an item, a single edit and a bulk edit each call
   `refresh_items` in the same transaction, so a corrected series year corrects
   the class derived from it. It refreshes the design series too
-  (`series_classify.refresh_series`).
+  (`series_classify.refresh_series`), and decides again the items whose
+  series that changed, since a coin's composition can follow from its
+  series.
 - **At entry.** Receiving's Identify section asks
   `GET /api/defaults/note` (denomination, series year and letter, serial) or
   `GET /api/defaults/coin` (denomination, country, year; answers the metal).
@@ -224,7 +243,9 @@ Reported and never written:
   ```
 
   Run it after `app.series_match` and before `app.series_classify`, which
-  reads a note's class as evidence.
+  reads a note's class as evidence -- and again after `app.series_classify`
+  when that assigned a series to a coin, whose composition may follow from
+  it.
 
 ## The editor
 

@@ -2,10 +2,11 @@
 
 docs/specs/classifier-defaults-design.md. For a banknote, the denomination and
 series decide the class, and with it the seal and the signatures; a Federal
-Reserve Note's serial names its issuing Bank. For a coin, denomination,
-country and year decide its composition, and for anything but a note a gross
-weight and a fineness decide the fine weight. A person enters the facts; this
-fills the rest.
+Reserve Note's serial names its issuing Bank. For a coin, its denomination
+or design series, country and year decide its composition -- the series
+alone where the design was struck in one (`app.composition`) -- and for
+anything but a note a gross weight and a fineness decide the fine weight. A
+person enters the facts; this fills the rest.
 
 The rules, per field:
 
@@ -44,6 +45,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import aliases, attribute_rules
+from .composition import (
+    Run,
+    composition_of,
+    composition_of_series,
+    load_compositions,
+    series_runs,
+)
 from .database import SessionLocal
 from .field_sources import (
     COMPOSITION,
@@ -316,6 +324,8 @@ class Facts:
 
     issues: dict[IssueKey, list[Issue]] = field(default_factory=dict)
     compositions: list[Composition] = field(default_factory=list)
+    #: Each coin design's own runs of years, by series id.
+    series_runs: dict[int, tuple[Run, ...]] = field(default_factory=dict)
     note_type_labels: dict[int, str] = field(default_factory=dict)
     note_type_codes: dict[int, str] = field(default_factory=dict)
     #: The attributes the rules name, by code.
@@ -360,16 +370,13 @@ def load_facts(db: Session, *, notes: bool = True, coins: bool = True) -> Facts:
     Read fresh on every call -- the facts are seed data an administrator can
     edit, so nothing is kept between requests. `notes=False` skips the
     issues, classes, attributes and districts; `coins=False` the
-    compositions. `classify` asks only for the kinds among its items, so
-    saving one coin reads no note facts at all.
+    compositions and the designs' runs. `classify` asks only for the kinds
+    among its items, so saving one coin reads no note facts at all.
     """
     facts = Facts()
     if coins:
-        facts.compositions = list(
-            db.execute(
-                select(Composition).order_by(Composition.year_from.desc())
-            ).scalars()
-        )
+        facts.compositions = load_compositions(db)
+        facts.series_runs = series_runs(db)
     if not notes:
         return facts
     facts.issues = load_issues(db)
@@ -565,10 +572,12 @@ def coin_outcome(
     held: frozenset[str] = frozenset(),
     retractable: set[str] | None = None,
 ) -> Outcome:
-    """Composition, metal, fineness and weights from denomination and year.
+    """Composition, metal, fineness and weights from the coin's facts.
 
-    A range of years has a composition only when one covers all of it: a
-    1999-2008 quarter set is clad throughout, a 1909-2022 cent lot is not.
+    Its denomination or design series, country and year. A range of years
+    has a composition only when one covers all of it: a 1999-2008 quarter
+    set is clad throughout, a 1909-2022 cent lot is not. A coin with no year
+    has its design's, where the design was struck in one composition.
 
     `derived` columns may be overwritten by a composition's facts;
     `retractable` (every derived column unless given) are the ones cleared
@@ -578,26 +587,7 @@ def coin_outcome(
     out = Outcome()
     current = {column: getattr(item, column) for column in COMPOSITION_COLUMNS}
     retractable = derived if retractable is None else retractable
-    if (
-        item.denomination_id is None
-        or item.country_id is None
-        or item.year_start is None
-    ):
-        _retract(out, current, retractable, COMPOSITION_COLUMNS)
-        return out
-    first = item.year_start
-    last = item.year_end if item.year_end is not None else first
-    found = next(
-        (
-            c
-            for c in facts.compositions
-            if c.denomination_id == item.denomination_id
-            and c.country_id == item.country_id
-            and c.year_from <= first
-            and (c.year_to is None or c.year_to >= last)
-        ),
-        None,
-    )
+    found = _composition(facts, item)
     if found is None:
         _retract(out, current, retractable, COMPOSITION_COLUMNS)
         return out
@@ -622,6 +612,34 @@ def coin_outcome(
         )
     out.count = "coin: composition known"
     return out
+
+
+def _composition(facts: Facts, item: InventoryItem) -> Composition | None:
+    """The composition the item's recorded facts decide, or None."""
+    if item.country_id is None:
+        return None
+    runs = facts.series_runs.get(item.series_id, ()) if item.series_id else ()
+    if item.year_start is not None:
+        # A design struck at one face value says what an item with none is.
+        faces = {face for face, _, _ in runs if face is not None}
+        return composition_of(
+            facts.compositions,
+            denomination_id=item.denomination_id
+            or (faces.pop() if len(faces) == 1 else None),
+            series_id=item.series_id,
+            country_id=item.country_id,
+            first=item.year_start,
+            last=item.year_end if item.year_end is not None else item.year_start,
+        )
+    if item.series_id is None:
+        return None
+    return composition_of_series(
+        facts.compositions,
+        runs,
+        denomination_id=item.denomination_id,
+        series_id=item.series_id,
+        country_id=item.country_id,
+    )
 
 
 #: Fine weight is stored to six places, as the column is.
@@ -922,8 +940,11 @@ def refresh_items(db: Session, item_ids: Collection[int]) -> None:
         return
     db.flush()
     apply(db, classify(db, item_ids), commit=False)
-    # The design series follows from the same facts.
-    refresh_series(db, item_ids)
+    # The design series follows from the same facts, and a coin's composition
+    # from its series: an item whose series changed is decided again.
+    changed = refresh_series(db, item_ids)
+    if changed:
+        apply(db, classify(db, changed), commit=False)
 
 
 def suggest(db: Session, note: NoteFacts) -> dict[str, int]:
