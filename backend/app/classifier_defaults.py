@@ -601,9 +601,6 @@ def coin_outcome(
         column: {getattr(found, column if column != "composition_id" else "id")}
         for column in COMPOSITION_COLUMNS
     }
-    writes, stale = decide(current, derived, options, held)
-    out.writes += [(column, value, COMPOSITION) for column, value in writes.items()]
-    out.retracts += stale
     differs = [
         column.removesuffix("_id")
         for column, allowed in options.items()
@@ -616,6 +613,17 @@ def coin_outcome(
         out.cases.append(
             ("disagrees", f"composition says otherwise: {', '.join(differs)}")
         )
+    if "metal" in differs:
+        # A recorded metal the composition rules out says the piece is not
+        # the coin its denomination, series and year make it out to be -- a
+        # gold dollar filed under a silver design, a foreign coin under a
+        # US face value. Nothing is filled from a row that is not its own.
+        _retract(out, current, retractable, COMPOSITION_COLUMNS)
+        out.count = "coin: composition contradicted by its metal"
+        return out
+    writes, stale = decide(current, derived, options, held)
+    out.writes += [(column, value, COMPOSITION) for column, value in writes.items()]
+    out.retracts += stale
     out.count = "coin: composition known"
     return out
 

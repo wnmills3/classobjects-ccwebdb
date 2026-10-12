@@ -781,6 +781,26 @@ def test_a_stated_value_the_composition_contradicts_is_reported(
     )
 
 
+def test_a_recorded_metal_the_composition_rules_out_fills_nothing(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A gold piece filed as a silver dollar is not given a silver dollar's weight."""
+    piece = make_item(
+        title="Plain coin",
+        denomination_id=code_id(db, Denomination, "usd_coin_1_00"),
+        year_start=1880,
+        metal_id=code_id(db, Metal, "gold"),
+    )
+
+    run(db, commit=True)
+
+    db.refresh(piece)
+    assert piece.composition_id is None
+    assert piece.fine_weight_ozt is None
+    assert _code(db, Metal, piece.metal_id) == "gold"
+    assert ("disagrees", "composition says otherwise: metal") in review_cases(db, piece)
+
+
 # -- a person emptying a field -----------------------------------------------
 
 

@@ -149,6 +149,13 @@ that is not recorded as a coin and has no denomination is therefore decided
 only by a design with no face value of its own -- a bullion design, the
 Silver Eagle -- and never by a coin design or a denomination's row.
 
+**A recorded metal the composition rules out fills nothing.** A gold dollar
+filed under a silver design, or a foreign coin under a US face value, is not
+the coin its facts make it out to be: the item is listed as **disagrees**,
+nothing is filled from the row, and what an earlier run filled from it is
+taken back. A recorded fineness or weight that differs is listed too, and
+the other fields are still filled.
+
 ### Serial numbers (BEP)
 
 - Through Series 1995, and for $1 and $2 notes still, a serial is one letter,
