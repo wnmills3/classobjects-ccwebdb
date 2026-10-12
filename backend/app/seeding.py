@@ -73,9 +73,16 @@ SeedableModel = type[ReferenceMixin] | type[Composition]
 #: reference tables that appear before it.
 SEEDABLE: tuple[SeedableModel, ...] = (*REFERENCE_MODELS, Composition)
 
-#: Composition has no `code`, so its identity is the span it describes.
+#: Composition has no `code`, so its identity is the span it describes: the
+#: denomination or the design series, either of which a row may leave out.
 NATURAL_KEYS: dict[str, tuple[str, ...]] = {
-    "composition": ("denomination_id", "country_id", "year_from", "metal_id"),
+    "composition": (
+        "denomination_id",
+        "series_id",
+        "country_id",
+        "year_from",
+        "metal_id",
+    ),
 }
 
 #: A key beginning with this is commentary: every loader drops it.
@@ -289,6 +296,11 @@ def _seed_table(
             counter["merged"] += 1
             continue
         values = _resolve_row(row, model, code_index, where)
+        # A part of the key the row leaves out and the table allows empty is
+        # empty: a composition names a denomination, a series, or both.
+        for key in keys:
+            if model.__table__.columns[key].nullable:
+                values.setdefault(key, None)
         missing = [k for k in keys if k not in values]
         if missing:
             raise SeedError(f"{where}: missing natural key {missing}")

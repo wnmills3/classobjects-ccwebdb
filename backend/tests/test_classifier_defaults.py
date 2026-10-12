@@ -19,11 +19,13 @@ from app.models import (
     Denomination,
     FedDistrict,
     InventoryItem,
+    Metal,
     NoteIssue,
     NoteType,
     ReferenceAlias,
     ReferenceMixin,
     SealColor,
+    Series,
     SignatureCombination,
 )
 from app.seeding import SeedError, seed_all
@@ -989,3 +991,193 @@ def test_a_fine_weight_the_composition_loses_is_worked_out_in_the_same_save(
     assert dime.composition_id is None
     assert dime.fine_weight_ozt == Decimal("0.072338")
     assert derived_fields(db, dime.id) == {"fine_weight_ozt": "weight"}
+
+
+# -- coins: composition from the design series --------------------------------
+
+
+def _of_series(
+    db: Session,
+    make_item: ItemFactory,
+    series: str,
+    *,
+    denomination: str | None = None,
+    **facts: object,
+) -> InventoryItem:
+    """A coin of this design, its title saying nothing of metal or weight.
+
+    With no year unless one is given: the factory's own default is 1881.
+    """
+    facts.setdefault("year_start", None)
+    return make_item(
+        title="Plain coin",
+        series_id=code_id(db, Series, series),
+        denomination_id=(
+            code_id(db, Denomination, denomination) if denomination else None
+        ),
+        **facts,
+    )
+
+
+def test_a_coin_with_no_year_gets_the_composition_of_its_design(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """The Morgan was struck in one alloy until 1921; its restrike is not read."""
+    morgan = _of_series(db, make_item, "morgan_dollar", denomination="usd_coin_1_00")
+
+    run(db, commit=True)
+
+    db.refresh(morgan)
+    assert morgan.fineness == Decimal("0.9000")
+    assert morgan.fine_weight_ozt == Decimal("0.773440")
+    assert derived_fields(db, morgan.id)["fine_weight_ozt"] == "composition"
+
+
+def test_a_design_names_its_own_denomination_for_a_coin_with_neither(
+    db: Session, make_item: ItemFactory
+) -> None:
+    half = _of_series(db, make_item, "franklin_half")
+
+    run(db, commit=True)
+
+    db.refresh(half)
+    assert half.fine_weight_ozt == Decimal("0.361690")
+
+
+@pytest.mark.parametrize(
+    "series",
+    [
+        # Silver through 1964, clad after.
+        "roosevelt_dime",
+        "washington_quarter",
+        # 90% silver, 40% silver, then clad.
+        "kennedy_half",
+        # Copper-nickel through 1863, bronze after.
+        "indian_head_cent",
+        # Clad for circulation and 40% silver for collectors: no row at all.
+        "eisenhower_dollar",
+    ],
+)
+def test_a_design_struck_in_several_compositions_decides_nothing_without_a_year(
+    db: Session, make_item: ItemFactory, series: str
+) -> None:
+    coin = _of_series(db, make_item, series)
+
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert coin.composition_id is None
+    assert coin.fine_weight_ozt is None
+
+
+def test_a_year_decides_where_the_design_alone_does_not(
+    db: Session, make_item: ItemFactory
+) -> None:
+    dime = _of_series(db, make_item, "roosevelt_dime", year_start=1970)
+
+    run(db, commit=True)
+
+    db.refresh(dime)
+    assert _code(db, Metal, dime.metal_id) == "clad"
+
+
+def test_a_row_for_the_design_outranks_the_denominations(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """Three dollar coins the denomination and year cannot tell apart."""
+    restrike = _of_series(
+        db, make_item, "morgan_dollar", denomination="usd_coin_1_00", year_start=2021
+    )
+    brass = _of_series(
+        db, make_item, "sacagawea_dollar", denomination="usd_coin_1_00", year_start=2021
+    )
+    gold = _of_series(
+        db, make_item, "gold_dollar", denomination="usd_coin_1_00", year_start=1880
+    )
+    # No design recorded: the common one of that denomination and year.
+    plain = make_item(
+        title="Plain coin",
+        denomination_id=code_id(db, Denomination, "usd_coin_1_00"),
+        year_start=1880,
+    )
+
+    run(db, commit=True)
+
+    for coin in (restrike, brass, gold, plain):
+        db.refresh(coin)
+    assert restrike.fineness == Decimal("0.9990")
+    assert _code(db, Metal, brass.metal_id) == "clad"
+    assert _code(db, Metal, gold.metal_id) == "gold"
+    assert gold.fine_weight_ozt == Decimal("0.048375")
+    assert plain.fine_weight_ozt == Decimal("0.773440")
+
+
+def test_a_bullion_design_with_one_size_needs_no_denomination(
+    db: Session, make_item: ItemFactory
+) -> None:
+    dated = _of_series(db, make_item, "american_silver_eagle", year_start=2019)
+    undated = _of_series(db, make_item, "american_silver_eagle")
+
+    run(db, commit=True)
+
+    for eagle in (dated, undated):
+        db.refresh(eagle)
+        assert eagle.fine_weight_ozt == Decimal("1.000000")
+        assert eagle.fineness == Decimal("0.9990")
+
+
+def test_a_bullion_design_of_several_sizes_goes_by_its_face_value(
+    db: Session, make_item: ItemFactory
+) -> None:
+    tenth = _of_series(
+        db, make_item, "american_gold_eagle", denomination="usd_coin_5_00"
+    )
+    ounce = _of_series(
+        db,
+        make_item,
+        "american_gold_eagle",
+        denomination="usd_coin_50_00",
+        year_start=1999,
+    )
+    unsized = _of_series(db, make_item, "american_gold_eagle", year_start=1999)
+
+    run(db, commit=True)
+
+    for eagle in (tenth, ounce, unsized):
+        db.refresh(eagle)
+    assert tenth.fine_weight_ozt == Decimal("0.100000")
+    assert ounce.fine_weight_ozt == Decimal("1.000000")
+    # Any of four sizes: none is chosen.
+    assert unsized.composition_id is None
+
+
+def test_a_series_assigned_on_save_gives_the_composition_in_the_same_save(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The series is decided after the defaults, which are then decided again.
+
+    A five-cent piece of 1860 has no composition of its denomination's: the
+    half dime's row is its design's. Only the Seated Liberty half dime was
+    struck at that face value that year, so the save assigns the design.
+    """
+    order = build_purchase_order(db, vendor_name="Coin seller", order_number="COIN-2")
+
+    response = client.post(
+        "/api/inventory",
+        json={
+            "purchase_order_id": order.id,
+            "item_kind": "coin",
+            "source_title": "Plain coin",
+            "denomination": "usd_coin_0_05",
+            "country": "US",
+            "year_start": 1860,
+        },
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["series"] == "seated_liberty_half_dime"
+    assert body["metal"] == "silver"
+    assert body["fine_weight_ozt"] == "0.036000"
+    assert body["derived"]["fine_weight_ozt"] == "composition"

@@ -1,24 +1,52 @@
 {
   "_comment": [
     "US coinage composition -- public facts, seedable from mint specifications.",
-    "Composition is a matter of legislation, so it resolves from denomination,",
-    "country and year rather than being recorded per item. A dime struck in 1963",
-    "is 90% silver because the law said so, not because anyone typed it in.",
+    "Composition is a matter of legislation, so it resolves from what the coin",
+    "is rather than being recorded per item. A dime struck in 1963 is 90%",
+    "silver because the law said so, not because anyone typed it in.",
+    "",
+    "A row names a denomination, a design series, or both. A row with a series",
+    "is that design's own and outranks the denomination's row: a Morgan dollar",
+    "of 2021 is .999 silver, a Sacagawea dollar of that year is brass-clad, and",
+    "a commemorative dollar of 1986 is 90% silver, though all three are dollar",
+    "coins. A bullion design with one size names only its series; one struck in",
+    "several sizes has a row per face value. The denomination's row is every",
+    "other coin's of that face value and year.",
     "",
     "fine_weight_ozt is the published ASW (actual silver weight) where one",
     "exists, not a recomputation from gross weight -- the published figure is",
     "what the market quotes and what every dealer's calculator agrees with.",
+    "A weight the Coinage Acts set in grains is the statute's figure over 480,",
+    "a troy ounce being 480 grains.",
     "",
     "A span has a row only where every coin of it shares one composition. A",
     "dollar of 1971-1976 was struck in copper-nickel clad for circulation and in",
     "40% silver for collectors, and a five-cent piece of 1942 in both alloys, so",
-    "neither has a row: the weight of such a coin is entered by hand.",
+    "neither has a row: the weight of such a coin is entered by hand. For the",
+    "same reason the years a standard changed in -- 1837, 1853, 1873 -- are",
+    "left out where both standards were struck, and a commemorative dollar",
+    "has a row only through 2018, after which one was struck at five ounces.",
     "",
     "This is exactly the kind of table a new installation should inherit rather",
     "than rebuild: nothing here is specific to one collection."
   ],
   "composition": [
-    {"denomination": "usd_coin_0_10", "country": "US", "year_from": 1837, "year_to": 1964,
+    {"denomination": "usd_coin_0_10", "country": "US", "year_from": 1796, "year_to": 1836,
+     "metal": "silver", "fineness": "0.8924",
+     "gross_weight_ozt": "0.086667", "fine_weight_ozt": "0.077344",
+     "note": "Act of 1792: 41.6 grains, 1485/1664 fine. Draped Bust and Capped Bust."},
+
+    {"denomination": "usd_coin_0_10", "country": "US", "year_from": 1837, "year_to": 1852,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.085938", "fine_weight_ozt": "0.077344",
+     "note": "Act of 1837: 41.25 grains, 90% silver. 1853 was struck at this weight and the next."},
+
+    {"denomination": "usd_coin_0_10", "country": "US", "year_from": 1854, "year_to": 1872,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.080000", "fine_weight_ozt": "0.072000",
+     "note": "Act of 1853: 38.4 grains. 1873 was struck at this weight and the next."},
+
+    {"denomination": "usd_coin_0_10", "country": "US", "year_from": 1874, "year_to": 1964,
      "metal": "silver", "fineness": "0.9000",
      "gross_weight_ozt": "0.080376", "fine_weight_ozt": "0.072340",
      "note": "90% silver dime, 2.5 g. Seated Liberty through Roosevelt."},
@@ -27,14 +55,59 @@
      "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
      "note": "Copper-nickel clad. No precious metal content; valued numismatically."},
 
+    {"denomination": "usd_coin_0_20", "country": "US", "year_from": 1875, "year_to": 1878,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.160754", "fine_weight_ozt": "0.144678",
+     "note": "Twenty-cent piece, 5 g."},
+
+    {"denomination": "usd_coin_0_25", "country": "US", "year_from": 1796, "year_to": 1836,
+     "metal": "silver", "fineness": "0.8924",
+     "gross_weight_ozt": "0.216667", "fine_weight_ozt": "0.193359",
+     "note": "Act of 1792: 104 grains, 1485/1664 fine."},
+
+    {"denomination": "usd_coin_0_25", "country": "US", "year_from": 1838, "year_to": 1852,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.214844", "fine_weight_ozt": "0.193359",
+     "note": "Act of 1837: 103.125 grains, 90% silver."},
+
+    {"denomination": "usd_coin_0_25", "country": "US", "year_from": 1854, "year_to": 1872,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.200000", "fine_weight_ozt": "0.180000",
+     "note": "Act of 1853: 96 grains."},
+
+    {"denomination": "usd_coin_0_25", "country": "US", "year_from": 1874, "year_to": 1931,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.200939", "fine_weight_ozt": "0.180840",
+     "note": "90% silver quarter, 6.25 g. Seated Liberty, Barber and Standing Liberty."},
+
     {"denomination": "usd_coin_0_25", "country": "US", "year_from": 1932, "year_to": 1964,
      "metal": "silver", "fineness": "0.9000",
      "gross_weight_ozt": "0.200939", "fine_weight_ozt": "0.180840",
-     "note": "90% silver quarter, 6.25 g. Washington and earlier."},
+     "note": "90% silver quarter, 6.25 g. Washington."},
 
     {"denomination": "usd_coin_0_25", "country": "US", "year_from": 1965,
      "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
      "note": "Copper-nickel clad."},
+
+    {"denomination": "usd_coin_0_50", "country": "US", "year_from": 1794, "year_to": 1835,
+     "metal": "silver", "fineness": "0.8924",
+     "gross_weight_ozt": "0.433333", "fine_weight_ozt": "0.386719",
+     "note": "Act of 1792: 208 grains, 1485/1664 fine. 1836 was struck at this standard and the next."},
+
+    {"denomination": "usd_coin_0_50", "country": "US", "year_from": 1837, "year_to": 1852,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.429688", "fine_weight_ozt": "0.386719",
+     "note": "Act of 1837: 206.25 grains, 90% silver."},
+
+    {"denomination": "usd_coin_0_50", "country": "US", "year_from": 1854, "year_to": 1872,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.400000", "fine_weight_ozt": "0.360000",
+     "note": "Act of 1853: 192 grains."},
+
+    {"denomination": "usd_coin_0_50", "country": "US", "year_from": 1874, "year_to": 1891,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.401877", "fine_weight_ozt": "0.361690",
+     "note": "90% silver half dollar, 12.5 g. Seated Liberty."},
 
     {"denomination": "usd_coin_0_50", "country": "US", "year_from": 1892, "year_to": 1964,
      "metal": "silver", "fineness": "0.9000",
@@ -50,10 +123,71 @@
      "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
      "note": "Copper-nickel clad."},
 
+    {"denomination": "usd_coin_1_00", "country": "US", "year_from": 1794, "year_to": 1804,
+     "metal": "silver", "fineness": "0.8924",
+     "gross_weight_ozt": "0.866667", "fine_weight_ozt": "0.773438",
+     "note": "Act of 1792: 416 grains, 371.25 of them silver. Flowing Hair and Draped Bust."},
+
     {"denomination": "usd_coin_1_00", "country": "US", "year_from": 1878, "year_to": 1935,
      "metal": "silver", "fineness": "0.9000",
      "gross_weight_ozt": "0.859380", "fine_weight_ozt": "0.773440",
      "note": "Morgan and Peace dollar, 26.73 g. The canonical ASW figure."},
+
+    {"denomination": "usd_coin_1_00", "series": "seated_liberty_dollar", "country": "US",
+     "year_from": 1840, "year_to": 1873,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.859380", "fine_weight_ozt": "0.773440",
+     "note": "Act of 1837: 412.5 grains, the Morgan's weight. Its own row because the gold dollar shares the denomination from 1849."},
+
+    {"denomination": "usd_coin_1_00", "series": "trade_dollar", "country": "US",
+     "year_from": 1873, "year_to": 1885,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.875000", "fine_weight_ozt": "0.787500",
+     "note": "420 grains, heavier than the standard dollar it circulated beside."},
+
+    {"denomination": "usd_coin_1_00", "series": "gold_dollar", "country": "US",
+     "year_from": 1849, "year_to": 1889,
+     "metal": "gold", "fineness": "0.9000",
+     "gross_weight_ozt": "0.053750", "fine_weight_ozt": "0.048375",
+     "note": "25.8 grains of 90% gold."},
+
+    {"denomination": "usd_coin_1_00", "series": "commemorative_dollar", "country": "US",
+     "year_from": 1983, "year_to": 2018,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.859380", "fine_weight_ozt": "0.773440",
+     "note": "Modern commemorative silver dollar, 26.73 g of 90% silver."},
+
+    {"denomination": "usd_coin_1_00", "series": "morgan_dollar", "country": "US",
+     "year_from": 2021,
+     "metal": "silver", "fineness": "0.9990",
+     "gross_weight_ozt": "0.859380", "fine_weight_ozt": "0.858521",
+     "note": "The restrike: 26.73 g of .999 silver."},
+
+    {"denomination": "usd_coin_1_00", "series": "peace_dollar", "country": "US",
+     "year_from": 2021,
+     "metal": "silver", "fineness": "0.9990",
+     "gross_weight_ozt": "0.859380", "fine_weight_ozt": "0.858521",
+     "note": "The restrike: 26.73 g of .999 silver."},
+
+    {"denomination": "usd_coin_1_00", "series": "anthony_dollar", "country": "US",
+     "year_from": 1979, "year_to": 1999,
+     "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
+     "note": "Copper-nickel clad."},
+
+    {"denomination": "usd_coin_1_00", "series": "sacagawea_dollar", "country": "US",
+     "year_from": 2000,
+     "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
+     "note": "Manganese-brass clad copper."},
+
+    {"denomination": "usd_coin_1_00", "series": "presidential_dollar", "country": "US",
+     "year_from": 2007, "year_to": 2020,
+     "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
+     "note": "Manganese-brass clad copper."},
+
+    {"denomination": "usd_coin_1_00", "series": "american_innovation_dollar", "country": "US",
+     "year_from": 2018,
+     "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
+     "note": "Manganese-brass clad copper."},
 
     {"denomination": "usd_coin_0_05", "country": "US", "year_from": 1943, "year_to": 1945,
      "metal": "silver", "fineness": "0.3500",
@@ -68,6 +202,75 @@
      "metal": "nickel", "fineness": "0.2500", "fine_weight_ozt": "0.000000",
      "note": "75% copper, 25% nickel, 5 g."},
 
+    {"denomination": "usd_coin_0_05", "series": "flowing_hair_half_dime", "country": "US",
+     "year_from": 1794, "year_to": 1795,
+     "metal": "silver", "fineness": "0.8924",
+     "gross_weight_ozt": "0.043333", "fine_weight_ozt": "0.038672",
+     "note": "Act of 1792: 20.8 grains, 1485/1664 fine."},
+
+    {"denomination": "usd_coin_0_05", "series": "draped_bust_half_dime", "country": "US",
+     "year_from": 1796, "year_to": 1805,
+     "metal": "silver", "fineness": "0.8924",
+     "gross_weight_ozt": "0.043333", "fine_weight_ozt": "0.038672",
+     "note": "Act of 1792: 20.8 grains, 1485/1664 fine."},
+
+    {"denomination": "usd_coin_0_05", "series": "capped_bust_half_dime", "country": "US",
+     "year_from": 1829, "year_to": 1836,
+     "metal": "silver", "fineness": "0.8924",
+     "gross_weight_ozt": "0.043333", "fine_weight_ozt": "0.038672",
+     "note": "Act of 1792: 20.8 grains, 1485/1664 fine. 1837 falls under the next Act."},
+
+    {"denomination": "usd_coin_0_05", "series": "seated_liberty_half_dime", "country": "US",
+     "year_from": 1837, "year_to": 1852,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.042969", "fine_weight_ozt": "0.038672",
+     "note": "Act of 1837: 20.625 grains, 90% silver."},
+
+    {"denomination": "usd_coin_0_05", "series": "seated_liberty_half_dime", "country": "US",
+     "year_from": 1854, "year_to": 1873,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.040000", "fine_weight_ozt": "0.036000",
+     "note": "Act of 1853: 19.2 grains. Its own row because the nickel shares the denomination from 1866."},
+
+    {"denomination": "usd_coin_0_03", "series": "three_cent_silver", "country": "US",
+     "year_from": 1851, "year_to": 1853,
+     "metal": "silver", "fineness": "0.7500",
+     "gross_weight_ozt": "0.025781", "fine_weight_ozt": "0.019336",
+     "note": "12.375 grains of 75% silver."},
+
+    {"denomination": "usd_coin_0_03", "series": "three_cent_silver", "country": "US",
+     "year_from": 1854, "year_to": 1873,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.024000", "fine_weight_ozt": "0.021600",
+     "note": "11.52 grains of 90% silver."},
+
+    {"denomination": "usd_coin_0_03", "series": "three_cent_nickel", "country": "US",
+     "year_from": 1865, "year_to": 1889,
+     "metal": "nickel", "fineness": "0.2500", "fine_weight_ozt": "0.000000",
+     "note": "75% copper, 25% nickel."},
+
+    {"denomination": "usd_coin_0_02", "country": "US", "year_from": 1864, "year_to": 1873,
+     "metal": "copper", "fineness": "0.9500", "fine_weight_ozt": "0.000000",
+     "note": "Bronze two-cent piece."},
+
+    {"denomination": "usd_coin_0_01", "series": "large_cent", "country": "US",
+     "year_from": 1793, "year_to": 1857,
+     "metal": "copper", "fineness": "1.0000", "fine_weight_ozt": "0.000000",
+     "note": "Pure copper. Its own row because the Flying Eagle cent shares 1856 and 1857."},
+
+    {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1793, "year_to": 1855,
+     "metal": "copper", "fineness": "1.0000", "fine_weight_ozt": "0.000000",
+     "note": "Pure copper large cent, of whichever type."},
+
+    {"denomination": "usd_coin_0_01", "series": "flying_eagle_cent", "country": "US",
+     "year_from": 1856, "year_to": 1858,
+     "metal": "copper", "fineness": "0.8800", "fine_weight_ozt": "0.000000",
+     "note": "88% copper, 12% nickel."},
+
+    {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1859, "year_to": 1863,
+     "metal": "copper", "fineness": "0.8800", "fine_weight_ozt": "0.000000",
+     "note": "88% copper, 12% nickel Indian Head cent. 1864 was struck in this alloy and in bronze."},
+
     {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1864, "year_to": 1942,
      "metal": "copper", "fineness": "0.9500", "fine_weight_ozt": "0.000000",
      "note": "Bronze cent, 3.11 g. Copper is not quoted per troy ounce for melt."},
@@ -78,6 +281,123 @@
 
     {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1983,
      "metal": "zinc", "fineness": "0.9750", "fine_weight_ozt": "0.000000",
-     "note": "Copper-plated zinc, 2.5 g."}
+     "note": "Copper-plated zinc, 2.5 g."},
+
+    {"denomination": "usd_coin_0_005", "country": "US", "year_from": 1793, "year_to": 1857,
+     "metal": "copper", "fineness": "1.0000", "fine_weight_ozt": "0.000000",
+     "note": "Pure copper half cent."},
+
+    {"denomination": "usd_coin_2_50", "country": "US", "year_from": 1840, "year_to": 1929,
+     "metal": "gold", "fineness": "0.9000",
+     "gross_weight_ozt": "0.134375", "fine_weight_ozt": "0.120938",
+     "note": "Quarter eagle: 64.5 grains of 90% gold. Liberty Head and Indian Head."},
+
+    {"denomination": "usd_coin_3_00", "country": "US", "year_from": 1854, "year_to": 1889,
+     "metal": "gold", "fineness": "0.9000",
+     "gross_weight_ozt": "0.161250", "fine_weight_ozt": "0.145125",
+     "note": "Three-dollar piece: 77.4 grains of 90% gold."},
+
+    {"denomination": "usd_coin_5_00", "country": "US", "year_from": 1840, "year_to": 1929,
+     "metal": "gold", "fineness": "0.9000",
+     "gross_weight_ozt": "0.268750", "fine_weight_ozt": "0.241875",
+     "note": "Half eagle: 129 grains of 90% gold. Liberty Head and Indian Head."},
+
+    {"denomination": "usd_coin_10_00", "country": "US", "year_from": 1838, "year_to": 1933,
+     "metal": "gold", "fineness": "0.9000",
+     "gross_weight_ozt": "0.537500", "fine_weight_ozt": "0.483750",
+     "note": "Eagle: 258 grains of 90% gold. Liberty Head and Indian Head."},
+
+    {"denomination": "usd_coin_20_00", "country": "US", "year_from": 1850, "year_to": 1933,
+     "metal": "gold", "fineness": "0.9000",
+     "gross_weight_ozt": "1.075000", "fine_weight_ozt": "0.967500",
+     "note": "Double eagle: 516 grains of 90% gold. Liberty Head and Saint-Gaudens."},
+
+    {"series": "american_silver_eagle", "country": "US", "year_from": 1986,
+     "metal": "silver", "fineness": "0.9990", "fine_weight_ozt": "1.000000",
+     "note": "One troy ounce of silver, the only size struck."},
+
+    {"denomination": "usd_coin_5_00", "series": "american_gold_eagle", "country": "US",
+     "year_from": 1986,
+     "metal": "gold", "fineness": "0.9167",
+     "gross_weight_ozt": "0.109100", "fine_weight_ozt": "0.100000",
+     "note": "Tenth-ounce Gold Eagle, 22 karat."},
+
+    {"denomination": "usd_coin_10_00", "series": "american_gold_eagle", "country": "US",
+     "year_from": 1986,
+     "metal": "gold", "fineness": "0.9167",
+     "gross_weight_ozt": "0.272700", "fine_weight_ozt": "0.250000",
+     "note": "Quarter-ounce Gold Eagle, 22 karat."},
+
+    {"denomination": "usd_coin_25_00", "series": "american_gold_eagle", "country": "US",
+     "year_from": 1986,
+     "metal": "gold", "fineness": "0.9167",
+     "gross_weight_ozt": "0.545500", "fine_weight_ozt": "0.500000",
+     "note": "Half-ounce Gold Eagle, 22 karat."},
+
+    {"denomination": "usd_coin_50_00", "series": "american_gold_eagle", "country": "US",
+     "year_from": 1986,
+     "metal": "gold", "fineness": "0.9167",
+     "gross_weight_ozt": "1.090900", "fine_weight_ozt": "1.000000",
+     "note": "One-ounce Gold Eagle, 22 karat."},
+
+    {"denomination": "usd_coin_5_00", "series": "american_gold_buffalo", "country": "US",
+     "year_from": 2006,
+     "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "0.100000",
+     "note": "Tenth-ounce Gold Buffalo."},
+
+    {"denomination": "usd_coin_10_00", "series": "american_gold_buffalo", "country": "US",
+     "year_from": 2006,
+     "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "0.250000",
+     "note": "Quarter-ounce Gold Buffalo."},
+
+    {"denomination": "usd_coin_25_00", "series": "american_gold_buffalo", "country": "US",
+     "year_from": 2006,
+     "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "0.500000",
+     "note": "Half-ounce Gold Buffalo."},
+
+    {"denomination": "usd_coin_50_00", "series": "american_gold_buffalo", "country": "US",
+     "year_from": 2006,
+     "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "1.000000",
+     "note": "One-ounce Gold Buffalo."},
+
+    {"denomination": "usd_coin_10_00", "series": "american_platinum_eagle", "country": "US",
+     "year_from": 1997,
+     "metal": "platinum", "fineness": "0.9995", "fine_weight_ozt": "0.100000",
+     "note": "Tenth-ounce Platinum Eagle."},
+
+    {"denomination": "usd_coin_25_00", "series": "american_platinum_eagle", "country": "US",
+     "year_from": 1997,
+     "metal": "platinum", "fineness": "0.9995", "fine_weight_ozt": "0.250000",
+     "note": "Quarter-ounce Platinum Eagle."},
+
+    {"denomination": "usd_coin_50_00", "series": "american_platinum_eagle", "country": "US",
+     "year_from": 1997,
+     "metal": "platinum", "fineness": "0.9995", "fine_weight_ozt": "0.500000",
+     "note": "Half-ounce Platinum Eagle."},
+
+    {"denomination": "usd_coin_100_00", "series": "american_platinum_eagle", "country": "US",
+     "year_from": 1997,
+     "metal": "platinum", "fineness": "0.9995", "fine_weight_ozt": "1.000000",
+     "note": "One-ounce Platinum Eagle."},
+
+    {"series": "american_palladium_eagle", "country": "US", "year_from": 2017,
+     "metal": "palladium", "fineness": "0.9995", "fine_weight_ozt": "1.000000",
+     "note": "One troy ounce of palladium, the only size struck."},
+
+    {"series": "first_spouse_gold", "country": "US", "year_from": 2007, "year_to": 2020,
+     "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "0.500000",
+     "note": "Half an ounce of gold."},
+
+    {"series": "winged_liberty_head_dime", "country": "US", "year_from": 2016, "year_to": 2016,
+     "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "0.100000",
+     "note": "The centennial restrike, a tenth of an ounce of gold."},
+
+    {"series": "standing_liberty_quarter", "country": "US", "year_from": 2016, "year_to": 2016,
+     "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "0.250000",
+     "note": "The centennial restrike, a quarter ounce of gold."},
+
+    {"series": "walking_liberty_half", "country": "US", "year_from": 2016, "year_to": 2016,
+     "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "0.500000",
+     "note": "The centennial restrike, half an ounce of gold."}
   ]
 }

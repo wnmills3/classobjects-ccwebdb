@@ -210,7 +210,7 @@ would change and writes no database rows.
 
 | Pass | Does | Options |
 |---|---|---|
-| `python -m app.classifier_defaults` | fills note class, seal, signatures, Reserve Bank, composition and No Motto from the facts | `--commit` |
+| `python -m app.classifier_defaults` | fills note class, seal, signatures, Reserve Bank, composition and No Motto from the facts; run it again after `app.series_classify` assigns a coin a series, which its composition may follow from | `--commit` |
 | `python -m app.series_match` | assigns a coin's series from the design its title or description names | `--commit` |
 | `python -m app.series_classify` | assigns series from denomination and year, for coins the text left and all notes | `--commit` |
 | `python -m app.serial_patterns` | derives star, radar, repeater and similar designations from a note's serial, and takes back one it derived that the serial no longer earns (the serial was corrected); the dry run lists those too, and a designation a person set or removed is never touched | `--commit` |
@@ -324,7 +324,7 @@ Note's serial names its Reserve Bank; a 1964 dime is 90% silver
 |---|---|---|
 | note class, seal, signatures | denomination, series year and letter | `note_issue.json` (Series 1928-2021) |
 | Reserve Bank | a Federal Reserve Note's serial | BEP's serial rules |
-| composition, metal, fineness, weights | denomination, country and year | `composition.json` |
+| composition, metal, fineness, weights | denomination or design series, country and year -- the series alone where the design was struck in one composition | `composition.json` |
 | the No Motto attribute | a $1 Silver Certificate's series | `app/attribute_rules.py` |
 
 **No Motto** ("Godless"): every $1 Silver Certificate of Series 1928 through
@@ -368,7 +368,13 @@ weight**, **Fineness**, **Fine weight** and **Weight as written**. A weight is p
 and is typed in troy ounces or grams, by the unit picker beside the box; it
 is kept in troy ounces either way (a gram is 0.032151 troy ounces).
 
-A coin's weight comes from its composition (*Classifier defaults*). A bar, a
+A coin's weight comes from its composition (*Classifier defaults*): from its
+denomination and year, or from its **Series** where the design has figures
+of its own -- a Silver Eagle, a commemorative dollar, a Morgan of 2021 --
+and from the series alone when the coin has no year and its design was
+struck in one composition (a Morgan dollar, a Franklin half; not a Roosevelt
+dime, which was silver and then clad). A Gold Eagle, Gold Buffalo or
+Platinum Eagle also needs its denomination, which says the size. A bar, a
 round or a medal has none, so its weight is entered: gross weight and
 fineness, and the fine weight is worked out as their product when it is left
 empty. Type the fine weight when it is what is known. Emptying it keeps it

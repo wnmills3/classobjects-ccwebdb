@@ -36,12 +36,17 @@ __all__ = ["Composition", "MetalPrice", "ValuationSnapshot"]
 
 
 class Composition(TimestampMixin, Base):
-    """What a coin is made of, by denomination, country and year range.
+    """What a coin is made of, by denomination or series, country and year range.
 
     Coinage composition is a matter of legislation and mint specification, so
     it is a *public fact* that resolves from what the item already is, rather
     than something recorded per item. A US dime struck in 1963 is 90% silver
     because the law said so, not because anyone typed it in.
+
+    A row names a denomination, a design series, or both. One naming a series
+    describes that design alone and outranks a row for the denomination: a
+    Morgan dollar of 2021 is .999 silver, a Sacagawea dollar of the same year
+    is not silver at all, and a Silver Eagle has no denomination to go by.
 
     Overridable per item: `inventory_item` carries its own metal, fineness and
     weights for the cases this table cannot know about.
@@ -50,8 +55,13 @@ class Composition(TimestampMixin, Base):
     __tablename__ = "composition"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    denomination_id: Mapped[int] = mapped_column(
-        ForeignKey("denomination.id", ondelete="RESTRICT"), index=True, nullable=False
+    denomination_id: Mapped[int | None] = mapped_column(
+        ForeignKey("denomination.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    #: The design this row describes, when it is one design's and not every
+    #: coin's of the denomination.
+    series_id: Mapped[int | None] = mapped_column(
+        ForeignKey("series.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     country_id: Mapped[int] = mapped_column(
         ForeignKey("country.id", ondelete="RESTRICT"), index=True, nullable=False
@@ -92,12 +102,21 @@ class Composition(TimestampMixin, Base):
         CheckConstraint(
             "fine_weight_ozt >= 0", name="ck_composition_fine_weight_non_negative"
         ),
+        CheckConstraint(
+            "denomination_id IS NOT NULL OR series_id IS NOT NULL",
+            name="ck_composition_names_a_coin",
+        ),
+        # NULLS NOT DISTINCT: a row names a denomination, a series or both,
+        # and an ordinary unique constraint treats every null as different,
+        # so a re-load could add the same span twice.
         UniqueConstraint(
             "denomination_id",
+            "series_id",
             "country_id",
             "year_from",
             "metal_id",
             name="uq_composition_span",
+            postgresql_nulls_not_distinct=True,
         ),
         Index("ix_composition_lookup", "denomination_id", "country_id", "year_from"),
     )

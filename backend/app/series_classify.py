@@ -555,16 +555,18 @@ def _stale(db: Session, designs: list[Design], item_ids: Collection[int]) -> lis
     return stale
 
 
-def refresh_series(db: Session, item_ids: Collection[int]) -> None:
+def refresh_series(db: Session, item_ids: Collection[int]) -> set[int]:
     """Bring these items' design series up to date with their facts, uncommitted.
 
     Called when an item is created or edited. A series this pass or an
     accepted suggestion wrote, which the facts now rule out, is cleared with
     its record; then each item left without one, and not held empty, is
     decided as the batch decides it. A person's series is never touched.
+
+    Returns the items whose series it changed.
     """
     if not item_ids:
-        return
+        return set()
     db.flush()
     designs = load_designs(db)
     stale = _stale(db, designs, item_ids)
@@ -589,6 +591,7 @@ def refresh_series(db: Session, item_ids: Collection[int]) -> None:
         )
     record_derived_many(db, assignments, ["series_id"], SERIES_CLASSIFY)
     db.flush()
+    return set(stale) | set(assignments)
 
 
 def run(db: Session, *, commit: bool) -> Report:
