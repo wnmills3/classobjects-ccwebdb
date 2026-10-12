@@ -39,6 +39,13 @@ def _enter(
         "serial_number": "A38164927B",
     }
     payload.update(overrides)
+    made = _make(client, headers, payload)
+    # The editor's first save, changing nothing: what enters the note.
+    return _save(client, headers, made, source_title=payload["source_title"])
+
+
+def _make(client: TestClient, headers: Headers, payload: dict[str, object]) -> dict:
+    """The row a new item starts as, before the editor has saved it."""
     res = client.post("/api/inventory", json=payload, headers=headers)
     assert res.status_code == 201, res.text
     return res.json()
@@ -70,6 +77,28 @@ def test_a_note_entered_at_no_cost_is_a_gift_and_described_as_one(
     assert item["description"] == (
         "Gift 1957B $1 S/N A38164927B. Silver Certificate Blue Seal."
     )
+
+
+def test_a_row_just_made_is_no_gift_yet_and_has_no_description(
+    client: TestClient, admin_headers: Headers, db: Session
+) -> None:
+    """Its cost has not been typed: $0 here means nothing was entered."""
+    made = _make(
+        client,
+        admin_headers,
+        {
+            "purchase_order_id": build_purchase_order(
+                db, vendor_name="Unsaved Vendor"
+            ).id,
+            "item_kind": "currency",
+            "source_title": "Gift $1 Bill",
+            "series_year": 1957,
+        },
+    )
+    assert made["item_cost"] == "0.00"
+    assert _gift(made) is None
+    assert made["description"] == ""
+    assert made["source_title"] == "Gift $1 Bill"
 
 
 def test_a_note_entered_at_a_cost_is_no_gift(

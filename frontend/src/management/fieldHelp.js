@@ -346,10 +346,10 @@ export const FIELD_HELP = {
     title: 'Add another like it',
     text:
       'Starts the next piece from what it shares with the last one saved here: ' +
-      'kind, title, listing, status, where it is kept, country, denomination, ' +
-      "series, grading service, and a note's series, seal, class and " +
-      "signatures or a coin's metal and mint. Grade, serial, certificate, " +
-      'years and cost are entered for each piece.',
+      'kind, title, cost, shipping, listing, status, where it is kept, country, ' +
+      "denomination, series, grading service, and a note's series, seal, class " +
+      "and signatures or a coin's metal and mint. Grade, serial, certificate, " +
+      'years and description are entered for each piece.',
   },
   description: {
     title: 'Description',
