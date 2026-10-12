@@ -21,7 +21,7 @@ class _NoopParams(BaseModel):
     """A report that takes one parameter -- a real subclass, not `BaseModel`.
 
     Typing `run` on this exact subclass (not the widened `BaseModel`) is
-    what exercises `Report`'s generic parameter: if `Report.run` were still
+    what exercises `Report`'s generic parameter: were `Report.run` typed
     `Callable[[Session, BaseModel], ReportResult]`, assigning `_run_noop`
     below (whose second parameter is `_NoopParams`, not `BaseModel`) would
     fail mypy on contravariance grounds.

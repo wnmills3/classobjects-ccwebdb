@@ -94,9 +94,9 @@ describe('recordSale', () => {
     saveTokens({ access_token: 'a', refresh_token: 'r' })
     const fetchMock = captureFetch()
 
-    // Three different numbers throughout, on purpose: a fixture where gross,
-    // one fee and price coincide could pass a body assertion for the wrong
-    // reason -- one value standing in for another.
+    // Different numbers for the price and the fee, on purpose: a fixture
+    // where they coincide could pass a body assertion for the wrong reason --
+    // one value standing in for another.
     await api.recordSale(14, {
       price: '115.00',
       buyer_username: 'coinfan88',
@@ -124,7 +124,7 @@ describe('recordSale', () => {
     expect(typeof body.fees[0].amount).toBe('string')
   })
 
-  it('sends a blank buyer and order id as null, not as an empty string', async () => {
+  it('sends a null buyer and order id, and no fees, as they are given', async () => {
     saveTokens({ access_token: 'a', refresh_token: 'r' })
     const fetchMock = captureFetch()
 
@@ -207,8 +207,8 @@ describe('auctions', () => {
   })
 
   it('settles an auction with the hammer prices and fees as the exact strings typed', async () => {
-    // Three different figures throughout, on purpose (as `recordSale`'s own
-    // test above does): a fixture where the hammer price and a fee coincide
+    // Different figures for the hammer price and the fee, on purpose (as
+    // `recordSale`'s own test above does): a fixture where they coincide
     // could pass for the wrong reason.
     saveTokens({ access_token: 'a', refresh_token: 'r' })
     const fetchMock = captureFetch()

@@ -248,8 +248,9 @@ def test_a_form_opened_before_the_merge_is_refused(
     [
         # A facts table uses it: composition names the denomination.
         ("denomination", "usd_coin_0_10", "usd_coin_0_25", 409, "composition"),
-        # A series has year ranges and nicknames of its own.
+        # A code that names no value is a 404.
         ("series", "mercury_dime_x", "morgan_dollar", 404, "has no value"),
+        # A series has year ranges of its own, which are facts.
         (
             "series",
             "winged_liberty_head_dime",

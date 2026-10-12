@@ -84,9 +84,11 @@ def set_status(
     Returns nothing, but is **order-critical**: it assigns `item.status_id`
     without flushing, so a caller that then invokes a writer which re-reads
     that row with `populate_existing` loses the assignment. Flush between.
-    `routers.inventory.receive_items` and `splitting.split_item` both flush
-    for this reason. Production runs `autoflush=False` while the
-    test suite does not -- so the suite cannot see the difference.
+    `routers.inventory._end_offers_holding` flushes for this reason, on
+    behalf of `receive_items`, `bulk_edit` and `update_item`;
+    `splitting.split_item` flushes its `split_at` assignment for the same
+    one. Production runs `autoflush=False` while the test suite does not --
+    so the suite cannot see the difference.
     """
     if item.status_id == to_status_id:
         return

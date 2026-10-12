@@ -221,7 +221,8 @@
   max-width: 60rem;
   padding-left: 0.6rem;
 }
-/* Rename and Retire, under a value's label. */
+/* A value's actions -- Rename, Retire or Restore, Merge into..., Edit
+   details... -- under its label. */
 .value-actions {
   display: flex;
   gap: 0.6rem;

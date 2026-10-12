@@ -1,8 +1,8 @@
 {
   "_comment": [
     "Item attributes: what an item is, beyond its grade. Many per item, for",
-    "coins and notes alike -- a coin can be DCAM and First Strike and",
-    "CAC-approved, a note a star note and a fancy serial and No Motto.",
+    "coins and notes alike -- a coin can be First Strike and CAC-approved,",
+    "a note a star note and a fancy serial and No Motto.",
     "docs/specs/item-attributes-design.md, section 2.",
     "",
     "attribute_group says what kind of fact each is: serial (read from a",

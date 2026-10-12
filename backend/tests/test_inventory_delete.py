@@ -108,10 +108,11 @@ def test_a_lot_with_pieces_cannot_be_deleted(
 def test_a_listed_item_cannot_be_deleted(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """A listing is what an order line points at, through to the sale.
+    """An item that has been offered is refused, and the refusal says why.
 
-    Guarding on the listing rather than on the order is the wider net and the
-    cheaper query: an item cannot reach an order without one.
+    The guard is `sale_state.ever_offered`, which is wider than a guard on
+    the order: an item cannot reach an order without an offer. Its message
+    says that ending the listing does not remove the item.
     """
     listing = build_listing(db)
     response = client.delete(

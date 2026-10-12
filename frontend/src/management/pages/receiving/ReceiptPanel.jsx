@@ -215,8 +215,9 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
 
       // The arrival above is the fact; a photograph is evidence added to it
       // afterwards. A failed upload must not undo the receipt just recorded,
-      // so it is caught on its own -- reported against the item, retryable,
-      // and never allowed to roll the receipt back.
+      // so it is caught on its own -- reported by file name, and never
+      // allowed to roll the receipt back. There is no retry here: the
+      // photograph is added later from the item's own photographs.
       //
       // It runs BEFORE `onDone`, and `onDone` is skipped when it fails. The
       // caller closes a dialog on `onDone`, which unmounts this component:

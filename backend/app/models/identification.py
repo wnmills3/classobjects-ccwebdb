@@ -115,8 +115,8 @@ class ItemError(Base):
         default=ProvenanceSource.manual,
         nullable=False,
     )
-    #: SET NULL rather than CASCADE: deactivating a member of staff must not
-    #: erase the record that the error was noted.
+    #: SET NULL rather than CASCADE: removing an account must not erase the
+    #: record that the error was noted.
     noted_by_id: Mapped[int | None] = mapped_column(
         ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
@@ -161,8 +161,8 @@ class ItemAttributeLink(Base):
         default=ProvenanceSource.manual,
         nullable=False,
     )
-    #: Which rule derived it (`serial_pattern`, `attribute_rule`); None for a
-    #: person's and for links older than the column.
+    #: Which rule derived it (`serial_pattern`, `attribute_rule`, `no_cost`);
+    #: None for a person's, and for a derived link that names no rule.
     derived_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     noted_by_id: Mapped[int | None] = mapped_column(
         ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
@@ -170,8 +170,8 @@ class ItemAttributeLink(Base):
     noted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
-    #: Set when a person removed a derived attribute; the row is kept so no
-    #: rule adds it back.
+    #: Set when a person removed the attribute, a rule's or their own; the
+    #: row is kept so no rule adds it back.
     removed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -221,8 +221,8 @@ class FriedbergNumber(TimestampMixin, Base):
     #: and Fort Worth's printings of one series carry different numbers, so
     #: this is part of the identity below, as `web_press` is.
     printing_facility: Mapped[str | None] = mapped_column(String(2), nullable=True)
-    #: A star note's number (`3006-A*`) and a mule's (`3007-Em`), read from
-    #: `fr_number`, past any seal shade (`3006-A* LGS`) -- the same rule as
+    #: A star note's number (`9906-A*`) and a mule's (`9907-Em`), read from
+    #: `fr_number`, past any seal shade (`9906-A* LGS`) -- the same rule as
     #: `app.fr_format.fr_traits`. Generated, so they can never disagree with
     #: the number. Part of the identity below: a mule differs from its plain
     #: type only by its plates and a star note only by its serial, neither a

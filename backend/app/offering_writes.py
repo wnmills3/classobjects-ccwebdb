@@ -38,16 +38,18 @@ statements are not a sorted acquisition, and the listing half is where a lot
 makes that a real hazard (`_lock_listing_rows`).
 
 **That order lives in exactly one function, `_acquire`, and every writer that
-takes more than one kind of row reaches it through `lock_for_sale`.** Eight
+takes more than one kind of row reaches it through `lock_for_sale`.** Ten
 call sites call `lock_for_sale` itself: `offer` and `end_offer` here,
 `order_writes._lock_listings` (for `place_order`, `revise_order` and
-`return_stock`), `sales_writes.record_sale_lines`, `auctions.settle`, and
-`routers.inventory`'s `receive_items`, `bulk_edit` and `update_item`. Others
-reach it through `offer` or `end_offer` while holding a row of their own:
+`return_stock`), `sales_writes.record_sale_lines`, `auctions.remove_lot`,
+`cancel` and `settle`, and `routers.inventory`'s `receive_items`,
+`update_item` and `_lock_offers_holding` (for `bulk_edit`). Others reach it
+through `offer` or `end_offer` while holding a row of their own:
 `splitting.split_item` holds the parent `inventory_item` row, the same
-shape as `offer`'s lot lock, and `auctions.add_lot`, `remove_lot` and
-`cancel` hold the `auction` row. `_acquire`'s own docstring carries the
-rest, and `docs/specs/lock-order-design.md` lists every writer and every
+shape as `offer`'s lot lock, and `auctions.add_lot` holds the `auction` row,
+which `remove_lot`, `cancel` and `settle` also take before their own pass.
+`_acquire`'s own docstring carries the rest, and
+`docs/specs/lock-order-design.md` lists every writer and every
 `with_for_update` in the package. The order is this one because it is the
 one that carries a guarantee: the listing set here is *derived* from claims
 this module alone writes, and `_lock_listing_rows` says why that needs the
@@ -781,9 +783,9 @@ def lock_for_sale(
     claims are read" true rather than nearly true.
 
     `including_paused` widens the derived item set from `offered_items` to
-    `_affected_items` (see `_items_of`). Four callers pass it, each because
-    it ends offers: `end_offer`, and `routers.inventory`'s `receive_items`,
-    `bulk_edit` and `update_item`.
+    `_affected_items` (see `_items_of`). Six callers pass it, each because
+    it ends offers: `end_offer`, `auctions.remove_lot` and `cancel`, and
+    `routers.inventory`'s `receive_items`, `bulk_edit` and `update_item`.
 
     **The one obligation this function does not discharge, and the only rule
     in this design a caller has to remember.** The listing rows it hands back
@@ -804,6 +806,10 @@ def lock_for_sale(
     `bulk_edit` and `update_item`, each of which ends whatever
     `offers_holding` returns rather than a list of ids. Every other caller
     ends only listings it named, whose lot rows are always held.
+    `auctions.settle` is the exception in form only: it passes item ids and
+    ends each unsold lot's own listing, under the `auction` row it holds, on
+    a closed auction whose lots cannot change, so the lot rows its
+    `offers_holding` read chose are the ones it ends.
 
     It is not enforced here, and that is measured rather than lazy: refusing
     inside this function turns ordinary lost races into 500s -- keyed on the
@@ -1234,9 +1240,11 @@ def offered_items(db: Session, listing: Listing) -> list[InventoryItem]:
     One for an item listing; a lot listing's open members for a lot. The
     one answer in the codebase to "which items": `lock_for_sale` (through
     `_items_of`), `order_writes._after_stock_change` and `_sync_shares`,
-    `sales_writes._shared_items`, `sale_snapshot.take`, and `auctions`'
-    `consign`, `settle` and `_return_from_consignment` all ask here rather
-    than each deciding for themselves, because several answers to one
+    `sales_writes._shared_items`, `sale_snapshot.take`,
+    `auctions._move_lot_items` (for `consign` and
+    `_return_from_consignment`), `auctions.settle` and `routers.inventory`
+    all ask here rather than each deciding for themselves, because several
+    answers to one
     question are several places for a lot's members to be silently skipped.
 
     Deliberately *narrower* than `_affected_items`, which also carries the

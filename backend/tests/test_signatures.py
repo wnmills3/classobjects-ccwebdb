@@ -1,8 +1,9 @@
-"""Signature combinations, and narrowing a picker by a note's series year.
+"""Signature combinations, and narrowing the vocabulary to a year in office.
 
-Signatures are what separate one catalog variant of a note from another, so
-offering the wrong one is a wrong lookup rather than a cosmetic slip. The year
-filter exists to make the wrong choice unavailable.
+`?year=` answers who held office in a year (`routers.reference._limit_to_year`).
+It is not the pairs a note of that *series* can carry -- a lettered series is
+printed later, under later officials -- which `GET /api/friedberg/signatures`
+answers from the issue facts (`test_friedberg.py`).
 """
 
 from __future__ import annotations
@@ -32,10 +33,10 @@ def test_treasurer_and_secretary_come_through(client: TestClient) -> None:
 
 
 def test_a_year_narrows_to_the_possible_pairs(client: TestClient) -> None:
-    """The point of the filter.
+    """A year gives the pairs in office that year, and no others.
 
-    A 1935A note was printed in 1936 and can only carry Julian/Morgenthau.
-    Offering the other pairs invites a wrong catalog lookup.
+    Julian and Morgenthau alone held office in 1936, Priest and Humphrey
+    alone in 1954.
     """
     assert _labels(client, "?year=1936") == ["Julian / Morgenthau"]
     assert _labels(client, "?year=1954") == ["Priest / Humphrey"]

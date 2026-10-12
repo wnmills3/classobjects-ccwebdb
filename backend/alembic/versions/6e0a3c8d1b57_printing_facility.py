@@ -1,9 +1,9 @@
 """Where a note was printed: Washington (dc) or Fort Worth (fw).
 
 The printing location, with the face and back plate
-numbers already on `currency_detail`, tells two Friedberg numbers apart -- a
-2017-A $1 is 3005-A from Washington, 3006-A from Fort Worth -- so it is on the
-note and on the catalogue row, and part of the catalogue's identity index as
+numbers already on `currency_detail`, tells two Friedberg numbers apart --
+Washington's and Fort Worth's printings of one series are numbered
+separately -- so it is on the note and on the catalogue row, and part of the catalogue's identity index as
 `web_press` is. Every value starts empty; a note's is read from its face plate
 when one is recorded (`app.plates`).
 

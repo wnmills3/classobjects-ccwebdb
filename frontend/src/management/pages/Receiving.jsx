@@ -24,10 +24,10 @@ function orderIdFromParams(params) {
  * number, and the same form finds an item in hand whose order is not known.
  *
  * **`?order=<id>` opens on that order** -- Purchases' "Receive these" links
- * here that way. The order's number is
- * read and handed to the search, which runs at once with it. The search is
- * keyed on that number, so following a link to another order starts a fresh
- * search rather than keeping the last one's fields.
+ * here that way. The order is read, its number is shown in the search's
+ * order number field, and the search runs at once by the order's id. The
+ * search is keyed on that id, so following a link to another order starts a
+ * fresh search rather than keeping the last one's fields.
  *
  * `receiving` holds the line whose receipt dialog is open, together with the
  * order link it was opened under. The dialog is rendered only while that

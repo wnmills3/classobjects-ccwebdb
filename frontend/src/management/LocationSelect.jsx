@@ -7,8 +7,8 @@ import { ReferenceSelect } from '../shared/reference'
 import { orNull } from '../shared/text'
 import { useInlineAdd } from './useInlineAdd'
 
-//: Location kinds other code makes -- a consignment by the auctions, a sold
-//: item's by the sale -- and the server refuses from a picker.
+//: Location kinds not made by hand -- the auction code makes a `consigned`
+//: one and `sold` is reserved -- which the server refuses from a picker.
 const MADE_ELSEWHERE = new Set(['consigned', 'sold'])
 
 const BLANK_DRAFT = { kind: '', institution: '', identifier: '' }

@@ -76,8 +76,8 @@ __all__ = [
     "vendor_key",
 ]
 
-#: The name eBay purchases are usually recorded under. A vendor is eBay by
-#: `is_ebay`, whatever it is called.
+#: The name eBay purchases are usually recorded under; the tests make their
+#: vendor by it. A vendor is eBay by `is_ebay`, whatever it is called.
 EBAY = "ebay.com"
 #: eBay's own host name, whatever the country: `ebay.com`, `www.ebay.co.uk`.
 #: The whole label, so a site whose name only contains the letters is not

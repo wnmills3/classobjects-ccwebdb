@@ -39,9 +39,9 @@ def get_current_user(
     user = db.get(User, user_id)
     if user is None:
         raise _credentials_error
-    # A token issued before the password last changed is dead. Absent claim
-    # means a token minted before this check existed, which is also dead --
-    # failing closed is the only safe reading of "I cannot tell".
+    # A token issued before the password last changed is dead. A token with
+    # no version claim is refused too -- failing closed is the only safe
+    # reading of "I cannot tell".
     if payload.get("tv") != user.token_version:
         raise _credentials_error
     if not user.is_active:

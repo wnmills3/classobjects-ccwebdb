@@ -154,10 +154,11 @@ def split_item(
 
     Raises `SplitError` for an unknown mode, fewer than two pieces, a lot
     already split, a lot that is itself a piece, a piece holding less than
-    one item, a lot that appears in an order -- sold on its own or inside a
-    sales lot -- or **an open member of a sales lot that is currently
-    offered**, and `AllocationError`
-    from `allocate` if the cost cannot be divided. `routers.inventory`
+    one item, a `relative` split with a value missing or negative, a lot
+    that appears in an order -- sold on its own or inside a sales lot -- or
+    **an open member of a sales lot that is currently offered**, and
+    `AllocationError` from `allocate` if the cost cannot be divided.
+    `routers.inventory`
     catches only the first, so an `AllocationError` here is a 500.
 
     The last two are a pair -- sold inside a lot, and offered inside one --

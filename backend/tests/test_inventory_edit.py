@@ -117,6 +117,9 @@ def test_omitting_the_version_edits_unconditionally(
     )
     assert response.status_code == 200
 
+    db.refresh(item)
+    assert item.source_title == "no version sent"
+
 
 def test_an_omitted_field_is_left_alone(
     client: TestClient, admin_headers: dict[str, str], db: Session

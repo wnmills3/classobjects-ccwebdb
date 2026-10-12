@@ -3,7 +3,7 @@
 A purchase created with no order number of its own is given the next
 generated one, `Order-0001` and up: one entered with none could not be
 found again. `PATCH /api/purchase-orders/{id}` changes
-the number, date, web address or notes afterwards.
+the number, date, web address, seller or notes afterwards.
 """
 
 from __future__ import annotations

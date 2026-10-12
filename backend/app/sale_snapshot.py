@@ -48,9 +48,8 @@ __all__ = ["SNAPSHOT_VERSION", "take"]
 
 #: Bumped when the shape changes, so a reader can tell old copies apart.
 #:
-#: 2 is where lots arrive: a snapshot may now carry `items` and `lot` instead
-#: of `item`, so the *set* of shapes a reader may meet changed even though no
-#: single-item key moved. A reader has to be able to tell which one it holds.
+#: Version 2 carries either `item`, or `items` and `lot`; version 1 always
+#: carries `item`. A reader tells them apart by this number.
 SNAPSHOT_VERSION = 2
 
 #: Fields of the editor's view that describe the editing, not the item.

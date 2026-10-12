@@ -273,7 +273,10 @@ def test_refresh_issues_new_tokens(client: TestClient, customer_user: User) -> N
 def test_refresh_token_is_not_accepted_as_access_token(
     client: TestClient, customer_user: User
 ) -> None:
-    """Token type confusion must be rejected in both directions."""
+    """A refresh token is refused where an access token is required.
+
+    The other direction is the next test.
+    """
     login = client.post(
         "/api/auth/login",
         data={"username": customer_user.email, "password": CUSTOMER_PASSWORD},

@@ -155,8 +155,9 @@ def _write_cell(
 def _param_cell_value(value: object, *, is_date: bool) -> float | str | date:
     """One parameter's own resolved value, as its workbook cell holds it.
 
-    Every report parameter today is an `int`, a `Literal` string or a
-    `DateRange` bound. An `int` is written as `Cell.value` requires -- as a
+    Every report parameter is an `int`, a string -- a `Literal` choice, or
+    free text such as `pr_received_items`' vendor -- or a `DateRange` bound.
+    An `int` is written as `Cell.value` requires -- as a
     float, the same conversion `_numeric` uses -- a string as it is, and a
     `date` as a date cell. An absent date bound (`None`) is written as the
     word "any", the same word the CLI's parameters line and the console's

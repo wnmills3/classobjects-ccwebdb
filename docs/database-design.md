@@ -362,7 +362,7 @@ All serials and numbers are text.
 |---|---|---|
 | `item_certification` | `id`; `inventory_item_id`, `grading_service_id`, `cert_number` (indexed) | one to many: a lot may hold several certified pieces |
 | `item_error` | `id`; `inventory_item_id`, `error_type_id`, `details`, `source`, `noted_by_id`, `noted_at` | unique `(inventory_item_id, error_type_id)`: a miscut and an overprint on one bill are two rows, the same error twice is one |
-| `item_attribute_link` | pk `(inventory_item_id, item_attribute_id)`; `source`, `derived_by`, `noted_by_id`, `noted_at`, `removed_at` | many to many; `derived_by` names the rule (`serial_pattern`, `attribute_rule`) |
+| `item_attribute_link` | pk `(inventory_item_id, item_attribute_id)`; `source`, `derived_by`, `noted_by_id`, `noted_at`, `removed_at` | many to many; `derived_by` names the rule (`serial_pattern`, `attribute_rule`, `no_cost`) |
 
 **A removed attribute stays removed.** A rule reading the serial would put a
 deleted link straight back, so a person removing one sets `removed_at`; every
@@ -371,12 +371,14 @@ reader skips such rows and every rule leaves them alone.
 ### Type catalogs
 
 A Friedberg or PCGS number identifies a *type*, not an object. Both are
-commercial catalogs, so both tables are **curated as notes and coins
-arrive**, not seeded (see `docs/reference-data.md`). Resolution against
-them is a proposal, never a derivation: the lookup returns the rows that
-match what is known of the note, in the order they were recorded, a person
-confirms one, and confirmation stamps `verified_by_id` and `verified_at` so
-the next lookup can trust the row.
+commercial catalogs, so neither table is seeded (see
+`docs/reference-data.md`). `friedberg_number` is **curated as notes
+arrive**. Resolution against it is a proposal, never a derivation: the
+lookup returns the rows that match what is known of the note, in the order
+they were recorded, a person confirms one, and confirmation stamps
+`verified_by_id` and `verified_at` so the next lookup can trust the row.
+`pcgs_type`, with `coin_detail.pcgs_type_id` and `pcgs_status`, is in the
+schema and nothing in the application writes or reads it.
 
 | `friedberg_number` | Notes |
 |---|---|
@@ -402,8 +404,8 @@ recorded twice under two numbers. That makes every column that tells two
 types apart a member: many series differ only by signatures, and wartime
 issues only by seal color. A mule differs from its plain type only by its
 plates and a star note only by its serial -- neither a catalog fact -- so
-the number's own `m` and `*` are members too: `3007-E`, `3007-Em` and
-`3007-E*` are three types.
+the number's own `m` and `*` are members too: `9907-E`, `9907-Em` and
+`9907-E*` are three types.
 
 | `pcgs_type` | Notes |
 |---|---|
@@ -493,7 +495,8 @@ latest-quote lookup.
 `fine_weight_ozt`, `piece_count`, `melt_value`, `numismatic_value`,
 `reported_value`. Recording the inputs makes each figure reproducible;
 `piece_count` is copied rather than joined so a later correction to the item
-does not restate a past valuation.
+does not restate a past valuation. Nothing in the application writes or
+reads it.
 
 ---
 
@@ -593,7 +596,7 @@ the application reads or writes either.
 
 | Table | Columns | Notes |
 |---|---|---|
-| `image` | `sha256` (unique), `storage_key`, `media_type`, `byte_size`, `width`, `height`, `captured_at`, `source_ref`, `source_url` | the file, stored once, content-addressed; `source_ref` is the name the photograph goes by -- the uploaded file's name with the stored format's extension, replaced by `<item_code>_<nn>` when it is fetched from a web address or filed on another item (`image_links.name_for_place`); `source_url` is the web address it was fetched from, when it was |
+| `image` | `sha256` (unique), `storage_key`, `media_type`, `byte_size`, `width`, `height`, `captured_at`, `source_ref`, `source_url` | the file, stored once, content-addressed; `source_ref` is the name the photograph goes by -- the uploaded file's name, or its path within an imported library, with the stored format's extension, replaced by `<item_code>_<nn>` when it is fetched from a web address or filed on another item (`image_links.name_for_place`); `source_url` is the web address it was fetched from, when it was |
 | `image_derivative` | `image_id`, `kind` (`thumb` \| `web`), `storage_key`, `width`, `height` | unique `(image_id, kind)` |
 | `item_image` | `inventory_item_id` (**nullable**), `image_id`, `image_role_id`, `is_primary`, `sort_order`, `note` | unique `(inventory_item_id, image_id)` |
 | `listing_image` | `listing_id`, `image_id`, `sort_order` | unique pair |
@@ -619,7 +622,7 @@ Photographs of valuables carry GPS coordinates of where the valuables are
 kept. `app.imaging` removes metadata when an image enters the system:
 
 ```
-1. read     capture DateTimeOriginal, dimensions, orientation into columns
+1. read     capture DateTimeOriginal into `captured_at`; note the orientation
 2. rotate   apply the orientation transform to the pixels
 3. strip    drop every metadata segment
 4. verify   reopen and assert none remains -- fail the ingest if any does

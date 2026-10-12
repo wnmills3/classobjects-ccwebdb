@@ -513,9 +513,11 @@ def settle_auction(
     """Apply a whole settlement grid to a closed auction. One transaction.
 
     `AuctionRefused`, `SettlementInputInvalid`, `sales_writes.SaleRefused`
-    and `sales_writes.SaleInputInvalid` are all left to propagate: every one
-    of the four handlers `app.main` registers may fire from this single call,
-    and none of them is caught here -- see this module's own docstring.
+    and `sales_writes.SaleInputInvalid` are all left to propagate to the
+    handlers `app.main` registers, and none of them is caught here -- see
+    this module's own docstring. The request schema already refuses the bad
+    amounts `SettlementInputInvalid` names, so that one guards callers that
+    bypass the schema.
     """
     auction = _get_auction(db, auction_id)
     if payload.returned_to_location_id is not None:

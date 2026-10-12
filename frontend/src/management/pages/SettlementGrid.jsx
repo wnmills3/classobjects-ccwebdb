@@ -67,11 +67,11 @@ function SettleConfirm({ auction, busy, canSettle, onConfirm, onCancel }) {
  * seen; `lineFor(lot)` is what the grid holds for a lot.
  *
  * Grouped the way `app.auctions._buyer_key` groups them server-side:
- * casefolded, so `amy` on one lot and `Amy` on another are one buyer here
- * too, not two fee sub-tables the owner has no way to reconcile. `key` is
- * the fold, used for lookups and React keys; `raw` is the **first spelling
- * seen**, in the lots' own ascending-id order -- the same "first spelling
- * wins" rule `_BuyerGroup.username` uses for the customer record, so the
+ * lower-cased, the nearest thing here to the server's casefold, so `amy`
+ * on one lot and `Amy` on another are one buyer here too, not two fee
+ * sub-tables the owner has no way to reconcile. `key` is the fold, used
+ * for lookups and React keys; `raw` is the **first spelling seen**, in
+ * the lots' own ascending-id order -- the same "first spelling wins" rule `_BuyerGroup.username` uses for the customer record, so the
  * spelling this sends back as `buyer_username` is the same one the backend
  * would have kept had two spellings reached it. A blank buyer is only
  * offered a fee row for an auction house, where blank is the standing
@@ -190,7 +190,7 @@ export default function SettlementGrid({
   // `app.auctions.settle` refuses when the house still holds something
   // (`auction.consigned_on is not None`) and at least one lot with a
   // chosen, non-sold result has nowhere named to come back to
-  // (`_grid_problems`'s own `coming_home` check). `ReturnLocationConfirm` in
+  // (`_custody_problems`' `coming_home` check). `ReturnLocationConfirm` in
   // `Auctions.jsx` disables its confirm button the same way, on the same
   // `consigned_on` predicate -- this is that pattern
   // applied here, so the owner cannot walk into a refusal the console could

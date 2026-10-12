@@ -167,8 +167,9 @@ removed; a move is tested from both ends, the item the photograph leaves and
 the item it joins.
 
 Frontend: `ErrorsPanel`, `ReceiptPanel`, `Vocabularies`, `ForSaleNotice`,
-`ForSaleConfirm` and the Photos page have tests. `ErrorsPanel`'s are
-rendered with `renderWithProviders(..., { strict: true })`: a sticky
+`ForSaleConfirm` and the Photos page have tests. `ErrorsPanel`'s two
+sticky-acknowledgement tests are rendered with
+`renderWithProviders(..., { strict: true })`: a sticky
 acknowledgement across auto-saves is the kind of state that breaks between
 StrictMode and a non-strict harness.
 

@@ -22,8 +22,9 @@ import { useReference } from '../../shared/reference-context'
  * The tab is in the URL (`?tab=sellers`), so a reload or a link lands on it.
  */
 
-// Made by the auction and sale code, not by hand -- see
-// `routers/acquisitions.py` -- so neither offered as a kind nor edited.
+// Not made by hand: the auction code makes a `consigned` location and
+// `sold` is reserved -- see `routers/acquisitions.py` -- so neither is
+// offered as a kind nor edited.
 const MADE_ELSEWHERE = new Set(['consigned', 'sold'])
 
 const TABS = [

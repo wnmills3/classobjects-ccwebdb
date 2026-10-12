@@ -2,12 +2,14 @@
 
 The order in `docs/database-design.md` section 8 is not arbitrary:
 
-    1. read     capture DateTimeOriginal, dimensions, orientation into columns
+    1. read     capture DateTimeOriginal before it is destroyed; note the
+                orientation
     2. rotate   apply the orientation transform to the pixels
     3. strip    drop every metadata segment
     4. verify   reopen and assert none remains -- fail the ingest if any does
     5. hash     sha256 of the cleansed file; that is the identity
-    6. store    object storage; database records metadata only
+    6. store    file storage, by `image_store.ingest`; the database records
+                metadata only
 
 **Why metadata is removed at ingest and not at publish.** Photographs of
 valuables routinely carry the GPS coordinates of where they were taken -- which
@@ -200,8 +202,9 @@ def cleanse(raw: bytes) -> CleansedImage:
 
     Raises `ImageRejected` for a file that is too large, not an image, or an
     implausible decompression bomb, and `MetadataRemainsError` (a subclass)
-    when the strip could not be verified. Both are caught by name in
-    `photo_import.run` and `routers.images.upload_image`.
+    when the strip could not be verified. Every caller catches
+    `ImageRejected`, which covers both: `photo_import.run`, the upload and
+    from-url routes, `image_enlarge` and `image_sources`.
     """
     image = _open(raw)
 

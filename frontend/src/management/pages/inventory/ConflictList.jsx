@@ -4,7 +4,7 @@ import { fieldName, fieldValue, shown } from './fieldMerge'
 /**
  * Who made a field's latest change, and when, from the item's change log
  * (`last_changes`) -- blank when the log has none, as for a change made by
- * a pass or before the log existed.
+ * a pass that does not log, or before the log existed.
  */
 function changedBy(change) {
   if (!change) return ''

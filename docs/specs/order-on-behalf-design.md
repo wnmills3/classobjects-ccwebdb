@@ -177,10 +177,12 @@ for **Edit** on a `pending` or `paid` order:
 adjustment due" badge, "entered by <email>" when the placing account's email
 is not the customer's, **Edit** on `pending` and `paid` orders, and
 **History** (`orders/OrderHistory.jsx`, changes grouped by edit). Each row's
-status is a select. On an unpacked order `cancelled` is disabled, with the
-reason as its tooltip, exactly where the server would refuse it: an outside
-sale, or a store order with a line whose listing has ended
-(`listing_ended`). A cancelled order's select is disabled.
+status is a select. On an unpacked order `cancelled` and `refunded` are
+disabled, with the reason as their tooltip, where the server would refuse
+them: an outside sale, or a store order with a line whose listing has ended
+(`listing_ended`). The console reads "unpacked" from the current status; the
+server also reads the order's history. A cancelled order's select is
+disabled.
 
 ## Tests
 

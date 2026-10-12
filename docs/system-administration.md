@@ -220,7 +220,7 @@ would change and writes no database rows.
 | `python -m app.ebay_orders` | fills eBay purchases' missing order numbers and items' listing ids from eBay's purchase history | `FILE... [--review FILE.xlsx] [--commit --by EMAIL]` |
 | `python -m app.photo_import` | links photographs to items by filename | `[--root DIR] [--commit]` |
 | `python -m app.image_sources` | records the web address stored photographs were fetched from, matching each downloaded file to its image by content (`docs/specs/item-photographs-design.md`, *From a web address*) | `MANIFEST.csv FOLDER [--commit]` |
-| `python -m app.image_enlarge` | replaces a stored photograph that is a scaled copy (an eBay or NGC thumbnail added by its address) with the full-size picture, in place, so each item keeps it where it was; leaves one that is on an item for sale (`docs/specs/item-photographs-design.md`, *From a web address*) | `[--commit] [--limit N] [--list]` |
+| `python -m app.image_enlarge` | replaces a stored photograph that is a scaled copy (an eBay or NGC thumbnail added by its address) with the full-size picture, in place, so each item keeps it where it was; leaves one that is on an item for sale (`docs/specs/item-photographs-design.md`, *From a web address*) | `[--commit] [--limit N] [--pause SECONDS] [--list]` |
 | `python -m app.vendor_cleanup` | merges, renames, re-kinds or deletes purchase sources, by explicit instruction | see *Cleaning up purchase sources* |
 
 `--by` names the account each change is logged under in the item's
@@ -231,9 +231,9 @@ read the dry-run counts.
 
 The other command-line modules are not passes: `app.seeding` and `app.seed`
 (reference data and a new database's first manager), `app.backup`,
-`app.workbook_backup` and `app.media_backup` (*Backing up and restoring*),
-and `app.reports`
-(*Reports*). None of them has a dry run.
+`app.workbook_backup`, `app.media_backup` and `app.backup_run` (*Backing up
+and restoring*), and `app.reports` (*Reports*). None of them takes
+`--commit`; `app.media_backup prune` only lists unless given `--delete`.
 
 ### eBay order numbers and listing ids
 
@@ -423,7 +423,8 @@ and leaves the editor beneath it open.
 Finding the right items is the start of most console work -- editing,
 offering, grouping into a lot, a bulk edit. The **Coins** and **Currency**
 screens (`/management/inventory/coins`, `/management/inventory/currency`)
-share one search panel.
+share one search panel (`GET /api/inventory/{view}/search`, `view` being
+`coins` or `currency`).
 
 **The search box has no field syntax.** What you type is one term, matched
 anywhere in an item's title, description, rating, item code or its purchase's
@@ -495,6 +496,12 @@ reports' drill-down links use several of them, and the page shows a
 An unknown filter name is
 refused, and so is a `sort` naming a column the table does not show.
 
+Under the filters the page lists the view's named data-quality checks as
+chips -- `no year`, `no grade`, `zero cost`, `repeated identity` and the rest
+-- each with the number of matching items it finds; a check that finds none
+is not shown. Clicking one narrows the list to those items (`issue=<code>`),
+and clicking it again removes it.
+
 **Every field but Seller's item id, Error and Attribute has an Alt+letter
 shortcut**, underlined in
 its label: Alt+S the search box, Alt+H the tips, Alt+C clear, Alt+Y and Alt+O
@@ -533,21 +540,24 @@ relisting, because a returned item resumes its own history.
 | `POST /api/inventory/bulk` | the same change across many items, one transaction, all or nothing. A `storage_location_id` moves each item there and records the move in its location history; the Coins and Currency pages' bulk bar offers it as **Location**, with the item editor's picker |
 | `POST /api/inventory/receive` | record what arrived -- see *Receiving* |
 | `PUT /api/inventory/{id}/errors` | replace the item's recorded errors -- see *Errors* |
-| `GET /api/inventory/{id}/serial-pairs` | the star notes of this note's serial number already in the collection, or a star note's plain twins; `serial_number` matches a serial being typed in place of the saved one (`specs/identify-first-entry-design.md`) |
+| `GET /api/inventory/{id}/serial-pairs` | the star notes of this note's serial number already in the collection, or a star note's plain twins; `serial_number` matches a serial being typed in place of the saved one (`docs/specs/identify-first-entry-design.md`) |
 
 **Editable scalars:** `source_title`, `description`, `rating`, `sellers_item_id`,
 `listing_url`, `year_start`, `year_end`, `fineness`, `gross_weight_ozt`,
 `fine_weight_ozt`, `weight_note`, `piece_count`, `item_cost`, `shipping_cost`, `tax_rate`,
 `tax_includes_shipping` (`EDITABLE_SCALARS`, `routers/inventory.py`).
-`tax_rate` and `tax_includes_shipping` are NOT NULL, and a null for either is
-refused naming the field. `storage_location_id` moves the item through
+Seven of them are NOT NULL -- `source_title`, `description`, `piece_count`,
+`item_cost`, `shipping_cost`, `tax_rate` and `tax_includes_shipping`
+(`REQUIRED_SCALARS`) -- and a null for any is refused naming the field.
+`storage_location_id` moves the item through
 `set_location` (*Status and location have one door*) and never needs
 `acknowledge_for_sale`, since a location does not show to a buyer. A banknote holds no year of its own:
 `year_start`/`year_end` sent for a note is refused (422); send `series_year`.
 `no_date: true` says a piece has no date at all (a gold bar): it clears the
 years, is refused beside a year in the same request and on a note, and takes
 the piece off "No year recorded". A year sent later clears it. Bulk edit
-refuses `no_date` by name; it is set one item at a time.
+refuses `no_date`, `mint`, `variety` and `cert_numbers` by name; each is set
+one item at a time.
 
 **Editable classifiers**, set by code rather than id: `item_kind`, `country`,
 `denomination`, `bullion_form`, `set_form`, `strike_type`, `grade`,
@@ -697,7 +707,7 @@ about a coin nobody checked.
 If a **photograph fails to upload** the receipt still stands -- the arrival is
 the fact, the photograph evidence added to it -- and the dialog stays open
 naming the file that failed. Add the photograph afterwards from the item
-editor's Photos panel.
+editor's **Photographs** panel.
 
 Receiving only moves an item forward. A mistaken receipt is corrected from
 the item editor's status field, which writes a history row like any other
@@ -831,8 +841,9 @@ manager-only.
 ## Sales
 
 A sales order records what a customer bought, at what price, and where it is
-in fulfilment. **Sales** (`/management/sales`) lists every sales order, newest first: customer, lines at the price
-paid, total, platform and status (`GET /api/orders`). The shop's **Your
+in fulfilment. **Sales** (`/management/sales`) lists every sales order, newest first: when it was placed, the customer (and
+who entered it, when that was someone else), lines at the price paid, total
+and status (`GET /api/orders`). The shop's **Your
 orders** page is only the signed-in person's own (`GET /api/orders?mine=true`)
 and has no status control; order administration lives in the console alone.
 
@@ -992,8 +1003,9 @@ Platforms page first. Each option may be repeated.
 
 From the **Coins** or **Currency** screen select items and choose **Offer for
 sale...** in the bulk bar; from one item's editor, its **Offers** panel has
-the same button. The panel hides the button only while the item is held --
-active or paused -- by a listing on a platform other than the web store.
+the same button. The panel hides the button in two cases: while the item is
+held -- active or paused -- by a listing on a platform other than the web
+store, and while it is in a sales lot that is on offer, on any platform.
 
 **Moving an item from the shop to another platform is one step**: offering an
 item that is active in the web store pauses that store listing, and it resumes
@@ -1105,12 +1117,12 @@ belongs to a platform (a live auction, an auction house, or a marketplace for
 a single timed auction) and moves `draft` -> `scheduled` -> [`consigned`] ->
 `closed` -> `settled`, or `cancelled`.
 
-- **Add lot** offers an assembling sales lot, or a single item as a lot of
+- **Add lot...** offers an assembling sales lot, or a single item as a lot of
   one, in auction format, with the same refusals and pausing as any offer. Lot
   numbers and reserves are editable while the auction is draft, scheduled or
   consigned. Removing a lot ends its listing and deletes its row, so the
   number is free again.
-- **Mark consigned** (auction houses only) moves every member item to that
+- **Mark consigned...** (auction houses only) moves every member item to that
   house's `consigned` storage location, created on first use.
 - **Close** allows results to be entered; the settlement grid takes each
   lot's result (sold, unsold, withdrawn), hammer price and buyer, fees per
@@ -1157,7 +1169,7 @@ parameters and its table. Groups appear in the order the API lists them:
 | `dq_purchases` | Data quality | Purchases with gaps | Purchases with a placeholder number, a missing or implausible order date, no web address, a zero-cost item, or no items | none |
 | `dq_locations` | Data quality | Where items are | Live items by storage location, with items and total cost | none |
 | `dq_series_years` | Data quality | Coins dated outside their series | Coins whose year falls outside their design series' years -- a typo, a tribute piece, or the wrong series; each row opens that coin | none |
-| `dq_series_review` | Data quality | Series to review | Items whose design series a person must settle: the description names a design the recorded denomination and year rule out, the series already set is ruled out by them, or they allow several designs (a boundary year); each row opens that item | `show`: all, conflict, disagrees, boundary |
+| `dq_series_review` | Data quality | Series to review | Items whose design series a person must settle: the description names a design the recorded denomination and year rule out, the series already set is ruled out by them, or they allow several designs (a boundary year); each row opens that item | Show (all, conflict, disagrees or boundary; default all) |
 | `pr_outstanding` | Purchasing and receiving | Not yet arrived | Purchases with items still ordered or missing: vendor, seller, order date, days waiting, items outstanding and their cost; oldest first | Overdue after (days) (default 21) |
 | `pr_outstanding_items` | Purchasing and receiving | Not yet arrived items | One row per item still ordered or missing, oldest order first: order, vendor, seller, order date, days waiting, item, a coin's year and mint, a note's series and serial number, title, status and total cost. Click an item to open it | none |
 | `pr_spend` | Purchasing and receiving | Spending | Period x vendor: purchases, items, item cost, shipping, sales tax and total, over purchases with a live item | From, To, Period (month/quarter/year, default month) |
@@ -1391,7 +1403,7 @@ series, the cost) rather than set by a person. The cost's rule is **Gift**: a
 banknote saved in the editor at an item cost of $0 is given it, the word Gift
 leaves its title, and a description the system generated is written again to
 say so. A note later given a cost loses the Gift the rule gave it and keeps
-one a person set (`specs/item-attributes-design.md`). **Removing one keeps it removed**: no
+one a person set (`docs/specs/item-attributes-design.md`). **Removing one keeps it removed**: no
 rule adds it back. Setting it again restores it. Search finds items by an
 attribute's name or alias (`godless`, `first strike`).
 
@@ -1430,8 +1442,9 @@ Each tab lists its rows with a search box and how many records use each row.
 **Edit** changes a row in place; **Delete** is offered only for a row nothing
 uses, and the server refuses the rest (every foreign key into these tables is
 `RESTRICT`). A storage location any item has ever been in stays, as part of
-that item's history. Locations of kind `consigned` and `sold` are made by the
-auction and sale code: they cannot be added from the picker or edited here.
+that item's history. A location of kind `consigned` is made by the auction
+code, and the kind `sold` is reserved -- nothing makes one: neither can be
+added from the picker or edited here.
 Merging duplicate vendors is done by `app.vendor_cleanup` (*Cleaning up
 purchase sources*).
 
@@ -1478,7 +1491,9 @@ One command does what the sections below describe step by step
    under any other name stays.
 
 When any step fails nothing is removed -- the workbooks already there are
-the proved ones -- the reason is printed, and the exit code is 1. An edit
+the proved ones -- the reason is printed, and the exit code is 1 (2 when the
+script could not start the backup at all: the environment could not be put
+in play, or the argument is unknown). An edit
 made between the export and the comparison shows as a difference and fails
 that run; the next one sets it right.
 

@@ -800,8 +800,9 @@ def _dq_series_years(db: Session, _params: DqSeriesYearsParams) -> ReportResult:
     """One row per live coin dated outside its series' years, by series then year.
 
     Coins only: a note's year is its series year, and the note lookup has
-    its own check. Each row drills to the coin search narrowed to that one
-    item, where it can be opened and corrected.
+    its own check. Each row's drill names its own item (`item_code=<code>`);
+    the Reports page opens that item's editor over the report rather than
+    following it.
     """
     stmt = (
         select(
@@ -904,8 +905,9 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
 
     The cases are `series_classify.classify`'s own, decided as the pass
     decides them, so this list and the pass's printed report cannot
-    disagree. Nothing is written. Each row drills to the search narrowed to
-    that one item, where it can be opened and corrected.
+    disagree. Nothing is written. Each row's drill names its own item
+    (`item_code=<code>`); the Reports page opens that item's editor over the
+    report rather than following it.
     """
     cases = [
         found_case

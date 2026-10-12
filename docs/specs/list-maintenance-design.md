@@ -5,7 +5,7 @@ Friedberg catalog, sellers, vendors and storage locations. Each grows by
 inline entry while something else is being done: a Friedberg number while a
 note is identified, a seller or vendor while a purchase is entered, a
 location while an item is placed. A slip made there -- a Friedberg number
-pasted as `3007-` for `3007-L`, a vendor entered twice -- is corrected or
+pasted as `9907-` for `9907-L`, a vendor entered twice -- is corrected or
 pruned on one management-console page, **Lists** (`/management/lists`,
 `pages/Lists.jsx`), for managers only. Vocabularies
 (`/management/vocabularies`) and sales platforms (`/management/platforms`)
@@ -37,7 +37,7 @@ is not edited here: a type recorded with a wrong attribute is deleted, if
 unused, and recorded again from the note.
 
 The district is the one exception. A number that carries a district
-(`3005-D`) says which district its type is (`fr_district`):
+(`9905-D`) says which district its type is (`fr_district`):
 
 - A row recorded from a note with no district entered takes the number's.
   Without this the first number recorded for a series would hold the
@@ -75,24 +75,24 @@ reason shown.
 
 - **Cleaned:** surrounding space and a `Fr.`, `Fr#` or `FR-` label in front
   of the digits are dropped, space around the hyphen is closed up, and the
-  district letter is capitalised -- ` Fr. 3005-d ` is kept as `3005-D`. A
+  district letter is capitalised -- ` Fr. 9905-d ` is kept as `9905-D`. A
   mule's `m` after the district stays lower-case, with any star after it:
-  `3007-EM` and `3007-e*m` are kept as `3007-Em` and `3007-Em*`. A seal
-  shade at the end is capitalised after one space: `2008-b  lgs` is kept
-  as `2008-B LGS`.
+  `9907-EM` and `9907-e*m` are kept as `9907-Em` and `9907-Em*`. A seal
+  shade at the end is capitalised after one space: `9908-b  lgs` is kept
+  as `9908-B LGS`.
 - **Checked:** 1 to 4 digits, an optional letter (`1a`), an optional district
   `-A` to `-L`, an optional `m` after the district for a mule (the answer
   the Friedberg web search is asked for when plates are given), an
   optional `*` for a star note, and an optional ` LGS` or ` DGS` for a
-  light or dark green seal (`2008-B LGS`, `2008-B* LGS`). The seal is
+  light or dark green seal (`9908-B LGS`, `9908-B* LGS`). The seal is
   already part of a type's identity, so the two shades are two types; the
   suffix keeps their numbers apart. The shade must agree with the seal:
   an `LGS` number whose seal is recorded as anything but Light Green
   (`light_green`), or a `DGS` number on a light green seal, is refused
   (422) when it is recorded, when a row's number is corrected to it, and
   when it is attached to a note whose seal says otherwise. A seal not
-  recorded yet contradicts nothing. `3007-` is refused as
-  ending in a hyphen, `30070-L` as having five digits, anything else out of
+  recorded yet contradicts nothing. `9907-` is refused as
+  ending in a hyphen, `99070-L` as having five digits, anything else out of
   that form as not a Friedberg number -- each with a sentence saying which
   (422).
 - **Confirming a malformed number is refused** (422, "Correct ... before
@@ -106,12 +106,12 @@ the publisher's arrangement (`docs/reference-data.md`).
 
 Recording a number whose type matches a row already in the catalog is
 refused with 409 and the row named: *"That combination is already recorded
-as 3007- (row 14)."*, with `existing: {id, fr_number}` beside `detail`. The
-Friedberg lookup (`FriedbergLookup.jsx`) then offers **Correct 3007- to
-3007-L**, which renames the recorded row and attaches it -- the slip is
+as 9907- (row 14)."*, with `existing: {id, fr_number}` beside `detail`. The
+Friedberg lookup (`FriedbergLookup.jsx`) then offers **Correct 9907- to
+9907-L**, which renames the recorded row and attaches it -- the slip is
 repaired where it was noticed, without a trip to the Lists page.
 
-A mule (`3007-Em`) and a star note (`3007-E*`) are types of their own,
+A mule (`9907-Em`) and a star note (`9907-E*`) are types of their own,
 so neither is refused by the plain number on file, nor the plain number by
 them. Correcting a row's number is refused the same way (409, the row
 named) when adding or dropping its `m` or `*` would make it a type already

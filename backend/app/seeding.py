@@ -78,7 +78,7 @@ NATURAL_KEYS: dict[str, tuple[str, ...]] = {
     "composition": ("denomination_id", "country_id", "year_from", "metal_id"),
 }
 
-#: Columns the loader must not try to write.
+#: A key beginning with this is commentary: every loader drops it.
 _SKIP_PREFIX = "_"
 
 

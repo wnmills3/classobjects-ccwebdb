@@ -17,7 +17,8 @@ instead, the way a collector would write it:
 
 It is a **default**, shown in an editable field; the operator still owns the
 wording. `source_title` remains the fallback only when the record holds no
-fact worth naming, so an unclassified item is no worse off than before.
+fact worth naming, so an unclassified item still opens with the seller's
+wording.
 
 Facts, not a catalog's arrangement: every part is a label from this
 database's own vocabularies (see `docs/reference-data.md`).

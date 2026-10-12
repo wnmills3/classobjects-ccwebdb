@@ -1088,7 +1088,9 @@ def test_received_excludes_a_deleted_item(db: Session) -> None:
     assert "Vendor RE4" not in {r["vendor"] for r in result.rows}
 
 
-def test_received_excludes_a_split_parent_item(db: Session) -> None:
+def test_received_a_split_parent_with_no_live_children_counts_nothing(
+    db: Session,
+) -> None:
     vendor = _vendor(db, "Vendor RE5")
     order = _order_for(db, vendor, order_number="RE-5", ordered_on=date(2026, 3, 1))
     item = _item(db, order, "ordered", Decimal("12.00"))

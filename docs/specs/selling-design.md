@@ -19,10 +19,11 @@ straight:
 
 The owner and managers work it in the management console: the **Platforms**
 page (`/management/platforms`); **Offer for sale...** and **Group into
-lot...** on the coin and currency pages; and the **Selling** menu group,
-**Listings**, **Lots** and **Auctions**. The orders a sale produces appear on
-the **Sales** page (`/management/sales`, `order-on-behalf-design.md`). The
-public shop sees only web-store, fixed-price, active listings.
+lot...** on the coin and currency pages; and the **Selling** menu group --
+**Listings**, **Lots**, **Auctions**, **Sales** and **Platforms**. The orders
+a sale produces appear on the **Sales** page (`/management/sales`,
+`order-on-behalf-design.md`). The public shop sees only web-store,
+fixed-price, active listings.
 
 ## Rules
 
@@ -70,7 +71,7 @@ of one.
 | Action | Effect |
 |---|---|
 | **Offer** an item or lot (platform, format, price, public text, external id) | Refused if any affected item is deleted, split, or not `received`; is already sold (`sold`, `shipped`, `delivered`) or held by an unshipped order; is a member of an offered lot; is on offer on a **non-store** platform ("end it first"); or the platform is retired. An active **store** listing of an affected item is **paused**, with `paused_by_listing_id` set -- except that offering an item on the store while it is already there is refused. The new listing and its claims are `active`; items become `listed`; a lot becomes `offered`. A batch is all or nothing, lists every refused item with its reason, and refuses an item named twice. |
-| **Edit** a listing | Price, public title and description, external id. Once a listing has ended only its external id may change: its terms are part of the sale's record. |
+| **Edit** a listing | Price, public title and description, external id. Once a listing has ended only its external id may change (through the API; the console edits active rows only): its terms are part of the sale's record. |
 | **End** a listing | `ended`, claims `released`. Store listings it paused **resume**. A lot listing's lot **dissolves** (members released). Items nothing else offers go back to `held`. Ending an ended listing changes nothing. A listing that is a lot of an auction is refused: it ends only through its auction. |
 | **Record a sale** on an outside listing | One order on that platform: buyer (matched case-insensitively, or created; blank is the platform's undisclosed buyer), price, `external_order_id`, fee lines, shares, snapshot. The listing ends **sold**: claims released, the lot `sold`, members' paused store listings **ended** rather than resumed, items `sold`. Refused for a store listing and for a listing that is a lot of an auction, which sells through settlement. |
 | **Add to an auction** (`draft` or `scheduled`) | Offers the lot, or wraps one item in a new lot of one titled by the item's source title, with `format = auction`, and creates its `auction_lot`. Same refusals and pausing as Offer. |
@@ -134,7 +135,7 @@ entered on the Platforms page.
 | `listing_url_template` | e.g. `https://www.ebay.com/itm/{external_id}` |
 | `commission_rate`, `processing_rate` | `numeric(6,4)`, nullable, a fraction between 0 and 1 |
 | `processing_fixed`, `listing_fee` | `numeric(12,2)`, nullable, not negative |
-| `terms_as_of` | when the defaults were read; shown beside every estimate |
+| `terms_as_of` | when the defaults were read; shown on the Platforms page |
 | `notes`, `is_active`, `version`, timestamps | retired, never deleted |
 
 The web store's kind cannot change and it cannot be retired, and no other
@@ -345,14 +346,14 @@ staff-only.
    the Auctions page's **Add lot...**. History of offered, sold and dissolved
    lots, newest page first, with **Re-offer as a lot** on a dissolved one,
    which pre-fills a new assembling lot.
-5. **Auctions** (`/management/auctions`): list by platform, date, status and
-   lot count. Detail: platform, sale number, dates; **Schedule**, **Mark
-   consigned...**, **Close**, **Cancel auction**; a lot table with editable
+5. **Auctions** (`/management/auctions`): list by platform, title, status and
+   lot count. Detail: platform, sale number, dates, status; **Schedule**,
+   **Mark consigned...**, **Close**, **Cancel...**; a lot table with editable
    lot numbers and reserves, and **Add lot...** (an assembling lot, or one
    item as a lot of one). The settlement grid takes each lot's result, hammer
-   price and buyer, fees per buyer order, and -- when the house holds coins
-   -- the location to return unsold and withdrawn items to, with gross, fees,
-   net and cost-basis totals; **Settle** applies it all, and a refused grid
+   price and buyer, fees per buyer order, and -- for an auction house -- the
+   location to return unsold and withdrawn items to, required when the house
+   holds coins, with gross, fees, net and cost-basis totals; **Settle** applies it all, and a refused grid
    marks every offending lot at once.
 
 ## API
@@ -378,7 +379,9 @@ carry their public descriptions. The catalog has no write endpoints.
 
 **Errors.** 409 for conflicts with other work, naming what is in the way or
 reporting a stale version. 422 for bad input: unknown platform, format or
-fee kind, an empty lot, a negative or sub-cent amount. An offer refusal
+fee kind, an empty lot, a negative or sub-cent amount; also a quantity above
+1 on an outside platform, a store lot offered with no title, and an auction
+on the web store. An offer refusal
 answers `{detail, refused: [{item_code, reason}]}`; refusals from
 `sales_writes` and `auctions` answer `{detail, refused: [{reason,
 lot_number}]}`. Settle reports every problem at once: an auction not
@@ -391,8 +394,9 @@ when every problem is a bad amount, 409 otherwise.
 ## Invariants checked after every test
 
 `backend/tests/conftest.py`'s autouse fixture runs five checks after every
-test that has a database session, and the race tests' `committed` fixtures
-call them by hand (`check_all_invariants`):
+test that has a database session, and the cleanup of
+`tests/test_offer_races.py` and `tests/test_settlement_race.py` calls them by
+hand (`check_all_invariants`); `tests/test_order_revision_race.py` does not:
 
 | Rule | Check | Raises |
 |---|---|---|
@@ -444,11 +448,11 @@ unit marks the item `sold` while its store listing stays active.
 
 ## Known limits
 
-- **An unshipped order holding an ended listing cannot be cancelled** -- an
-  outside sale, or a lot bought in the shop. There is nothing to return the
-  stock to. Once shipped it can be cancelled (no stock moves), which is how a
-  refund is recorded. The Sales page disables the option where the server
-  would refuse it (`listing_ended`).
+- **An unshipped order holding an ended listing cannot be cancelled or
+  refunded** -- an outside sale, or a lot bought in the shop. There is nothing
+  to return the stock to. Once shipped it can be cancelled (no stock moves),
+  which is how a refund is recorded. The Sales page disables both options
+  where the server would refuse them (`listing_ended`).
 - **A recorded outside sale's quantities cannot change.** Raising a line
   needs a store listing on sale, and lowering one hands stock back to a
   listing that ended with the sale; both are refused. Its prices, customer

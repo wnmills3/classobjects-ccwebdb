@@ -37,7 +37,7 @@ const reference = emptyReference({
         extra: {},
       },
       { code: 'home', label: 'Home', source: 'seeded', extra: {} },
-      { code: 'sold', label: 'Sold', source: 'seeded', extra: {} },
+      { code: 'consigned', label: 'Consigned', source: 'seeded', extra: {} },
     ],
   },
 })
@@ -105,8 +105,8 @@ beforeEach(() => {
     },
     {
       id: 8,
-      label: 'Sold',
-      kind: 'sold',
+      label: 'Consigned',
+      kind: 'consigned',
       institution: null,
       identifier: null,
       notes: null,
@@ -248,6 +248,13 @@ describe('Lists: sellers, vendors and storage locations', () => {
     await waitFor(() =>
       expect(api.updateSeller).toHaveBeenCalledWith(2, { name: 'idle_seller' }),
     )
+
+    // The unused seller is the one that can be deleted, after asking.
+    const unused = (await screen.findByText('idle_seler')).closest('tr')
+    await user.click(await within(unused).findByRole('button', { name: 'Delete' }))
+    expect(api.deleteSeller).not.toHaveBeenCalled()
+    await user.click(within(unused).getByRole('button', { name: 'Yes, delete' }))
+    await waitFor(() => expect(api.deleteSeller).toHaveBeenCalledWith(2))
   })
 
   it("changes a vendor's kind", async () => {
@@ -266,7 +273,7 @@ describe('Lists: sellers, vendors and storage locations', () => {
     )
   })
 
-  it('shows a vendor with no kind as having none, and takes the first kind for it', async () => {
+  it('shows a vendor with no kind as having none, and saves the kind chosen for it', async () => {
     const user = userEvent.setup()
     api.updateVendor.mockResolvedValue({})
     api.listVendors.mockResolvedValue([
@@ -326,12 +333,14 @@ describe('Lists: sellers, vendors and storage locations', () => {
     expect(screen.queryByText('Nothing here yet.')).toBeNull()
   })
 
-  it("corrects a location's identifier, and leaves the sale code's own alone", async () => {
+  it("corrects a location's identifier, and leaves the auction code's own alone", async () => {
     const user = userEvent.setup()
     api.updateStorageLocation.mockResolvedValue({})
     open('locations')
     const row = (await screen.findByText('20l')).closest('tr')
-    expect(within(rowFor('Sold')).queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(
+      within(rowFor('Consigned')).queryByRole('button', { name: 'Edit' }),
+    ).toBeNull()
 
     await user.click(within(row).getByRole('button', { name: 'Edit' }))
     await user.clear(within(row).getByRole('textbox', { name: 'Identifier' }))

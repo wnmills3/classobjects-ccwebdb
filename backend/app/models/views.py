@@ -6,8 +6,8 @@ columns while nothing shared is implemented twice.
 **Nothing in the application reads them.** They are maintained and unread: a
 grep for these four names across `backend/app` finds only comments, and the
 frontend none at all. `app.inventory_search` explains in its own docstring
-why it queries the base tables instead -- the joins cost about thirty times
-the time -- and the shop's responses are built by
+why it queries the base tables instead -- a view pays for every join on
+every query -- and the shop's responses are built by
 `routers.catalog.to_catalog_item`, field by field, in Python.
 
 ``public_catalog`` therefore **describes** an authorization boundary rather

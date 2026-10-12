@@ -7,6 +7,7 @@ the SQLAlchemy models rather than from PostgreSQL, and the destination is a
 URL. Pointing it at another engine is a change of URL, not of code.
 
     python -m app.backup                          copy to a timestamped database
+    python -m app.backup --name <name>            name the local copy
     python -m app.backup --to <url>               copy anywhere SQLAlchemy reaches
     python -m app.backup --list                   what copies exist
     python -m app.backup --verify <name>          compare a copy's row counts
@@ -132,7 +133,7 @@ def timestamped_name(prefix: str = "ccwebdb_bak") -> str:
 
 
 def admin_engine(url_str: str) -> Engine:
-    """A connection to `postgres`, for CREATE DATABASE which cannot be in one."""
+    """An autocommit engine on `postgres`: CREATE DATABASE runs in no transaction."""
     url = make_url(url_str).set(database="postgres")
     return create_engine(url, isolation_level="AUTOCOMMIT")
 

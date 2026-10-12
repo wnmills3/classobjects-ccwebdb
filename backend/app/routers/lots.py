@@ -75,8 +75,9 @@ def _out(lot: SalesLot) -> SalesLotOut:
     """Shape one lot for the console, with its coins and its running totals.
 
     **Every membership row, not just the open ones.** `lot_writes` deletes a
-    row when a coin is taken out of an assembling lot and only *releases* one
-    when the lot sells or is dissolved, so the rows that exist are exactly
+    row when a coin is taken out of an assembling lot, and
+    `offering_writes._end` only *releases* one when the lot sells or is
+    dissolved, so the rows that exist are exactly
     the group as it stands -- and, once the lot has been offered, exactly the
     group that was offered. `offering_writes.offered_items` answers the
     narrower question "which coins does this listing still claim", which is

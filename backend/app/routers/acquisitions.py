@@ -1,7 +1,9 @@
-"""The acquisition side: purchase orders and where items physically sit.
+"""The acquisition side: vendors, sellers, purchase orders and storage locations.
 
-This is what a receiving page reads: which orders still have items on the
-way, what is on each one, and where a received item could be put.
+What the Purchases page writes and the Receiving page reads -- who a purchase
+was made from, which orders still have items on the way, what is on each
+one, and where a received item could be put -- and what the Lists page
+corrects and prunes.
 
 Admin-only throughout. What was paid a vendor, and the safe-deposit box an
 item sits in, are neither a customer's business.

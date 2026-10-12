@@ -601,7 +601,7 @@ class OrderItemOut(BaseModel):
     quantity: int
     unit_price: Decimal
     #: The item and listing as sold (app.sale_snapshot). Console only: it
-    #: holds costs. None for a shopper, and for lines older than snapshots.
+    #: holds costs. None for a shopper, and on a line that carries none.
     snapshot: dict[str, object] | None = None
     #: Whether the listing this line bought from has ended -- a lot bought in
     #: the shop, or any outside sale. Cancelling an unshipped order with such
@@ -850,7 +850,7 @@ class ItemAttributeOut(BaseModel):
     group: str
     #: `derived` (read by a rule) or `manual`.
     source: str
-    #: The rule that read it: `serial_pattern`, `attribute_rule`.
+    #: The rule that read it: `serial_pattern`, `attribute_rule`, `no_cost`.
     derived_by: str | None = None
 
 
@@ -886,10 +886,11 @@ class ItemSaleOut(BaseModel):
     #: This coin's share of the line, cost-weighted by `total_cost`
     #: (`order_writes._sync_shares`). It equals the line total for an item
     #: sale and is a fraction of it for a lot member. Null only for a line
-    #: written before shares existed, which `_sync_shares` still allows for.
+    #: that has no share rows, which `_sync_shares` allows for.
     #: A `Decimal` on a Pydantic model, so it crosses the wire as a string.
     share_amount: Decimal | None = None
-    #: The item and listing when the line was made; None for older lines.
+    #: The item and listing when the line was made; None on a line that
+    #: carries no snapshot.
     snapshot: dict[str, object] | None = None
     snapshot_at: datetime | None = None
 
@@ -1200,8 +1201,10 @@ class BulkEditRequest(BaseModel):
     """One set of changes, applied to many items in one transaction.
 
     `changes` is validated as an `InventoryItemUpdate`, so bulk and single
-    edits accept exactly the same fields and the same codes. Two field lists
-    would drift.
+    edits share one schema and the same codes. Two field lists would drift.
+    The router then refuses, by name, the fields only a single edit can set:
+    `attributes`, `no_date`, `mint`, `variety`, `cert_numbers` and `base`
+    (`routers.inventory._refuse_single_edit_fields`).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1930,8 +1933,10 @@ class OfferIn(BaseModel):
     one price, title, description and external id at the top level rather
     than a row per item. Exactly one of `items` and `lot_id`: refusing both or
     neither is what keeps `offering_writes.offer`'s two `ValueError`s
-    unreachable from outside this API, which `test_offering_writes.py`
-    asserts is the case.
+    unreachable from outside this API; that `offer` raises them is pinned by
+    `test_offering_neither_an_item_nor_a_lot_is_a_programming_error` and
+    `test_offering_both_an_item_and_a_lot_is_a_programming_error`
+    (`test_offering_writes.py`).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -2542,8 +2547,9 @@ class PurchaseOrderLineOut(BaseModel):
     id: int
     item_code: str
     #: The item's own title -- what `NewPurchase`'s items table shows, and
-    #: what an entry form's Title box wrote. `description` is kept alongside
-    #: it because a line can have a description and no title.
+    #: what the item editor wrote when the item was entered. `description`
+    #: is kept alongside it because a line can have a description and no
+    #: title.
     source_title: str
     description: str
     #: An `item_kind` code: coin, currency, bullion, set, medal, token, other,
@@ -2615,9 +2621,10 @@ class PurchaseOrderUpdate(BaseModel):
 class StorageLocationCreate(BaseModel):
     """A place items are kept, added from an entry form's location picker.
 
-    `kind` is a `storage_location_kind` code; `consigned` and `sold` are
-    made by the auction and sale code, not by hand. A location is identified
-    by its kind, institution and identifier together.
+    `kind` is a `storage_location_kind` code. `consigned` and `sold` are not
+    made by hand: the auction code makes a consigned location, and `sold` is
+    reserved -- nothing creates one. A location is identified by its kind,
+    institution and identifier together.
     """
 
     model_config = ConfigDict(extra="forbid")

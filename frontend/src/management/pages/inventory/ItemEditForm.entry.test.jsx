@@ -419,7 +419,7 @@ describe('ItemEditForm: the facts asked for, by kind', () => {
       metal: 'silver',
       fineness: '0.9000',
       derived: {
-        series_id: 'series_facts',
+        series_id: 'series_classify',
         metal_id: 'composition',
         fineness: 'composition',
       },

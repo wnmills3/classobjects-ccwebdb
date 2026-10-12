@@ -208,10 +208,10 @@ describe('SpotPrices', () => {
     await open()
     for (const metal of ['Silver', 'Gold', 'Copper']) {
       const box = screen.getByLabelText(`New price for ${metal}`)
-      // Words, not a figure: `0.00` here read as the metal's price.
+      // Words, not a figure: `0.00` here reads as the metal's price.
       expect(box).toHaveAttribute('placeholder', 'type a price')
       expect(box).toBeEnabled()
-      // Not greyed out before anything is typed: that read as a dead page.
+      // Not greyed out before anything is typed: that reads as a dead page.
       expect(within(row(metal)).getByRole('button', { name: 'Record' })).toBeEnabled()
     }
     expect(screen.getByText(/click in the\s+metal.s/)).toBeVisible()

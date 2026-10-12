@@ -12,12 +12,12 @@ import { afterEach, describe, expect, it } from 'vitest'
  * layout meant for "Denomination" above a text box stacks it there too.
  *
  * jsdom resolves the cascade but does no layout, so these check the rules that
- * decide the layout -- loaded from the real stylesheets, in the order both
- * entry points import them -- rather than pixels.
+ * decide the layout -- loaded from the real stylesheets, in the order the
+ * console's entry point imports them -- rather than pixels.
  */
 
 /**
- * The two stylesheets, in the order both entry points import them.
+ * The two stylesheets, in the order the console's entry point imports them.
  *
  * Read from disk rather than imported: Vitest replaces CSS imports with empty
  * strings in tests -- `?raw` included -- which leaves every rule missing and

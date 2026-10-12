@@ -1,9 +1,10 @@
 /**
  * The selling pages' arithmetic: a platform's rates, and an offer's margin.
  *
- * Split out of `Platforms.jsx` because that module exports the page
- * component; a component module that also exports plain functions breaks
- * Fast Refresh (`react-refresh/only-export-components` -- see
+ * A module of its own, not exports from `Platforms.jsx`: that module
+ * exports the page component, and a component module that also exports
+ * plain functions breaks Fast Refresh
+ * (`react-refresh/only-export-components` -- see
  * `docs/code-quality.md`). Kept here so the pages and their tests can both
  * import the helpers without pulling in React.
  *

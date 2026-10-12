@@ -128,10 +128,11 @@ def test_export_writes_codes_not_ids(db: Session, tmp_path: Path) -> None:
 
 
 def test_export_round_trips_through_a_fresh_load(db: Session, tmp_path: Path) -> None:
-    """An export loads cleanly into another installation.
+    """An export loads back into the database it came from, changing nothing.
 
-    What comes out must go back in: the export is only useful if another
-    installation can actually load it.
+    What comes out must go back in: every exported row matches the row it
+    was written from. What a new installation needs of the file is
+    `test_an_exported_row_carries_everything_a_new_row_needs`.
     """
     export_reference_data(db, tmp_path, sources=["seeded"])
     stats = seed_all(db, tmp_path)

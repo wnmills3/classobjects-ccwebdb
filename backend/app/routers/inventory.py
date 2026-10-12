@@ -223,7 +223,12 @@ def search_inventory(
     db: DbSession,
     _admin: AdminUser,
     q: Annotated[
-        str | None, Query(description="Free text over source title, code, notes")
+        str | None,
+        Query(
+            description="Free text over title, description, rating, item code "
+            "and the purchase's order number, and over series, strike, "
+            "designation, attribute, mint and note class by name or alias"
+        ),
     ] = None,
     sort: str | None = None,
     desc: bool = False,
@@ -1988,7 +1993,8 @@ NOTE_CLASSIFIERS: dict[str, type[ReferenceMixin]] = {
 }
 
 #: Every field whose logged codes the history shows by label: the item's and
-#: the note's classifiers, and attributes (logged as a list of codes).
+#: the note's classifiers, a coin's mint, and attributes (logged as a list of
+#: codes).
 HISTORY_CLASSIFIERS: dict[str, type[ReferenceMixin]] = {
     **ITEM_CLASSIFIERS,
     **NOTE_CLASSIFIERS,
@@ -2857,6 +2863,8 @@ def bulk_edit(
 
         # What a person sets is theirs from now on: no pass refreshes it.
         # What follows from the new facts is refreshed now.
+        # No Gift rule here (`app.gift_rule`): it is the item editor's save
+        # that gives a note at no cost its Gift.
         forget(db, found, [_column(field) for field in data])
         hold(db, found, _emptied(data))
         refresh_items(db, found)
@@ -3020,7 +3028,14 @@ def update_item(
     db: DbSession,
     admin: AdminUser,
 ) -> InventoryItem:
-    """Correct an item. Send `version` to be told about conflicts.
+    """Correct an item, refusing a save that would overwrite another's change.
+
+    Send `base` (each changed field's value where the edit began) to have the
+    save merged field by field and refused only where someone else changed
+    one of those fields;
+    without it, send `version` to be refused when anything changed
+    (`_refuse_lost_update`). A change to an item that is for sale needs
+    `acknowledge_for_sale`.
 
     This is the editing path for the collection. `PATCH /api/listings/{id}`
     (`app.routers.offers`) needs a listing, and an item is owned long before

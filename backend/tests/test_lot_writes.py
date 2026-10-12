@@ -84,7 +84,7 @@ def test_an_item_already_in_an_open_lot_cannot_join_another(
         add_member(db, second, received_item)
 
 
-def test_removing_a_member_releases_it(
+def test_removing_a_member_deletes_its_membership(
     db: Session, received_item: InventoryItem
 ) -> None:
     """Removal deletes the membership row; the item can then join another lot.

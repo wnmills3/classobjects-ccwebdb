@@ -406,8 +406,8 @@ SL_OFFERED = register(
 # ---------------------------------------------------------------------------
 
 #: `sales_order_status` codes (`backend/data/reference/operations.json`) that
-#: are a completed or in-progress sale, so its money belongs on a tax
-#: return -- never a `cancelled` order, whose sale never happened, and never
+#: are a completed or in-progress sale, so its money counts as a sale
+#: -- never a `cancelled` order, whose sale never happened, and never
 #: a `refunded` one, whose money went back. `pending`, `paid` and `packed`
 #: are `sale_state.OPEN_ORDER_STATUSES`
 #: -- reused, not restated, so this report and `sale_state`'s own "is this

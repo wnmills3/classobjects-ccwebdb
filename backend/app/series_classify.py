@@ -10,12 +10,13 @@ only be a Winged Liberty Head.
 whose ranges cover its denomination and year, and its letter for a note.
 **Evidence** is the text -- title, description and rating, read with
 `series_match`'s vocabulary -- or, for a note, a seal color matching the
-design's. A title and description shared with other pieces of the same order
-are the lot's, not the piece's, so for those only the rating counts. Then:
+design's or a recorded note class matching the design's. A title and
+description shared with other pieces of the same order are the lot's, not the
+piece's, so for those only the rating counts. A candidate that needs evidence
+and has none is set aside; of those left:
 
-    one candidate                         assign
-    one, needs evidence, and has it       assign
-    one, needs evidence, and lacks it     leave: an ordinary note of that series
+    one                                   assign
+    none, though there were candidates    leave: an ordinary item of that year
     several, and the text names one       assign that one
     several, otherwise                    review: a boundary year
     text names only designs it cannot be  review: a conflict, nothing assigned

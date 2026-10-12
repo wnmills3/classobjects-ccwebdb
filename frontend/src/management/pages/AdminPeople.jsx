@@ -423,8 +423,8 @@ function Customers({ notify }) {
     return (
       <p className="muted">
         No customers yet. A customer record is created by a purchase -- an order in the
-        shop, or a sale recorded from another platform -- so this fills up once the
-        store is selling.
+        shop or placed for them, or a sale recorded from another platform -- so this
+        fills up once the store is selling.
       </p>
     )
 

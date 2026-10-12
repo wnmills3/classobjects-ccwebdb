@@ -12,7 +12,8 @@ import OrderHistory from './orders/OrderHistory'
  *
  * The shop shows a customer their own orders. The console is a superset of
  * the shop, so the owner gets all of them here, with who placed each and
- * what is in it, and the whole status vocabulary rather than the shop's four.
+ * what is in it, and a picker over the whole status vocabulary, which the
+ * shop only displays.
  */
 
 //: `sales_order_status` codes, in the order an order moves through them.
@@ -193,8 +194,11 @@ export default function Orders() {
                       // bought in the shop ends its listing at checkout --
                       // is refused for the same reason: there is no listing
                       // left to put the stock back on. Each line says so
-                      // (`listing_ended`), so the rule here is the server's
-                      // own, not an approximation of it.
+                      // (`listing_ended`). The one difference from the
+                      // server: "unshipped" is read here from the current
+                      // status, and there from the order's history as well,
+                      // so an order set back from `shipped` is disabled here
+                      // though the server would take it.
                       //
                       // A refund before shipping returns the stock too, so
                       // it is refused in the same cases.

@@ -1,13 +1,14 @@
-"""The one definition of "an item's receipt" -- shared by `pr_received` and `sl_aging`.
+"""The one definition of "an item's receipt", shared by three reports.
 
 A receipt is a status transition *to* `received`
 (docs/specs/reporting-design.md, Decisions) --
 `item_status_history.from_status_id IS NOT NULL` -- never the opening row a
 brand-new item, a split child, or a seed gets, nor the single opening row an
-item whose history starts at its current status carries. Both reports read
-this one predicate through `received_transitions`,
-and both read a transition's calendar day through `receipt_day`, so neither
-can drift from what "received" means to the other.
+item whose history starts at its current status carries. `pr_received` and
+`pr_received_items` (through `purchasing._arrivals`) and `sl_aging` all read
+this one predicate through `received_transitions`, and all read a
+transition's calendar day through `receipt_day`, so none can drift from what
+"received" means to the others.
 """
 
 from __future__ import annotations
@@ -27,8 +28,9 @@ def received_transitions() -> Select[Any]:
     """Every genuine arrival: `inventory_item_id`, `arrived_on`, `changed_at`.
 
     A base statement a caller may still `.join()`, `.add_columns()` and
-    `.where()` -- `pr_received` adds the item, purchase order and vendor it
-    also needs; `sl_aging` narrows it to its held items through a subquery.
+    `.where()` -- `purchasing._arrivals` adds the item, purchase order, vendor
+    and seller `pr_received` and `pr_received_items` need; `sl_aging` narrows
+    it to its held items through a subquery.
     """
     return (
         select(

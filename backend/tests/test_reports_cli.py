@@ -64,7 +64,7 @@ def test_run_prints_the_table_for_a_built_purchase(
     assert "Not yet arrived" in out  # the report's title
     assert "CLI-1" in out
     assert "CLI Vendor" in out
-    assert "42.50" in out  # money, right-aligned as the Decimal prints
+    assert "42.50" in out  # money, as the Decimal prints
 
 
 def test_a_name_s_control_characters_are_printed_escaped_on_its_own_line(

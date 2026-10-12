@@ -309,6 +309,7 @@ def test_a_piece_cannot_itself_be_split(
 
     response = do_split(client, admin_headers, pieces[0]["id"], TUBE)
     assert response.status_code == 409
+    assert "itself a piece" in response.json()["detail"]
 
 
 def test_a_lot_that_has_been_ordered_cannot_be_split(

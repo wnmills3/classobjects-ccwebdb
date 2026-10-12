@@ -19,9 +19,10 @@ the shop answering "Manager privileges are required" would confirm that
 the page exists; the shop instead answers "not found" for console paths.
 
 Someone who *guesses* `/management` still reaches a sign-in screen, so the console
-remains discoverable to a determined guesser. Closing that means serving the
-console on an interface the public cannot reach -- a deployment decision that
-needs no change to anything here.
+remains discoverable to a determined guesser. `management.html` asks crawlers
+not to index or follow it, so a search engine does not do the guessing.
+Closing that means serving the console on an interface the public cannot
+reach -- a deployment decision that needs no change to anything here.
 
 ## Structure
 
@@ -116,9 +117,10 @@ static imports, so `no-restricted-syntax` applies the same boundary to
 
 **Output: the bundle graph.** A Rollup `generateBundle` hook
 (`bundleGraph()` in `vite.config.js`) writes `dist/.vite/bundle-graph.json`,
-listing every chunk's modules. `scripts/check-bundle-isolation.mjs` walks the
-chunks reachable from each entry, following static and dynamic imports, and
-fails if any chunk contains a module from the other application's tree. It is
+listing every chunk's modules. `frontend/scripts/check-bundle-isolation.mjs`
+walks the chunks reachable from each entry, following static and dynamic
+imports, and fails if any chunk contains a module from the other
+application's tree. It is
 symmetric. It reads chunk *membership*, not Vite's `manifest.json`: a manifest
 records a chunk's imports but not its contents, and a chunk shared between
 entries has no `src` -- exactly where a module imported by both lands. It is

@@ -85,7 +85,7 @@ export function summarize(entry) {
   return pieces && pieces !== items ? `${head}, ${pieces} pieces in all` : head
 }
 
-/** One coin of a lot, in the same few words a single coin's card uses. */
+/** One coin of a lot, in a few words: country, year, denomination and grade. */
 export function describeMember(member) {
   return [member.country, member.year_start, member.denomination, member.grade_display]
     .filter(Boolean)

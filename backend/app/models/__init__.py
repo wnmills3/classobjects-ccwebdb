@@ -10,12 +10,13 @@ Layout follows `docs/database-design.md`:
     base            column conventions shared by everything
     reference       the classifier tables (design section 4)
     core            inventory_item and the acquisition side (section 3)
-    identification  certificates, serials and type catalogs (section 5)
+    identification  certificates, errors, attributes and type catalogs (section 5)
     valuation       composition, spot prices, snapshots (section 6)
-    lifecycle       status and location history (section 7)
+    lifecycle       status and location history, per-field state (section 7)
     images          files, derivatives and their uses (section 8)
     sales           listings, customers, orders, shipments (section 9)
     auctions        consigning lots to a sale, and settling it (section 9)
+    views           the four database views (section 10); not imported here
     scaffold        the users table (section 13)
 """
 

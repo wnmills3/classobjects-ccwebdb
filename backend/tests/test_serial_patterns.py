@@ -103,6 +103,8 @@ def test_an_internal_letter_warns_rather_than_refusing() -> None:
     from app.serial_patterns import check
 
     issues = check("S9753547A6")
+    # Two: the internal letter, then the advisory ceiling -- its eight digits
+    # read 97,535,476, above 96,000,000.
     assert [i.severity for i in issues] == ["warning", "warning"]
     assert "one position early" in issues[0].message
 

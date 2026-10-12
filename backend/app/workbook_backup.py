@@ -58,10 +58,11 @@ a link into a *vocabulary* -- a table with a code and a
 label, such as `grade` or `mint` -- is pointed at that vocabulary's Unknown
 row instead, and every substitution is reported. The Unknown row is the one
 coded `unknown` (or labeled Unknown) if the sheet has one; otherwise it is
-added, with id 0 -- ids start at 1, so 0 is never a real row's -- and
-`source` manual, so a seed load leaves it alone. A vocabulary whose rows need
-more than a code and a label (a denomination's face value, a mint's mark) is
-not given one by guesswork: add an `unknown` row to its sheet. A link into
+added, with id 0 (or the next free id below it) -- ids start at 1, so it is
+never a real row's -- and `source` manual, so a seed load leaves it alone. A
+vocabulary whose rows need more than a code and a label (a denomination's
+face value, a mint's mark) is not given one by guesswork: add an `unknown`
+row to its sheet. A link into
 anything else -- an item, an order -- is still refused; there is no Unknown
 item.
 
@@ -140,7 +141,7 @@ __all__ = [
 
 #: How an empty string is written: an empty cell reads back as NULL.
 EMPTY_STRING = '""'
-#: The most characters a cell holds; a longer text is cut to this.
+#: The most characters a cell holds; an export refuses a longer text (`_unkept`).
 _CELL_LIMIT = 32767
 #: The header suffix of a computed column, written for reading only.
 COMPUTED = " (computed)"
@@ -336,7 +337,11 @@ def _read_type(column: Column[Any]) -> TypeEngine[Any]:
 
 
 def _text_cell(sheet: Worksheet, value: object) -> object:
-    """A cell that stays text: a value starting with "=" is not a formula."""
+    """A cell that stays text: a value starting with "=" is not a formula.
+
+    Text that spells a spreadsheet error is left as openpyxl types it, and
+    reads back as the same text.
+    """
     if isinstance(value, str) and value.startswith("="):
         return keep_text(WriteOnlyCell(sheet, value=value))
     return value

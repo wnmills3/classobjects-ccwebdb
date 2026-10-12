@@ -1,10 +1,12 @@
 /**
  * What a form field means, in the words the owner reads off the item.
  *
- * One place for every form's help text, keyed by the field's API name, so
- * the item editor, Receiving and the Friedberg lookup explain a field the
- * same way. `HelpScope` shows the entry for whichever field has focus; a
- * field opts in with `data-help="<key>"` on its label.
+ * One place for every form's help text, so every screen explains a field
+ * the same way. A field's key is its API name where it has one; a button or
+ * a page's own control has a key named for its page (`report_run`,
+ * `vocabulary_rename`). `HelpScope` shows the entry for whichever field has
+ * focus, or the button under the pointer; each opts in with
+ * `data-help="<key>"`.
  *
  * Public numismatic fact -- what is printed where on a note, and what it
  * means -- and never a price guide's values, nor which catalog number
@@ -233,7 +235,7 @@ export const FIELD_HELP = {
     title: 'Series',
     text:
       'The design it belongs to, as collectors name it: Morgan Dollar, Walking ' +
-      'Liberty Half Dollar, Silver Certificate.',
+      'Liberty Half Dollar, or for a note Funnyback.',
   },
   variety: {
     title: 'Variety',
@@ -312,20 +314,23 @@ export const FIELD_HELP = {
     text:
       "The seller's own number for the listing this was bought from -- eBay's " +
       'item number. Every piece split from one listing keeps it, so a lot stays ' +
-      'traceable. Opens the listing on eBay in a new tab.',
+      "traceable. Where it is an eBay item number, the editor's heading shows it " +
+      'as a link that opens the listing on eBay in a new tab.',
   },
   item_purchase: {
     title: 'Purchase',
     text:
       'The purchase this item was bought on: its order number and vendor. The order ' +
       'number belongs to the purchase, not the item: this opens the purchase in a new ' +
-      'tab, where Edit details changes its number, date, web address or notes.',
+      'tab, where Edit details changes its number, date, web address, seller or ' +
+      'notes.',
   },
   edit_purchase: {
     title: 'Edit details',
     text:
-      "Change this purchase's order number, date, web address or notes. Clear the " +
-      'order number to give it the next generated one (Order-0001, Order-0002, ...).',
+      "Change this purchase's order number, date, web address, seller or notes. " +
+      'Clear the order number to give it the next generated one (Order-0001, ' +
+      'Order-0002, ...).',
   },
   rating: {
     title: 'Rating',
@@ -538,18 +543,20 @@ export const FIELD_HELP = {
     title: 'Photographs',
     text:
       "The item's pictures. Choose a file, drag one onto the box, or paste one with " +
-      "Ctrl+V to add it, set each one's role (obverse, reverse, slab ...), make one " +
-      'the primary -- the one the shop shows first -- or remove one. A new photograph ' +
-      "is held for the form's Save rather than filed right away.",
+      'Ctrl+V to add it; say what each one shows (obverse, reverse, slab ...), make ' +
+      'one the primary -- the one the shop shows first -- remove one, or move one ' +
+      "to another item by its code. Nothing is filed or changed until the form's " +
+      'Save.',
   },
   // -- the search panel -------------------------------------------------------
   search_text: {
     title: 'Search',
     text:
-      'Finds items whose title, description, rating or item code contain what you ' +
-      'type, ignoring case. Several words are one phrase, in that order. % stands ' +
-      'for any run of characters and _ for exactly one. Press Enter or leave the ' +
-      'box to search.',
+      'Finds items whose title, description, rating, item code or purchase order ' +
+      'number contain what you type, ignoring case, and items whose series, mint, ' +
+      'strike, designation, note class or attribute is called that. Several words ' +
+      'are one phrase, in that order. % stands for any run of characters and _ for ' +
+      'exactly one. Press Enter or leave the box to search.',
   },
   search_tips: {
     title: 'Search tips',
@@ -558,8 +565,9 @@ export const FIELD_HELP = {
   grade_filter: {
     title: 'Grade',
     text:
-      'A grade or a pattern: 65, 64+, PR69, UNC, or 55% for 55 and every grade ' +
-      'written starting with 55. Coins and notes each use their own scale.',
+      'A grade or a range of grades: 65 is exactly 65, 64+ exactly 64+, and 55% ' +
+      'both 55 and 55+. PR69 names the strike too. BU is 60-62, BU+ 63-64, BU++ ' +
+      '65-66 and BU% all three. Coins and notes each use their own scale.',
   },
   serial_filter: {
     title: 'Serial number',
@@ -640,7 +648,8 @@ export const FIELD_HELP = {
     text:
       'Which one field to set on every selected item. The value beside it ' +
       'replaces what each item holds. All of them are changed or none: if any ' +
-      'one is refused, nothing is.',
+      'one is refused, nothing is. Grade is typed as on an item (65, MS65); ' +
+      'country, denomination and metal are typed as their code.',
   },
   lot_target: {
     title: 'Lot',
@@ -661,7 +670,8 @@ export const FIELD_HELP = {
       'Where these are offered: the web store, or an outside platform. One ' +
       'platform for everything in this window. An item is offered in one place ' +
       'at a time: offering one that is in the web store pauses its store ' +
-      'listing until this offer ends.',
+      'listing: it comes back if this offer ends unsold, and ends with it if ' +
+      'the item sells.',
   },
   offer_format: {
     title: 'Format',
@@ -752,6 +762,12 @@ export const FIELD_HELP = {
       'How many days after its order date a purchase still waiting to arrive is ' +
       'marked Overdue. 21 unless changed.',
   },
+  report_vendor: {
+    title: 'Vendor',
+    text:
+      'One vendor\'s name exactly as the Received report shows it -- "No ' +
+      'purchase" for items recorded with none -- or all for every vendor.',
+  },
   report_date_from: {
     title: 'From',
     text: 'Counts from this date on. Left empty, there is no start -- everything up to To.',
@@ -790,6 +806,10 @@ export const FIELD_HELP = {
       'A linked value opens the page behind that row: the items it counts, or the ' +
       'purchase to receive. A linked item code opens that item to edit, over the ' +
       'report. A linked percentage opens the items missing that field.',
+  },
+  report_show: {
+    title: 'Show',
+    text: 'Which rows to list: all of them, or one kind of case only.',
   },
 
   // -- the Vocabularies page -------------------------------------------------
@@ -980,9 +1000,5 @@ export const FIELD_HELP = {
   vocabulary_field_tracking_url_template: {
     title: 'Tracking address',
     text: "The carrier's tracking page address, with {tracking} where the tracking number goes.",
-  },
-  report_show: {
-    title: 'Show',
-    text: 'Which rows to list: all of them, or one kind of case only.',
   },
 }

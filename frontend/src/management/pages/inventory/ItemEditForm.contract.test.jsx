@@ -350,7 +350,7 @@ describe('ItemEditForm: a Friedberg number cleared before a refused save', () =>
   })
 })
 
-describe('ItemEditForm: the history after a save that moves no version', () => {
+describe('ItemEditForm: the history is read again on every save, whatever version is read back', () => {
   it('reads the history again when only the errors were saved', async () => {
     const errorTypes = emptyReference({
       tables: {
@@ -373,7 +373,8 @@ describe('ItemEditForm: the history after a save that moves no version', () => {
     await user.click(saveButton())
 
     await waitFor(() => expect(api.setItemErrors).toHaveBeenCalled())
-    // The item's version is as it was: only the save itself says to look.
+    // The item read back holds the version the form already had: only the
+    // count of saves says to look.
     await waitFor(() => expect(api.getItemHistory).toHaveBeenCalledTimes(2))
   })
 })

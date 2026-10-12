@@ -1,4 +1,4 @@
-"""Tests for the target schema.
+"""Tests for the schema.
 
 These cover the properties the schema is *for*, rather than that SQLAlchemy
 can insert a row: arithmetic that must never drift, constraints that must
@@ -66,7 +66,7 @@ def test_generated_columns_cannot_be_written(db: Session) -> None:
 
 
 def test_tax_rate_is_per_row_not_a_constant(db: Session) -> None:
-    """Rates vary by jurisdiction, which is why it is a column."""
+    """A row's own rate is the one its tax is computed at: nought gives none."""
     item = build_bare_item(
         db,
         item_cost=Decimal("100.00"),

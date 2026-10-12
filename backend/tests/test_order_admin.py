@@ -154,13 +154,13 @@ def test_an_order_names_its_customer_and_what_was_bought(
     assert order["items"][0]["title"] == item_of(listing).source_title
 
 
-def test_a_customer_still_sees_only_their_own_orders_with_the_new_fields(
+def test_a_customer_lists_only_their_own_orders(
     client: TestClient,
     listing: Listing,
     customer_headers: dict[str, str],
     db: Session,
 ) -> None:
-    """The added names must not open a window onto anyone else's order."""
+    """A customer's list holds one order, theirs, though another's exists."""
     post_order(client, customer_headers, listing.id, 1)
     foreign_order(db, "somebody.else@example.com")
 

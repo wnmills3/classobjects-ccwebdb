@@ -116,8 +116,9 @@ def _listing(
 def _build_modest_collection(db: Session, tag: str = "") -> None:
     """A few dozen items, purchases and listings -- not the collection's thousands.
 
-    One of each shape a report groups by: coins and notes across several
-    denominations and every acquisition status; some items with no
+    One of each shape a report groups by: coins across several
+    denominations and five acquisition statuses, notes across several
+    denominations; some items with no
     denomination at all (`cb_holdings`'s "No denomination" row); purchase
     orders with items still `ordered` or `missing`, some old enough to be
     overdue; and a spread of listings -- active and paused, an item and a

@@ -6,7 +6,12 @@ redistribute. Nothing here seeds, fetches, or hardcodes that mapping. What
 this module builds instead is a place for the owner to record numbers read
 off their own notes and slabs (`POST /friedberg`), search that private
 catalog by what is visible on a note in hand (`GET /friedberg`), and attach
-a match to an item (`POST /inventory/{item_id}/friedberg`).
+a match to an item (`POST /inventory/{item_id}/friedberg`). The Lists page
+reads the whole catalog with its use (`GET /friedberg/catalog`), corrects or
+confirms a row (`PATCH /friedberg/{id}`) and deletes an unused one
+(`DELETE /friedberg/{id}`); `DELETE /inventory/{item_id}/friedberg` takes a
+number off a note, and `GET /friedberg/signatures` lists the signature pairs
+a series can carry.
 
 See the `FriedbergNumber` docstring in `app.models.identification` for why the
 identifying tuple is only partially unique, and why `verified_at` is what
@@ -174,7 +179,7 @@ def _refuse_to_confirm_a_slip(row: FriedbergNumber) -> None:
     """422 for confirming a number that is not in a Friedberg number's form.
 
     Confirming is what makes a number trusted -- the next lookup attaches it
-    in one step -- so a slip such as `3007-` has to be corrected first. It
+    in one step -- so a slip such as `9907-` has to be corrected first. It
     may still be attached as proposed.
     """
     problem = fr_problem(row.fr_number)
@@ -196,7 +201,7 @@ def _refuse_shade_mismatch(
 ) -> None:
     """422 when a number's seal shade contradicts a recorded seal.
 
-    `2008-B LGS` is a light green seal's number, so a seal recorded as
+    `9908-B LGS` is a light green seal's number, so a seal recorded as
     anything else is a slip in one of the two; `DGS` on a
     light green seal is the same slip the other way. A seal not recorded yet
     contradicts nothing and is allowed.
@@ -420,9 +425,11 @@ def create_friedberg_number(
 ) -> FriedbergNumberOut:
     """Record a Friedberg number read off a note or slab in hand.
 
-    `fr_number` is unconditionally unique, so the same type arriving twice is
-    a 409 naming the row already on file rather than an integrity error --
-    that is a legitimate, expected event, not a bug report.
+    Three refusals, each naming what is in the way. A number already on file
+    is a 409 naming its row. A number whose seal shade contradicts the seal
+    sent is a 422 (`_refuse_shade_mismatch`). A type already on file under
+    another number is a 409 carrying that row (`CombinationRecorded`), so
+    the console can offer to correct it.
     """
     existing = db.scalar(
         select(FriedbergNumber).where(FriedbergNumber.fr_number == payload.fr_number)
@@ -546,9 +553,10 @@ def update_catalog_row(
                 detail=f"fr_number {payload.fr_number!r} is already recorded as "
                 f"row {clash.id}",
             )
+        # A corrected number must still agree with the seal the row records.
+        _refuse_shade_mismatch(db, payload.fr_number, row.seal_color_id, "this row's")
         # Adding or dropping a mule's `m` or a star changes which type the
         # row is, and the type may already be on file under another number.
-        _refuse_shade_mismatch(db, payload.fr_number, row.seal_color_id, "this row's")
         held = _same_combination(db, row, fr_number=payload.fr_number)
         if held is not None:
             raise CombinationRecorded(held)

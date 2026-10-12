@@ -67,7 +67,7 @@ beforeEach(() => {
   )
 })
 
-/** Opens Receiving on order 1, as the inventory's Order column links here. */
+/** Opens Receiving on order 1, as Purchases' Receive these links here. */
 function renderOnOrder(extra = null) {
   return renderWithProviders(
     <>
@@ -195,7 +195,7 @@ describe('receiving one line at a time', () => {
 
   it('records the receipt for that one line only', async () => {
     const user = userEvent.setup()
-    api.receiveItems.mockResolvedValue({ received: 1 })
+    api.receiveItems.mockResolvedValue({ outcome: 'received', items: 1 })
     renderOnOrder()
     await user.click(await morganButton())
     const dialog = await screen.findByRole('dialog')
@@ -210,7 +210,7 @@ describe('receiving one line at a time', () => {
 
   it('closes the dialog and searches again once the receipt lands', async () => {
     const user = userEvent.setup()
-    api.receiveItems.mockResolvedValue({ received: 1 })
+    api.receiveItems.mockResolvedValue({ outcome: 'received', items: 1 })
     renderOnOrder()
     await user.click(await morganButton())
     const searchesBefore = api.searchInventory.mock.calls.length
@@ -245,7 +245,7 @@ describe('receiving one line at a time', () => {
     // The receipt is recorded; the photograph is not. Closing on `onDone`
     // would report the failure to a component nobody can see.
     const user = userEvent.setup()
-    api.receiveItems.mockResolvedValue({ received: 1 })
+    api.receiveItems.mockResolvedValue({ outcome: 'received', items: 1 })
     api.uploadImage.mockRejectedValue(new Error('file too large'))
     renderOnOrder()
     await user.click(await morganButton())
@@ -275,7 +275,7 @@ describe('receiving one line at a time', () => {
     // A parcel of twenty into one safe deposit box must not be twenty
     // identical dropdown picks.
     const user = userEvent.setup()
-    api.receiveItems.mockResolvedValue({ received: 1 })
+    api.receiveItems.mockResolvedValue({ outcome: 'received', items: 1 })
     renderOnOrder()
     await user.click(await morganButton())
     let dialog = await screen.findByRole('dialog')
@@ -291,7 +291,7 @@ describe('receiving one line at a time', () => {
   it('does not carry a note from one line to the next', async () => {
     // A location describes the parcel; a note describes the object.
     const user = userEvent.setup()
-    api.receiveItems.mockResolvedValue({ received: 1 })
+    api.receiveItems.mockResolvedValue({ outcome: 'received', items: 1 })
     renderOnOrder()
     await user.click(await morganButton())
     let dialog = await screen.findByRole('dialog')
@@ -349,7 +349,7 @@ describe('Receive all', () => {
   it('receives every line still ordered, and only those, in one request', async () => {
     const user = userEvent.setup()
     api.getPurchaseOrder.mockResolvedValue(orderWithLines())
-    api.receiveItems.mockResolvedValue({ received: 2 })
+    api.receiveItems.mockResolvedValue({ outcome: 'received', items: 2 })
     renderOnOrder()
 
     await user.click(
@@ -370,7 +370,7 @@ describe('Receive all', () => {
   it('reads the order again after the receipt, so the button goes', async () => {
     const user = userEvent.setup()
     api.getPurchaseOrder.mockResolvedValue(orderWithLines())
-    api.receiveItems.mockResolvedValue({ received: 2 })
+    api.receiveItems.mockResolvedValue({ outcome: 'received', items: 2 })
     renderOnOrder()
     // Typed by the operator, so a remounted search would lose it -- the
     // order number alone would not show that, as a remount refills it.
@@ -400,7 +400,7 @@ describe('Receive all', () => {
     // received: offering them would send a receipt the server refuses.
     const user = userEvent.setup()
     api.getPurchaseOrder.mockResolvedValue(orderWithLines())
-    api.receiveItems.mockResolvedValue({ received: 2 })
+    api.receiveItems.mockResolvedValue({ outcome: 'received', items: 2 })
     renderOnOrder()
     await user.click(
       await screen.findByRole('button', { name: 'Receive all 2 still ordered' }),

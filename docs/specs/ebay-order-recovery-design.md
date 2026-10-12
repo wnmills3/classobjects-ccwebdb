@@ -6,7 +6,9 @@ by eBay's item id. Purchases recorded without an order number cannot be
 found either way. `python -m app.ebay_orders` fills both in from eBay's own
 purchase history: a command-line pass the owner or an administrator runs
 from `backend\` after downloading that history. It fills only what is
-empty, so it can be run again after each new download.
+empty and merges the purchases one eBay order was split into, and a second
+run finds nothing left to do, so it can be run again after each new
+download.
 
 The result shows in the management console: the item editor's
 **Seller's item id** field (editable) with a link to the listing on eBay,

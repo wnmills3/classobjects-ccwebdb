@@ -1,8 +1,9 @@
 """Replace stored photographs with the full-size picture their address offers.
 
-A photograph added by its address was stored at whatever size that address
-named -- a 140-pixel thumbnail of a picture the marketplace also serves at
-1600. Each stored photograph that may be such a copy -- its address has a
+A stored photograph may be a scaled copy of a larger one -- a 140-pixel
+thumbnail of a picture the marketplace also serves at 1600 -- when the
+address on record names a smaller size than its host serves. Each stored
+photograph that may be such a copy -- its address has a
 larger form (`image_urls.full_size`), and the picture held is no bigger
 than the address names -- is fetched again at full size and, when what
 comes back really is larger, put behind the same image in place
@@ -25,6 +26,9 @@ Usage, from `backend/`:
     python -m app.image_enlarge                    report what would be fetched
     python -m app.image_enlarge --commit           fetch and replace
     python -m app.image_enlarge --commit --limit N stop once N are replaced
+    python -m app.image_enlarge --commit --list    name each one left as it was
+    python -m app.image_enlarge --commit --pause S wait S seconds between
+                                                   fetches (0.05)
 
 A dry run fetches nothing. A commit writes in batches, so one that is
 interrupted keeps what it had done and a second run takes up the rest. The

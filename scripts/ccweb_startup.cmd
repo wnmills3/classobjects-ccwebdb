@@ -136,7 +136,7 @@ echo   API         http://127.0.0.1:%BPORT%
 echo   API docs    http://127.0.0.1:%BPORT%/docs
 echo   database    localhost:5432/ccwebdb
 echo.
-echo   sign in     admin@example.com / adminpassword
+echo   sign in     a manager account (FIRST_ADMIN_EMAIL in .env on a trial installation)
 echo.
 echo   logs        %LOGS%
 echo   PIDs        .runtime\ccweb.pids

@@ -45,11 +45,11 @@ therefore guarded by the for-sale rule.
   filed with no `sort_order` -- every console upload, and an attach that
   names none -- goes after the item's last one, so a reverse lists after its
   obverse.
-- Every file is re-encoded as it is stored (JPEG, or PNG where it has
-  transparency), so a WebP can be filed as a JPEG is. Only the formats
-  photographs arrive in are decoded -- JPEG (a phone's multi-picture JPEG
-  among them), PNG, WebP, GIF, TIFF and BMP; anything else is refused as
-  not a readable image.
+- Every file is re-encoded as it is stored (JPEG, or PNG where the picture
+  has transparency or a palette, as a GIF does), so a WebP can be filed as a
+  JPEG is. Only the formats photographs arrive in are decoded -- JPEG (a
+  phone's multi-picture JPEG among them), PNG, WebP, GIF, TIFF and BMP;
+  anything else is refused as not a readable image.
   `image.source_ref` is the name the photograph goes by: the file's name
   as uploaded, with the stored format's extension when it was converted
   (`CC-007595_02.webp` is kept as `CC-007595_02.jpg`; `DSC00417.JPG` stays
@@ -251,9 +251,11 @@ suffix -- and leaves any other address alone. `image_fetch.fetch_full_size`
 fetches that form, and the address as given when it is refused. The address
 kept is the one the bytes came from.
 
-`python -m app.image_enlarge [--commit] [--limit N] [--list]` does the same
-for photographs already stored. One is looked at when its address has a
-larger form and the picture held is no bigger than that address names (an
+`python -m app.image_enlarge [--commit] [--limit N] [--pause S] [--list]`
+does the same for photographs already stored (`--pause` waits that many
+seconds between fetches, 0.05 unless given). One is looked at when its
+address has a larger form and the picture held is no bigger than that
+address names (an
 eBay picture held larger than its `s-l500` address was fetched at full size
 already). The full-size picture is fetched and, when it really is larger,
 put behind the same image row (`image_store.replace_content`): the row keeps

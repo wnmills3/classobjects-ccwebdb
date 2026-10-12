@@ -137,8 +137,9 @@ def analyse(serial: str) -> set[str]:
     if not serial:
         return found
 
-    # The star is part of the serial, not of its digits, and is positional:
-    # a replacement note carries it at the start or the end, never inside.
+    # The star is part of the serial, not of its digits. It is looked for
+    # anywhere in the text: a replacement note carries it at the start or
+    # the end.
     if "*" in serial:
         found.add("star")
 
@@ -260,7 +261,7 @@ def check(
     Shape rules apply to **US** notes only. A US small-size serial is letters
     at the ends and eight digits between, but world notes are not: many
     formats interleave letters and digits legitimately, so applying this to a
-    Bank of Canada or Bundesbank note would refuse a correct entry. Passing a
+    Bank of Canada or Bundesbank note would warn about a correct entry. Passing a
     country other than "US" checks nothing structural.
     """
     if not serial or not serial.strip():

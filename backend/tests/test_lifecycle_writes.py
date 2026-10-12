@@ -58,8 +58,12 @@ def test_the_arrival_date_is_kept_apart_from_when_it_was_logged(
     """A box that sat over a weekend arrived before anyone typed anything."""
     item = build_bare_item(db, status_id=_status_id(db, "ordered"))
     friday = date(2026, 9, 4)
+    # Both in UTC, and taken either side of the write, so neither the hour
+    # nor a midnight between the two can fail this.
+    before = datetime.now(UTC).date()
     set_status(db, item, _status_id(db, "received"), arrived_on=friday)
     db.commit()
+    after = datetime.now(UTC).date()
 
     row = db.scalars(
         select(ItemStatusHistory)
@@ -68,7 +72,7 @@ def test_the_arrival_date_is_kept_apart_from_when_it_was_logged(
     ).first()
     assert row is not None
     assert row.arrived_on == friday
-    assert row.changed_at.date() == date.today()
+    assert before <= row.changed_at.astimezone(UTC).date() <= after
 
 
 def test_setting_the_same_status_records_nothing(db: Session) -> None:
@@ -128,6 +132,10 @@ def test_a_location_change_records_where_it_went(db: Session) -> None:
         select(LocationHistory).where(LocationHistory.inventory_item_id == item.id)
     ).all()
     assert rows[-1].note == "out of the box"
+    # Where it went: nowhere recorded, on the row and on the item alike.
+    assert rows[-1].storage_location_id is None
+    db.refresh(item)
+    assert item.storage_location_id is None
 
 
 def test_editing_the_status_through_the_api_records_it(
