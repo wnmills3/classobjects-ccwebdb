@@ -660,8 +660,7 @@ kind, denomination, year, mint, serial, series year. By default it finds only
 what has not arrived (`ordered` or `missing`); **Any status** shows a whole
 order. Results come 200 at a time per kind and status; anything beyond that
 is counted on screen, so narrow the search to see it. A link naming one order
-(`/management/receiving?order=<id>`, from the inventory screens' order column
-or Purchases' **Receive these**) opens with that order's header and its items
+(`/management/receiving?order=<id>`, from Purchases' **Receive these**) opens with that order's header and its items
 already found, searched by the order's id (an order number is not unique
 across vendors and is sometimes not recorded).
 
