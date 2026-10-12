@@ -39,7 +39,7 @@ import VocabularyDetailsForm from './VocabularyDetailsForm'
  * large silver dollar): search finds both, and a shared alias is marked.
  */
 
-//: Opened first: the vocabularies whose aliases matter most for search.
+//: Opened first: the vocabulary whose aliases matter most for search.
 const FIRST_TABLE = 'series'
 
 /** How many values in the table carry each alias, by lower-cased alias. */

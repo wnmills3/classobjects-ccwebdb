@@ -46,7 +46,8 @@ from tests.builders import build_bare_item, code_id
         ("PROOF", "proof", "63"),
         ("CHOICE_PROOF", "proof", "63"),
         ("GEM_PROOF", "proof", "65"),
-        # Circulated words: the bottom of the range, and a plus above it.
+        # Circulated words: a fixed number (the bottom of the range, but 55
+        # for AU), and a plus above it.
         ("AU", "business", "55"),
         ("AU+", "business", "55+"),
         ("AU++", "business", "55+"),

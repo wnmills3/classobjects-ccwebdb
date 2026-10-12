@@ -11,8 +11,9 @@ application; `listing_image` and `shipment_image` are in the schema and
 nothing uses them.
 
 **Bytes never live in the database.** A collection's photographs run to
-gigabytes. These tables hold metadata and a storage key; a StorageBackend
-abstracts local filesystem from S3-compatible object storage.
+gigabytes. These tables hold metadata and a storage key; the bytes go through
+`app.storage.StorageBackend`, whose one implementation is the local
+filesystem.
 """
 
 from __future__ import annotations

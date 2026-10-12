@@ -276,7 +276,7 @@ describe('PhotosPanel', () => {
     expect(onEditsChange).toHaveBeenCalledWith({})
   })
 
-  it('counts neither a held removal nor a held role when choosing the next side', async () => {
+  it('counts a held role, not the saved one, and no photograph that is leaving', async () => {
     const user = userEvent.setup()
     const onAdd = vi.fn()
     api.listItemImages.mockResolvedValue([

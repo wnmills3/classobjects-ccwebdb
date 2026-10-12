@@ -178,7 +178,7 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     await screen.findByRole('combobox', { name: 'error_type' })
 
     // The heading, and the box beside the picker, both say what they are, in
-    // every one of the panel's three mount points.
+    // each of the panel's two mount points.
     expect(screen.getByText('Errors')).toBeVisible()
     expect(
       screen.getByRole('textbox', { name: 'details for the error being added' }),

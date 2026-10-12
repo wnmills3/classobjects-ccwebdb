@@ -67,7 +67,7 @@ def _item_loads() -> tuple[Any, ...]:
         selectinload(InventoryItem.grading_service),
         selectinload(InventoryItem.metal),
         # `.image` as well as the link: the public URL is keyed by the
-        # image's content hash, so projecting a row now reads through to
+        # image's content hash, so projecting a row reads through to
         # the image itself. Without this the catalog would issue one
         # extra query per photographed item.
         selectinload(InventoryItem.images).selectinload(ItemImage.image),

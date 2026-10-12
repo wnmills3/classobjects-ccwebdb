@@ -425,8 +425,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   const [splitNote, setSplitNote] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
-  // Counts the saves made here. Errors and photographs are saved without
-  // moving the item's version, so the history is read again on this too.
+  // Counts the saves made here. The history is read again on this as well
+  // as on the item's version: a save whose read-back failed leaves the
+  // version the form holds where it was.
   const [saves, setSaves] = useState(0)
   const kinds = useReference('item_kind')
   const vocab = {
@@ -622,11 +623,11 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   if (error && !item) return <p className="error">{error}</p>
   if (!item) return <p className="muted">Loading...</p>
 
-  // `in`, not `??`: a year cleared in the draft is null, and must not fall
-  // back to showing the stored year it is about to replace.
   // The item as it will be saved, where that is known: nothing is shown
   // from a preview once the draft it answered is gone.
   const shownItem = hasFields && preview ? preview : item
+  // `in`, not `??`: a year cleared in the draft is null, and must not fall
+  // back to showing the stored year it is about to replace.
   const value = (key) => (key in draft ? draft[key] : shownItem[key]) ?? ''
   const yearWarning = seriesYearWarning(value, vocab.series)
   const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
@@ -869,7 +870,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
 
   /**
    * File each held photograph; those that fail stay held with their reason.
-   * Returns how many failed.
+   * Returns the ones that failed.
    */
   async function filePhotos() {
     const ack = forSale && acknowledged
@@ -1376,8 +1377,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           <span />
         </label>
         {/* The seller's listing id -- eBay's item number. Filled from the
-            listing link by app.ebay_orders where there was one; typed here
-            for the rest. The link above opens the listing. */}
+            listing's address as that is typed above (`setListing`), and for
+            older records by the passes app.ebay_orders and
+            app.listing_links; typed here where the address carries none. */}
         <label className="field" data-help="sellers_item_id">
           <span>Seller&apos;s item id</span>
           <input

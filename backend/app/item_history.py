@@ -181,7 +181,7 @@ def _field_events(
     errors = _error_labels(db, [change for change, _, _ in rows])
 
     def shown(change: ItemFieldChange, value: object) -> object:
-        """One side of a change as a person reads it: labels in place of ids."""
+        """One side of a change as a person reads it: labels in place of codes."""
         if change.field_name == "errors":
             return _shown_errors(value, errors)
         return _shown(value, change.field_name, labels)

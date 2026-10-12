@@ -36,9 +36,9 @@ export const SHARED_KEYS = {
 }
 
 //: The seller's own id for the listing an item was bought from -- eBay's item
-//: number -- matched in part, on both views. The one filter with no letter:
-//: every letter of its label that the browser leaves free is another
-//: field's on one view or the other.
+//: number -- matched in part, on both views. It has no letter: every letter
+//: of its label that the browser leaves free is another field's on one view
+//: or the other.
 const SELLERS_ITEM_ID = ["Seller's item id", 'sellers_item_id', '126845170680', null]
 
 //: What an item carries rather than what it is: a recorded error (off

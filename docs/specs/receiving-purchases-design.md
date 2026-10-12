@@ -8,10 +8,9 @@ missing, returned or cancelled rather than left outstanding forever.
 
 The owner or a manager does this on the **Receiving** page
 (`/management/receiving`, **Receive** in the console menu), usually by
-following **Receive these** from a purchase or the Order link on an
-inventory row. The page finds the outstanding items, and a dialog per item
-records the outcome, the date it arrived, where it was put, and optionally
-photographs, corrections and errors, all through
+following **Receive these** from a purchase. The page finds the outstanding
+items, and a dialog per item records the outcome, the date it arrived, where
+it was put, and optionally photographs, corrections and errors, all through
 `POST /api/inventory/receive` and the item endpoints.
 
 ## What receiving is here
@@ -155,7 +154,7 @@ Receiving
 
 **`?order=<id>`** -- the link from Purchases' *Receive these*. (The inventory
 screens' Order column opens the purchase itself, `/purchases?order=<id>`, as
-Find a purchase does.) The page loads that purchase, shows its
+Order lookup does.) The page loads that purchase, shows its
 header (purchase `#id`, order number, vendor, order date, a link to the
 vendor's page, and the seller, linked when their page is known) and runs the
 search at once **by the purchase's id** (the `purchase_order_id`
@@ -193,7 +192,7 @@ error belongs to that order and clears when the address changes.
   miss opens -- is saved with **Save as proposed** or **Save as confirmed**,
   and only once it is in a Friedberg number's form (`list-maintenance-design.md`).
   A number whose type is already recorded under another number is refused
-  with that row named, and **Correct 3007- to 3007-L** renames the recorded
+  with that row named, and **Correct 9907- to 9907-L** renames the recorded
   row and uses it. In the item editor the choice is held until the editor's
   Save. The search is by the note's district -- the one it records, else,
   for a Federal Reserve Note, the one its serial names (`serialDistrict`:

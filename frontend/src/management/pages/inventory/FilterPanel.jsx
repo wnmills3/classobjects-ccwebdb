@@ -15,8 +15,8 @@ function Label({ text, letter }) {
 }
 
 //: A filter's help topic where it differs from its parameter: a kind is
-//: the item's kind, and grade and serial filters take a pattern, which
-//: their own topics explain.
+//: the item's kind, and the typed filters and the error and attribute
+//: pickers have topics of their own that explain what they match.
 const HELP_FOR = {
   kind: 'item_kind',
   grade: 'grade_filter',

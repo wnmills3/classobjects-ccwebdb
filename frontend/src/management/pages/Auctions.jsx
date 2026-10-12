@@ -214,8 +214,8 @@ async function findItemIdByCode(code) {
  *
  * `AuctionLotIn._one_subject` takes exactly one of `item_id` and `lot_id`
  * (spec, *Three kinds of lot*), so this offers the choice as a radio rather
- * than two forms -- the same subject a single price, title and listing
- * number describe either way.
+ * than two forms: the lot number, reserve and starting bid are the same
+ * either way.
  */
 function AddLotDialog({ auction, onSaved, onClose }) {
   const [mode, setMode] = useState('item')

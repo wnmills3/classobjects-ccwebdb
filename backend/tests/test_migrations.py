@@ -158,7 +158,7 @@ def test_the_baseline_seeds_the_fee_kinds(migrated_url: str) -> None:
 #:   `ComparisonResult.Equal()` unconditionally, no dialect overrides it, and
 #:   `_ck_constraint_sig._sig` is just `(name,)`. A migration that creates
 #:   `ck_listing_lot_quantity_one` with the wrong predicate is invisible to
-#:   the drift test. `test_the_migration_carries_every_check_constraint`
+#:   the drift test. `test_the_migration_carries_the_listed_check_constraints`
 #:   below asserts `pg_get_constraintdef` against the exact text expected,
 #:   which closes that gap.
 #: - And because this list is written independently of both the model and the
@@ -197,7 +197,7 @@ _SALES_LOT_ITEM_OPEN_INDEXDEF = (
 )
 
 
-def test_the_migration_carries_every_check_constraint(migrated_url: str) -> None:
+def test_the_migration_carries_the_listed_check_constraints(migrated_url: str) -> None:
     """Each hand-picked CHECK exists in the migration, with the right predicate.
 
     Presence alone is not enough -- see the comment above

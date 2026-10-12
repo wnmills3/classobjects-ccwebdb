@@ -8,7 +8,7 @@ Silver Certificates (BEP, bep.gov/currency/faqs), so:
 |----------------------------|-------------------------------------------|
 | Series 1928 through 1935F  | always -- derived, no evidence needed     |
 | Series 1935G               | printed both ways: needs evidence         |
-| Series 1935H, 1957 on      | never                                     |
+| Every other series         | never (before 1928, 1935H, 1957 on)       |
 
 "Godless" is kept to that $1 run, which is where collectors
 use the word. `app.classifier_defaults` applies the rules; what it adds is

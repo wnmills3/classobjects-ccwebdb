@@ -24,10 +24,12 @@ function onDragOver(e) {
  * paste was refused.
  *
  * All three ways in funnel into `onImages(files)`, called with photographs
- * only. A file that is not one refuses the whole drop or paste with a
- * message naming it (`pickError`), rather than silently skipping it; a
- * choice from the file box never reaches that branch, since its
- * `accept="image/*"` already keeps a non-image out of `e.target.files`.
+ * only. A dropped file that is not one refuses the whole drop with a
+ * message naming it (`pickError`), rather than silently skipping it. A paste
+ * takes only the pictures on the clipboard, with no message about anything
+ * else there; one holding no picture is left alone. A choice from the file
+ * box never reaches the refusal, since its `accept="image/*"` already keeps
+ * a non-image out of `e.target.files`.
  *
  * `disabled` turns the target off: nothing is taken, and a paste is left
  * alone to land wherever it was aimed.

@@ -1,10 +1,10 @@
 """`DateRange`: the shared from/to params base every date-scoped report subclasses.
 
 `DateRange` is tested apart from the reports that subclass it (`pr_spend`,
-`pr_received`, `mn_tax`, `sl_sales`): each test here registers its own
-throwaway report -- `DateRange` with no extra fields -- and unregisters it
-afterward, the same pattern `test_reports_registry.py` uses for a report of
-its own.
+`pr_received`, `pr_received_items`, `mn_tax`, `sl_sales`): each test here
+registers its own throwaway report -- `DateRange` with no extra fields -- and
+unregisters it afterward, the same pattern `test_reports_registry.py` uses
+for a report of its own.
 """
 
 from __future__ import annotations

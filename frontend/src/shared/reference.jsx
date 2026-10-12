@@ -6,26 +6,30 @@ import { codeFromLabel } from './reference-codes'
 import { ReferenceContext, useReference } from './reference-context'
 import { findEntries } from './reference-match'
 
-//: A vocabulary longer than this gets a box to find a value by name or alias.
-//: A short list is quicker to read than to search.
-export const FIND_FROM = 10
-
 /**
- * Classifier vocabularies, fetched once and shared.
+ * Classifier vocabularies, fetched on first use and shared.
  *
  * The API takes classifier *codes* -- `usd_coin_1_00`, `MS64`, `US` -- which is
  * the right contract between machines and useless to a person filling in a
  * form. This turns them into pickers that submit the code and show the label.
  *
  * Cached in one place because a single admin form needs five or six of these
- * vocabularies, and they change about as often as the software does.
+ * vocabularies. A copy older than `STALE_MS` is renewed the next time
+ * something uses it or the window gets focus back, and a copy is dropped
+ * when a value is added or changed (`invalidate`).
  *
- * Each table is requested once, however many pickers ask for it in the same
- * commit and however often StrictMode repeats their effects: `requested` is
- * a ref, read and written synchronously, so the second caller sees the first
- * caller's request before any state has updated. `load` is therefore stable,
- * and `useReference` asks again only when its table is missing.
+ * A table's first load is one request, however many pickers ask for it in
+ * the same commit and however often StrictMode repeats their effects:
+ * `requested` is a ref, read and written synchronously, so the second caller
+ * sees the first caller's request before any state has updated. `load` is
+ * therefore stable; `useReference` calls it while its table is missing, and
+ * `refresh` once it is held.
  */
+
+//: A vocabulary longer than this gets a box to find a value by name or alias.
+//: A short list is quicker to read than to search.
+export const FIND_FROM = 10
+
 //: How old a loaded vocabulary may be before it is fetched again on its
 //: next use. Long enough that a form's dozen pickers ask once, short
 //: enough that a value changed elsewhere is not offered for long.
@@ -138,9 +142,9 @@ export function ReferenceProvider({ children }) {
 /**
  * A dropdown over one vocabulary.
  *
- * Falls back to a plain text input while the vocabulary is loading or if it
- * could not be fetched, so the form is always usable -- degraded, never
- * broken.
+ * Falls back to a plain text input while the vocabulary is loading, if it
+ * could not be fetched, or when it holds no values, so the form is always
+ * usable -- degraded, never broken.
  *
  * A long vocabulary gets a find box beside it. Typing narrows the options by
  * label, code or alias -- "Walker" offers Walking Liberty Half Dollar, with

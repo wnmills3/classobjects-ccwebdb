@@ -167,8 +167,9 @@ def _bad_input(_request: Request, exc: Exception) -> JSONResponse:
 def _server_misconfigured(request: Request, exc: Exception) -> JSONResponse:
     """A precondition the operator must fix, not a bug in one request: 500.
 
-    `auctions.consign` and `sales_venues.ensure_store_venue`/`store_venue_id`
-    each raise `errors.ReferenceDataMissing`, naming exactly what is missing
+    `auctions._consigned_location` (reached from `consign`) and
+    `sales_venues.ensure_store_venue`/`store_venue_id` each raise
+    `errors.ReferenceDataMissing`, naming exactly what is missing
     and the command that fixes it -- a migrated-but-unseeded database. With
     no handler
     registered for it, that message would reach only the server log:

@@ -66,19 +66,19 @@ TABLES: dict[str, type[ReferenceMixin]] = {
 #: Vocabularies whose order is their meaning, so they keep `sort_order`.
 #: Three reasons an entry belongs here: a scale (grade runs 70, 69+, 69, ...;
 #: denomination runs face value ascending, coins then notes -- once a picker
-#: filters by kind, a note's nine denominations read $1 -> $1000 in order), a
-#: lifecycle (item_status, disposition, sales_order_status, shipment_status
+#: filters by kind, a note's denominations read 3 cents -> $10000 in order),
+#: a lifecycle (item_status, disposition, sales_order_status, shipment_status
 #: each run ordered -> received -> ... or an equivalent progression), or a
 #: curated sequence (item_kind is ranked by how often a kind occurs -- coin
 #: and currency cover the whole collection, so they lead; signature_combination
-#: is chronological, and its picker is narrowed to a stretch of that timeline
-#: by a note's series year; `sales_fee_kind` is curated too: the migration
-#: orders it commission, processing, listing, shipping label, promotion,
-#: other, which is the order a person reads a platform's statement in and
-#: puts the catch-all last. Alphabetical by label puts "Other" third, and
-#: `docs/system-administration.md` already prints the curated order in
-#: writing). Everything else is a descriptive list that is scanned by name,
-#: and alphabetical is the only order a reader can predict.
+#: is chronological, oldest pair first; `?year=` narrows it to the pairs in
+#: office that year, which no picker asks for (`_limit_to_year`);
+#: `sales_fee_kind` is curated too: the migration orders it commission,
+#: processing, listing, shipping label, promotion, other, which is the order
+#: a person reads a platform's statement in and puts the catch-all last,
+#: where alphabetical by label puts "Other" third). Everything else is a
+#: descriptive list that is scanned by name, and alphabetical is the only
+#: order a reader can predict.
 _SEQUENCED_TABLES = frozenset(
     {
         "grade",
@@ -323,8 +323,8 @@ def create_value(
     Marked `manual`, so one installation's additions stay distinguishable from
     the shipped catalog and do not leave in an export unless asked for.
 
-    Staff only: an anonymous request has no standing to extend a
-    vocabulary.
+    Managers only: neither an anonymous request nor a customer may extend
+    a vocabulary.
     """
     model = _model_or_404(table)
     if not extendable(table):

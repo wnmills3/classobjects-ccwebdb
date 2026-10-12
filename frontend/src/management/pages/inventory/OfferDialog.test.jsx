@@ -561,9 +561,6 @@ describe('OfferDialog', () => {
   })
 })
 
-// The arithmetic itself, against its own table of cases. Whole cents
-// throughout: a float cannot hold them, and these numbers decide what the
-// owner thinks a sale is worth.
 describe('OfferDialog: a lot offered with no title', () => {
   const LOT = { id: 3, title: 'Three dollars', description: '', cost_basis: '50.00' }
 
@@ -630,6 +627,9 @@ describe('OfferDialog: a lot offered with no title', () => {
   })
 })
 
+// The arithmetic itself, against its own table of cases. Whole cents
+// throughout: a float cannot hold them, and these numbers decide what the
+// owner thinks a sale is worth.
 describe('platform fees', () => {
   const ebay = VENUES[1]
   const store = VENUES[0]

@@ -600,8 +600,9 @@ describe('Reports page', () => {
       'href',
       '/inventory/currency?missing=year',
     )
-    // Not applicable to currency: an empty cell, and nothing to follow.
-    expect(screen.queryByRole('link', { name: '%' })).not.toBeInTheDocument()
+    // Not applicable to currency: an empty cell, and nothing to follow. The
+    // three percentages that are filled in are the only percent links.
+    expect(screen.getAllByRole('link', { name: /%$/ })).toHaveLength(3)
   })
 
   it('exports the workbook with the same parameters', async () => {

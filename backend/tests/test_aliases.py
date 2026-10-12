@@ -449,7 +449,7 @@ def test_an_alias_for_an_unknown_value_is_404(
     [("ultra cameo", "UCAM"), ("UC", "UCAM"), ("dpl", "DMPL")],
 )
 def test_the_services_other_words_resolve(db: Session, word: str, code: str) -> None:
-    """Ultra Cameo and UC are UCAM's; NGC's DPL is still DMPL's alias.
+    """Ultra Cameo and UC are UCAM's; NGC's DPL is DMPL's alias.
 
     UCAM is a row of its own, not DCAM's alias: the holder says one or the
     other and the record keeps what it says.

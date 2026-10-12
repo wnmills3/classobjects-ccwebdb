@@ -21,10 +21,12 @@ from sqlalchemy.orm import Session
 
 from .models import CoinDetail, CurrencyDetail, InventoryItem, ItemKind
 
-__all__ = ["KindChangeRefused", "match_detail_to_kind"]
+__all__ = ["KindChangeRefused", "currency_kind_id", "match_detail_to_kind"]
 
 #: `currency_detail` columns that hold something worth keeping. The generated
-#: `series_designation` is left out: it is derived from two of these.
+#: `series_designation` is left out, being derived from two of these, and so
+#: is `friedberg_status`, which describes the search for a number rather than
+#: the note.
 _NOTE_COLUMNS: tuple[str, ...] = (
     "note_type_id",
     "series_year",

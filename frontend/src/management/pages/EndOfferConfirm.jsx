@@ -26,7 +26,8 @@ import { isLot, subjectOf } from './listing-labels'
  * **The subject is `subjectOf`, not `item_code`.** A lot listing has no item
  * code, and a question naming `null` would defeat the whole reason the
  * wording names anything, at the moment it matters. A lot is named the
- * way the catalog names it: its own title, with how many coins are in it.
+ * way the Listings page names it (`subjectOf`): its own title, with how many
+ * coins are in it.
  *
  * A lot also ends differently, and the difference is worth a sentence.
  * `offering_writes._end` dissolves the lot along with the listing and

@@ -89,15 +89,15 @@ export const api = {
   // Errors: several per item -- a bill is commonly miscut AND misprinted --
   // each with its own note. PUT replaces the whole set.
   getItemErrors: (id) => send(`/api/inventory/${id}/errors`),
-  // The star note of a note's serial number already in the collection, or a
-  // star note's plain twin. `serial` is the one typed, saved or not.
-  getSerialPairs: (id, serial) =>
-    send(withQuery(`/api/inventory/${id}/serial-pairs`, { serial_number: serial })),
   setItemErrors: (id, errors, { acknowledgeForSale = false } = {}) =>
     send(`/api/inventory/${id}/errors`, {
       method: 'PUT',
       body: { errors, acknowledge_for_sale: acknowledgeForSale },
     }),
+  // The star note of a note's serial number already in the collection, or a
+  // star note's plain twin. `serial` is the one typed, saved or not.
+  getSerialPairs: (id, serial) =>
+    send(withQuery(`/api/inventory/${id}/serial-pairs`, { serial_number: serial })),
 
   // friedberg -- the owner's own banknote catalog: searched by what is
   // visible on a note in hand, recorded from a number read off one, and
@@ -266,6 +266,7 @@ export const api = {
   settleAuction: (auctionId, payload) =>
     send(`/api/auctions/${auctionId}/settle`, { method: 'POST', body: payload }),
 
+  // entry, continued -- the purchase itself and the items bought on it
   createPurchaseOrder: (payload) =>
     send('/api/purchase-orders', { method: 'POST', body: payload }),
   // Only the fields sent change; a blank order number is given the next

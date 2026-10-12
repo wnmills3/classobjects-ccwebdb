@@ -17,10 +17,10 @@ every report row that names items links there.
 | Source | Used by reports as |
 |---|---|
 | `app/issues.py` -- named checks per kind (`no_year`, `no_denomination`, `zero_cost`, `malformed_serial`, `near_duplicate_serial`, ...), each a SQL predicate with a description | `dq_issues` counts and lists by these same checks; a new check is added there, once, and appears in the search, its badges and the reports alike. |
-| `app/inventory_search.py` -- `COIN_VIEW` / `CURRENCY_VIEW`, `count_issues`, `MISSING_FIELDS`, the live-row rule stated as SQL text, allowlisted filters | Breakdowns group by the same facets; every drill-down is an inventory search URL built from the same filter names; `dq_completeness` and `dq_photos` reuse `MISSING_FIELDS[key].sql` verbatim. |
+| `app/inventory_search.py` -- `COIN_VIEW` / `CURRENCY_VIEW`, `count_issues`, `MISSING_FIELDS`, the live-row rule stated as SQL text, allowlisted filters | Breakdowns group by the same facets; every drill-down into the inventory is a search URL built from the same filter names; `dq_completeness` and `dq_photos` reuse `MISSING_FIELDS[key].sql` verbatim. |
 | `app/live.py` -- `live_item()`, `OUTSTANDING_STATUSES` (`ordered`, `missing`), also read by `routers/acquisitions.py` | Every report reads `live_item()`, and `pr_outstanding` reads both names, so a report and Receiving never disagree about what is live or outstanding. |
 | `sales_order_item_share` (amount, fee per item), `sales_order_fee`, `listing`, `auction_lot` | `sl_sales`, `sl_offered` and `sl_auctions` read these; the per-item share is what makes a sale's cost basis and gain computable per item. |
-| `metal_price` | `cb_metal`'s melt value reads the latest quoted `price_per_ozt` per metal. |
+| `metal_price` | `cb_metal`'s melt value reads the latest quoted `price_per_ozt` per metal. Prices are recorded by hand on the console's Spot prices page (`routers/metal_prices.py`; `docs/system-administration.md`), one row per quote. |
 | `app/workbook_backup.py` conventions -- NULL as an empty cell, ISO timestamps, column widths | Each report exports to a workbook the same way. |
 
 The aggregates these reports need take milliseconds on the base tables
@@ -48,7 +48,7 @@ or ever sold.
 | Id | Report | Rows, drill and totals |
 |---|---|---|
 | `cb_holdings` | Holdings | Kind x denomination: items, pieces, total cost; a subtotal row (`All <kind>`) after each kind's denominations, and an overall total. A row drills to that kind's search, narrowed to the denomination (or `missing=denomination`, where the kind can carry one and none is recorded); a subtotal row drills to the kind alone. |
-| `cb_designs` | Coins by design | Design series held, across every non-currency kind (currency's own design identity is the Friedberg number, not a series, so it is excluded rather than folded into "No series"): items, year span, total cost, with an overall total. Rows follow the series vocabulary's own order (then label), "No series" last. A row drills to the coin search narrowed to that series (or `missing=series`). |
+| `cb_designs` | Coins by design | Design series held, across every non-currency kind (a series is optional for a note -- `MISSING_FIELDS["series"]` -- so currency is left out altogether rather than folded into "No series", which would read as a gap in a note that has none): items, year span, total cost, with an overall total. Rows follow the series vocabulary's own order (then label), "No series" last. A row drills to the coin search narrowed to that series (or `missing=series`). |
 | `cb_notes` | Notes | Note type x series designation: items, seal colors present, Federal Reserve districts present, total cost, with an overall total; star notes and fancy serials counted from the attribute codes that mean them, each column shown when the vocabulary carries its code (a note explains it when one is left out). A row drills to the currency search narrowed to that note type and series designation, only when both are known. |
 | `cb_grades` | Grades | View (Coins or Currency) x grade band (1-49, 50-59, 60-64, 65-70, or "No numeric grade") x strike type x grading service ("Raw" when none): items, total cost, with an overall total. A row's drill is decided from its own group-by key, never by running a search at report time: it is kept only when no other row would be swept into the same search, and omitted for a band with no numeric grade, since no search term states that band. |
 | `cb_metal` | Precious metal | Metal x form (Coin, a bullion form, or the kind's own label), over items with a recorded fine weight: items, fine troy ounces, total cost, and melt value at the latest recorded spot price. A metal with no recorded price contributes to items, ounces and cost but not melt; the melt total is empty (not zero) when nothing is priced, and a note names every metal left out. A row's drill, like `cb_grades`, is decided structurally, not by a run-time search; currency and a bullion row with no form are never drilled. |
@@ -87,9 +87,9 @@ spacing are not part of a serial.
 
 | Id | Report | Rows, drill and totals |
 |---|---|---|
-| `pr_outstanding` | Not yet arrived | One row per purchase carrying at least one live item still `ordered` or `missing`, oldest ordered first: vendor, seller, order date, days waiting, items outstanding and their cost, and an `Overdue` text column holding the word "Overdue" once days waiting exceeds the parameter (empty otherwise). Parameter: `overdue_days` (default 21). A row drills to `/receiving?order=<id>`; an overall total. |
+| `pr_outstanding` | Not yet arrived | One row per purchase carrying at least one live item still `ordered` or `missing`, oldest ordered first: order number (`(no number)` when none), vendor, seller, order date, days waiting, items outstanding, all live items on the purchase, the outstanding items' cost, and an `Overdue` text column holding the word "Overdue" once days waiting exceeds the parameter (empty otherwise). Parameter: `overdue_days` (default 21). A row drills to `/receiving?order=<id>`; an overall total. |
 | `pr_outstanding_items` | Not yet arrived items | One row per item `pr_outstanding` counts as outstanding -- live, `ordered` or `missing`, and on a purchase -- in that report's order (oldest ordered first, undated last), then by item code: order, vendor, seller, order date, days waiting, item, year, mint, serial number, title, status and total cost; a total of the cost, which equals `pr_outstanding`'s. A purchase row cannot say what its items are, since one purchase may hold many; this lists them. Year, mint and serial number are read as `pr_received_items` reads them. No parameters. A row drills to its own item, which the Reports page opens in the editor. |
-| `pr_spend` | Spending | Period x vendor, over purchases with a live item (a purchase with none is not counted as a purchase at all, noted by name): purchases, items, item cost, shipping, sales tax, total, with a subtotal row per period (`All vendors`) and an overall total (`All periods`). Parameters: a date range (`date_from`/`date_to`, either or both empty meaning no bound on that side) filtering by the purchase's own order date, and `period` (`month`, default, `quarter` or `year`). No drills: a period x vendor cell has no single search page. A note counts purchases excluded for having no order date at all. |
+| `pr_spend` | Spending | Period x vendor, over purchases with a live item (a purchase with none is not counted as a purchase at all, which a note states): purchases, items, item cost, shipping, sales tax, total, with a subtotal row per period (`All vendors`) and an overall total (`All periods`). Parameters: a date range (`date_from`/`date_to`, either or both empty meaning no bound on that side) filtering by the purchase's own order date, and `period` (`month`, default, `quarter` or `year`). No drills: a period x vendor cell has no single search page. A note counts purchases excluded for having no order date at all. |
 | `pr_sources` | Vendors and sellers | One row per vendor with a counted purchase (same live-item rule as `pr_spend`), and beneath it one row per seller that vendor's purchases have named: purchases, items, total spent, first and last order date. Totals are over vendor rows only -- a seller row is a further breakdown of purchases its vendor row already counts, not more purchases. No drills. |
 | `pr_received` | Received | Arrival day x vendor, from `item_status_history`'s own transitions *to* `received` (never the opening row a new item, a split child or a seed gets -- it is not an arrival, and a note says so): items and total cost; an item recorded with no purchase counts under the vendor "No purchase". A split parent's own receipt is attributed to its live children, on the parent's own day and vendor, since the pieces arrived with it. Newest day first, then vendor; an overall total. Parameter: a date range on the arrival day. A row drills to `pr_received_items` for its own day and vendor (`/reports?report=pr_received_items&date_from=<day>&date_to=<day>&vendor=<name>`), which lists exactly the items the row counts: no inventory search can be narrowed by arrival day, and a day's arrivals mix coins and currency. An item received more than once counts once per receipt, noted. |
 | `pr_received_items` | Received items | One row per item received, read from the same arrivals `pr_received` counts (one shared query, so the two cannot disagree): day, item, year, mint, serial number, title, vendor, seller, order number and total cost, newest day first, then vendor, then item code; a total of the cost. Year, mint and serial number are what tells one piece from the next, each blank where it does not apply or is not recorded: a coin's year is its own (`1999-2009` for a range, "No date" for a piece recorded as undated) with its mint's label; a note's is its series designation (`1935A`) with its printed serial number. They are read in one further query over the pieces listed, not joined onto the arrivals `pr_received` also reads. The seller is the purchase's own. A split lot's receipt lists its live pieces, each with its own year and mint, on the lot's own day, vendor, seller and order. Parameters: a date range on the arrival day, and `vendor` -- a vendor's name exactly as `pr_received` shows it ("No purchase" for items recorded with none), or `all` (the default; a word, because the console's form refuses a text parameter left empty). A row drills to its own item, which the Reports page opens in the editor. |
@@ -170,12 +170,17 @@ spacing are not part of a serial.
   report's own rows whether a wider search would sweep in more than that
   row's own count, and omit the drill when it would; no report issues a
   second query against the search itself to check.
-- **Queries** are SQLAlchemy Core on the base tables, grouped by a
-  foreign-key id or code together with its label. `cb_serials` is the
-  exception: it reads every live note's serial once and groups them in
-  Python, because a star stands where a letter would and no `GROUP BY`
-  says that. Parameters are bound;
-  column names come from allowlists, never from a request.
+- **Queries** are SQLAlchemy Core on the base tables, grouped in SQL by a
+  foreign-key id or code together with its label wherever SQL can state
+  the group. Five reports group in Python instead: `pr_received`,
+  `pr_received_items` and `sl_sales`, whose bucket is a `timestamptz`'s
+  local calendar day, which SQL cannot work out without the application
+  server's time zone; `sl_aging`, whose bucket is whole months since that
+  day; and `cb_serials`, which reads every live note's serial once,
+  because a star stands where a letter would and no `GROUP BY` says that.
+  `dq_series_review` takes its rows from `series_classify.classify`.
+  Parameters are bound; column names come from allowlists, never from a
+  request.
 - **Money** is `Decimal`: summed in SQL where the grouping allows, else
   added as `Decimal` in Python, which is exact; never a float. It is sent as
   decimal strings, as everywhere else.
@@ -368,7 +373,8 @@ snapshots over time, which need history the database does not keep.
   including a deleted and a split item that must not count, and an item of a
   kind a field does not apply to (`tests/test_reports_collection.py`,
   `_data_quality`, `_purchasing`, `_selling`, `_money`; `sl_ready` in
-  `_ready`; `cb_serials` in `_serials`; date ranges and periods in `_dates`; the period-by-vendor table
+  `_ready`; `cb_serials` in `_serials`; date ranges in `_dates`; period
+  labels and bucketing in `_purchasing`; the period-by-vendor table
   `pr_spend` and `mn_tax` share in `test_period_by_vendor.py`; the
   registry's ordering and refusals in `_registry`).
 - The API (`test_reports_api.py`): catalog shape, a parameter default, a

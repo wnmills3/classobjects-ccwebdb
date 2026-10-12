@@ -118,8 +118,8 @@ def test_a_dry_run_reports_what_a_committing_run_does(
 
     The same library is reported and then applied: every bucket has to agree,
     or the report the owner watches is not the run they then authorize. The
-    library puts something in each bucket, so none of them agrees only by
-    being empty on both sides.
+    library puts something in every bucket but `already` and `for_sale`, so
+    none of the others agrees only by being empty on both sides.
     """
     monkeypatch.setattr(settings, "media_root", tmp_path / "media")
     item = build_item(db)

@@ -3,10 +3,12 @@
 Admin only, and deliberately so: an offer row carries what the item cost, and
 the shop's own catalog endpoints are what a customer reads.
 
-Every write here goes through `app.offering_writes`, which is the only writer
-of `listing.status` and `offer_claim`. This module resolves codes to rows,
-owns the transaction, and shapes the response; it decides nothing about what
-may be offered.
+Every offer and ending here goes through `app.offering_writes`, which is the
+only writer of `listing.status` and `offer_claim`; a sale is recorded through
+`app.sales_writes`, and `update_listing` sets a listing's price, wording and
+listing number itself. This module resolves codes to rows, owns the
+transaction, and shapes the response; it decides nothing about what may be
+offered.
 
 **A batch is all or nothing.** The whole batch runs inside one transaction and
 a refusal rolls it back, rather than committing each item and trying to undo
@@ -562,9 +564,9 @@ def _refuse_rewriting_an_ended_offer(listing: Listing, data: dict[str, Any]) -> 
     """
     if listing.status is not ListingStatus.ended:
         return
-    # Changed values only: the console's edit form sends price, title and
-    # description with every save, so refusing by key would refuse the one
-    # edit this allows -- setting the listing number -- from the console.
+    # Changed values only, so a caller that sends the whole row back with
+    # only the listing number altered is let through; refusing by key would
+    # refuse the one edit this permits.
     frozen = sorted(
         field
         for field, value in data.items()

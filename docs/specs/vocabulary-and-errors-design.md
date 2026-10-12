@@ -23,7 +23,7 @@ vocabularies.
   (`backend/app/routers/reference.py`), whose order is their meaning:
   - a **scale**: `grade` (70, 69+, 69, ...) and `denomination` (face value
     ascending, coins then notes, so once filtered by kind a note's
-    denominations read $1 -> $1000);
+    denominations read 3 cents -> $10000);
   - a **lifecycle**: `item_status`, `disposition`, `sales_order_status`,
     `shipment_status`;
   - a **curated sequence**: `item_kind` (by how often each kind occurs, so
@@ -163,7 +163,8 @@ absent) and `extra`, keyed by field `name`:
 - **The code is worked out when none is sent.** A denomination's says what it
   is, as the shipped ones do -- `usd_coin_0_03`, `usd_note_5000` -- and any
   other is named for its label (`Collector's Set` -> `collectors_set`). 409
-  when the code is taken, 422 when the label gives none.
+  when the code is taken, or was merged into another value (the message
+  names which), 422 when the label gives none.
 - A row that breaks a uniqueness rule is a 409 naming its columns: a second
   denomination of one currency, face value and side is refused, since a face
   value is one denomination however many designs carry it.
@@ -177,14 +178,16 @@ A value can also be created from a field's picker: "+ Add a new value..." at
 the top of a `ReferenceSelect`, under its blank and above its values so a
 long list does not put it a scroll away (the vendor, seller and storage
 location pickers place theirs the same), which posts to the same endpoint
-(staff only, recorded `manual`, so additions stay distinguishable from the
+(managers only, recorded `manual`, so additions stay distinguishable from the
 shipped vocabulary and are left out of an export by default). A picker whose
 values the code branches on, or that an add-by-label form cannot describe,
 does not offer it (`allowAdd={false}`):
 
-- the item editor: kind, status, strike type, grade designation, grading
-  service, mint and denomination (`FIXED_VOCABULARIES` in `ItemEditForm.jsx`),
-  and the note's class, seal, signatures and Reserve Bank;
+- the item editor: status, strike type, grade designation, grading service,
+  mint and denomination (`FIXED_VOCABULARIES` in `ItemEditForm.jsx`), the
+  kind, and the note's class, seal, signatures and Reserve Bank
+  (`NoteFields.jsx`);
+- the new-item form on a purchase (`entry/AddItem.jsx`): kind;
 - Receiving's Identify: denomination.
 
 A denomination is a face value with a currency and a side, which a label

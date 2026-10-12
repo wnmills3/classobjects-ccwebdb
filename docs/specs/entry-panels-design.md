@@ -47,7 +47,8 @@ serve the Lists page (`list-maintenance-design.md`).
 
 ### Vendors (`routers/acquisitions.py`)
 
-- `GET /api/vendors` -- ordered by name: `id`, `name`, `url`, `vendor_kind`.
+- `GET /api/vendors` -- ordered by name: `id`, `name`, `url`, `vendor_kind`,
+  `order_count` (the purchases and platforms naming it).
 - `POST /api/vendors` -- `name` (1-255, trimmed), `url` (http(s) only, or
   null), `vendor_kind` (code; null -> `unknown`). 201 with the vendor; 409 on a
   duplicate name; 422 for an unknown kind or non-http url.
@@ -55,7 +56,8 @@ serve the Lists page (`list-maintenance-design.md`).
 ### Storage locations
 
 - `GET /api/storage-locations` -- every location: `id`, `label` (institution and
-  box, else the kind), `kind`.
+  box, else the kind), `kind`, `institution`, `identifier`, `notes`,
+  `item_count` (items there now or recorded there before).
 - `POST /api/storage-locations` -- `kind` (a `storage_location_kind` code),
   `institution` and `identifier` (trimmed; blank -> null), `notes`. 201 with
   the location; 409 for one that exists (same kind, institution and
@@ -69,7 +71,8 @@ serve the Lists page (`list-maintenance-design.md`).
 
 ### Sellers
 
-- `GET /api/sellers` -- ordered by name, case aside: `id`, `name`, `store_url`.
+- `GET /api/sellers` -- ordered by name, case aside: `id`, `name`, `store_url`,
+  `order_count`.
 - `POST /api/sellers` -- `name` (1-255, trimmed), `store_url` (http(s), or
   `mailto:` and a mail address; blank or absent -> null). 201 with the
   seller; 409 on a name already taken, whatever its case; 422 for a store
@@ -85,13 +88,15 @@ serve the Lists page (`list-maintenance-design.md`).
   one), `notes`. 201 with `PurchaseOrderDetailOut`, which names the seller:
   `seller_id`, `seller` (the name) and `seller_url` (their store). 404 for an
   unknown vendor; 409 when that vendor already has that order number.
-- `PATCH /api/purchase-orders/{id}` -- the same fields; only what is sent
-  changes, and a number sent blank is given the next generated one.
-- `GET /api/purchase-orders` -- every purchase, newest first, each with its
-  `vendor` and `seller` by name, `total` (its items), `outstanding` (those
-  not yet received) and `total_cost` (the sum of its items' costs). The
-  Purchases page and Order lookup (`/management/order-lookup`) both narrow
-  this one list in the browser.
+- `PATCH /api/purchase-orders/{id}` -- `order_number`, `ordered_on`,
+  `source_url`, `seller_id` (null clears it) and `notes`; the vendor is not
+  changed. Only what is sent changes, and a number sent blank is given the
+  next generated one.
+- `GET /api/purchase-orders` -- every purchase, the latest entered first,
+  each with its `vendor` and `seller` by name, `total` (its items),
+  `outstanding` (those not yet received) and `total_cost` (the sum of its
+  items' costs). The Purchases page and Order lookup
+  (`/management/order-lookup`) both narrow this one list in the browser.
 - `GET /api/purchase-orders/{id}`, whose lines carry `source_title` and
   `item_kind` for the page's items table.
 
@@ -143,11 +148,12 @@ page:
 1. **The purchase.** Either *Add to an existing purchase* -- a table of order
    number, date, vendor and purchase number (`#3974`, the purchase's own id,
    which the reports and Receiving's heading show too), filterable by part of
-   an order number or vendor, or by an exact purchase number, cut down by a
-   checkbox to the purchases with an item not yet received (`ordered` or
-   `missing`; unticked at first, so every purchase is listed), and sorted by
-   any column from a button in its header (date, newest first, until another
-   is chosen; an undated purchase always last; ties newest first). A row or
+   an order number, a vendor or a seller, or by an exact purchase number, cut
+   down by a checkbox to the purchases with an item not yet received
+   (`ordered` or `missing`; unticked at first, so every purchase is listed),
+   and sorted by any column from a button in its header (date, newest first,
+   until another is chosen; an undated purchase always last; ties newest
+   first). A row or
    its order-number button picks the purchase -- or a new one: vendor (with
    "+ Add a vendor..." opening an inline web address / name / kind form that
    never submits the outer form; the address is asked first and proposes the
@@ -161,7 +167,7 @@ page:
    form, as the vendor picker does: the store's address is asked first and
    proposes the name by the same rule, `management/site-name.js`; a mail
    address proposes none), notes, **Create purchase**. **Edit
-   details** changes the same fields. The heading links the purchase's web
+   details** changes the same fields except the vendor. The heading links the purchase's web
    address as "Vendor page" and names the seller, linked to their store, as
    Receiving's does. A refusal is shown in place with the input kept.
 2. **Items on this purchase.** The purchase heading, the purchase-wide tax

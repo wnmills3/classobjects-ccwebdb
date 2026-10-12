@@ -13,7 +13,7 @@ import ItemPicker from './ItemPicker'
  * unknown item
  * code, a deleted or split item, two files claiming one slot, or a slot
  * already occupied all come out *unattached* rather than filed under a
- * best-effort guess. `PhotosPanel` (the item editor's photographs tab) is
+ * best-effort guess. `PhotosPanel` (the item editor's photographs panel) is
  * the place a photograph gets filed onto the item it belongs to; this page
  * is where the ones nobody has filed yet -- and the ones a later correction
  * detaches from the wrong item -- wait, and where they get sent on.
@@ -45,9 +45,9 @@ import ItemPicker from './ItemPicker'
  * `sale_state` for the items it can attach to -- the row does not even know
  * which item that is until an `ItemPicker` search returns one -- so an
  * always-present "attach anyway" checkbox would be guessing on every row
- * whether there is anything to acknowledge. `ForSaleNotice`'s own docstring
- * names the cost of guessing wrong: a control that is on for every row
- * regardless teaches the operator to tick it without reading it. Fetching
+ * whether there is anything to acknowledge. The cost of guessing wrong is
+ * real: a control that is on for every row regardless teaches the operator
+ * to tick it without reading it. Fetching
  * `sale_state` per picked item to decide would avoid that, but at the price
  * of a request per selection just to answer a question the attach attempt
  * already answers for free -- `PhotoRow` attempts the attach with no

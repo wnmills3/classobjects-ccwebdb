@@ -229,8 +229,8 @@ def _refuse_store_sale(listing: Listing) -> None:
     The spec's rule for a web-store item sold in person. The Listings page hides
     the button on store rows, and the API refuses too: taking the request
     would make it a second way to sell a shop item -- past the cart and past
-    checkout, minting an "Undisclosed buyer (store)" when the username was
-    blank. An in-person sale of a shop
+    checkout, minting an "Undisclosed buyer (Web store)" when the username
+    was blank. An in-person sale of a shop
     item is entered as an order on the customer's behalf (the Sales page),
     which goes through checkout's own rules.
     """
@@ -298,19 +298,12 @@ def record_sale(
 ) -> SalesOrder:
     """Record that `listing` sold, and end it. Caller commits.
 
-    The one-listing case of `record_sale_lines`, and **only** that: this
-    function keeps the name and the signature its production caller
-    (`POST /api/listings/{id}/sale`) already uses and adds no second
-    implementation of fees, shares or endings below it. The checks, and the
-    reason for their order, are in
-    `record_sale_lines`; read that docstring for the behavior, including
-    which refusals are `SaleInputInvalid` and which stay a plain
-    `SaleRefused`.
-
-    Widened rather than duplicated because auction settlement needs several
-    listings on one order -- an auction house bills per buyer, not per lot --
-    and a second order creator beside this one is exactly the drift the
-    spec's "one implementation with two doors" prevents.
+    The one-listing case of `record_sale_lines`, and **only** that:
+    `POST /api/listings/{id}/sale` calls it, and it adds no second
+    implementation of fees, shares or endings. The checks, and the reason
+    for their order, are in `record_sale_lines`; read that docstring for the
+    behavior, including which refusals are `SaleInputInvalid` and which stay
+    a plain `SaleRefused`.
 
     Refuses first, before `record_sale_lines` ever runs, if `listing` is in
     the web store (`_refuse_store_sale`) or is a lot of an auction
@@ -456,11 +449,10 @@ def record_sale_lines(
     # Nothing downstream re-reads `status`: `place_order` takes the same
     # locks a moment later, but `order_writes` skips both `sellable_in_shop`
     # and `is_active` when a venue is given, because an outside listing is
-    # neither. Its stock check is all that remains -- an accidental backstop
-    # at quantity 1, with a message about stock rather than about the sale,
-    # and no backstop at all above 1 (`app/seed.py`'s demo listings are 5 and
-    # 20). Without this re-read two operators can both record a sale against
-    # an already-ended listing and call `end_offer(sold=True)` twice.
+    # neither. Its stock check is all that remains -- a backstop only by
+    # accident, with a message about stock rather than about the sale.
+    # Without this re-read two operators can both record a sale against an
+    # already-ended listing and call `end_offer(sold=True)` twice.
     #
     # `offering_writes.end_offer` re-reads the same way, for the same reason;
     # this follows it. Taken through `offering_writes.lock_for_sale`, which

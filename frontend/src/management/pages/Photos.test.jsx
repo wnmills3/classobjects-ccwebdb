@@ -112,8 +112,8 @@ describe('Photos', () => {
   it('a refused attach shows the server refusal for that row and keeps it listed', async () => {
     // The first attempt never acknowledges -- see the module docstring: the
     // question is asked only once the server has actually said there is
-    // one to ask. `mockRejectedValueOnce` enforces that there is exactly
-    // one call, and it carries acknowledgeForSale: false.
+    // one to ask. The assertions below hold it to exactly one call, and
+    // that one carries acknowledgeForSale: false.
     const user = userEvent.setup()
     api.listUnattachedImages.mockResolvedValue([unattached({ image_id: 7 })])
     api.searchInventory.mockImplementation((view) =>
@@ -174,8 +174,8 @@ describe('Photos', () => {
 
   it('a refusal on one row leaves a second row untouched -- no refusal shown, no acknowledgement carried', async () => {
     // Two rows, the same discipline the row-leaves test below uses: row 7
-    // is refused and answered; row 9 is never clicked into a refusal at
-    // all. If the refusal (or the acknowledgement it unlocks) were held in
+    // is refused and left unanswered; row 9 is never clicked into a refusal
+    // at all. If the refusal (or the acknowledgement it unlocks) were held in
     // state shared across rows rather than inside each PhotoRow, row 9
     // would either show row 7's refusal text or send
     // acknowledgeForSale: true despite never having been told to.

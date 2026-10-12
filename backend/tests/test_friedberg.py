@@ -181,7 +181,7 @@ def test_create_records_a_manual_row(
 def test_duplicate_fr_number_is_409_naming_the_existing_row(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """The same type arriving twice is a clear conflict, not a crash.
+    """The same number arriving twice is a clear conflict, not a crash.
 
     Would NOT pass against a hardcoded 409: the test also checks the body
     names the specific row already on file, not a generic message.
@@ -336,7 +336,7 @@ def test_a_web_press_and_a_sheet_fed_printing_are_different_types(
 def test_the_same_type_and_press_twice_is_still_a_conflict(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """Adding the press to the identity must not have loosened it."""
+    """The press is one more part of the identity; it loosens none of it."""
     first = client.post(
         "/api/friedberg", json=_typed("9913", True), headers=admin_headers
     )
@@ -575,8 +575,8 @@ def test_a_search_by_district_leaves_out_another_districts_number(
 ) -> None:
     """A row with no district is still its number's district's.
 
-    `9971-E` recorded before a number's district was kept would otherwise
-    be offered, as unknown, to a note of any district.
+    `9971-E` on a row that records no district would otherwise be offered,
+    as unknown, to a note of any district.
     """
     typed = {
         "note_type_id": code_id(db, NoteType, "frn"),

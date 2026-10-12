@@ -95,7 +95,12 @@ backend/
                          follows the kind), field_sources (which fields hold
                          a derived default), attribute_rules, reference_fields
                          (a vocabulary's own columns), purchases (purchase
-                         order text conventions), short_titles
+                         order text conventions), short_titles, gift_rule (a
+                         banknote saved at no cost is given the Gift
+                         attribute), serial_pairs (the star note of a note's
+                         serial number already in the collection, or a star
+                         note's plain twins), cell_text (text written to a
+                         workbook cell stays text, never a formula)
     photographs          imaging (strip, orient, hash), image_store,
                          storage, image_fetch (from a web address),
                          image_urls (an address at its host's full size),
@@ -148,7 +153,7 @@ by `deps.require_admin`). By area:
 | Accounts | `/auth` (register, login, refresh, me), `/users`, `/customers` (including orders placed on a customer's behalf) | sign-in public; administration manager |
 | Shop catalog | `/catalog` | public, read only |
 | Customer orders | `/orders` | customers their own; managers all |
-| Inventory | `/inventory` (search, create, bulk, edit, receive, split, detach a piece, reviews, errors, history, sales, suggested description, preview, serial pairs, delete) | manager |
+| Inventory | `/inventory` (search, create, bulk, edit, receive, split, detach a piece, errors, history, sales, suggested description, preview, serial pairs, delete) | manager |
 | Purchases | `/vendors`, `/sellers`, `/purchase-orders`, `/storage-locations` | manager |
 | Vocabularies | `/reference` (read public; add, rename, alias, merge manager), `/defaults` (suggested classifiers while entering an item) | mixed |
 | Photographs | `/images` (upload, from a web address, file against an item, list, delete, renditions), `/image-links` (role, primary, move, detach) | renditions public, by content hash; the rest manager |

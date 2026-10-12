@@ -228,8 +228,8 @@ Reported and never written:
 
 ## The editor
 
-For a banknote the item editor shows the note's own fields right after its
-kind (`NoteFields.jsx`): first what identifies it -- series year and letter,
+For a banknote the item editor shows, after its kind and denomination, the
+note's own fields (`NoteFields.jsx`): first what identifies it -- series year and letter,
 serial, face and back plate, where it was printed -- then Note class, Seal,
 Signatures and Reserve Bank. A derived value carries a *suggested* mark whose
 tooltip names the rule. Only "Note class" (Alt+A) and "Reserve Bank" (Alt+B)

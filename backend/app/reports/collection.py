@@ -345,11 +345,10 @@ def _designs_query_string(series_code: str | None, params: DesignsParams) -> str
 def _cb_designs(db: Session, params: DesignsParams) -> ReportResult:
     """Design series held, across every non-currency kind: items, year span, cost.
 
-    Series is optional for currency: a note's year is its series year, and
-    its own design identity is the Friedberg number rather than a series
-    (`MISSING_FIELDS["series"]`). Currency is excluded here altogether rather
-    than folded into "No series", which would read as a gap in a note that
-    has none.
+    Series is optional for currency (`MISSING_FIELDS["series"]`): only a few
+    notes carry one. Currency is excluded here altogether, a note with a
+    series included, rather than folded into "No series", which would read
+    as a gap in a note that has none.
     """
     src: FromClause = _I.join(_K, _K.c.id == _I.c.item_kind_id).outerjoin(
         _SER, _SER.c.id == _I.c.series_id

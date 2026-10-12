@@ -10,8 +10,8 @@ photograph nobody has filed yet is a stored, browsable `image` row with no
     python -m app.photo_import [--root PATH] [--commit]
 
 `--root` defaults to `settings.photo_library_root`, the real library. **Never
-point this at a real directory without `--commit` having been asked for on
-purpose** -- the owner watches each real run personally, and every test
+run this with `--commit` against a real directory unless that run was asked
+for on purpose** -- the owner watches each real run personally, and every test
 in `tests/test_photo_import.py` builds its own library under `tmp_path`
 rather than touching it.
 

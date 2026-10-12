@@ -830,8 +830,7 @@ def revise_order(
         # modified one's existing share now disagrees with its new
         # quantity or price. Deferred rather than synced inline, because a
         # new line's id -- which its share needs -- does not exist until it
-        # is flushed, and this loop still has row locks to take for the
-        # other listings first.
+        # is flushed, and one flush after the loop serves every line.
         # The fourth element is `_sync_shares`' `new_line`: true for a line
         # this save created, which provably has no share yet, false for one
         # whose existing share has to be found and moved.

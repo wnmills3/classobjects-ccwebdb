@@ -237,9 +237,8 @@ def test_the_fee_vocabulary_reaches_a_picker(client: TestClient) -> None:
 def test_the_catch_all_fee_kind_comes_last(client: TestClient) -> None:
     """The catch-all "other" last is the point of the curated order.
 
-    The list above would also pass if the whole sequence were reversed by
-    accident; this one names the property the curated order rests on, and
-    fails on its own if `sales_fee_kind` ever drops out of
+    The test above pins the whole sequence; this one names the property the
+    curated order rests on, and fails on its own if `sales_fee_kind` ever drops out of
     `_SEQUENCED_TABLES` (alphabetical puts "Other" third).
     """
     values = client.get("/api/reference/sales_fee_kind").json()["values"]
@@ -330,7 +329,7 @@ def test_item_kind_keeps_its_curated_order(client: TestClient) -> None:
 def test_signature_combinations_keep_their_chronological_order(
     client: TestClient,
 ) -> None:
-    """Oldest first: the picker narrows to a stretch of this timeline by year."""
+    """Oldest first: the order the pairs held office in."""
     codes = [
         v["code"]
         for v in client.get("/api/reference/signature_combination").json()["values"]

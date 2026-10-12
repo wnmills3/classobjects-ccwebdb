@@ -70,6 +70,9 @@ __all__ = [
     "SalesOrderStatus",
     "SalesVenueKind",
     "SealColor",
+    "Series",
+    "SeriesAlias",
+    "SeriesYearRange",
     "SetForm",
     "ShipmentStatus",
     "SignatureCombination",
@@ -230,7 +233,8 @@ class Series(ReferenceMixin, Base):
     #: The design shares its denomination and series with ordinary notes, so
     #: those facts alone do not decide it -- a Hawaii note is a 1934 or 1935A
     #: note like any other, apart from its seal and overprint. Such a design is
-    #: assigned only on evidence: a matching seal color, or text naming it.
+    #: assigned only on evidence: a matching seal color, a recorded note class
+    #: that is the design's, or text naming it.
     needs_evidence: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false"), nullable=False
     )

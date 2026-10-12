@@ -99,14 +99,16 @@ description and rating, read with `series_match`'s vocabulary -- or, for a
 note, a seal color matching the design's, or a recorded note class matching
 the design's.
 
-| Candidates | Evidence | Result |
+A candidate that needs evidence and has none is set aside first. Of the
+candidates left:
+
+| Left | Text | Result |
 |---|---|---|
-| exactly one, not needs-evidence | -- | **assign** |
-| exactly one, needs-evidence | present | **assign** |
-| exactly one, needs-evidence | none | **leave** (an ordinary item of that year) |
+| exactly one | -- | **assign** |
+| none, though there were candidates | -- | **leave** (an ordinary item of that year) |
 | several (a boundary year) | names exactly one | **assign** that one |
-| several | none, or more than one | **review: boundary** |
-| any | text names only designs the item cannot be | **review: conflict**, nothing assigned |
+| several | names none, or more than one | **review: boundary** |
+| any | names only designs the item cannot be | **review: conflict**, nothing assigned |
 
 Rules that keep it honest:
 

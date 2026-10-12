@@ -289,7 +289,7 @@ export default function Listings() {
       <h1>Listings</h1>
       <p className="muted">
         What is offered for sale. An item is offered in one place at a time; a store
-        listing set aside for an offer elsewhere resumes when that offer ends.
+        listing set aside for an offer elsewhere resumes if that offer ends unsold.
       </p>
       {error && <p className="error">{error}</p>}
       {refusal && <p className="error">{refusal}</p>}
@@ -416,7 +416,7 @@ export default function Listings() {
                       And never on a store row. Recording a sale of a store
                       listing is a second way to sell a shop item -- past the
                       cart, past checkout, minting an "Undisclosed buyer
-                      (store)" when the buyer is left blank. The API refuses
+                      (Web store)" when the buyer is left blank. The API refuses
                       it too (`sales_writes._refuse_store_sale`), and an
                       in-person sale of a shop item is an order on the
                       customer's behalf, from the Sales page. An unmatched

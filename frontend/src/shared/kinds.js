@@ -3,8 +3,9 @@
  *
  * Two markers record it, both already on the rows and both arriving in a
  * reference value's `extra`: `applies_to` (coin | currency | any) on series,
- * error types and attributes, and `kind` (coin | note) on denominations,
- * where the same face value exists as both and they are different objects.
+ * grade designations, error types and attributes, and `kind` (coin | note)
+ * on denominations, where the same face value exists as both and they are
+ * different objects.
  *
  * Only the console's forms read it. It lives in `shared/` so that anything
  * in the shop asking the same question reads this rule rather than a copy:

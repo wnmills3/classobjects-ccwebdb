@@ -532,9 +532,8 @@ def test_designs_no_series_sorts_last_and_currency_is_excluded(db: Session) -> N
     lincoln = code_id(db, Series, "lincoln_cent")
     _coin(db, _CENT, Decimal("1.00"), series_id=lincoln, year_start=1950)
     _coin(db, _CENT, Decimal("2.00"), series_id=None)
-    # Currency's series is optional and its own design identity is not a
-    # series (MISSING_FIELDS["series"]) -- it never appears here, even with
-    # a series recorded.
+    # Currency's series is optional (MISSING_FIELDS["series"]) -- a note
+    # never appears here, even with a series recorded.
     _note(db, _NOTE_1, Decimal("3.00"), series_id=lincoln)
 
     result = CB_DESIGNS.run(db, DesignsParams())

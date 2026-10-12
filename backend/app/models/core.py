@@ -62,6 +62,7 @@ __all__ = [
     "CurrencyDetail",
     "InventoryItem",
     "PurchaseOrder",
+    "Seller",
     "Vendor",
 ]
 
@@ -788,7 +789,8 @@ class CurrencyDetail(Base):
     plate_position: Mapped[str | None] = mapped_column(String(16), nullable=True)
     #: Where it was printed: `dc` (Washington) or `fw` (Fort Worth). Read
     #: from the face plate when there is one -- FW before it is Fort Worth --
-    #: and it tells two Friedberg numbers apart (2017-A $1: 3005-A, 3006-A).
+    #: and it tells two Friedberg numbers apart: Washington's and Fort
+    #: Worth's printings of one series are numbered separately.
     printing_facility: Mapped[str | None] = mapped_column(String(2), nullable=True)
 
     item: Mapped[InventoryItem] = relationship(back_populates="currency_detail")

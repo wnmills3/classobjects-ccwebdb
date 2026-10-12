@@ -21,7 +21,7 @@ const row = (id, change, extra = {}) => ({
 })
 
 describe('OrderHistory', () => {
-  it('describes each kind of change', () => {
+  it('describes a line, total and placed change', () => {
     expect(describeChange(row(1, 'quantity', { from_value: '2', to_value: '3' }))).toBe(
       'Morgan quantity 2 -> 3',
     )

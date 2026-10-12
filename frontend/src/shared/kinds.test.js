@@ -42,8 +42,10 @@ describe('fitsKind', () => {
     expect(fitsKind(entry({}), 'currency')).toBe(true)
     expect(fitsKind({ code: 'x', label: 'X' }, 'coin')).toBe(true)
   })
+})
 
-  it('names the fields a note does not have', () => {
+describe('isCurrencyKind and COIN_ONLY_FIELDS', () => {
+  it('names the fields a note does not have, and which kind is a note', () => {
     expect(COIN_ONLY_FIELDS.has('metal')).toBe(true)
     expect(COIN_ONLY_FIELDS.has('strike_type')).toBe(true)
     expect(isCurrencyKind('currency')).toBe(true)

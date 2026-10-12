@@ -250,7 +250,8 @@ def test_the_same_location_twice_is_a_409(
 def test_consigned_and_sold_are_not_added_by_hand(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    # The auction and sale code make those; an unknown kind is refused too.
+    # The auction code makes a consigned one and sold is reserved; an unknown
+    # kind is refused too.
     for kind in ("consigned", "sold", "no_such_kind"):
         res = client.post(
             "/api/storage-locations", json={"kind": kind}, headers=admin_headers

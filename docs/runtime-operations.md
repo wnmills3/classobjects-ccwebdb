@@ -60,7 +60,7 @@ by full path.
 | API | http://127.0.0.1:8000 |
 | API docs | http://127.0.0.1:8000/docs |
 | Database | localhost:5432/ccwebdb |
-| Sign in | the manager account named by `FIRST_ADMIN_EMAIL` in `.env` |
+| Sign in | a manager account: on a trial installation the one named by `FIRST_ADMIN_EMAIL` in `.env`, on a restored one an account from the backup |
 
 ### What is live
 
@@ -336,10 +336,12 @@ writes to `pg_stop.log` because the running server holds the start pipe.
 the one to kill; `--reload` adds a supervisor and a worker, and killing the
 wrong one leaves the other to respawn.
 
-**Pure cmd.** No PowerShell, including internally: ports from `netstat`,
-readiness from `curl`, sleeps from `ping -n 2 127.0.0.1 >nul` (`timeout`
-needs a real console and returns at once, with no pause, when stdin is
-redirected), process trees from `taskkill /T`.
+**Pure cmd.** No PowerShell in the scripts themselves (conda's own
+activation calls it to name a temporary file, and succeeds without it):
+ports from `netstat`, readiness from `curl`, sleeps from
+`ping -n 2 127.0.0.1 >nul` (`timeout` needs a real console and returns at
+once, with no pause, when stdin is redirected), process trees from
+`taskkill /T`.
 
 ---
 

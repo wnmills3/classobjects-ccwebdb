@@ -133,7 +133,8 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
 /**
  * The purchase's web address when it is a lot's page, or null. At eBay and
  * Whatnot an order holds many listings and its page is no listing's; the
- * backend's `app.listing_links` draws the same line.
+ * backend's `app.listing_links` draws the line by the vendor's host name;
+ * this reads the vendor's name alone.
  */
 function lotPage(purchase) {
   return /ebay|whatnot/i.test(purchase.vendor ?? '')
@@ -487,8 +488,8 @@ export default function NewPurchase() {
 
   useEffect(loadOrders, [loadOrders, ordersEpoch])
 
-  // `?order=<id>` opens that purchase: the item editor links here so an
-  // item's purchase can be corrected from the item.
+  // `?order=<id>` opens that purchase: the item editor, the inventory lists'
+  // Order column and Order lookup all link here.
   const [searchParams] = useSearchParams()
   const linkedOrder = Number(searchParams.get('order')) || null
   //: The linked purchase whose read has answered, well or badly. Until it
@@ -547,8 +548,9 @@ export default function NewPurchase() {
   // it was made rather than found again on the inventory screens.
   const [editing, setEditing] = useState(null)
 
-  // Saved or only closed, the purchase is read again: an error recorded, or
-  // a filed photograph re-roled or removed, saves on its own in the editor.
+  // Saved or only closed, the purchase is read again: a save that wrote only
+  // part of its changes, or a split, leaves the editor open, and the table
+  // must show the item as it stands when the editor closes.
   function closeEditor() {
     setEditing(null)
     reloadPurchase()
@@ -822,7 +824,7 @@ export default function NewPurchase() {
                   type="text"
                   value={orderFilter}
                   onChange={(e) => setOrderFilter(e.target.value)}
-                  placeholder="Order number or vendor"
+                  placeholder="Order number, vendor or seller"
                 />
               </label>
             )}

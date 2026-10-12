@@ -444,7 +444,7 @@ describe('Grading: designation, service and certificate', () => {
       (o) => o.textContent,
     )
 
-  it('offers a note only paper designations, and a coin only strike ones', async () => {
+  it('offers a note only paper designations', async () => {
     await open({ item_kind: 'currency' })
     expect(optionsOf('grade_designation')).toEqual(
       expect.arrayContaining(['EPQ', 'PPQ']),
@@ -685,7 +685,7 @@ describe('Series and bullion form', () => {
     )
   })
 
-  it('lets a coin record its bullion form, and offers a note none', async () => {
+  it('lets a coin record its bullion form', async () => {
     const user = userEvent.setup()
     await open({ item_kind: 'coin', bullion_form: null })
     await user.selectOptions(
@@ -1898,7 +1898,7 @@ describe('ItemEditForm: changes to filed photographs wait for Save', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
   })
 
-  it('moves a photograph to another item on Save, after the changes and before removals', async () => {
+  it('moves a photograph to another item on Save, after the role changes', async () => {
     const user = userEvent.setup()
     api.updateImageLink.mockResolvedValue({})
     api.moveImageLink.mockResolvedValue({})
@@ -2726,7 +2726,7 @@ describe('ItemEditForm: a Friedberg number waits for Save', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
   })
 
-  it('clears the number before saving the note as another kind', async () => {
+  it('clears a held number before it saves the fields', async () => {
     const user = userEvent.setup()
     api.getInventoryItem.mockResolvedValue({ ...item, ...NOTE })
     api.clearFriedberg.mockResolvedValue(null)

@@ -72,9 +72,10 @@ export default function OrderEditor({ order, onSaved, onClose }) {
         })
         .catch((err) => {
           if (cancelled) return
-          // A listing the shop no longer shows -- ended, or set aside for an
-          // offer elsewhere -- cannot be read. The line stays; its
-          // availability says why it is not known.
+          // A listing that is not the web store's -- the line of a sale
+          // recorded from another platform -- is not in the catalog and
+          // cannot be read. The line stays; its availability says why it is
+          // not known.
           setLines((current) =>
             current.map((line) =>
               line.listing_id === item.listing_id

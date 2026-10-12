@@ -47,8 +47,9 @@ DispositionParam = Literal[
 ]
 
 #: The note a status/disposition report shows in place of rows when nothing
-#: matches its parameters -- one literal, so every such report reads the
-#: same words.
+#: matches its parameters -- one literal, so every such report but
+#: `cb_serials`, which has its own (`serials.NO_MATCHES`), reads the same
+#: words.
 NOTHING_MATCHES = "Nothing matches these settings."
 
 

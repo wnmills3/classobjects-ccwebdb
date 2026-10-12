@@ -3,10 +3,11 @@ import { screen, within } from '@testing-library/react'
 import { useMemo, useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-// Only the one call the unattached-photographs page makes on mount. Every
-// other case here renders at '/nowhere', which mounts no page at all, so this
-// mock does not have to grow into the full surface the note below warns
-// about -- and without it the '/photos' case would reach the real fetch.
+// Only the calls the pages routed to below make on mount: Photos, Lots,
+// Auctions and Reports. Every other case renders at '/nowhere', which mounts
+// no page at all, so this mock does not have to grow into the full surface
+// the note below warns about -- and without it those cases would reach the
+// real fetch.
 vi.mock('./api', () => ({
   api: {
     listUnattachedImages: vi.fn().mockResolvedValue([]),
@@ -107,7 +108,7 @@ describe('management console shell', () => {
   })
 
   it('routes /photos to the unattached-photographs page', async () => {
-    // The nav link above proves only that the link is rendered. This is the
+    // A link in the menu proves only that the link is rendered. This is the
     // other half of the wiring: deleting the <Route path="/photos" ...> line
     // leaves the link in place and lands the operator on "Page not found",
     // which no assertion on the navigation can see.
@@ -129,7 +130,7 @@ describe('management console shell', () => {
   })
 
   it('routes /lots to the sales lots page', async () => {
-    // The link above proves only that the link renders. Deleting the
+    // A link in the menu proves only that the link renders. Deleting the
     // <Route path="/lots" ...> line leaves it in place and lands the operator
     // on "Page not found", which no assertion on the navigation can see.
     renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/lots' })

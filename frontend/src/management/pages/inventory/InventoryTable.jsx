@@ -19,7 +19,7 @@ function cell(row, key, kind) {
 
 /**
  * The order column: a link to the purchase an item arrived on, opened in
- * Purchases as Find a purchase opens it, or a dash when none is recorded.
+ * Purchases as Order lookup opens it, or a dash when none is recorded.
  *
  * Named by its own number when the vendor issued one; many eBay listings
  * have no vendor order number, so those fall back to the vendor and the

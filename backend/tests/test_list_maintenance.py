@@ -153,7 +153,7 @@ def test_recording_a_combination_already_on_file_names_that_row(
 ) -> None:
     """A slip's combination is named, with the row, not as a database error.
 
-    A slip such as `3007-` holds the combination that `3007-L` then needs;
+    A slip such as `9928-` holds the combination that `9928-L` then needs;
     the refusal must say which row holds it.
     """
     identity = {

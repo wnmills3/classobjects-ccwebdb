@@ -79,10 +79,12 @@ function Console() {
             <Route path="/order-lookup" element={<OrderLookup />} />
             <Route path="/receiving" element={<Receiving />} />
             <Route path="/purchases" element={<NewPurchase />} />
-            {/* The page's earlier address, kept for links and bookmarks. */}
+            {/* A second address for the same page, so links and bookmarks to it
+                still land. */}
             <Route path="/purchases/new" element={<NewPurchase />} />
             <Route path="/sales" element={<Orders />} />
-            {/* The page's earlier address, kept for links and bookmarks. */}
+            {/* A second address for the same page, so links and bookmarks to it
+                still land. */}
             <Route path="/orders" element={<Orders />} />
             <Route path="/people" element={<AdminPeople />} />
             <Route path="/listings" element={<Listings />} />

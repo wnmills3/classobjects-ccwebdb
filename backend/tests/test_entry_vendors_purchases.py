@@ -332,6 +332,7 @@ def test_two_numberless_purchases_for_one_vendor_are_both_allowed(
     assert first.status_code == 201, first.text
     assert second.status_code == 201, second.text
     assert first.json()["id"] != second.json()["id"]
+    assert first.json()["order_number"] != second.json()["order_number"]
 
 
 def test_a_blank_order_number_is_given_a_generated_one(

@@ -21,8 +21,7 @@ not a photograph of anything and is left behind.
 **One folder serves every backup.** A key is the photograph's content hash,
 so a file never changes once written: a copy already in the folder is kept,
 and a run copies only what is new. An original already there is trusted when
-its size is the row's `byte_size`; a shorter one, left by an interrupted run,
-is replaced.
+its size is the row's `byte_size`; one of any other size is replaced.
 
 **Each original is hashed as it is copied** and refused when it is not the
 bytes its row describes, so damage in media storage is reported rather than

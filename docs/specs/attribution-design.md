@@ -39,7 +39,9 @@ acknowledged, ends its offers (`for-sale-guards-design.md`).
 transaction, all or nothing: every id is resolved and every code checked
 before anything is written, because a partial bulk edit leaves a state nobody
 can describe. Attributes are refused in bulk (422): they are a per-item set,
-and one set across many items would wipe what each carried.
+and one set across many items would wipe what each carried. `no_date`,
+`mint`, `variety`, `cert_numbers` and `base` are refused the same way, as
+fields only a single edit writes.
 
 Neither edit path filters out soft-deleted ids: correcting a row that should
 never have existed is still a correction.
@@ -53,7 +55,7 @@ according to its `item_kind`; a change of kind swaps it
 each piece rather than copying the lot's, because the lot's detail row
 describes the lot, not any one piece. Cost is divided equally or in
 proportion to a value given per piece, so the pieces sum exactly to the lot.
-The parent keeps `split_at` and leaves every view.
+The parent is kept, marked with `split_at`, and leaves every view.
 
 ## Provenance is per field
 
@@ -73,13 +75,13 @@ time, so it cannot go stale.
 
 | Operation | Endpoint | Effect | Guard |
 |---|---|---|---|
-| Split | `POST /api/inventory/{id}/split` | one item becomes many; the parent keeps `split_at` and leaves every view | -- |
+| Split | `POST /api/inventory/{id}/split` | one item becomes many; the parent is kept, marked `split_at`, and leaves every view | 409 if it is already split, is itself a piece, appears in an order, or is a member of an offered sales lot; an item on offer needs `acknowledge_for_sale`, and its own listings are ended |
 | Detach | `DELETE /api/inventory/{id}/parent` | `parent_item_id` becomes null; idempotent | none |
 | Delete | `DELETE /api/inventory/{id}` | soft delete; idempotent | see below |
 
-Split is in the console. Detach and Delete are API operations with no console
-control of their own; the console calls Delete only to remove an item made
-for entry on a purchase whose editor was closed without a save
+Split and Delete are in the console's item editor. Detach is an API operation
+with no console control. The entry page also calls Delete, to remove an item
+made for entry on a purchase whose editor was closed without a save
 (`pages/entry/AddItem.jsx`).
 
 Most items have no parent and never will. Nothing in search, the views or
@@ -120,11 +122,14 @@ not generic field filters. `?issue=no_grade` means *a coin or banknote with no
 grade*: bullion has no grade by nature, and a generic `grade=null` would bury
 the real cases under rounds that will never have one.
 
-Each check appears three ways from one definition: a filter (`?issue=...`), a
-count returned with the page so the size of a job is visible first, and a
-badge on the row. Its `description` is shown in the filter panel; the code is
-the stable contract used in bookmarked URLs. An unknown issue is a 422 listing
-the available ones for that view.
+Each check is defined once and appears two ways: a filter (`?issue=...`) and a
+count returned with the page (`facets=true`), so the size of a job is visible
+first. The filter panel offers a chip for each check its view lists
+(`specs.js`, `issueChecks`) that has at least one hit, with the check's
+`description` as its tooltip; the code is the stable contract used in
+bookmarked URLs. `year_outside_series` has no chip; it is reached by URL and
+through the `dq_series_years` report. An unknown issue is a 422 listing the
+available ones for that view.
 
 | Check | Views | Finds |
 |---|---|---|
@@ -249,8 +254,9 @@ Photos page: it finds one item by its code, searching both views.
 **The review queue is the search result, frozen at entry.** `ReviewPane`
 captures the id list once. If it re-ran the search at each step, fixing item
 3's missing year would drop it from `?issue=no_year`, shift every later
-position and silently skip an item. Fixed items stay in the queue, marked
-done.
+position and silently skip an item. A saved item keeps its place in the
+queue, and the count of those saved is shown beside the position
+("3 of 23 -- 2 saved").
 
 The table is for finding work, review for exceptions one at a time, and bulk
 edit for setting one value across a selection. All three stand on the same

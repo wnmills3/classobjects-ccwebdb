@@ -1536,7 +1536,8 @@ describe('NewPurchase: fixing an item already entered', () => {
   })
 
   it('reads the purchase again when the editor is closed without a save', async () => {
-    // Errors save on their own inside the editor.
+    // A save that wrote part of its changes leaves the editor open; closing
+    // it must still show them.
     const user = userEvent.setup()
     api.getPurchaseOrder.mockResolvedValue(WITH_LINE)
     renderWithProviders(<NewPurchase />, { route: '/?order=22' })

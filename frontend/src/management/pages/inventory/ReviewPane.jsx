@@ -7,9 +7,8 @@ import ItemEditForm from './ItemEditForm'
  *
  * **The queue is frozen at entry.** `ids` is captured once, when review
  * starts, and never re-read. If it re-ran the search at each step, fixing
- * item 3's missing year would remove it from `issue=no_year`, the set would
- * shrink to 22, and every position after it would shift -- silently skipping
- * an item. A saved item keeps its place in the queue, and the count of
+ * item 3's missing year would remove it from `issue=no_year`, shrink the set
+ * by one, and shift every position after it -- silently skipping an item. A saved item keeps its place in the queue, and the count of
  * those saved is shown beside the position.
  *
  * Previous and Next open another item's form: an edit not yet saved on the

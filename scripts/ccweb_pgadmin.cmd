@@ -103,7 +103,7 @@ exit /b 0
 
 :notready
 echo.
-echo ERROR: pgAdmin did not answer on %URL% within 60 seconds.
+echo ERROR: pgAdmin did not answer on %URL% in 60 tries (one to three minutes).
 echo        Check its log: %APPDATA%\pgAdmin\pgadmin4.log
 exit /b 1
 

@@ -2,10 +2,10 @@
 
 A coin's weight follows from its denomination and year (`composition`). A
 bar, a round or a medal has neither, so its weight is entered by hand
-(`routers.inventory`) -- and for the items entered before that was possible,
-this pass guesses. A guess is recorded as one (`item_field_source`), so the
-item editor marks the field "suggested" and says where it came from; saving
-the field by hand makes it the person's, and no pass touches it again.
+(`routers.inventory`); for an item that holds none, this pass guesses. A
+guess is recorded as one (`item_field_source`), so the item editor marks the
+field "suggested" and says where it came from; saving the field by hand makes
+it the person's, and no pass touches it again.
 
 Only an item of kind bullion, medal or token with **no fine weight** is
 looked at, and only its empty fields are filled. Two sources, in order:
@@ -16,9 +16,10 @@ looked at, and only its empty fields are filled. Two sources, in order:
   "22K" -- the fineness. Two different weights (a lot's description: "ten
   1 oz rounds, 10 oz") say nothing, and neither does two different
   finenesses.
-- **Its peers.** Where the words give no weight, what most items of the same
-  bullion form and metal already hold: when at least `PEER_SHARE` of them
-  (and at least `PEER_MINIMUM`) agree on a fine weight, the item takes the
+- **Its peers.** Where the item has no gross weight, its own or one its
+  words state, what most items of the same bullion form and metal hold: when
+  at least `PEER_SHARE` of them (and at least `PEER_MINIMUM`) agree on a fine
+  weight, the item takes the
   commonest gross weight, fineness and fine weight among those. Guessed
   values are never counted as peers, and a peer weight is not applied to an
   item whose own fineness differs -- a sterling round is not a .999 one.

@@ -11,7 +11,6 @@
 // `Fr.`, `Fr#`, `FR-`, `Fr. #` -- a label, not part of the number -- taken
 // off only where digits follow.
 const PREFIX = /^fr[\s.#-]*(?=\d)/i
-// Space around a hyphen -- `9907 - L` -- is not part of the number.
 // 1 to 4 digits, an optional letter, a district -A to -L, m for a mule
 // (9907-Em), * for a star note.
 // Then, after a space, LGS or DGS for a light or dark green seal (9908-B LGS).
@@ -27,7 +26,7 @@ const MULE_DISTRICT = /^([a-l])(\*?)m(\*?)$/i
 /**
  * `text` with the space on either side of each hyphen taken out: the space
  * ending what comes before a hyphen and the space starting what follows it.
- * Text with no hyphen is returned as it is.
+ * `9907 - L` is `9907-L`. Text with no hyphen is returned as it is.
  */
 function closeHyphens(text) {
   const parts = text.split('-')

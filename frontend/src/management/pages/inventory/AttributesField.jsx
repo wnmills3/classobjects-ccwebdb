@@ -7,6 +7,7 @@ const ATTRIBUTE_FROM = {
   serial_pattern: 'Read from the serial number',
   rating: 'Read from the rating',
   attribute_rule: "Follows from the note's class and series",
+  no_cost: 'Follows from a note saved at no cost',
 }
 
 //: `item_attribute.attribute_group`'s members, for the add form's group

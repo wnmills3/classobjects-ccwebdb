@@ -17,7 +17,8 @@ at the price of a second copy of every label that can drift from the first.
 It is not needed: the cost is not the normalization but asking a
 many-way join for one column.
 
-The views remain the right thing for reading a whole item.
+Nothing in the application reads the views (`app.models.views`); they remain
+the schema's statement of what each inventory contains.
 
 **No user input reaches the SQL as text.** Column expressions come from the
 specification's own allowlists; every value is a bound parameter.
@@ -155,8 +156,8 @@ def _held_in(table: str, column: str, where: str = "") -> str:
     """Items with a matching row in a detail or link table.
 
     IN, not a correlated EXISTS: PostgreSQL evaluates the subquery once, as a
-    hashed set, where EXISTS looked up every item in turn -- a "Denver"
-    search over the live collection took 178 ms that way.
+    hashed set, where EXISTS looks up every item in turn, which is many
+    times slower over the whole collection.
     """
     return (
         f"i.id IN (SELECT inventory_item_id FROM {table} "
@@ -183,7 +184,7 @@ class ViewSpec:
     """One searchable inventory: its columns, filters, sorts and facets."""
 
     name: str
-    #: Everything reads from the item table; the views are for whole rows.
+    #: Everything reads from the item table, never from the inventory views.
     base: str = "inventory_item i"
     where: tuple[str, ...] = ()
     columns: dict[str, Col] = field(default_factory=dict)
@@ -347,8 +348,8 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "error_types": Col(_C_ERROR_TYPES),
     "series": Col("ser.code", (_J_SERIES,)),
     "series_label": Col("ser.label", (_J_SERIES,)),
-    # The purchase the item arrived on, so a row can open that order in
-    # Receiving. LEFT joins: an item may be on no recorded order.
+    # The purchase the item arrived on, so a row can open that order on the
+    # Purchases page. LEFT joins: an item may be on no recorded order.
     "purchase_order_id": Col("i.purchase_order_id"),
     "order_number": Col("po.order_number", (_J_PURCHASE_ORDER,)),
     "vendor": Col("v.name", (_J_PURCHASE_ORDER, _J_VENDOR)),

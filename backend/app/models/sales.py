@@ -290,7 +290,7 @@ class Listing(TimestampMixin, Base):
         default=ListingFormat.fixed_price,
         nullable=False,
     )
-    #: Written only through `status`; see ListingStatus.
+    #: Written only by `offering_writes`; see ListingStatus.
     status: Mapped[ListingStatus] = mapped_column(
         enum_column(ListingStatus, "listing_status"),
         default=ListingStatus.active,
@@ -502,10 +502,9 @@ class SalesLotItem(TimestampMixin, Base):
     part of the sale's record, and a dissolved lot is evidence of what was
     tried. The partial unique index is what stops an item being in two open
     lots at once -- the same shape, and the same reason, as
-    `uq_offer_claim_active`. `TimestampMixin` -- as `OfferClaim`, the sibling
-    this is modeled on, already has -- so "which coins were in the lot that
-    sold, and when did each join" is answerable from `created_at`, not just
-    "when did each leave" from `released_at`.
+    `uq_offer_claim_active`. `TimestampMixin`, as on `OfferClaim`, so "which
+    coins were in the lot that sold, and when did each join" is answerable
+    from `created_at`, not just "when did each leave" from `released_at`.
     """
 
     __tablename__ = "sales_lot_item"
@@ -684,7 +683,7 @@ class SalesOrder(TimestampMixin, Base):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: The account that entered the order: the buyer, or a manager
-    #: acting for them. Null for orders placed before this was recorded.
+    #: acting for them. Null when the account is not known.
     placed_by_id: Mapped[int | None] = mapped_column(
         ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
@@ -742,8 +741,8 @@ class SalesOrderItem(Base):
     )
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    #: The item and its listing when the line was made. None only for lines
-    #: made before snapshots were kept.
+    #: The item and its listing when the line was made. None on a line that
+    #: carries no snapshot.
     item_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     snapshot_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

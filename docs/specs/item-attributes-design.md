@@ -57,8 +57,8 @@ API: every reference value carries `aliases`; with `include_inactive`, the
 retired values come too, and each value its `retired_aliases`. `POST
 /api/reference/{table}/{code}/aliases` adds one (409 with the reason when
 `add_alias` refuses) and `DELETE /api/reference/{table}/{code}/aliases?alias=`
-removes one (404 for a name that is not a current alias); both are staff only
-and return the value. Merging a value into another
+removes one (404 for a name that is not a current alias); both are managers
+only and return the value. Merging a value into another
 (`vocabulary-and-errors-design.md`) makes its names the survivor's aliases.
 
 ## 2. Item attributes
@@ -131,7 +131,7 @@ Silver Certificates (BEP FAQ). So for a $1 Silver Certificate:
 |---|---|
 | 1928 through 1935F | always -- derived, no evidence needed |
 | 1935G | printed both ways: needs evidence (text, or a person) |
-| 1935H, 1957 on | never |
+| every other series (before 1928, 1935H, 1957 on) | never |
 
 `app/attribute_rules.py` holds the rule as data (attribute, class, face value,
 the series that always have it, the series that need evidence; every other
@@ -191,11 +191,12 @@ MS65 is business strike + 65; SP68 is specimen + 68; PR69+ is proof + 69+.
   plus ranks above its number**: 64+ sorts and filters between 64 and 65.
   Plus is allowed wherever it occurs, including where no service would give
   one (69+).
-- **Adjectival grades take the bottom of their standard range**
-  (`grades.ADJECTIVAL`): UNC and BU are MS60, Choice MS63, Gem MS65; PROOF and
-  Choice Proof PR63, Gem Proof PR65; AU 55, XF 40, VF 20, F 12, VG 8, G 4.
-  UNC and BU climb with pluses (BU+ is 63, BU++ 65); AU+ is 55+. Note
-  adjectivals map the same way onto the note scale (Gem Unc N65 ... G N4).
+- **Adjectival grades take a fixed number** (`grades.ADJECTIVAL`), the
+  bottom of the standard range for all but AU: UNC and BU are MS60, Choice
+  MS63, Gem MS65; PROOF and Choice Proof PR63, Gem Proof PR65; AU 55, XF 40,
+  VF 20, F 12, VG 8, G 4. UNC and BU climb with pluses (BU+ is 63, BU++ 65);
+  AU+ is 55+. Note adjectivals take the bottom of the note scale's range
+  (`grades.NOTE_ADJECTIVAL`: Gem Unc N65 ... AU N50 ... G N4).
   Only CIRC and UNGRADED stay unnumbered. The rating as written stays in
   `rating`.
 - **Paper money** labels match PMG; N1-N3 cover PCGS Banknote's Poor, Fair

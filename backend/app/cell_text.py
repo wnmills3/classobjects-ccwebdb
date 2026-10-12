@@ -5,8 +5,11 @@ value looks like: a string that begins with `=` becomes a formula, and one
 that spells a spreadsheet error (`#N/A`, `#DIV/0!`) becomes an error. The
 text written into this system's workbooks is whatever was stored -- a
 seller's listing title, a name a customer chose for an account, a note --
-and none of it is the workbook writer's to have computed by whoever opens
-the file. Every writer of such text passes its cells through `keep_text`.
+and none of it is for a spreadsheet to compute when the file is opened.
+`app.reports.workbook` and `app.ebay_orders` pass their text cells through
+`keep_text`; `app.workbook_backup` passes the ones that begin with `=`, and
+leaves text that spells an error typed as one, which reads back as the same
+text.
 
 A string beginning with `+`, `-` or `@` needs nothing: openpyxl writes it as
 text already, and a spreadsheet does not compute a cell whose type is text.

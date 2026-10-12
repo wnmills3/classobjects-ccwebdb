@@ -48,7 +48,7 @@ describe('cents', () => {
 
 describe('signedFromCents', () => {
   it('writes a loss with its sign', () => {
-    // fromCents(-250) is "-3.50": Math.floor rounds away from zero below it.
+    // The sign goes in front of the amount written for its size.
     expect(signedFromCents(-250)).toBe('-2.50')
     expect(signedFromCents(-7)).toBe('-0.07')
   })

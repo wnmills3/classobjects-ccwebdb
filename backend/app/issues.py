@@ -9,10 +9,11 @@ one.
 The domain knowledge belongs here, written once, rather than in the head of
 whoever types the filter.
 
-Each check appears three ways from this one definition: a filter
-(`?issue=no_year`), a count returned with the page so the size of a job is
-visible before committing to it, and a badge on the row. Adding a check later
-means adding one entry.
+Each check appears two ways from this one definition: a filter
+(`?issue=no_year`) and a count returned with the page, so the size of a job
+is visible before committing to it. Adding a check means adding one entry
+here, and its code to the view's `issueChecks` in the console's `specs.js`
+for the filter panel to offer it.
 """
 
 from __future__ import annotations

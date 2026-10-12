@@ -87,8 +87,8 @@ async def upload_image(
     """Upload a photograph, optionally attaching it to an inventory item.
 
     ``inventory_item_id`` is optional because photographs exist before anyone
-    has decided what they depict. An unattached image is still stored,
-    browsable and searchable -- linking is a separate, human step.
+    has decided what they depict. An unattached image is still stored and
+    listed (`unattached=true`) -- linking is a separate, human step.
 
     The item is found, the for-sale guard asked and the role looked up
     before `ingest` writes the bytes, so a refused upload leaves no file
