@@ -346,9 +346,10 @@ export const FIELD_HELP = {
     title: 'Add another like it',
     text:
       'Starts the next piece from what it shares with the last one saved here: ' +
-      'kind, title, cost, shipping, listing, status, where it is kept, country, ' +
-      "denomination, series, grading service, and a note's series, seal, class " +
-      "and signatures or a coin's metal and mint. Grade, serial, certificate, " +
+      'kind, title, cost, shipping, listing and its item id, status, where it ' +
+      'is kept, country, denomination, series, grading service, and a ' +
+      "note's series, seal, district, class and signatures or a coin's metal " +
+      'and mint. Grade, serial, certificate, ' +
       'years and description are entered for each piece.',
   },
   description: {

@@ -148,7 +148,7 @@ by `deps.require_admin`). By area:
 | Accounts | `/auth` (register, login, refresh, me), `/users`, `/customers` (including orders placed on a customer's behalf) | sign-in public; administration manager |
 | Shop catalog | `/catalog` | public, read only |
 | Customer orders | `/orders` | customers their own; managers all |
-| Inventory | `/inventory` (search, create, bulk, edit, receive, split, detach a piece, reviews, errors, history, sales, suggested description, preview, delete) | manager |
+| Inventory | `/inventory` (search, create, bulk, edit, receive, split, detach a piece, reviews, errors, history, sales, suggested description, preview, serial pairs, delete) | manager |
 | Purchases | `/vendors`, `/sellers`, `/purchase-orders`, `/storage-locations` | manager |
 | Vocabularies | `/reference` (read public; add, rename, alias, merge manager), `/defaults` (suggested classifiers while entering an item) | mixed |
 | Photographs | `/images` (upload, from a web address, file against an item, list, delete, renditions), `/image-links` (role, primary, move, detach) | renditions public, by content hash; the rest manager |

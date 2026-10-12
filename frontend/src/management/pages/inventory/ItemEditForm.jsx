@@ -1624,7 +1624,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           {/* For a row that should never have existed -- one purchase entered
               twice. Asked about first, and the server refuses what must
               stay: a lot with pieces, an item ever offered, one in a sales
-              lot. Its reason is shown where a failed save's is. */}
+              lot. Its reason is shown under this row. */}
           <button
             type="button"
             data-help="delete_item"

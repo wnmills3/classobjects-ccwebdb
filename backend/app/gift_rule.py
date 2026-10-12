@@ -31,7 +31,7 @@ from .models import (
     ProvenanceSource,
 )
 
-__all__ = ["GIFT", "RULE", "apply", "earns", "would_add"]
+__all__ = ["GIFT", "RULE", "apply", "earns", "without_the_word", "would_add"]
 
 #: The attribute's code.
 GIFT = "gift"
@@ -39,7 +39,7 @@ GIFT = "gift"
 #: `item_attribute_link.derived_by` for the links this rule adds.
 RULE = "no_cost"
 
-#: The word in a title, with the white space and dashes that set it apart.
+#: The word in a title, with the white space and punctuation that set it apart.
 _WORD = re.compile(r"[\s\-:,]*\bgift\b[\s\-:,]*", re.IGNORECASE)
 
 

@@ -157,7 +157,7 @@ left alone.
 |---|---|
 | Costs $0, has no Gift link at all | adds Gift, derived (`derived_by` `no_cost`) |
 | Costs $0, a person removed Gift | nothing: it stays removed |
-| Has a cost, holds the rule's own Gift | takes it back |
+| Has a cost, or is no longer a note, and holds the rule's own Gift | takes it back |
 | Has a cost, holds a Gift a person set | nothing |
 
 Two things follow a link the rule adds or takes back:

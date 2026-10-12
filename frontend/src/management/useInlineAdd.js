@@ -17,7 +17,8 @@ import { isCancellingEscape } from '../shared/add-option'
  * it, Enter in a box submits that outer form -- for whatever was already
  * picked -- instead of adding what is being typed. A button keeps its own
  * Enter: swallowing it would cancel Cancel's own activation and add the row
- * the user was abandoning.
+ * the user was abandoning. Escape closes this form alone: unhandled, it
+ * would close the dialog the picker sits in, with everything typed there.
  *
  * A listener the wrapper is given, not an `onKeyDown` written on it: the
  * wrapper is not a control, and is not made to look like one.

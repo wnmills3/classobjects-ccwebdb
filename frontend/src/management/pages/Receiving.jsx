@@ -23,8 +23,8 @@ function orderIdFromParams(params) {
  * One search form (`ItemFinder`): its order number field takes part of the
  * number, and the same form finds an item in hand whose order is not known.
  *
- * **`?order=<id>` opens on that order** -- the inventory screens' Order column and
- * Purchases' "Receive these" link here that way. The order's number is
+ * **`?order=<id>` opens on that order** -- Purchases' "Receive these" links
+ * here that way. The order's number is
  * read and handed to the search, which runs at once with it. The search is
  * keyed on that number, so following a link to another order starts a fresh
  * search rather than keeping the last one's fields.

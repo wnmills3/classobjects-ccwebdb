@@ -39,7 +39,7 @@ function isValidRate(text) {
 const BLANK_VENDOR_DRAFT = { name: '', vendor_kind: '', url: '' }
 
 /**
- * The vendor picker: a plain select over `listVendors()`, with a trailing
+ * The vendor picker: a plain select over `listVendors()`, opening with a
  * "+ Add a vendor..." option that opens an inline web address / name / kind
  * form -- the same idea as `ReferenceSelect`'s inline add, but vendors are
  * rows with their own id, not a reference table's codes, so this is its own
