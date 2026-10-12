@@ -547,6 +547,15 @@ export default function NewPurchase() {
   // The item open in the editor, from the items table: an entry fixed where
   // it was made rather than found again on the inventory screens.
   const [editing, setEditing] = useState(null)
+  // The item last opened here, from the table or entered below: the one "Add
+  // another like it" starts from. An id of another purchase's item is not
+  // among this one's lines, and `AddItem` then goes by the latest.
+  const [lastOpened, setLastOpened] = useState(null)
+
+  function openItem(id) {
+    setLastOpened(id)
+    setEditing(id)
+  }
 
   // Saved or only closed, the purchase is read again: a save that wrote only
   // part of its changes, or a split, leaves the editor open, and the table
@@ -721,7 +730,7 @@ export default function NewPurchase() {
                       <button
                         type="button"
                         className="link mono"
-                        onClick={() => setEditing(line.id)}
+                        onClick={() => openItem(line.id)}
                       >
                         {line.item_code}
                       </button>
@@ -753,11 +762,14 @@ export default function NewPurchase() {
             )}
 
             <AddItem
-              // A purchase's own: the last item added is not the next one's.
+              // A purchase's own: a title typed for one is not the next one's.
               key={`items-${purchase.id}`}
               purchaseOrderId={purchase.id}
               orderUrl={lotPage(purchase)}
               defaults={itemDefaults}
+              items={purchase.lines ?? []}
+              likeId={lastOpened}
+              onEntered={setLastOpened}
               onChanged={reloadPurchase}
               disabledReason={itemDisabledReason}
             />

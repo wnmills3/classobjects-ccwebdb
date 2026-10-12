@@ -827,8 +827,11 @@ holding one item (`docs/specs/entry-panels-design.md`).
   that starts empty (the configured default), "No sales tax charged" (rate 0),
   and "Tax on shipping" (As configured / Taxed / Not taxed). An explicit rate
   must be 0-1 with up to four decimal places; `.0635` is accepted.
-- **Add another like it** starts the next piece from what it usually shares
-  with the last one saved, and the purchase-wide tax defaults;
+- **Add another like CC-######** is shown whenever the purchase has an item.
+  It starts the next piece from what it usually shares with the item it
+  names -- the one last opened on the purchase, from the table or just
+  entered, or the latest when none was opened -- and the purchase-wide tax
+  defaults;
   the exact list is in
   [specs/entry-panels-design.md](specs/entry-panels-design.md) (*New item*).
 - **Receive these** opens Receiving for that purchase; **Start another

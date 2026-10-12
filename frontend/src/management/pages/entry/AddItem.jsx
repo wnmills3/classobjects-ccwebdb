@@ -82,17 +82,25 @@ function sharedWith(item) {
  * photographs, the Friedberg number, the errors and everything else are.
  *
  * Closing the editor without saving removes the row again: an item nobody
- * saved was never entered. "Add another like it" starts the next piece from
- * what the last one shares with it (`SHARED_ON_REPEAT`, less what a rule
- * filled -- see `sharedWith`).
+ * saved was never entered. "Add another like it" is offered whenever the
+ * purchase holds an item, and starts the next piece from what that item
+ * shares with it (`SHARED_ON_REPEAT`, less what a rule filled -- see
+ * `sharedWith`).
  *
- * `defaults` is the purchase's tax values, sent with every item entered on
- * it; `orderUrl` its lot page, offered as the item's listing.
+ * `items` is the purchase's items, oldest first, and `likeId` the one last
+ * opened on the page -- from its table, or entered here, which `onEntered`
+ * reports. That is the item the next is made like; with none opened, or one
+ * no longer on the purchase, it is the latest. `defaults` is the purchase's
+ * tax values, sent with every item entered on it; `orderUrl` its lot page,
+ * offered as the item's listing.
  */
 export default function AddItem({
   purchaseOrderId,
   orderUrl = null,
   defaults,
+  items = [],
+  likeId = null,
+  onEntered,
   onChanged,
   disabledReason = '',
 }) {
@@ -102,11 +110,16 @@ export default function AddItem({
   const [busy, setBusy] = useState(false)
   // The item just created and open in the editor, until it is saved or closed.
   const [entering, setEntering] = useState(null)
-  // The last item saved here, which "Add another like it" starts from.
-  const [last, setLast] = useState(null)
+  // Items closed without a save. `items` goes on holding one until the
+  // purchase is read again, and it is not there to be copied.
+  const [abandonedIds, setAbandonedIds] = useState([])
   // Whether the editor has written anything to the item it has open: a
   // save that got part of the way leaves a real item behind.
   const written = useRef(false)
+
+  const kept = items.filter((item) => !abandonedIds.includes(item.id))
+  // The item "Add another like it" starts from.
+  const like = kept.find((item) => item.id === likeId) ?? kept.at(-1) ?? null
 
   async function create(fields) {
     setBusy(true)
@@ -147,7 +160,7 @@ export default function AddItem({
     setBusy(true)
     try {
       // Read again: the editor may have changed what the next piece shares.
-      const saved = await api.getInventoryItem(last.id)
+      const saved = await api.getInventoryItem(like.id)
       await create(sharedWith(saved))
     } catch (err) {
       setError(err.message)
@@ -156,7 +169,7 @@ export default function AddItem({
   }
 
   function saved() {
-    setLast(entering)
+    onEntered?.(entering.id)
     setEntering(null)
     onChanged?.()
   }
@@ -167,13 +180,16 @@ export default function AddItem({
     const item = entering
     setEntering(null)
     if (written.current) {
-      setLast(item)
+      onEntered?.(item.id)
       onChanged?.()
       return
     }
+    setAbandonedIds((ids) => [...ids, item.id])
     try {
       await api.deleteInventoryItem(item.id)
     } catch (err) {
+      // Still an item, and still on the purchase.
+      setAbandonedIds((ids) => ids.filter((id) => id !== item.id))
       setError(`${item.item_code} was not removed: ${err.message}`)
     }
     onChanged?.()
@@ -215,14 +231,14 @@ export default function AddItem({
           >
             {busy ? 'Adding...' : 'Add item'}
           </button>
-          {last && (
+          {like && (
             <button
               type="button"
               data-help="add_another"
               disabled={blocked}
               onClick={addAnother}
             >
-              Add another like {last.item_code}
+              Add another like {like.item_code}
             </button>
           )}
         </div>
