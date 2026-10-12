@@ -33,15 +33,21 @@ const KINDS = [
 ]
 const DEFAULTS = { tax_rate: '0.0635', tax_includes_shipping: true }
 
+// The purchase's lines once the item these tests add is on it.
+const ENTERED = [{ id: 30, item_code: 'CC-000030' }]
+
 let onChanged
+let onEntered
 
 function renderRow(props = {}) {
   onChanged = vi.fn()
+  onEntered = vi.fn()
   renderWithProviders(
     <AddItem
       purchaseOrderId={22}
       defaults={DEFAULTS}
       onChanged={onChanged}
+      onEntered={onEntered}
       {...props}
     />,
     { reference: emptyReference({ tables: { item_kind: KINDS } }) },
@@ -92,12 +98,14 @@ describe('AddItem', () => {
 
   it('keeps the item once the editor saves it, and offers another like it', async () => {
     const user = userEvent.setup()
-    renderRow()
+    renderRow({ items: ENTERED })
     await addNote(user)
     await user.click(await screen.findByRole('button', { name: 'stub save' }))
 
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(api.deleteInventoryItem).not.toHaveBeenCalled()
+    // Told to the page, which holds the item the next is made like.
+    expect(onEntered).toHaveBeenCalledWith(30)
 
     api.getInventoryItem.mockResolvedValue({
       id: 30,
@@ -160,7 +168,7 @@ describe('AddItem', () => {
 
   it("copies a coin's metal and mint as a person set them, and none of a note's fields", async () => {
     const user = userEvent.setup()
-    renderRow()
+    renderRow({ items: ENTERED })
     await user.type(screen.getByRole('textbox', { name: 'Title' }), 'A dollar')
     await user.click(screen.getByRole('button', { name: 'Add item' }))
     await user.click(await screen.findByRole('button', { name: 'stub save' }))
@@ -192,7 +200,7 @@ describe('AddItem', () => {
 
   it('leaves what a rule filled on the last item for the rules to fill on the next', async () => {
     const user = userEvent.setup()
-    renderRow()
+    renderRow({ items: ENTERED })
     await user.type(screen.getByRole('textbox', { name: 'Title' }), 'A dime')
     await user.click(screen.getByRole('button', { name: 'Add item' }))
     await user.click(await screen.findByRole('button', { name: 'stub save' }))
@@ -227,7 +235,7 @@ describe('AddItem', () => {
 
   it("leaves a note's Bank read from its serial, and copies the class typed", async () => {
     const user = userEvent.setup()
-    renderRow()
+    renderRow({ items: ENTERED })
     await addNote(user)
     await user.click(await screen.findByRole('button', { name: 'stub save' }))
 
@@ -256,7 +264,7 @@ describe('AddItem', () => {
 
   it('starts the next piece as ordered when the last was marked missing', async () => {
     const user = userEvent.setup()
-    renderRow()
+    renderRow({ items: ENTERED })
     await addNote(user)
     await user.click(await screen.findByRole('button', { name: 'stub save' }))
 
@@ -275,7 +283,8 @@ describe('AddItem', () => {
 
   it('removes an item whose editor was closed without a save', async () => {
     const user = userEvent.setup()
-    renderRow()
+    // The purchase's lines hold the row until the page reads it again.
+    renderRow({ items: ENTERED })
     await addNote(user)
     await user.click(await screen.findByRole('button', { name: 'stub close' }))
 
@@ -283,17 +292,69 @@ describe('AddItem', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     // Never entered: nothing to add another like.
     expect(screen.queryByRole('button', { name: /Add another like/ })).toBeNull()
+    expect(onEntered).not.toHaveBeenCalled()
+  })
+
+  it('offers another like the latest item of a purchase nothing was opened on', () => {
+    renderRow({
+      items: [
+        { id: 30, item_code: 'CC-000030' },
+        { id: 31, item_code: 'CC-000031' },
+      ],
+    })
+
+    expect(
+      screen.getByRole('button', { name: 'Add another like CC-000031' }),
+    ).toBeEnabled()
+  })
+
+  it('makes the next like the item last opened, not the latest', async () => {
+    const user = userEvent.setup()
+    renderRow({
+      items: [
+        { id: 30, item_code: 'CC-000030' },
+        { id: 31, item_code: 'CC-000031' },
+      ],
+      likeId: 30,
+    })
+    api.getInventoryItem.mockResolvedValue({
+      id: 30,
+      item_kind: 'coin',
+      source_title: 'A dollar',
+    })
+    api.createInventoryItem.mockResolvedValue({ id: 32, item_code: 'CC-000032' })
+
+    expect(screen.queryByRole('button', { name: /like CC-000031/ })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Add another like CC-000030' }))
+
+    await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledWith(30))
+    expect(await screen.findByRole('dialog')).toHaveTextContent('editing item 32')
+  })
+
+  it('goes by the latest when the item last opened has left the purchase', () => {
+    renderRow({ items: [{ id: 31, item_code: 'CC-000031' }], likeId: 30 })
+
+    expect(
+      screen.getByRole('button', { name: 'Add another like CC-000031' }),
+    ).toBeInTheDocument()
+  })
+
+  it('offers no other like it on a purchase with no item', () => {
+    renderRow()
+
+    expect(screen.queryByRole('button', { name: /Add another like/ })).toBeNull()
   })
 
   it('keeps an item a save wrote part of, even when the editor is then closed', async () => {
     const user = userEvent.setup()
-    renderRow()
+    renderRow({ items: ENTERED })
     await addNote(user)
     await user.click(await screen.findByRole('button', { name: 'stub partial save' }))
     await user.click(screen.getByRole('button', { name: 'stub close' }))
 
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(api.deleteInventoryItem).not.toHaveBeenCalled()
+    expect(onEntered).toHaveBeenCalledWith(30)
     expect(
       screen.getByRole('button', { name: 'Add another like CC-000030' }),
     ).toBeInTheDocument()

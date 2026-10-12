@@ -867,6 +867,53 @@ describe('NewPurchase: items on the purchase', () => {
     expect(await screen.findByText(/lost connection/i)).toBeInTheDocument()
   })
 
+  it('offers another like the latest item, then like the one opened from the table', async () => {
+    const withTwo = {
+      ...FRESH_PURCHASE,
+      lines: [
+        {
+          id: 1,
+          item_code: 'CC-000001',
+          source_title: 'Morgan dollar',
+          item_kind: 'coin',
+          item_cost: '25.00',
+          status: 'ordered',
+        },
+        {
+          id: 2,
+          item_code: 'CC-000002',
+          source_title: 'Peace dollar',
+          item_kind: 'coin',
+          item_cost: '30.00',
+          status: 'ordered',
+        },
+      ],
+    }
+    api.createPurchaseOrder.mockResolvedValue(withTwo)
+    // Read again when the editor closes.
+    api.getPurchaseOrder.mockResolvedValue(withTwo)
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '3',
+    )
+    await user.click(screen.getByRole('button', { name: /create purchase/i }))
+
+    // Nothing opened yet: the latest entry.
+    expect(
+      await screen.findByRole('button', { name: 'Add another like CC-000002' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'CC-000001' }))
+    await user.click(await screen.findByRole('button', { name: 'stub close' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Add another like CC-000001' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /like CC-000002/ })).toBeNull()
+  })
+
   it('offers a Start another purchase button that returns to step 1', async () => {
     const user = await openPurchase()
 
