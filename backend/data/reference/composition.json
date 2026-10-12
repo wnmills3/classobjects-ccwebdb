@@ -313,8 +313,9 @@
      "note": "Double eagle: 516 grains of 90% gold. Liberty Head and Saint-Gaudens."},
 
     {"series": "american_silver_eagle", "country": "US", "year_from": 1986,
-     "metal": "silver", "fineness": "0.9990", "fine_weight_ozt": "1.000000",
-     "note": "One troy ounce of silver, the only size struck."},
+     "metal": "silver", "fineness": "0.9990",
+     "gross_weight_ozt": "1.000000", "fine_weight_ozt": "1.000000",
+     "note": "One troy ounce, the only size struck, quoted as an ounce of silver."},
 
     {"denomination": "usd_coin_5_00", "series": "american_gold_eagle", "country": "US",
      "year_from": 1986,

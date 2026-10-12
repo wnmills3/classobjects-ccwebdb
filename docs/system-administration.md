@@ -374,7 +374,9 @@ of its own -- a Silver Eagle, a commemorative dollar, a Morgan of 2021 --
 and from the series alone when the coin has no year and its design was
 struck in one composition (a Morgan dollar, a Franklin half; not a Roosevelt
 dime, which was silver and then clad). A Gold Eagle, Gold Buffalo or
-Platinum Eagle also needs its denomination, which says the size. A bar, a
+Platinum Eagle also needs its denomination, which says the size. Only an
+item whose kind is Coin is read this way from a coin's design: a round that
+bears the Walking Liberty design is not a half dollar. A bar, a
 round or a medal has none, so its weight is entered: gross weight and
 fineness, and the fine weight is worked out as their product when it is left
 empty. Type the fine weight when it is what is known. Emptying it keeps it
