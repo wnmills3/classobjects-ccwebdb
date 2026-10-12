@@ -23,6 +23,7 @@ from sqlalchemy.sql.selectable import ScalarSelect
 
 from .. import (
     field_changes,
+    gift_rule,
     grades,
     item_attributes,
     item_kinds,
@@ -1254,6 +1255,9 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     # Whatever the form did not fill, the facts may: a coin's composition, a
     # note's signatures. Nothing the person sent is replaced.
     refresh_items(db, [item.id])
+    # After the defaults, so a description written here names the note's class.
+    db.flush()
+    gift_rule.apply(db, item)
     db.commit()
 
     return get_item(item.id, db, admin)
@@ -1804,6 +1808,13 @@ def suggest_description_for(
         # item back as the dry run left it.
         db.expire_all()
         item = _get_item(db, item_id)
+        # Save would give a note at no cost its Gift: describe it with one.
+        if (
+            attributes is not None
+            and gift_rule.GIFT not in attributes
+            and gift_rule.would_add(db, item)
+        ):
+            attributes = [*attributes, gift_rule.GIFT]
         saved = saved_features(db, item)
         features = Features(
             attributes=(
@@ -3117,6 +3128,14 @@ def update_item(
         forget(db, [item.id], [_column(field) for field in data])
         hold(db, [item.id], _emptied(data))
         refresh_items(db, [item.id])
+        # A note saved at no cost is a gift: the fields that moves are logged
+        # with the ones sent.
+        db.flush()
+        by_the_gift_rule = gift_rule.apply(db, item)
+        if by_the_gift_rule:
+            # The link is another table: touching the item moves its version.
+            item.updated_at = datetime.now(UTC)
+        db.flush()
         # Who changed what, in the same transaction as the change: one row
         # per field whose value actually moved -- those sent, and those the
         # edit moves without being sent them (`_MOVED_UNSENT`). The "after"
@@ -3129,7 +3148,11 @@ def update_item(
             item.id,
             before,
             field_values(db, item),
-            _logged_fields(f for f in sent if f != "storage_location_id"),
+            _logged_fields(
+                dict.fromkeys(
+                    [f for f in sent if f != "storage_location_id"] + by_the_gift_rule
+                )
+            ),
             user_id=admin.id,
         )
         db.commit()

@@ -6,6 +6,8 @@ seeded, so these read it.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from app import aliases
 from app.inventory_search import COIN_VIEW, CURRENCY_VIEW, search
 from app.models import (
@@ -37,9 +39,13 @@ def _attribute(db: Session, code: str) -> ItemAttribute:
 def _note(
     db: Session, make_item: ItemFactory, serial: str | None = None
 ) -> InventoryItem:
-    """A banknote with this serial number, its words naming no attribute."""
+    """A bought banknote with this serial number, its words naming no attribute."""
     note = make_item(
-        kind="currency", description="plain", grade_id=None, strike_type_id=None
+        kind="currency",
+        description="plain",
+        grade_id=None,
+        strike_type_id=None,
+        item_cost=Decimal("5.00"),
     )
     db.add(CurrencyDetail(inventory_item_id=note.id, serial_number=serial))
     db.commit()
@@ -47,8 +53,8 @@ def _note(
 
 
 def _coin(make_item: ItemFactory) -> InventoryItem:
-    """A coin whose words name no attribute."""
-    return make_item(description="plain")
+    """A bought coin whose words name no attribute."""
+    return make_item(description="plain", item_cost=Decimal("5.00"))
 
 
 def _link(db: Session, item: InventoryItem, code: str) -> ItemAttributeLink | None:

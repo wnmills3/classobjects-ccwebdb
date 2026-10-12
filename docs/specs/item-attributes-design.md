@@ -71,7 +71,7 @@ vocabulary is seeded from `backend/data/reference/attribute.json`:
 | Group | Attributes | For |
 |---|---|---|
 | `serial` | Star, Fancy Serial, Consecutive, Low / High Serial, Solid, Radar, Repeater, Binary, Trinary, Birthday, Ladder, Double Quad | notes |
-| `variety` | Error, Web Press, Specimen, Proof; No Motto, Motto, Mule (any); Wide / Narrow, Type 1 / Type 2, R / S Experimental | mostly notes |
+| `variety` | Error, Web Press, Specimen, Proof; No Motto, Motto, Mule (any); Wide / Narrow, Type 1 / Type 2, R / S Experimental; Gift | mostly notes |
 | `release` | First Strike (PCGS), Early Releases / First Releases (NGC), First Day of Issue, First Delivery (CACG) | coins |
 | `release` | First Print (PCGS Banknote) | notes |
 | `verification` | CAC (green sticker), CAC Gold | coins |
@@ -85,7 +85,7 @@ Each attribute keeps the service's own term. The release pedigrees are kept
 apart rather than merged into one "early release", because each service
 defines its own window.
 
-Two rules add links, each recorded `derived` with its rule in `derived_by`:
+Three rules add links, each recorded `derived` with its rule in `derived_by`:
 
 - **Serial patterns** (`app.serial_patterns`, `serial_pattern`): star, radar,
   repeater, binary, solid, ladder, low serial and the rest are properties of
@@ -96,6 +96,7 @@ Two rules add links, each recorded `derived` with its rule in `derived_by`:
   added, still in force, that the serial no longer earns (a serial corrected
   since). It runs only by hand, never on a save.
 - **Attributes from facts** (`attribute_rule`), below.
+- **Gift** (`no_cost`), below.
 
 **Removal is recorded for every link** (`app.item_attributes`), not only
 derived ones: deleting a link a person added would let the serial pass add it
@@ -142,6 +143,38 @@ taken back takes the rule's link with it. The rule adds a derived link
 attribute at all, and takes back only its own. A 1935G without the attribute
 is reported as *needs evidence*; a later note with it as *disagrees*.
 "Godless" is used only for this $1 run, which is where collectors use the word.
+
+### Attributes from facts: Gift
+
+A banknote whose item cost is $0 is a gift. `app/gift_rule.py` applies that
+when a note is entered (`POST /api/inventory`) or edited
+(`PATCH /api/inventory/{id}`), after the save's other writes; no batch pass
+and no bulk edit runs it. Coins are left alone.
+
+| The note, as the save leaves it | What the save does |
+|---|---|
+| Costs $0, has no Gift link at all | adds Gift, derived (`derived_by` `no_cost`) |
+| Costs $0, a person removed Gift | nothing: it stays removed |
+| Has a cost, holds the rule's own Gift | takes it back |
+| Has a cost, holds a Gift a person set | nothing |
+
+Two things follow a link the rule adds or takes back:
+
+- **The description** is written again (`suggested_description`) when the one
+  held is empty or is exactly the one generated before the change. A
+  description a person wrote is kept as it is.
+- The change log records `attributes`, `description` and `source_title`
+  where they moved, though the edit sent none of them, and the item's
+  version moves.
+
+**The title.** A note at $0 that holds Gift, however it came by it, has the
+word taken out of its title on every such save -- "Gift $1 Bill Green Seal"
+becomes "$1 Bill Green Seal" -- since the attribute now says it. Only the
+whole word goes ("Gifted" stays), with the dashes and commas that set it
+apart, and a title that is nothing but the word is left.
+
+The editor's **Suggest** describes the note as Save would leave it, so a note
+at $0 that Save would give Gift is suggested with it.
 
 ## 3. The grade vocabulary
 

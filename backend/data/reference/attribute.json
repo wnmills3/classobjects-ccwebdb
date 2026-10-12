@@ -257,6 +257,13 @@
       "sort_order": 410
     },
     {
+      "code": "gift",
+      "label": "Gift",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 500
+    },
+    {
       "code": "details",
       "label": "Details",
       "applies_to": "any",
