@@ -143,6 +143,12 @@ one before it ended (`RESTRIKE_GAP`) is a commemorative restrike -- the
 Morgan of 2021, the gold Winged Liberty Head dime of 2016 -- and is not
 read: an undated coin is not taken for one.
 
+**A round is not the coin whose design it bears.** A round or a medal often
+carries a coin's design as its series (a Walking Liberty round). An item
+that is not recorded as a coin and has no denomination is therefore decided
+only by a design with no face value of its own -- a bullion design, the
+Silver Eagle -- and never by a coin design or a denomination's row.
+
 ### Serial numbers (BEP)
 
 - Through Series 1995, and for $1 and $2 notes still, a serial is one letter,

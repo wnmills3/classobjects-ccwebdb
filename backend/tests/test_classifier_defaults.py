@@ -1126,6 +1126,33 @@ def test_a_bullion_design_with_one_size_needs_no_denomination(
         assert eagle.fineness == Decimal("0.9990")
 
 
+@pytest.mark.parametrize("year", [None, 1945, 2016])
+def test_a_round_with_a_coins_design_is_not_that_coin(
+    db: Session, make_item: ItemFactory, year: int | None
+) -> None:
+    """A Walking Liberty round is not a half dollar, whatever year it bears."""
+    piece = _of_series(
+        db, make_item, "walking_liberty_half", kind="bullion", year_start=year
+    )
+
+    run(db, commit=True)
+
+    db.refresh(piece)
+    assert piece.composition_id is None
+    assert piece.fine_weight_ozt is None
+
+
+def test_a_bullion_design_decides_an_item_recorded_as_bullion(
+    db: Session, make_item: ItemFactory
+) -> None:
+    eagle = _of_series(db, make_item, "american_silver_eagle", kind="bullion")
+
+    run(db, commit=True)
+
+    db.refresh(eagle)
+    assert eagle.fine_weight_ozt == Decimal("1.000000")
+
+
 def test_a_bullion_design_of_several_sizes_goes_by_its_face_value(
     db: Session, make_item: ItemFactory
 ) -> None:

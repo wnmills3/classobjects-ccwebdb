@@ -571,6 +571,8 @@ def coin_outcome(
     derived: set[str],
     held: frozenset[str] = frozenset(),
     retractable: set[str] | None = None,
+    *,
+    coin: bool = True,
 ) -> Outcome:
     """Composition, metal, fineness and weights from the coin's facts.
 
@@ -578,6 +580,10 @@ def coin_outcome(
     has a composition only when one covers all of it: a 1999-2008 quarter
     set is clad throughout, a 1909-2022 cent lot is not. A coin with no year
     has its design's, where the design was struck in one composition.
+
+    `coin` is whether the item is recorded as a coin. Anything else -- a
+    round, a medal, a set -- with no denomination of its own is read only
+    by a bullion design (`_composition`).
 
     `derived` columns may be overwritten by a composition's facts;
     `retractable` (every derived column unless given) are the ones cleared
@@ -587,7 +593,7 @@ def coin_outcome(
     out = Outcome()
     current = {column: getattr(item, column) for column in COMPOSITION_COLUMNS}
     retractable = derived if retractable is None else retractable
-    found = _composition(facts, item)
+    found = _composition(facts, item, coin=coin)
     if found is None:
         _retract(out, current, retractable, COMPOSITION_COLUMNS)
         return out
@@ -614,14 +620,24 @@ def coin_outcome(
     return out
 
 
-def _composition(facts: Facts, item: InventoryItem) -> Composition | None:
-    """The composition the item's recorded facts decide, or None."""
+def _composition(
+    facts: Facts, item: InventoryItem, *, coin: bool
+) -> Composition | None:
+    """The composition the item's recorded facts decide, or None.
+
+    A round or a medal often carries a coin's design as its series -- a
+    Walking Liberty round -- and is not that coin. So an item that is not a
+    coin and has no denomination is decided only by a design with no face
+    value of its own, which is a bullion design: the Silver Eagle.
+    """
     if item.country_id is None:
         return None
     runs = facts.series_runs.get(item.series_id, ()) if item.series_id else ()
+    faces = {face for face, _, _ in runs if face is not None}
+    if item.denomination_id is None and not coin and (not runs or faces):
+        return None
     if item.year_start is not None:
-        # A design struck at one face value says what an item with none is.
-        faces = {face for face, _, _ in runs if face is not None}
+        # A design struck at one face value says what a coin with none is.
         return composition_of(
             facts.compositions,
             denomination_id=item.denomination_id
@@ -848,7 +864,9 @@ def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
             _add_attributes(report, facts, item, note, outcome, links)
         else:
             guessed = {f for f, rule in recorded.items() if rule in WEIGHT_RULES}
-            outcome = coin_outcome(facts, item, mine, held, mine - guessed)
+            outcome = coin_outcome(
+                facts, item, mine, held, mine - guessed, coin=kind == "coin"
+            )
             weight_outcome(item, outcome, recorded)
             on_note = False
         if outcome.count:
