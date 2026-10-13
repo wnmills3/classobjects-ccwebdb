@@ -18,8 +18,8 @@ instead, the way a collector would write it:
 
 It is a **default**, shown in an editable field; the operator still owns the
 wording. `source_title` remains the fallback only when the record holds no
-fact worth naming, so an unclassified item still opens with the seller's
-wording.
+fact worth naming -- a year and a country alone are not one -- so an
+unclassified item still opens with the seller's wording.
 
 Facts, not a catalog's arrangement: every part is a label from this
 database's own vocabularies (see `docs/reference-data.md`).
@@ -181,9 +181,10 @@ def name_of(
     """What the item is, without its grade; None when no fact names it.
 
     ``1921-S Morgan Dollar``, ``Series 1935A $1 Silver Certificate``.
-    With `country_names`, another country's piece that nothing else names is
+    With `country_names`, another country's coin that nothing else names is
     its year and country, ``1912 Austria`` -- enough for a description of
-    it, though not for a title a buyer searches by.
+    it, though not for a title a buyer searches by. A note is never named
+    by its country.
     """
     if item.item_kind.code == _CURRENCY_KIND:
         described, named = _note_title(db, item)
@@ -197,8 +198,8 @@ def suggested_title(db: Session, item: InventoryItem) -> str:
     """The title a listing of this item should start from.
 
     Built from the item's classified facts; falls back to `source_title`
-    when nothing in them names the item -- a date, a mint mark or a grade
-    alone says nothing a buyer is looking for, and the seller's wording,
+    when nothing in them names the item -- a date, a mint mark, a country or
+    a grade alone says nothing a buyer is looking for, and the seller's wording,
     however rough, is at least the operator's own record of what it is.
     Empty only when that is empty too, and the dialog then shows an empty
     title for the operator to write.
