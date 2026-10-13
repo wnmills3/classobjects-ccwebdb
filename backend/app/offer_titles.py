@@ -11,7 +11,8 @@ instead, the way a collector would write it:
 
 - a coin: ``1921-S Morgan Dollar PCGS MS64`` -- year (or span) and mint mark,
   then the set form, series or denomination, the variety, the grading
-  service and the grade;
+  service and the grade; a coin of another country names it after the
+  year, ``1964 Canada Half Dollar``;
 - a note: ``Series 1935A $1 Silver Certificate PMG 64`` -- series, face
   value and note type, then service and grade.
 
@@ -45,6 +46,18 @@ _SELF_GRADED = "SELF"
 
 #: The item kind whose title is written as a note rather than a coin.
 _CURRENCY_KIND = "currency"
+
+#: The countries a title does not name: the one the collection is kept in,
+#: whose coins are the unmarked case, and the row that stands for not knowing.
+_UNNAMED_COUNTRIES = frozenset({"US", "XX"})
+
+
+def _foreign_country(item: InventoryItem) -> str | None:
+    """``Canada``: the country of a piece from abroad, or None."""
+    country = item.country
+    if country is None or country.code in _UNNAMED_COUNTRIES:
+        return None
+    return country.label
 
 
 def _years(item: InventoryItem) -> str | None:
@@ -87,7 +100,9 @@ def _coin_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
     """A coin's title parts without the grade, and whether any part names it.
 
     A year and a mint mark ("1921-S") date a coin but do not say what it is;
-    only a set form, series, denomination or variety does.
+    only a set form, series, denomination or variety does. Another country's
+    coin carries the country after its year: it places the coin and names
+    nothing either.
     """
     # Through the relationship, not a query by id: a caller describing an
     # edit not yet committed holds the detail the item now points at.
@@ -106,6 +121,8 @@ def _coin_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
         if mint is not None and mint.mark and single_year:
             years = f"{years}-{mint.mark}"
         parts.append(years)
+    if (country := _foreign_country(item)) is not None:
+        parts.append(country)
     named = False
     if item.set_form is not None:
         parts.append(item.set_form.label)
@@ -158,15 +175,21 @@ def _note_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
     return parts, named
 
 
-def name_of(db: Session, item: InventoryItem) -> str | None:
+def name_of(
+    db: Session, item: InventoryItem, *, country_names: bool = False
+) -> str | None:
     """What the item is, without its grade; None when no fact names it.
 
     ``1921-S Morgan Dollar``, ``Series 1935A $1 Silver Certificate``.
+    With `country_names`, another country's piece that nothing else names is
+    its year and country, ``1912 Austria`` -- enough for a description of
+    it, though not for a title a buyer searches by.
     """
     if item.item_kind.code == _CURRENCY_KIND:
         described, named = _note_title(db, item)
     else:
         described, named = _coin_title(db, item)
+        named = named or (country_names and _foreign_country(item) is not None)
     return " ".join(described) if named else None
 
 

@@ -13,6 +13,7 @@ import pytest
 from app.item_descriptions import _without_serial, suggested_description
 from app.models import (
     CoinDetail,
+    Country,
     CurrencyDetail,
     Denomination,
     ErrorType,
@@ -196,6 +197,54 @@ def test_a_coins_variety_follows_its_name(db: Session) -> None:
         f"{_label(db, Metal, 'silver')}, 0.77344 ozt fine."
     )
     assert "Morgan Dollar O/S" in suggested_title(db, item)
+
+
+def test_a_foreign_coin_names_its_country_before_what_it_is(db: Session) -> None:
+    item = build_item(
+        db,
+        country_id=code_id(db, Country, "AT"),
+        year_start=1912,
+        denomination_id=code_id(db, Denomination, "usd_coin_0_50"),
+        grading_service_id=None,
+        grade_id=None,
+    )
+    assert suggested_description(db, item) == (
+        f"1912 {_label(db, Country, 'AT')} {_label(db, Denomination, 'usd_coin_0_50')}."
+    )
+
+
+def test_a_foreign_coin_with_no_series_or_face_value_is_its_year_and_country(
+    db: Session,
+) -> None:
+    """Its country is what is known of it: the year is not dropped with the name."""
+    item = build_item(
+        db,
+        country_id=code_id(db, Country, "AT"),
+        year_start=1912,
+        metal_id=code_id(db, Metal, "gold"),
+        fine_weight_ozt=Decimal("0.098020"),
+        grading_service_id=None,
+        grade_id=None,
+    )
+    assert suggested_description(db, item) == (
+        f"1912 {_label(db, Country, 'AT')}. "
+        f"{_label(db, Metal, 'gold')}, 0.09802 ozt fine."
+    )
+
+
+@pytest.mark.parametrize("country", ["US", "XX", None])
+def test_no_country_is_named_at_home_or_when_it_is_not_known(
+    db: Session, country: str | None
+) -> None:
+    item = build_item(
+        db,
+        country_id=None if country is None else code_id(db, Country, country),
+        year_start=1912,
+        metal_id=code_id(db, Metal, "gold"),
+        grading_service_id=None,
+        grade_id=None,
+    )
+    assert suggested_description(db, item) == f"{_label(db, Metal, 'gold')}."
 
 
 def test_an_item_with_nothing_recorded_gets_an_empty_suggestion(db: Session) -> None:
