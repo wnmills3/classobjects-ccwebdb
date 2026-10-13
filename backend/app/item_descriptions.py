@@ -12,6 +12,10 @@ then what it is, with no field labels:
 
     MS64 First Strike 1921-S Morgan Dollar. Silver, 0.7734 ozt fine.
 
+A coin of another country names it after the year -- "1882 Spain Peseta" --
+and where no series or face value is recorded, the year and country are
+what it is: "MS62 1913 Denmark. Gold, 0.1296 ozt fine."
+
 The district and signatures are left out -- they follow from the serial and
 series, and a buyer does not search by them -- and so is the grading
 service, which the holder shows. Errors are promoted beside the
@@ -217,7 +221,7 @@ def _coin(db: Session, item: InventoryItem, given: Features | None) -> list[str]
     if grade := _grade(item):
         first.append(grade)
     first.extend(_features(db, item, given))
-    if (name := name_of(db, item)) is not None:
+    if (name := name_of(db, item, country_names=True)) is not None:
         first.append(name)
     sentences = [" ".join(first)] if first else []
     if item.metal is not None:

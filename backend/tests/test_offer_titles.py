@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from app.models import (
     CoinDetail,
+    Country,
     CurrencyDetail,
     Denomination,
     GradingService,
@@ -132,6 +133,33 @@ def test_an_unclassified_item_keeps_the_seller_wording(db: Session) -> None:
     )
 
     assert suggested_title(db, item) == "Copper Round 1oz"
+
+
+def test_a_foreign_coin_is_titled_with_its_country(db: Session) -> None:
+    item = build_item(
+        db,
+        country_id=code_id(db, Country, "CA"),
+        year_start=1964,
+        denomination_id=code_id(db, Denomination, "usd_coin_0_50"),
+        grade_id=None,
+        strike_type_id=None,
+    )
+
+    assert suggested_title(db, item) == "1964 Canada Half Dollar"
+
+
+def test_a_country_alone_does_not_make_a_title(db: Session) -> None:
+    """A date and a country say where and when, not what a buyer searches for."""
+    item = build_item(
+        db,
+        title="10 Corona Gold Coin",
+        country_id=code_id(db, Country, "AT"),
+        year_start=1912,
+        grade_id=None,
+        strike_type_id=None,
+    )
+
+    assert suggested_title(db, item) == "10 Corona Gold Coin"
 
 
 def test_a_date_and_mint_mark_alone_do_not_make_a_title(db: Session) -> None:

@@ -602,13 +602,18 @@ in the owner's style: grade, designation and attributes first, then what it
 is -- "Superb Gem Unc 67 EPQ Radar 1999 $1 S/N F06566560R. Federal Reserve
 Note Green Seal." for a note, "MS64 First Strike 1921-S Morgan Dollar.
 Silver, 0.7734 ozt fine." for a coin -- with recorded errors beside the attributes, right after the grade ("Error Note, Misaligned Print (Reverse) 1963A $1 ..."). No field
-labels, district, signatures or grading service. It writes nothing; Save
+labels, district, signatures or grading service. A coin of another country
+names it after the year ("1882 Spain Peseta"); with no series or face value
+recorded, the year and country are what it is ("MS62 1913 Denmark. Gold,
+0.1296 ozt fine."). The United States and Unknown are not named. It writes nothing; Save
 keeps it. It is never disabled: unsaved edits, photographs and errors
 are described as shown. The server makes a dry run of Save, defaults
 included, and rolls it back, so the wording matches what Save would give
 and nothing is kept; the item's row is locked only for that request. A listing's
 suggested title carries the
-designation too ("PMG 64 EPQ").
+designation too ("PMG 64 EPQ"), and another country's name ("1964 Canada
+Half Dollar"); a year and a country alone do not make a title, and the
+seller's wording stays.
 
 **A kind change moves the detail row** (`app.item_kinds`). An item made a
 banknote loses its coin row (mint, variety, PCGS type) and gains an empty note
