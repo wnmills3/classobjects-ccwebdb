@@ -730,7 +730,9 @@ transition.
 
 `inventory_item`, `listing`, sales orders, sales lots, auctions and platforms
 carry a `version` (purchase orders do not). An update sends the version it read, and the write is refused
-with 409 if somebody changed the row first. PostgreSQL's MVCC does not give
+with 409 if somebody changed the row first. An update that sends none is
+refused (422): made against nothing, it would overwrite whatever was saved
+since, unseen. The item editor may send `base` in its place. PostgreSQL's MVCC does not give
 this: without it, the second of two people saving the same item silently
 overwrites the first with values loaded before the change.
 

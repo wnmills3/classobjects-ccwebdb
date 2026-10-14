@@ -19,7 +19,7 @@ from app.models import (
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item, code_id
+from tests.builders import build_bare_item, code_id, patch_current
 
 
 def test_editing_a_coin_into_a_note_gives_it_a_note_row(
@@ -31,7 +31,8 @@ def test_editing_a_coin_into_a_note_gives_it_a_note_row(
 
     # Kind, a note denomination and a serial number in one request: the note
     # row has to exist before the serial can be written to it.
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={
             "item_kind": "currency",
@@ -59,8 +60,8 @@ def test_a_note_keeps_its_serial_unless_it_is_cleared_first(
     db.commit()
     to_coin = {"item_kind": "coin", "denomination": "usd_coin_1_00"}
 
-    refused = client.patch(
-        f"/api/inventory/{item.id}", json=to_coin, headers=admin_headers
+    refused = patch_current(
+        client, f"/api/inventory/{item.id}", json=to_coin, headers=admin_headers
     )
     assert refused.status_code == 422, refused.text
     assert "serial_number" in refused.json()["detail"]
@@ -76,7 +77,8 @@ def test_a_note_keeps_its_serial_unless_it_is_cleared_first(
     db.flush()
     db.get_one(CurrencyDetail, item.id).friedberg_id = friedberg.id
     db.commit()
-    with_friedberg = client.patch(
+    with_friedberg = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={**to_coin, "serial_number": None},
         headers=admin_headers,
@@ -88,7 +90,8 @@ def test_a_note_keeps_its_serial_unless_it_is_cleared_first(
     db.commit()
 
     # Cleared in the same request, the change goes through.
-    cleared = client.patch(
+    cleared = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={**to_coin, "serial_number": None},
         headers=admin_headers,

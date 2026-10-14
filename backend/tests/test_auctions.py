@@ -933,7 +933,7 @@ def test_consigned_location_lookup_ignores_a_row_with_an_identifier(
 ) -> None:
     """The lookup matches the table's real uniqueness key.
 
-    `uq_storage_location_identity` is `(kind_id, institution, identifier)`,
+    `uq_storage_location_identity` is kind, institution and identifier,
     not just the first two. A "Consigned: Heritage" row that also carries an
     `identifier` -- a crate or shelf the owner recorded by hand -- must not
     be reused: `consign` only ever creates rows with `identifier IS NULL`.

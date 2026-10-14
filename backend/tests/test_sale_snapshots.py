@@ -16,7 +16,7 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.builders import ItemFactory, ListingFactory
+from tests.builders import ItemFactory, ListingFactory, patch_current
 from tests.conftest import item_id_of
 
 
@@ -47,7 +47,9 @@ def _edit(
     client: TestClient, headers: dict[str, str], item_id: int, **changes: object
 ) -> Response:
     """The response to saving these changes on an item."""
-    return client.patch(f"/api/inventory/{item_id}", json=changes, headers=headers)
+    return patch_current(
+        client, f"/api/inventory/{item_id}", json=changes, headers=headers
+    )
 
 
 def _admin_order(client: TestClient, headers: dict[str, str], order_id: int) -> dict:

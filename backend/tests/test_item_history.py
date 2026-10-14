@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item, code_id
+from tests.builders import build_bare_item, code_id, patch_current
 
 
 def _history(
@@ -96,7 +96,8 @@ def test_the_three_logs_are_merged_newest_first(
         else:
             row.moved_at = when
     db.commit()
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"description": "cleaned", "country": "MX"},
         headers=admin_headers,
@@ -151,7 +152,8 @@ def test_a_status_changed_in_the_editor_is_shown_once(
     record_initial_status(db, bulk, user_id=admin_user.id)
     db.commit()
 
-    saved = client.patch(
+    saved = patch_current(
+        client,
         f"/api/inventory/{edited.id}",
         json={"status": "received", "description": "arrived"},
         headers=admin_headers,
@@ -240,8 +242,11 @@ def test_another_item_s_history_is_not_shown(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     mine, other = build_bare_item(db), build_bare_item(db)
-    client.patch(
-        f"/api/inventory/{other.id}", json={"description": "x"}, headers=admin_headers
+    patch_current(
+        client,
+        f"/api/inventory/{other.id}",
+        json={"description": "x"},
+        headers=admin_headers,
     )
     assert _history(client, admin_headers, mine.id) == []
 

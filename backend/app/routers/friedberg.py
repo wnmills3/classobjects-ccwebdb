@@ -24,7 +24,7 @@ from collections.abc import Sequence
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.elements import ColumnElement
@@ -61,6 +61,7 @@ from ..schemas import (
     SignatureChoicesOut,
 )
 from ._resolve import get_or_404, get_or_422
+from ._tx import delete_unused
 
 #: The catalog's own endpoints live under `/friedberg`; attaching a row to an
 #: item, and clearing it, are inventory-shaped, so they get their own router
@@ -603,8 +604,11 @@ def delete_catalog_row(friedberg_id: int, db: DbSession, _admin: AdminUser) -> R
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{row.fr_number} is on {used} {noun}; clear it there first",
         )
-    db.delete(row)
-    db.commit()
+    delete_unused(
+        db,
+        delete(FriedbergNumber).where(FriedbergNumber.id == row.id),
+        f"{row.fr_number} has just been attached to a note",
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

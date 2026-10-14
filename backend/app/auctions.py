@@ -84,7 +84,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -635,26 +635,21 @@ def _consigned_location(db: Session, institution: str) -> StorageLocation:
     One row per auction-house platform, `institution` the platform's name,
     `identifier` always `NULL` -- the reference vocabulary's own note on the
     `consigned` code (`data/reference/operations.json`). The lookup filters
-    on `identifier IS NULL` explicitly: the table's
-    actual uniqueness key, `uq_storage_location_identity`, is
-    `(kind_id, institution, identifier)`, and without this predicate a
+    on `identifier IS NULL` explicitly: the table's uniqueness key,
+    `uq_storage_location_identity`, is kind, institution and identifier
+    (lowered, an absent one read as empty), and without this predicate a
     "Consigned: Heritage" row that also happened to carry an `identifier` --
-    a crate or shelf the owner recorded by hand -- would match, and an
-    unordered `Session.scalar` would return whichever of two such rows came
-    back first.
+    a crate or shelf the owner recorded by hand -- would match. The
+    institution is matched lowered, as the key matches it.
 
     **Created with `INSERT ... ON CONFLICT DO NOTHING`, then read back.**
-    Postgres treats two `NULL` `identifier` values as distinct, so
-    `uq_storage_location_identity` does not cover this row, and two
-    concurrent first consignments to one house, from two different auctions,
-    could each find nothing and insert a duplicate location -- coins split
-    across two "Consigned: Heritage" entries.
-    `uq_storage_location_identity_no_identifier` closes that for the
-    `identifier IS NULL` case, and the upsert is what turns the loser of
-    that race into a reader of the
+    Two concurrent first consignments to one house, from two different
+    auctions, could each find nothing and insert; the key refuses the
+    second, and the upsert is what turns that loser into a reader of the
     winner's row instead of an `IntegrityError` and a 500: it waits for the
     first insert to commit, does nothing, and the `SELECT` below finds the
-    one row.
+    one row. No conflict target is named: the key is an expression index,
+    and the only unique index on the table.
     """
     kind_id = db.scalar(
         select(StorageLocationKind.id).where(
@@ -669,15 +664,12 @@ def _consigned_location(db: Session, institution: str) -> StorageLocation:
     db.execute(
         pg_insert(StorageLocation)
         .values(storage_location_kind_id=kind_id, institution=institution)
-        .on_conflict_do_nothing(
-            index_elements=["storage_location_kind_id", "institution"],
-            index_where=text("identifier IS NULL"),
-        )
+        .on_conflict_do_nothing()
     )
     return db.scalars(
         select(StorageLocation).where(
             StorageLocation.storage_location_kind_id == kind_id,
-            StorageLocation.institution == institution,
+            func.lower(StorageLocation.institution) == func.lower(institution),
             StorageLocation.identifier.is_(None),
         )
     ).one()

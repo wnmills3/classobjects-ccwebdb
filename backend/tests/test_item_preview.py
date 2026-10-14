@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from tests.builders import build_purchase_order
+from tests.builders import build_purchase_order, patch_current
 
 
 def _new(client: TestClient, headers: dict[str, str], db: Session, kind: str) -> int:
@@ -166,8 +166,11 @@ def test_a_year_typed_on_a_piece_with_no_date_is_previewed_as_save_takes_it(
             2021,
         )
 
-    saved = client.patch(
-        f"/api/inventory/{item_id}", json={"year_start": 2021}, headers=admin_headers
+    saved = patch_current(
+        client,
+        f"/api/inventory/{item_id}",
+        json={"year_start": 2021},
+        headers=admin_headers,
     )
     assert saved.status_code == 200, saved.text
 
@@ -176,8 +179,11 @@ def test_no_date_ticked_is_previewed_with_its_years_cleared(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     item_id = _new(client, admin_headers, db, "bullion")
-    dated = client.patch(
-        f"/api/inventory/{item_id}", json={"year_start": 2020}, headers=admin_headers
+    dated = patch_current(
+        client,
+        f"/api/inventory/{item_id}",
+        json={"year_start": 2020},
+        headers=admin_headers,
     )
     assert dated.status_code == 200, dated.text
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Response, status
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..deps import AdminUser, DbSession
@@ -57,7 +57,7 @@ from ._resolve import (
     refuse_future,
     unprocessable,
 )
-from ._tx import commit_unique
+from ._tx import commit_unique, delete_unused
 
 vendors_router = APIRouter(prefix="/vendors", tags=["acquisitions"])
 sellers_router = APIRouter(prefix="/sellers", tags=["acquisitions"])
@@ -140,11 +140,10 @@ def list_vendors(db: DbSession, _admin: AdminUser) -> list[VendorOut]:
 def create_vendor(payload: VendorCreate, db: DbSession, _admin: AdminUser) -> VendorOut:
     """Add a vendor inline, while entering a purchase.
 
-    Names are unique -- checked here case-insensitively, so a caller typing
-    "eBay.com" against an existing "ebay.com" gets a 409 echoing the name as
-    typed ("A vendor named eBay.com already exists"), rather than a second
-    row the database's own constraint (which is case-sensitive) would
-    happily allow.
+    Names are unique whatever their case -- checked here first, so a caller
+    typing "eBay.com" against an existing "ebay.com" gets a 409 echoing the
+    name as typed ("A vendor named eBay.com already exists"); `uq_vendor_name`
+    is the same rule at the database, for two requests at once.
     """
     duplicate = db.scalar(
         select(Vendor).where(func.lower(Vendor.name) == payload.name.casefold())
@@ -169,9 +168,9 @@ def create_vendor(payload: VendorCreate, db: DbSession, _admin: AdminUser) -> Ve
     )
     db.add(vendor)
     # Two inline "+ Add a vendor..." submissions of the same name at
-    # once both pass the case-insensitive check above; `uq_vendor_name`
-    # (case-sensitive) stops the second at the database, and it should
-    # read as the same 409 rather than an unhandled 500.
+    # once both pass the check above -- in the same case or not;
+    # `uq_vendor_name` (on the lowered name) stops the second at the
+    # database, and it should read as the same 409 rather than a 500.
     commit_unique(db, f"A vendor named {payload.name} already exists")
     db.refresh(vendor)
     return _vendor_out(db, vendor)
@@ -225,8 +224,11 @@ def delete_vendor(vendor_id: int, db: DbSession, _admin: AdminUser) -> Response:
             detail=f"{vendor.name} is named on "
             f"{_counted(used, 'purchase or platform')}",
         )
-    db.delete(vendor)
-    db.commit()
+    delete_unused(
+        db,
+        delete(Vendor).where(Vendor.id == vendor.id),
+        f"{vendor.name} has just been named on a purchase or platform",
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -470,8 +472,11 @@ def delete_seller(seller_id: int, db: DbSession, _admin: AdminUser) -> Response:
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{seller.name} is named on {_counted(used, 'purchase')}",
         )
-    db.delete(seller)
-    db.commit()
+    delete_unused(
+        db,
+        delete(Seller).where(Seller.id == seller.id),
+        f"{seller.name} has just been named on a purchase",
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -738,8 +743,11 @@ def delete_storage_location(
             detail=f"{location_label(location)} holds or held "
             f"{_counted(used, 'item record')}",
         )
-    db.delete(location)
-    db.commit()
+    delete_unused(
+        db,
+        delete(StorageLocation).where(StorageLocation.id == location.id),
+        f"{location_label(location)} has just been given an item record",
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

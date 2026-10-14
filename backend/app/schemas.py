@@ -1078,9 +1078,11 @@ class InventoryItemUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    #: The version read before editing. Send it and a conflicting save is a
-    #: 409 rather than a silent overwrite; omit it to mean "set this
-    #: regardless", which a script may legitimately want.
+    #: The version read before editing: a conflicting save is a 409 rather
+    #: than a silent overwrite. `PATCH /inventory/{id}` needs this or
+    #: `base` (422 for neither): an edit made against nothing would
+    #: overwrite whatever another save had just written. A dry run
+    #: (`ItemSuggestIn`) sends neither; it writes nothing.
     version: int | None = None
     #: The value each field being changed had when the edit began, as
     #: `GET /inventory/{id}` returned it, keyed like the fields sent. With it
@@ -1899,8 +1901,9 @@ class SalesVenueUpdate(_SalesVenueFields):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     kind: str | None = Field(default=None, min_length=1, max_length=64)
     is_active: bool | None = None
-    #: The version the form loaded; a mismatch is a 409.
-    version: int | None = None
+    #: The version the form loaded; a mismatch is a 409. Required: an
+    #: edit made against nothing would overwrite another's unseen.
+    version: int
 
 
 class OfferItemIn(BaseModel):
@@ -2098,8 +2101,9 @@ class ListingUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=500)
     description: str | None = None
     external_id: str | None = Field(default=None, max_length=128)
-    #: The version the form loaded; a mismatch is a 409.
-    version: int | None = None
+    #: The version the form loaded; a mismatch is a 409. Required, as a
+    #: platform's is.
+    version: int
 
 
 # --------------------------------------------------------------------------
@@ -2132,8 +2136,9 @@ class SalesLotUpdate(BaseModel):
     #: transaction holding one row lock per item named here.
     add_item_ids: list[int] = Field(default_factory=list, max_length=200)
     remove_item_ids: list[int] = Field(default_factory=list, max_length=200)
-    #: The version the form loaded; a mismatch is a 409.
-    version: int | None = None
+    #: The version the form loaded; a mismatch is a 409. Required, as a
+    #: platform's is.
+    version: int
 
 
 class SalesLotMemberOut(BaseModel):
@@ -2264,8 +2269,9 @@ class AuctionUpdate(BaseModel):
     starts_at: datetime | None = None
     ends_at: datetime | None = None
     notes: str | None = None
-    #: The version the form loaded; a mismatch is a 409.
-    version: int | None = None
+    #: The version the form loaded; a mismatch is a 409. Required, as a
+    #: platform's is.
+    version: int
 
 
 class AuctionLotIn(BaseModel):

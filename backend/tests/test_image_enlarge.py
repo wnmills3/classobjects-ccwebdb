@@ -429,8 +429,9 @@ def test_more_than_a_batch_is_all_replaced(
     report = run(db, commit=True, fetch=_fetcher(table))
 
     # A commit after every two, and one for the last: a run cut short keeps
-    # what it had done.
-    assert commits == [2, 4, 5]
+    # what it had done. Each is followed by the commit that removes the
+    # files it left unused (`image_store.remove_unheld`) and releases them.
+    assert commits == [2, 2, 4, 4, 5, 5]
     db.expire_all()
     assert report.outcomes[REPLACED] == 5
     assert [db.get_one(Image, image.id).width for image in held] == [LARGE[0]] * 5

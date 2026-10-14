@@ -52,6 +52,7 @@ from ..schemas import (
     ReferenceValueRename,
 )
 from ._resolve import found_or_404, unprocessable
+from ._tx import commit_unique
 
 router = APIRouter(prefix="/reference", tags=["reference"])
 
@@ -499,12 +500,18 @@ def add_alias(
     always win over it.
     """
     model, row = _row_or_404(db, table, code)
+    taken = f"{payload.alias.strip()!r} is already a name of this value."
     try:
         aliases.add_alias(db, model, row.id, payload.alias)
     except aliases.AliasError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    db.commit()
+    except IntegrityError as exc:
+        # Added by another request since `add_alias` looked, and refused at
+        # its flush: the same refusal as the look gives.
+        db.rollback()
+        raise HTTPException(status_code=409, detail=taken) from exc
+    commit_unique(db, taken)
     return _value_with_aliases(db, row, model)
 
 

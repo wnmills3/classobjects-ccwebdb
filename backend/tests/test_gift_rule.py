@@ -12,7 +12,7 @@ from app import gift_rule
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.builders import build_purchase_order
+from tests.builders import build_purchase_order, patch_current
 
 Headers = dict[str, str]
 
@@ -53,7 +53,9 @@ def _make(client: TestClient, headers: Headers, payload: dict[str, object]) -> d
 
 def _save(client: TestClient, headers: Headers, item: dict, **fields: object) -> dict:
     """The item after an edit sending these fields."""
-    res = client.patch(f"/api/inventory/{item['id']}", json=fields, headers=headers)
+    res = patch_current(
+        client, f"/api/inventory/{item['id']}", json=fields, headers=headers
+    )
     assert res.status_code == 200, res.text
     return client.get(f"/api/inventory/{item['id']}", headers=headers).json()
 

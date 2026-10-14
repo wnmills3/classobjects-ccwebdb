@@ -12,8 +12,11 @@ from __future__ import annotations
 import io
 from collections.abc import Callable
 from decimal import Decimal
+from typing import Any
 
 from app.classifier_defaults import classify
+from app.database import get_db
+from app.main import app
 from app.models import (
     Auction,
     Authenticity,
@@ -30,6 +33,7 @@ from app.models import (
     NoteType,
     PurchaseOrder,
     ReferenceMixin,
+    SalesLot,
     SalesOrder,
     SalesOrderStatus,
     SalesVenue,
@@ -260,3 +264,45 @@ def make_jpeg(
     buffer = io.BytesIO()
     PILImage.new("RGB", size, color).save(buffer, format="JPEG", quality=90)
     return buffer.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Edits made against the row as it stands
+# ---------------------------------------------------------------------------
+
+#: The PATCH routes that need the version the edit was made against, and the
+#: row each one's path names: by id, except a platform, named by code.
+_VERSIONED: dict[str, tuple[type[Any], str]] = {
+    "inventory": (InventoryItem, "id"),
+    "listings": (Listing, "id"),
+    "sales-lots": (SalesLot, "id"),
+    "auctions": (Auction, "id"),
+    "sales-venues": (SalesVenue, "code"),
+}
+
+
+def patch_current(
+    client: TestClient,
+    url: str,
+    *,
+    json: dict[str, Any],
+    headers: dict[str, str] | None = None,
+) -> Response:
+    """PATCH `url` as a form that has just loaded the row would.
+
+    An edit names the version it was made against (`base` instead, for an
+    item); a test whose subject is something else sends the version the row
+    holds now, read through the session the client shares. Sent as is when
+    the body already names one, when the route takes none, or when the row
+    does not exist -- with a version of 0 then, so the route's own 404 is
+    what answers.
+    """
+    parts = url.split("?", 1)[0].strip("/").split("/")
+    versioned = _VERSIONED.get(parts[1]) if len(parts) == 3 else None
+    if versioned is None or "version" in json or "base" in json:
+        return client.patch(url, json=json, headers=headers)
+    model, key = versioned
+    db = app.dependency_overrides[get_db]()
+    ident: object = parts[2] if key == "code" else int(parts[2])
+    version = db.scalar(select(model.version).where(getattr(model, key) == ident))
+    return client.patch(url, json={**json, "version": version or 0}, headers=headers)

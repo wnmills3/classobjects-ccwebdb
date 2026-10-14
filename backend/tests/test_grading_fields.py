@@ -22,14 +22,16 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item, code_id
+from tests.builders import build_bare_item, code_id, patch_current
 
 
 def _patch(
     client: TestClient, headers: dict[str, str], item_id: int, body: dict[str, Any]
 ) -> Response:
     """The response to saving these fields on an item."""
-    return client.patch(f"/api/inventory/{item_id}", json=body, headers=headers)
+    return patch_current(
+        client, f"/api/inventory/{item_id}", json=body, headers=headers
+    )
 
 
 def _certs(db: Session, item_id: int) -> list[ItemCertification]:

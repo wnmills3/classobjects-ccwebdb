@@ -239,6 +239,28 @@ def _names_kept(
     return kept, lost
 
 
+def _items_holding(db: Session, model: type[ReferenceMixin], value_id: int) -> set[int]:
+    """The items whose records hold this value, across every record table."""
+    items: set[int] = set()
+    for column in _references(model.__table__):
+        owner = column.table.name
+        if owner in RECORD_TABLES:
+            item_column = column.table.c[RECORD_TABLES[owner]]
+            items.update(db.scalars(select(item_column).where(column == value_id)))
+    return items
+
+
+def _lock_items(db: Session, item_ids: set[int]) -> None:
+    """Take these items' rows FOR UPDATE, in id order, in one statement."""
+    if item_ids:
+        db.execute(
+            select(InventoryItem.id)
+            .where(InventoryItem.id.in_(sorted(item_ids)))
+            .order_by(InventoryItem.id)
+            .with_for_update()
+        )
+
+
 def merge(
     db: Session,
     model: type[ReferenceMixin],
@@ -247,17 +269,28 @@ def merge(
     *,
     user_id: int | None,
 ) -> MergePlan:
-    """Move everything from `code` to `into`, delete `code`, remember it."""
+    """Move everything from `code` to `into`, delete `code`, remember it.
+
+    The items it moves are locked first, in id order, before any record
+    under them is written: an item edit writes the item's row and then its
+    records, and a merge taking the records first could each hold what the
+    other waits for.
+    """
     result, source, target = plan(db, model, code, into)
     table = model.__tablename__
-    items: set[int] = set()
+    items = _items_holding(db, model, source.id)
+    _lock_items(db, items)
+    # An item given this value between that read and the lock is moved by
+    # the updates below all the same; it is locked too, so its version moves.
+    late = _items_holding(db, model, source.id) - items
+    _lock_items(db, late)
+    items |= late
 
     for column in _references(model.__table__):
         owner = column.table.name
         if owner not in RECORD_TABLES:
             continue
         item_column = column.table.c[RECORD_TABLES[owner]]
-        items.update(db.scalars(select(item_column).where(column == source.id)))
         if owner in _ONCE_PER_ITEM:
             # `plan` -- called at the top of this function -- has already
             # counted these into `result.dropped`, so only the deletion

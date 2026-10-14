@@ -38,6 +38,7 @@ from tests.builders import (
     add_note_issue,
     build_purchase_order,
     code_id,
+    patch_current,
     review_cases,
 )
 
@@ -323,7 +324,8 @@ def test_editing_a_derived_field_makes_it_the_persons(
     assert body["note_type"] == "silver_certificate"
     assert body["derived"]["note_type_id"] == "note_issue"
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{note.id}",
         json={"note_type": "us_note", "serial_number": "A00000001A"},
         headers=admin_headers,
@@ -350,8 +352,11 @@ def test_a_note_field_on_a_coin_is_refused_by_name(
 ) -> None:
     coin = _dime(db, make_item, 1964)
 
-    response = client.patch(
-        f"/api/inventory/{coin.id}", json={"seal_color": "blue"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{coin.id}",
+        json={"seal_color": "blue"},
+        headers=admin_headers,
     )
 
     assert response.status_code == 422
@@ -549,8 +554,11 @@ def test_editing_the_series_refreshes_what_followed_from_it(
     note = _note(db, make_item, "usd_note_1", 1957, serial="B12345678A")
     run(db, commit=True)
 
-    response = client.patch(
-        f"/api/inventory/{note.id}", json={"series_year": 1969}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{note.id}",
+        json={"series_year": 1969},
+        headers=admin_headers,
     )
 
     assert response.status_code == 200, response.text
@@ -673,8 +681,11 @@ def test_a_series_the_facts_do_not_cover_takes_back_the_defaults(
     run(db, commit=True)
 
     # Corrected to a large-size year: nothing in the facts says what it is.
-    response = client.patch(
-        f"/api/inventory/{note.id}", json={"series_year": 1917}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{note.id}",
+        json={"series_year": 1917},
+        headers=admin_headers,
     )
 
     assert response.status_code == 200, response.text
@@ -699,8 +710,11 @@ def test_a_derived_district_goes_when_the_class_changes(
     run(db, commit=True)
     assert _detail(db, note).fed_district_id is not None
 
-    client.patch(
-        f"/api/inventory/{note.id}", json={"series_year": 1957}, headers=admin_headers
+    patch_current(
+        client,
+        f"/api/inventory/{note.id}",
+        json={"series_year": 1957},
+        headers=admin_headers,
     )
 
     detail = _detail(db, note)
@@ -739,7 +753,8 @@ def test_a_year_range_takes_back_a_derived_composition(
     run(db, commit=True)
     assert dime.composition_id is not None
 
-    client.patch(
+    patch_current(
+        client,
         f"/api/inventory/{dime.id}",
         json={"year_start": 1960, "year_end": 1970},
         headers=admin_headers,
@@ -814,8 +829,11 @@ def test_an_emptied_field_stays_empty(
     note = _note(db, make_item, "usd_note_1", 1957)
     run(db, commit=True)
 
-    response = client.patch(
-        f"/api/inventory/{note.id}", json={"note_type": None}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{note.id}",
+        json={"note_type": None},
+        headers=admin_headers,
     )
 
     assert response.status_code == 200, response.text
@@ -827,8 +845,11 @@ def test_an_emptied_field_stays_empty(
     assert _detail(db, note).note_type_id is None
 
     # ...until the person sets it again, which makes it theirs.
-    client.patch(
-        f"/api/inventory/{note.id}", json={"note_type": "frn"}, headers=admin_headers
+    patch_current(
+        client,
+        f"/api/inventory/{note.id}",
+        json={"note_type": "frn"},
+        headers=admin_headers,
     )
     assert _code(db, NoteType, _detail(db, note).note_type_id) == "frn"
     assert "note_type_id" not in derived_fields(db, note.id)
@@ -844,8 +865,8 @@ def test_emptying_a_field_no_pass_fills_holds_nothing(
 
     dime = _dime(db, make_item, 1964)
 
-    response = client.patch(
-        f"/api/inventory/{dime.id}", json={"grade": None}, headers=admin_headers
+    response = patch_current(
+        client, f"/api/inventory/{dime.id}", json={"grade": None}, headers=admin_headers
     )
 
     assert response.status_code == 200, response.text
@@ -892,8 +913,11 @@ def test_an_emptied_series_stays_empty(
     db.refresh(dime)
     assert dime.series_id is not None
 
-    response = client.patch(
-        f"/api/inventory/{dime.id}", json={"series": None}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{dime.id}",
+        json={"series": None},
+        headers=admin_headers,
     )
 
     assert response.status_code == 200, response.text
@@ -901,8 +925,11 @@ def test_an_emptied_series_stays_empty(
     assert body["series"] is None
     assert sources_by_item(db, [dime.id])[dime.id]["series_id"] == "held"
     # Not refilled by another save, nor by either batch pass.
-    client.patch(
-        f"/api/inventory/{dime.id}", json={"variety": "FB"}, headers=admin_headers
+    patch_current(
+        client,
+        f"/api/inventory/{dime.id}",
+        json={"variety": "FB"},
+        headers=admin_headers,
     )
     classify_series(db, commit=True)
     match_series(db, commit=True)
@@ -920,8 +947,11 @@ def test_an_emptied_class_is_not_reported_as_undecided(
     add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
     note = _note(db, make_item, "usd_note_1", 1957)
     run(db, commit=True)
-    response = client.patch(
-        f"/api/inventory/{note.id}", json={"note_type": None}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{note.id}",
+        json={"note_type": None},
+        headers=admin_headers,
     )
     assert response.status_code == 200, response.text
 
@@ -1000,7 +1030,8 @@ def test_a_fine_weight_the_composition_loses_is_worked_out_in_the_same_save(
     db.refresh(dime)
     assert derived_fields(db, dime.id)["fine_weight_ozt"] == "composition"
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{dime.id}",
         json={"year_start": 1960, "year_end": 1970},
         headers=admin_headers,

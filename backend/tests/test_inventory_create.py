@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from tests.builders import build_purchase_order
+from tests.builders import build_purchase_order, patch_current
 
 
 def _purchase_order(db: Session, name: str = "Item Test Vendor") -> PurchaseOrder:
@@ -589,7 +589,8 @@ def test_the_listing_web_address_is_edited_and_cleared(
         "/api/inventory", json=_coin_payload(order.id), headers=admin_headers
     ).json()["id"]
 
-    set_it = client.patch(
+    set_it = patch_current(
+        client,
         f"/api/inventory/{item_id}",
         json={"listing_url": LISTING},
         headers=admin_headers,
@@ -598,15 +599,19 @@ def test_the_listing_web_address_is_edited_and_cleared(
     body = client.get(f"/api/inventory/{item_id}", headers=admin_headers).json()
     assert body["listing_url"] == LISTING
 
-    refused = client.patch(
+    refused = patch_current(
+        client,
         f"/api/inventory/{item_id}",
         json={"listing_url": "ftp://x"},
         headers=admin_headers,
     )
     assert refused.status_code == 422, refused.text
 
-    cleared = client.patch(
-        f"/api/inventory/{item_id}", json={"listing_url": ""}, headers=admin_headers
+    cleared = patch_current(
+        client,
+        f"/api/inventory/{item_id}",
+        json={"listing_url": ""},
+        headers=admin_headers,
     )
     assert cleared.status_code == 200, cleared.text
     body = client.get(f"/api/inventory/{item_id}", headers=admin_headers).json()

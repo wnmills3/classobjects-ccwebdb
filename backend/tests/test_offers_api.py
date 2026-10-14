@@ -31,7 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
-from tests.builders import ItemFactory
+from tests.builders import ItemFactory, patch_current
 
 EBAY_TEMPLATE = "https://www.ebay.com/itm/{external_id}"
 
@@ -108,9 +108,11 @@ def test_editing_and_ending_are_admin_only(
     to catch.
     """
     edit = {"price": "1.00"}
-    assert client.patch("/api/listings/1", json=edit).status_code == 401
+    assert patch_current(client, "/api/listings/1", json=edit).status_code == 401
     assert (
-        client.patch("/api/listings/1", json=edit, headers=customer_headers).status_code
+        patch_current(
+            client, "/api/listings/1", json=edit, headers=customer_headers
+        ).status_code
         == 403
     )
     assert client.post("/api/listings/1/end").status_code == 401
@@ -575,8 +577,11 @@ def test_an_edit_that_loses_a_race_at_commit_is_a_409(
         return loaded
 
     monkeypatch.setattr(offers_router, "_get_listing", load_then_lose_the_race)
-    response = client.patch(
-        f"/api/listings/{listing['id']}", headers=admin_headers, json={"price": "30.00"}
+    response = patch_current(
+        client,
+        f"/api/listings/{listing['id']}",
+        headers=admin_headers,
+        json={"price": "30.00"},
     )
 
     assert response.status_code == 409, response.text
@@ -630,7 +635,8 @@ def test_an_ended_offer_s_terms_cannot_be_rewritten(
     ).json()["listings"][0]
     client.post(f"/api/listings/{listing['id']}/end", headers=admin_headers)
 
-    refused = client.patch(
+    refused = patch_current(
+        client,
         f"/api/listings/{listing['id']}",
         headers=admin_headers,
         json={"price": "99.00", "title": "Rewritten"},
@@ -643,7 +649,8 @@ def test_an_ended_offer_s_terms_cannot_be_rewritten(
     # The platform's own number is still settable: it is often looked up late.
     # Sent the way the console's form sends it -- every field, the frozen
     # ones unchanged -- which is what must still be accepted.
-    numbered = client.patch(
+    numbered = patch_current(
+        client,
         f"/api/listings/{listing['id']}",
         headers=admin_headers,
         json={

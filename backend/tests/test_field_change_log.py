@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item, code_id
+from tests.builders import build_bare_item, code_id, patch_current
 
 
 def _changes(db: Session, item_id: int) -> list[ItemFieldChange]:
@@ -59,7 +59,8 @@ def test_an_edit_logs_each_field_it_changes_and_who_changed_it(
     item = build_bare_item(db, source_title="Dime", description="as bought")
     db.autoflush = autoflush
     try:
-        response = client.patch(
+        response = patch_current(
+            client,
             f"/api/inventory/{item.id}",
             json={
                 "description": "cleaned",
@@ -84,8 +85,11 @@ def test_the_item_detail_names_each_field_s_latest_change(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     item = build_bare_item(db)
-    client.patch(
-        f"/api/inventory/{item.id}", json={"description": "x"}, headers=admin_headers
+    patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"description": "x"},
+        headers=admin_headers,
     )
     last = _detail(client, admin_headers, item.id)["last_changes"]
     assert set(last) == {"description"}
@@ -112,7 +116,8 @@ def test_an_identifier_changed_by_a_leading_zero_is_logged(
 ) -> None:
     """`0123` and `123` are different identifiers, so the change is a change."""
     item = build_bare_item(db, sellers_item_id="0123", source_title="007")
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"sellers_item_id": "123", "source_title": "7"},
         headers=admin_headers,
@@ -131,8 +136,11 @@ def test_a_cost_typed_without_its_cents_is_not_logged_as_a_change(
 ) -> None:
     """Money still compares as a number: 100 is the stored 100.00."""
     item = build_bare_item(db)
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={"item_cost": "100"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"item_cost": "100"},
+        headers=admin_headers,
     )
     assert response.status_code == 200, response.text
     assert _changes(db, item.id) == []
@@ -161,7 +169,8 @@ def test_a_kind_change_logs_the_year_and_coin_fields_it_empties(
     )
     db.commit()
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{coin.id}",
         json={"item_kind": "currency"},
         headers=admin_headers,
@@ -182,8 +191,11 @@ def test_a_compound_grade_logs_the_strike_type_it_sets(
     """`PR65` sets the grade and the strike; the strike is not sent by name."""
     coin = build_bare_item(db, strike_type_id=code_id(db, StrikeType, "business"))
 
-    response = client.patch(
-        f"/api/inventory/{coin.id}", json={"grade": "PR65"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{coin.id}",
+        json={"grade": "PR65"},
+        headers=admin_headers,
     )
     assert response.status_code == 200, response.text
 
@@ -199,8 +211,11 @@ def test_a_year_logs_the_end_it_moves_and_the_no_date_it_clears(
         db, item_kind_id=code_id(db, ItemKind, "bullion"), year_start=None, no_date=True
     )
 
-    response = client.patch(
-        f"/api/inventory/{undated.id}", json={"year_start": 2021}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{undated.id}",
+        json={"year_start": 2021},
+        headers=admin_headers,
     )
     assert response.status_code == 200, response.text
 
@@ -220,7 +235,8 @@ def test_a_face_plate_logs_the_printing_location_it_sets(
     db.add(CurrencyDetail(inventory_item_id=note.id))
     db.commit()
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{note.id}",
         json={"face_plate_number": "FW E82"},
         headers=admin_headers,

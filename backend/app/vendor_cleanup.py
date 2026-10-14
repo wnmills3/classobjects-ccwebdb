@@ -158,9 +158,9 @@ def _rename_vendor(
         raise CleanupError(
             f"Cannot rename {vendor.name} to nothing: a vendor needs a name"
         )
-    # `uq_vendor_name` is case-sensitive, but two vendors differing
-    # only in case are the same source to a person, so the check here
-    # is case-insensitive -- the same rule the vendors API applies.
+    # Case-insensitive, as `uq_vendor_name` is: two vendors differing
+    # only in case are the same source. Asked first so the refusal
+    # names the vendor that has the name.
     taken = db.scalar(
         select(Vendor).where(
             func.lower(Vendor.name) == new_name.casefold(),

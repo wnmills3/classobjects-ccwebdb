@@ -156,6 +156,15 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 #: request's read of it and its UPDATE: another writer got there first, and
 #: nothing of this request was applied.
 _STALE_ITEMS = "An item was changed by someone else while saving. Reload and retry."
+#: An edit that names neither the version it was made against nor its
+#: fields' values then: it would overwrite whatever was saved since, unseen.
+_NO_TOKEN = (
+    "Send the version the edit was made against, or base: the value each "
+    "changed field had when the edit began."
+)
+#: A dry run (preview, suggested description) that met a save landing on
+#: the same item: nothing was written, and trying again reads the new one.
+_CHANGED_WHILE_TRYING = "The item was changed by someone else just now. Try again."
 
 #: The OpenAPI description of the 422 the routes that write an item's fields
 #: answer -- entering, editing, bulk editing and the two dry runs.
@@ -1845,6 +1854,10 @@ def suggest_description_for(
             detail="These changes could not be saved as they stand, so there is "
             f"nothing to describe yet: {exc.orig}",
         ) from exc
+    except StaleDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_CHANGED_WHILE_TRYING
+        ) from exc
     finally:
         # Nothing the dry run wrote survives: not the edit, not the defaults,
         # not the version it moved.
@@ -1888,6 +1901,10 @@ def preview_item(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"These changes could not be saved as they stand: {exc.orig}",
+        ) from exc
+    except StaleDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_CHANGED_WHILE_TRYING
         ) from exc
     finally:
         # Nothing the dry run wrote survives: not the edit, not the defaults,
@@ -3072,8 +3089,8 @@ def update_item(
     save merged field by field and refused only where someone else changed
     one of those fields;
     without it, send `version` to be refused when anything changed
-    (`_refuse_lost_update`). A change to an item that is for sale needs
-    `acknowledge_for_sale`.
+    (`_refuse_lost_update`). One of the two is required (422 for neither).
+    A change to an item that is for sale needs `acknowledge_for_sale`.
 
     This is the editing path for the collection. `PATCH /api/listings/{id}`
     (`app.routers.offers`) needs a listing, and an item is owned long before
@@ -3086,6 +3103,11 @@ def update_item(
     data = payload.model_dump(exclude_unset=True)
     expected = data.pop("version", None)
     base = data.pop("base", None)
+    if expected is None and base is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=_NO_TOKEN,
+        )
     acknowledged = data.pop("acknowledge_for_sale", False)
     attributes = data.pop("attributes", None)
     _refuse_null_set(payload, "attributes", attributes)

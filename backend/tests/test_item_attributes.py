@@ -23,7 +23,7 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.builders import ItemFactory
+from tests.builders import ItemFactory, patch_current
 
 #: A star and nothing else: no ladder, repeater or fancy digits.
 STAR_SERIAL = "A38164927*"
@@ -80,7 +80,8 @@ def _set(
     **extra: object,
 ) -> Response:
     """The response to a person setting the item's attributes to these codes."""
-    return client.patch(
+    return patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"attributes": codes, **extra},
         headers=headers,

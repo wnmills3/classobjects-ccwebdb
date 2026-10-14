@@ -14,7 +14,7 @@ from app.models import PurchaseOrder
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.builders import build_purchase_order
+from tests.builders import build_purchase_order, patch_current
 
 
 @pytest.mark.parametrize(
@@ -107,7 +107,8 @@ def test_a_fort_worth_face_plate_records_where_it_was_printed(
     ) == ("FW E82", "1234", "fw")
 
     # Changed to a Washington plate, the location follows it.
-    moved = client.patch(
+    moved = patch_current(
+        client,
         f"/api/inventory/{note['id']}",
         json={"face_plate_number": "E82"},
         headers=admin_headers,
@@ -141,7 +142,8 @@ def test_a_location_alone_is_kept_and_a_bad_plate_is_named(
 ) -> None:
     note = _note(client, admin_headers, db, printing_facility="fw")
     assert note["printing_facility"] == "fw"
-    bad = client.patch(
+    bad = patch_current(
+        client,
         f"/api/inventory/{note['id']}",
         json={"back_plate_number": "B12"},
         headers=admin_headers,

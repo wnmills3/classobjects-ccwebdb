@@ -19,7 +19,7 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item
+from tests.builders import build_bare_item, patch_current
 
 
 def _years(db: Session, item: InventoryItem) -> tuple[int | None, int | None]:
@@ -34,7 +34,9 @@ def _patch(
     client: TestClient, headers: dict[str, str], item: InventoryItem, **body: object
 ) -> Response:
     """The response to saving these fields on the item."""
-    return client.patch(f"/api/inventory/{item.id}", json=body, headers=headers)
+    return patch_current(
+        client, f"/api/inventory/{item.id}", json=body, headers=headers
+    )
 
 
 def test_a_single_year_stays_single_when_its_year_changes(

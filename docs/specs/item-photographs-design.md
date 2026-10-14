@@ -24,7 +24,10 @@ therefore guarded by the for-sale rule.
 - `image` is a stored photograph, content-addressed (`image.sha256` unique,
   the hash of the cleansed bytes), with derivatives (`thumb`, `web`) in
   `image_derivative`. The same photograph stored twice is one row: `ingest`
-  returns the existing image, keeping its name. Derivatives are served at
+  returns the existing image, keeping its name. The files are named by the
+  hash too, so a delete removes them only when no row names that hash once
+  its commit is done (`image_store.remove_unheld`, under the hash's advisory
+  lock, `hold_content`). Derivatives are served at
   `/api/images/{sha256}/{kind}`, public so a plain `<img>` works in the shop,
   and addressed by hash rather than id so the unlisted collection cannot be
   enumerated. `imaging.cleanse` strips all

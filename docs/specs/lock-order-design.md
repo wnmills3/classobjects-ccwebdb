@@ -196,6 +196,17 @@ Statements and `db.refresh(..., with_for_update=True)` calls alike:
 | `routers.inventory.delete_item` | `inventory_item` | single kind: the item, re-read before its guards, so a delete and an add to a lot cannot each pass against the other's unwritten change |
 | `image_links._hold_items` | `inventory_item` | single kind: the items whose photographs are filed, moved, promoted or unfiled, so a place (`next_position`) and the one primary are read and written by one request at a time |
 | `routers.users._admin_count` | `users` | single kind, no selling rows: the active managers, locked so two saves cannot each remove one of the last two |
+| `reference_merge._lock_items` | `inventory_item` | the items a merge moves, in id order, before any record under them is written -- an item edit writes the item first too |
+| `routers.customers.add_address` | `customer` | single kind: two default addresses added at once wait for each other rather than both inserting |
+
+One transaction-scoped advisory lock sits beside them:
+`image_store.hold_content`, keyed by a stored picture's hash. `ingest`
+holds it from its look for that hash to its commit, and
+`image_store.remove_unheld` holds it while it asks whether any row still
+names the files before deleting them -- so a delete never removes the
+files of the same picture uploaded again meanwhile, and two uploads of one
+picture are one row. `acquisitions.next_order_number` holds its own, over
+the generated purchase numbers.
 
 ## Related rules
 

@@ -27,7 +27,13 @@ from httpx import Response
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
-from tests.builders import TUBE, build_bare_item, build_split_lot, code_id
+from tests.builders import (
+    TUBE,
+    build_bare_item,
+    build_split_lot,
+    code_id,
+    patch_current,
+)
 
 
 def test_an_unlisted_item_can_be_edited(
@@ -35,7 +41,8 @@ def test_an_unlisted_item_can_be_edited(
 ) -> None:
     item = build_bare_item(db, source_title="wrong", year_start=1878)
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"source_title": "1881-S Morgan Silver Dollar", "year_start": 1881},
         headers=admin_headers,
@@ -53,8 +60,11 @@ def test_a_classifier_is_set_by_code(
     """Codes, never ids -- an id is meaningless to a client and unstable."""
     item = build_bare_item(db)
 
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={"grade": "MS63"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"grade": "MS63"},
+        headers=admin_headers,
     )
 
     assert response.status_code == 200
@@ -68,7 +78,8 @@ def test_an_unknown_code_is_refused_naming_the_field(
     """An unknown code must not become a silently null column."""
     item = build_bare_item(db)
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"grade": "NOT_A_GRADE"},
         headers=admin_headers,
@@ -105,20 +116,21 @@ def test_a_stale_version_is_refused(
     assert item.source_title == "careful"
 
 
-def test_omitting_the_version_edits_unconditionally(
+def test_an_edit_made_against_nothing_is_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """A script that means 'set this regardless' can say so."""
-    item = build_bare_item(db)
+    """Neither a version nor a base: it would overwrite another's save unseen."""
+    item = build_bare_item(db, source_title="as it was")
     response = client.patch(
         f"/api/inventory/{item.id}",
         json={"source_title": "no version sent"},
         headers=admin_headers,
     )
-    assert response.status_code == 200
+    assert response.status_code == 422, response.text
+    assert "version" in response.json()["detail"]
 
     db.refresh(item)
-    assert item.source_title == "no version sent"
+    assert item.source_title == "as it was"
 
 
 def test_an_omitted_field_is_left_alone(
@@ -127,8 +139,11 @@ def test_an_omitted_field_is_left_alone(
     """exclude_unset, so a partial form does not null everything it omits."""
     item = build_bare_item(db, source_title="keep me", year_start=1921)
 
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={"year_start": 1922}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"year_start": 1922},
+        headers=admin_headers,
     )
 
     assert response.status_code == 200
@@ -141,7 +156,8 @@ def test_a_customer_cannot_edit_inventory(
 ) -> None:
     """Everything on this router exposes cost basis."""
     item = build_bare_item(db)
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"source_title": "nope"},
         headers=customer_headers,
@@ -154,7 +170,8 @@ def test_money_survives_a_round_trip_as_a_string(
 ) -> None:
     """A Decimal that becomes a float has lost the guarantee it was for."""
     item = build_bare_item(db)
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"item_cost": "19.99"},
         headers=admin_headers,
@@ -291,8 +308,11 @@ def test_a_banknote_cannot_be_given_a_metal(
     """
     note = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
 
-    response = client.patch(
-        f"/api/inventory/{note.id}", json={"metal": "silver"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{note.id}",
+        json={"metal": "silver"},
+        headers=admin_headers,
     )
 
     assert response.status_code == 422
@@ -306,8 +326,11 @@ def test_a_coin_can_still_be_given_a_metal(
 ) -> None:
     item = build_bare_item(db)
 
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={"metal": "silver"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"metal": "silver"},
+        headers=admin_headers,
     )
 
     assert response.status_code == 200
@@ -340,7 +363,8 @@ def test_a_banknote_cannot_take_a_coin_denomination(
     """The same face value is a coin and a note, and they are different objects."""
     note = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{note.id}",
         json={"denomination": "usd_coin_0_25"},
         headers=admin_headers,
@@ -355,7 +379,8 @@ def test_a_coin_cannot_take_a_note_denomination(
 ) -> None:
     coin = build_bare_item(db)
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{coin.id}",
         json={"denomination": "usd_note_1"},
         headers=admin_headers,
@@ -369,7 +394,8 @@ def test_a_note_takes_a_note_denomination(
 ) -> None:
     note = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{note.id}",
         json={"denomination": "usd_note_1"},
         headers=admin_headers,
@@ -394,7 +420,8 @@ def test_a_kind_only_edit_that_would_strand_a_denomination_is_refused(
         denomination_id=code_id(db, Denomination, "usd_note_1"),
     )
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{note.id}",
         json={"item_kind": "coin"},
         headers=admin_headers,
@@ -412,7 +439,8 @@ def test_a_kind_only_edit_that_would_strand_a_metal_is_refused(
     """Same shape as the denomination case, for the other coin-only field."""
     coin = build_bare_item(db, metal_id=code_id(db, Metal, "silver"))
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{coin.id}",
         json={"item_kind": "currency"},
         headers=admin_headers,
@@ -434,7 +462,8 @@ def test_a_combined_kind_and_denomination_edit_to_a_consistent_pair_succeeds(
         denomination_id=code_id(db, Denomination, "usd_note_1"),
     )
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{note.id}",
         json={"item_kind": "coin", "denomination": "usd_coin_0_25"},
         headers=admin_headers,
@@ -452,7 +481,8 @@ def test_a_combined_kind_and_metal_edit_to_a_consistent_pair_succeeds(
     """A coin becoming a note, clearing its metal in the same request."""
     coin = build_bare_item(db, metal_id=code_id(db, Metal, "silver"))
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{coin.id}",
         json={"item_kind": "currency", "metal": None},
         headers=admin_headers,
@@ -474,8 +504,11 @@ def test_nulling_a_required_classifier_is_refused_naming_the_field(
     """
     item = build_bare_item(db)
 
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={"status": None}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"status": None},
+        headers=admin_headers,
     )
 
     assert response.status_code == 422
@@ -498,14 +531,16 @@ def test_an_item_keeps_a_retired_value_it_already_holds(
     db.get_one(Series, morgan).is_active = False
     db.commit()
 
-    kept = client.patch(
+    kept = patch_current(
+        client,
         f"/api/inventory/{holder.id}",
         headers=admin_headers,
         json={"series": "morgan_dollar", "description": "Re-saved"},
     )
     assert kept.status_code == 200, kept.text
 
-    refused = client.patch(
+    refused = patch_current(
+        client,
         f"/api/inventory/{other.id}",
         headers=admin_headers,
         json={"series": "morgan_dollar"},
@@ -528,13 +563,19 @@ def test_a_retired_grade_sent_as_a_compound_grade_is_kept(
     db.get_one(Grade, holder.grade_id).is_active = False
     db.commit()
 
-    kept = client.patch(
-        f"/api/inventory/{holder.id}", headers=admin_headers, json={"grade": "MS64"}
+    kept = patch_current(
+        client,
+        f"/api/inventory/{holder.id}",
+        headers=admin_headers,
+        json={"grade": "MS64"},
     )
     assert kept.status_code == 200, kept.text
 
-    refused = client.patch(
-        f"/api/inventory/{other.id}", headers=admin_headers, json={"grade": "MS64"}
+    refused = patch_current(
+        client,
+        f"/api/inventory/{other.id}",
+        headers=admin_headers,
+        json={"grade": "MS64"},
     )
     assert refused.status_code == 422, refused.text
     assert "Retired grade" in refused.json()["detail"]
@@ -552,13 +593,19 @@ def test_a_note_keeps_a_retired_seal_colour_it_already_holds(
     db.get_one(SealColor, blue).is_active = False
     db.commit()
 
-    kept = client.patch(
-        f"/api/inventory/{note.id}", headers=admin_headers, json={"seal_color": "blue"}
+    kept = patch_current(
+        client,
+        f"/api/inventory/{note.id}",
+        headers=admin_headers,
+        json={"seal_color": "blue"},
     )
     assert kept.status_code == 200, kept.text
 
-    refused = client.patch(
-        f"/api/inventory/{other.id}", headers=admin_headers, json={"seal_color": "blue"}
+    refused = patch_current(
+        client,
+        f"/api/inventory/{other.id}",
+        headers=admin_headers,
+        json={"seal_color": "blue"},
     )
     assert refused.status_code == 422, refused.text
     assert "Retired seal_color" in refused.json()["detail"]
@@ -576,7 +623,8 @@ def test_an_unknown_field_is_refused_not_dropped(
     """
     item = build_bare_item(db, source_title="before")
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"source_title": "after", "purchase_order_id": 1},
         headers=admin_headers,
@@ -613,11 +661,13 @@ def test_the_rating_is_shown_and_corrected_like_any_text(
     path = f"/api/inventory/{item.id}"
     assert client.get(path, headers=admin_headers).json()["rating"] == "Funny Back"
 
-    changed = client.patch(path, json={"rating": "  No Motto  "}, headers=admin_headers)
+    changed = patch_current(
+        client, path, json={"rating": "  No Motto  "}, headers=admin_headers
+    )
     assert changed.status_code == 200, changed.text
     assert client.get(path, headers=admin_headers).json()["rating"] == "No Motto"
 
-    cleared = client.patch(path, json={"rating": " "}, headers=admin_headers)
+    cleared = patch_current(client, path, json={"rating": " "}, headers=admin_headers)
     assert cleared.status_code == 200, cleared.text
     assert client.get(path, headers=admin_headers).json()["rating"] is None
     db.refresh(item)
@@ -673,8 +723,8 @@ def test_a_note_field_sent_unchanged_does_not_move_the_version(
     path = f"/api/inventory/{note.id}"
     opened = client.get(path, headers=admin_headers).json()["version"]
 
-    same = client.patch(
-        path, json={"serial_number": "A11111111A"}, headers=admin_headers
+    same = patch_current(
+        client, path, json={"serial_number": "A11111111A"}, headers=admin_headers
     )
 
     assert same.status_code == 200, same.text
@@ -688,7 +738,8 @@ def test_a_serial_number_sent_blank_is_stored_as_none(
     note = _note(db, serial_number="A11111111A")
 
     for blank in ("", "   "):
-        cleared = client.patch(
+        cleared = patch_current(
+            client,
             f"/api/inventory/{note.id}",
             json={"serial_number": blank},
             headers=admin_headers,
@@ -708,7 +759,8 @@ def test_nulling_a_required_scalar_is_refused_naming_the_field(
     """Each is NOT NULL: an explicit null is a 422 naming it, never a 500."""
     item = build_bare_item(db, source_title="kept", description="kept")
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={field: None, "rating": "sent with it"},
         headers=admin_headers,
