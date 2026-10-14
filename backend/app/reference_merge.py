@@ -127,6 +127,36 @@ def _new_names(
     return list(dict.fromkeys(aliases.normalise(n) for n in names if n.strip()))
 
 
+def _target(db: Session, model: type[ReferenceMixin], into: str) -> ReferenceMixin:
+    """The value to merge into, or `NoSuchTarget`: it is named in the body."""
+    try:
+        return _row(db, model, into)
+    except NoSuchValue as exc:
+        raise NoSuchTarget(str(exc)) from exc
+
+
+def _held_twice(
+    db: Session,
+    column: Column,
+    item_column: Column,
+    source: ReferenceMixin,
+    target: ReferenceMixin,
+) -> int:
+    """Rows of `column` on items that hold the target already: the merge drops them.
+
+    Same predicate as `merge`, which deletes them.
+    """
+    has_target = select(item_column).where(column == target.id)
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(column.table)
+            .where((column == source.id) & item_column.in_(has_target))
+        )
+        or 0
+    )
+
+
 def plan(
     db: Session, model: type[ReferenceMixin], code: str, into: str
 ) -> tuple[MergePlan, ReferenceMixin, ReferenceMixin]:
@@ -135,10 +165,7 @@ def plan(
     if code == into:
         raise MergeError("A value cannot be merged into itself.")
     source = _row(db, model, code)
-    try:
-        target = _row(db, model, into)
-    except NoSuchValue as exc:
-        raise NoSuchTarget(str(exc)) from exc
+    target = _target(db, model, into)
     if not retirable(table, code):
         raise MergeError(
             f"{source.label} cannot be merged away: the application looks it up "
@@ -168,16 +195,8 @@ def plan(
         if owner in _ONCE_PER_ITEM:
             # Counted here, and only here, because the dry run calls only this
             # function: the preview's dropped count is then the one the
-            # merge makes true. Same predicate as `merge`, which deletes them.
-            has_target = select(item_column).where(column == target.id)
-            result.dropped += (
-                db.scalar(
-                    select(func.count())
-                    .select_from(column.table)
-                    .where((column == source.id) & item_column.in_(has_target))
-                )
-                or 0
-            )
+            # merge makes true.
+            result.dropped += _held_twice(db, column, item_column, source, target)
     if others:
         raise MergeError(
             f"{source.label} is also used by {', '.join(others)}; "

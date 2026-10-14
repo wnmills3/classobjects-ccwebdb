@@ -2962,6 +2962,44 @@ def _refuse_lost_update(
     )
 
 
+def _edit_tokens(data: dict[str, Any]) -> tuple[int | None, dict[str, Any] | None]:
+    """Take the version and the base out of an edit; 422 when it sent neither."""
+    expected = data.pop("version", None)
+    base = data.pop("base", None)
+    if expected is None and base is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=_NO_TOKEN
+        )
+    return expected, base
+
+
+def _lock_to_end_offers(
+    db: Session,
+    item: InventoryItem,
+    before: dict[str, Any],
+    sent: dict[str, Any],
+    base: dict[str, Any] | None,
+    expected: int | None,
+) -> tuple[offering_writes.LockedForSale, dict[str, Any]]:
+    """Lock the item and the offers holding it, and ask the edit's token again.
+
+    For `update_item` when the edit changes an offered item's standing:
+    the rows are taken in the canonical order before the first write.
+    Returns the locks, and the item's fields as they now stand -- `before`
+    again unless a save landed in the meantime (`_recheck_under_the_lock`).
+    """
+    read = item.version
+    locked = offering_writes.lock_for_sale(
+        db,
+        listing_ids=[live.id for live in offering_writes.offers_holding(db, [item.id])],
+        item_ids=[item.id],
+        including_paused=True,
+    )
+    if item.version != read:
+        before = _recheck_under_the_lock(db, item, sent, base, expected)
+    return locked, before
+
+
 def _recheck_under_the_lock(
     db: Session,
     item: InventoryItem,
@@ -3101,13 +3139,7 @@ def update_item(
 
     # exclude_unset so an omitted field is left alone rather than nulled.
     data = payload.model_dump(exclude_unset=True)
-    expected = data.pop("version", None)
-    base = data.pop("base", None)
-    if expected is None and base is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=_NO_TOKEN,
-        )
+    expected, base = _edit_tokens(data)
     acknowledged = data.pop("acknowledge_for_sale", False)
     attributes = data.pop("attributes", None)
     _refuse_null_set(payload, "attributes", attributes)
@@ -3159,17 +3191,7 @@ def update_item(
     standing = _sale_standing_change(db, item, data)
     locked = None
     if standing is not None:
-        read = item.version
-        locked = offering_writes.lock_for_sale(
-            db,
-            listing_ids=[
-                live.id for live in offering_writes.offers_holding(db, [item.id])
-            ],
-            item_ids=[item.id],
-            including_paused=True,
-        )
-        if item.version != read:
-            before = _recheck_under_the_lock(db, item, sent, base, expected)
+        locked, before = _lock_to_end_offers(db, item, before, sent, base, expected)
 
     note_changes = _note_changes(db, data, item.currency_detail)
 

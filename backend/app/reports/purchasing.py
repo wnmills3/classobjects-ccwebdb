@@ -76,6 +76,9 @@ _NO_NUMBER = "(no number)"
 #: The group these reports are listed under (`registry`'s order of groups).
 _GROUP = "Purchasing and receiving"
 
+#: What each item cost, all in -- the same column in three reports.
+_TOTAL_COST = Column("total_cost", "Total cost", "money")
+
 _COLUMNS = [
     Column("order", "Order", "text"),
     Column("vendor", "Vendor", "text"),
@@ -251,7 +254,7 @@ _OUTSTANDING_ITEMS_COLUMNS = [
     Column("serial", "Serial number", "text"),
     Column("title", "Title", "text"),
     Column("status", "Status", "text"),
-    Column("total_cost", "Total cost", "money"),
+    _TOTAL_COST,
 ]
 
 
@@ -599,7 +602,7 @@ _RECEIVED_COLUMNS = [
     Column("day", "Day", "date"),
     Column("vendor", "Vendor", "text"),
     Column("items", "Items", "count"),
-    Column("total_cost", "Total cost", "money"),
+    _TOTAL_COST,
 ]
 
 _RECEIVED_NOTE = (
@@ -906,7 +909,7 @@ _RECEIVED_ITEMS_COLUMNS = [
     Column("vendor", "Vendor", "text"),
     Column("seller", "Seller", "text"),
     Column("order", "Order", "text"),
-    Column("total_cost", "Total cost", "money"),
+    _TOTAL_COST,
 ]
 
 #: What the year column says for a piece recorded as carrying no date.

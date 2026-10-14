@@ -96,6 +96,62 @@ def _parse(serial: str) -> _Serial | None:
     )
 
 
+class _Joined:
+    """Which of the indexes `0 .. size - 1` have been joined into one set."""
+
+    def __init__(self, size: int) -> None:
+        """Every index alone, at first."""
+        self._parent = list(range(size))
+
+    def root(self, i: int) -> int:
+        """The index that stands for `i`'s set."""
+        parent = self._parent
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def join(self, i: int, into: int) -> None:
+        """Put `i`'s set into `into`'s."""
+        self._parent[self.root(i)] = self.root(into)
+
+    def sets(self) -> list[list[int]]:
+        """The sets of two or more, each in index order."""
+        gathered: dict[int, list[int]] = defaultdict(list)
+        for i in range(len(self._parent)):
+            gathered[self.root(i)].append(i)
+        return [members for members in gathered.values() if len(members) > 1]
+
+
+def _key(serial: _Serial, denomination: int | None, p: SerialsParams) -> Hashable:
+    """What two notes must share to match on these settings."""
+    if p.letters == "ignore":
+        star = serial.star != "" if p.stars == "only_other_stars" else None
+        return (denomination, serial.digits, star)
+    return (denomination, serial.prefix, serial.digits, serial.suffix, serial.star)
+
+
+def _file_for_stars(
+    serial: _Serial,
+    i: int,
+    denomination: int | None,
+    plain: dict[Hashable, list[int]],
+    stars: list[tuple[Hashable, int]],
+) -> None:
+    """File note `i` by the letters a star note at either end would still have.
+
+    A plain note goes under both ends; a star note goes in `stars`, under the
+    end its star stands at, to be matched against them.
+    """
+    front = ("front", denomination, serial.digits, serial.suffix)
+    end = ("end", denomination, serial.prefix, serial.digits)
+    if serial.star == "":
+        plain[front].append(i)
+        plain[end].append(i)
+    else:
+        stars.append((front if serial.star == "front" else end, i))
+
+
 def _sets(
     serials: Sequence[_Serial], denominations: Sequence[int | None], p: SerialsParams
 ) -> list[list[int]]:
@@ -108,14 +164,7 @@ def _sets(
     a star note between them are one set, the star note's.
     """
     wild = p.letters == "must_match" and p.stars == "match_plain_notes"
-    parent = list(range(len(serials)))
-
-    def root(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
+    joined = _Joined(len(serials))
     first: dict[Hashable, int] = {}
     #: Plain notes by the letters a star note at that end would still have.
     plain: dict[Hashable, list[int]] = defaultdict(list)
@@ -123,37 +172,21 @@ def _sets(
 
     for i, serial in enumerate(serials):
         d = denominations[i] if p.denomination == "must_match" else None
-        key: Hashable
-        if p.letters == "ignore":
-            star = serial.star != "" if p.stars == "only_other_stars" else None
-            key = (d, serial.digits, star)
-        else:
-            key = (d, serial.prefix, serial.digits, serial.suffix, serial.star)
+        key = _key(serial, d, p)
         if key in first:
-            parent[root(i)] = root(first[key])
+            joined.join(i, into=first[key])
         else:
             first[key] = i
-        if not wild:
-            continue
-        front = ("front", d, serial.digits, serial.suffix)
-        end = ("end", d, serial.prefix, serial.digits)
-        if serial.star == "":
-            plain[front].append(i)
-            plain[end].append(i)
-        else:
-            stars.append((front if serial.star == "front" else end, i))
+        if wild:
+            _file_for_stars(serial, i, d, plain, stars)
 
     # After every plain note is filed, so a star note read first still finds
     # them. Plain notes are joined only through a star note, never by the
     # one letter they differ in.
     for wanted, i in stars:
         for other in plain.get(wanted, ()):
-            parent[root(other)] = root(i)
-
-    gathered: dict[int, list[int]] = defaultdict(list)
-    for i in range(len(serials)):
-        gathered[root(i)].append(i)
-    return [members for members in gathered.values() if len(members) > 1]
+            joined.join(other, into=i)
+    return joined.sets()
 
 
 _COLUMNS = [
