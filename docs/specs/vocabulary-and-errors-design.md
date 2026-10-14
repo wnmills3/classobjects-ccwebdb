@@ -234,8 +234,10 @@ opens the editor. Error types can be added wherever errors are recorded.
 `item_error` allows several errors per item -- a note is commonly miscut *and*
 misprinted -- each with its own free-text note; the same type cannot be
 recorded twice on one item. `GET` / `PUT /api/inventory/{id}/errors` read and
-replace the whole set. The `PUT` is refused (409) for an item on offer until
-`acknowledge_for_sale` is sent, and the set before and after goes into the
+replace the whole set. With `base` (the set as the caller read it) the `PUT`
+is refused (409) when the set has changed since into something other than
+what is sent; the console always sends it. The `PUT` is refused (409) for an
+item on offer until `acknowledge_for_sale` is sent, and the set before and after goes into the
 item's History like any other field change. An error is never inferred from
 description text: a machine guess must not be indistinguishable from a
 curated fact. Errors feed the suggested description, right after the grade:

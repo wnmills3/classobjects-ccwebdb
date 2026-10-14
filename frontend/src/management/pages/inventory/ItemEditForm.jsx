@@ -1016,6 +1016,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       try {
         await api.setItemErrors(itemId, errors, {
           acknowledgeForSale: forSale && acknowledged,
+          base: savedErrors,
         })
         setSavedErrors(errors)
       } catch (err) {

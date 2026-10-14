@@ -244,9 +244,11 @@ class Listing(TimestampMixin, Base):
     __tablename__ = "listing"
 
     #: Optimistic concurrency -- see the note on InventoryItem.version.
-    #: `quantity_available` is deliberately NOT protected this way: it is a
-    #: counter decremented under a row lock by the order path, where a version
-    #: conflict would mean telling a buyer to try again for no reason.
+    #: The order path decrements `quantity_available` under a row lock it
+    #: has just re-read, so its own UPDATE never meets a stale version and
+    #: a buyer is never told to try again. That decrement does move the
+    #: version, so a listing form opened before a sale is refused (409)
+    #: when saved after it.
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("1")
     )

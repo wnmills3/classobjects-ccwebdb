@@ -1429,7 +1429,9 @@ attribute's name or alias (`godless`, `first strike`).
 `item_error` records mint and printing errors: an item may carry any number,
 each with its own free-text note ("miscut at 3 o'clock, 4mm"), but not the
 same type twice. `GET` and `PUT /api/inventory/{id}/errors` read and replace
-the whole set.
+the whole set. Both screens send `base`, the set as they read it: a save is
+refused (409) when someone else has changed the set since, into something
+other than what this save sends, so neither change is lost unseen.
 
 One panel is mounted in two places:
 

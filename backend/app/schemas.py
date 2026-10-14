@@ -1467,6 +1467,10 @@ class ItemErrorsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     errors: list[ItemErrorIn] = Field(default_factory=list)
+    #: The set as the caller read it. Sent, the save is refused (409) when
+    #: the item's set has changed since into something other than `errors`;
+    #: omitted, it replaces whatever is there.
+    base: list[ItemErrorIn] | None = None
     #: Set after a refusal to say the caller knows the item is for sale
     #: (app.sale_state).
     acknowledge_for_sale: bool = False

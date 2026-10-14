@@ -401,6 +401,13 @@ def create_offers(
                     ],
                 )
             listing_ids.append(listing.id)
+        # Every item of the batch in one ascending statement, before the
+        # first offer: `offer` locks only the item it is given, so a batch
+        # taken one item at a time, in the order it was typed, can hold one
+        # coin while a checkout holds another, each waiting on the other.
+        offering_writes.lock_for_sale(
+            db, item_ids=[line.item_id for line in payload.items]
+        )
         for line in payload.items:
             item = item_by_id(db, line.item_id)
             # Read before the write that may fail: after a failed flush the

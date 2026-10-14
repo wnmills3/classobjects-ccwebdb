@@ -44,6 +44,27 @@ class LinkRefused(Exception):
     """This photograph cannot be linked to this item."""
 
 
+def _hold_items(db: Session, item_ids: Collection[int | None]) -> None:
+    """Take these items' rows FOR UPDATE, in id order, before their photographs.
+
+    A photograph's place is the item's last place plus one, and the shop's
+    one primary is given when none is found: each is read and then written.
+    Two requests filing photographs on one item at once would otherwise
+    both take the same place -- and the same `CC-######_NN` name -- or both
+    find no primary and both take it, which `uq_item_image_primary`
+    refuses with an error rather than an answer. Holding the item's row
+    makes the second wait and read what the first wrote.
+    """
+    ids = sorted({item_id for item_id in item_ids if item_id is not None})
+    if ids:
+        db.execute(
+            select(InventoryItem.id)
+            .where(InventoryItem.id.in_(ids))
+            .order_by(InventoryItem.id)
+            .with_for_update()
+        )
+
+
 def _clear_primary(db: Session, item_id: int, keep: int | None = None) -> None:
     """Demote whatever is primary for this item, except `keep`.
 
@@ -60,7 +81,12 @@ def _clear_primary(db: Session, item_id: int, keep: int | None = None) -> None:
 
 
 def next_position(db: Session, item_id: int) -> int:
-    """The place after the item's last photograph: 1 for its first."""
+    """The place after the item's last photograph: 1 for its first.
+
+    The item's row is held from here to the caller's commit, so the place
+    is still free when the caller files a photograph in it.
+    """
+    _hold_items(db, [item_id])
     last = db.scalar(
         select(func.max(ItemImage.sort_order)).where(
             ItemImage.inventory_item_id == item_id
@@ -97,6 +123,7 @@ def attach(
     produce a primary link, and the caller learns that only from
     `link.is_primary` on the row returned.
     """
+    _hold_items(db, [item.id])
     existing = db.scalar(
         select(ItemImage).where(
             ItemImage.inventory_item_id == item.id,
@@ -171,6 +198,7 @@ def move(db: Session, link: ItemImage, target: InventoryItem) -> ItemImage:
     name was its old one (`name_for_place`).
     """
     source_id = link.inventory_item_id
+    _hold_items(db, [source_id, target.id])
     if source_id == target.id:
         raise LinkRefused(f"This photograph is already filed on {target.item_code}.")
     held = db.scalar(
@@ -217,6 +245,7 @@ def make_primary(db: Session, link: ItemImage) -> None:
     """Make this the photograph the shop shows, demoting the incumbent."""
     if link.inventory_item_id is None:
         raise LinkRefused("An unattached photograph cannot be an item's primary.")
+    _hold_items(db, [link.inventory_item_id])
     _clear_primary(db, link.inventory_item_id, keep=link.id)
     link.is_primary = True
     db.flush()
@@ -272,6 +301,7 @@ def detach(db: Session, link: ItemImage) -> None:
     to a buyer.
     """
     item_id = link.inventory_item_id
+    _hold_items(db, [item_id])
     db.delete(link)
     db.flush()
     if item_id is not None:

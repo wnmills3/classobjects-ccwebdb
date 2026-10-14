@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../../api'
 import { fitsKind, sideFor } from '../../../shared/kinds'
@@ -43,6 +43,10 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   // null means "not loaded yet"; the controlled mode never reads this and
   // renders through `value` instead.
   const [rows, setRows] = useState(null)
+  // The set as the server last held it -- read, or saved from here -- sent
+  // as `base` so a save over someone else's change since is refused. Not
+  // `rows`: a change that failed to save is in `rows` and not on the server.
+  const saved = useRef(null)
   // Why the set could not be read, while it could not; and a count of the
   // readings asked for, so "Try again" reads it once more. Until it has been
   // read there is nothing to edit: every change sends the whole set, and one
@@ -73,12 +77,12 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
       .getItemErrors(itemId)
       .then((body) => {
         if (cancelled) return
-        setRows(
-          (body.errors ?? []).map((e) => ({
-            error_type: e.error_type,
-            details: e.details ?? '',
-          })),
-        )
+        const read = (body.errors ?? []).map((e) => ({
+          error_type: e.error_type,
+          details: e.details ?? '',
+        }))
+        saved.current = withNoEmptyDetails(read)
+        setRows(read)
         setError('')
       })
       .catch((err) => {
@@ -114,11 +118,16 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
    */
   function save(next) {
     if (controlled) return
+    const sending = withNoEmptyDetails(next)
     api
-      .setItemErrors(itemId, withNoEmptyDetails(next), {
+      .setItemErrors(itemId, sending, {
         acknowledgeForSale: acknowledged,
+        base: saved.current,
       })
-      .then(() => setError(''))
+      .then(() => {
+        saved.current = sending
+        setError('')
+      })
       .catch((err) => setError(err.message))
   }
 
