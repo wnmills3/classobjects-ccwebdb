@@ -958,7 +958,7 @@ class ItemDetailOut(InventoryItemOut):
     order_number: str | None = None
     vendor: str | None = None
     #: The seller's id for the listing it was bought from -- eBay's item
-    #: number (`app.ebay_orders`). Read-only here.
+    #: number (`app.ebay_orders`).
     sellers_item_id: str | None = None
     #: The web address of the listing it was bought from.
     listing_url: str | None = None
@@ -2345,7 +2345,8 @@ class AuctionOut(BaseModel):
     starts_at: datetime | None = None
     ends_at: datetime | None = None
     status: str
-    #: When custody moved to the house. Null unless it is, or was, consigned.
+    #: When custody moved to the house. Null unless the house holds its lots:
+    #: settling or cancelling the auction clears it.
     consigned_on: date | None = None
     notes: str | None = None
     #: Send this back on a PATCH to be told about a conflicting edit.

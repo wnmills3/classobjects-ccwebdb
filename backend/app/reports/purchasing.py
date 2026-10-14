@@ -628,7 +628,7 @@ _NOTHING_RECEIVED_NOTE = "Nothing was received in this range."
 def _received_prefilter(params: DateRange) -> list[ColumnElement[bool]]:
     """A coarse, SQL-side narrowing of `pr_received`'s rows by date range.
 
-    Never the final word -- `_pr_received` still runs the exact test
+    Never the final word -- `_arrivals` still runs the exact test
     (`local_date`, per row) in Python -- only a way to avoid fetching every
     `received` transition the collection has ever recorded when a narrow
     range is asked for. Widened a day past each bound on the `changed_at`

@@ -422,9 +422,9 @@ _IFS = ItemFieldSource.__table__.alias("ifs")
 
 #: A reader's title for the columns `item_field_source.field_name` actually
 #: holds (`app.classifier_defaults`' `NOTE_COLUMNS`/`COMPOSITION_COLUMNS`,
-#: and `series_id`) -- not exhaustive, since a future pass can derive a
-#: field no rule fills today; a field missing here still shows, as its own
-#: raw column name, rather than vanishing from the report.
+#: `fed_district_id` and `series_id`) -- not exhaustive, since a future pass
+#: can derive a field no rule fills today; a field missing here still shows,
+#: as its own raw column name, rather than vanishing from the report.
 _FIELD_TITLES: dict[str, str] = {
     "series_id": "Series",
     "note_type_id": "Note type",

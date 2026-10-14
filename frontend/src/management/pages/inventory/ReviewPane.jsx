@@ -5,8 +5,9 @@ import ItemEditForm from './ItemEditForm'
 /**
  * Walk a result set one item at a time.
  *
- * **The queue is frozen at entry.** `ids` is captured once, when review
- * starts, and never re-read. If it re-ran the search at each step, fixing
+ * **The queue is frozen at entry.** `ids` is taken as fixed for the whole
+ * review: this keeps no copy, so the caller hands it a list captured once,
+ * when review starts. If the search re-ran at each step, fixing
  * item 3's missing year would remove it from `issue=no_year`, shrink the set
  * by one, and shift every position after it -- silently skipping an item. A saved item keeps its place in the queue, and the count of
  * those saved is shown beside the position.

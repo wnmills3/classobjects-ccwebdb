@@ -23,8 +23,9 @@ export function isCurrencyKind(kind) {
  *
  * This is the exact inverse of `fitsKind`'s test, and that is the whole point
  * of its existing: it is what a value ADDED from a picker is marked with, so
- * writing the two rules separately is how an added value comes to fit no kind
- * and vanish from the picker that created it the moment it appears.
+ * writing the two rules separately is how an added value comes to be marked
+ * for the other side and vanish from the picker that created it the moment
+ * it appears.
  */
 export function sideFor(itemKind) {
   return isCurrencyKind(itemKind) ? 'currency' : 'coin'
@@ -68,7 +69,7 @@ export const CURRENCY_ONLY_FIELDS = new Set([
  *
  * A field named in neither set belongs to both kinds, so the default is true;
  * a form block that holds more than one field is gated on the field that
- * decides it (the entry form's Mint/Variety pair on `mint`).
+ * decides it (the item editor's weight fields on `fine_weight_ozt`).
  */
 export function fieldFitsKind(field, itemKind) {
   if (COIN_ONLY_FIELDS.has(field)) return !isCurrencyKind(itemKind)

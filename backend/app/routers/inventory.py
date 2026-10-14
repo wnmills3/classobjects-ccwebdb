@@ -305,9 +305,10 @@ def search_inventory(
             f"{sorted(spec.filters)}",
         ) from exc
     except ValueError as exc:
-        # Two different failures reach here: an unsortable column, and an
-        # unrecognised `deleted` mode. Appending the sortable list to both
-        # sends the wrong person looking in the wrong place.
+        # Different failures reach here: an unsortable column, an
+        # unrecognised `deleted` mode, text that is not a grade or a whole
+        # number. Appending the sortable list to all of them sends the wrong
+        # person looking in the wrong place.
         hint = f" Sortable: {sorted(spec.sortable)}" if "sort" in str(exc) else ""
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{exc}{hint}"
@@ -374,8 +375,8 @@ def _refuse_auction_lots(
 
     One of three doors onto an orphaned `auction_lot`, with
     `routers.offers.end_listing` and `sales_writes.record_sale`, each closed
-    the same way. `app.auctions` is the sole writer of `auction_lot`, and
-    `remove_lot`, `cancel` and `settle` each end the lot's listing *and*
+    the same way. `app.auctions` alone decides which `auction_lot` rows exist,
+    and `remove_lot`, `cancel` and `settle` each end the lot's listing *and*
     delete or resolve its row in one transaction. This endpoint calls
     `offering_writes.end_offer`, which has never heard of `auction_lot`.
 

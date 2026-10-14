@@ -2,7 +2,7 @@
  * Money in whole cents, for any arithmetic on the client.
  *
  * Money crosses the API as decimal strings. Adding them as floats gives
- * 59.97000000000001 for three at 19.99, so anything that sums or multiplies
+ * 299.96999999999997 for three at 99.99, so anything that sums or multiplies
  * works in integer cents and only formats at the edge. The server's figure
  * is still the real one wherever it exists.
  *

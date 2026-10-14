@@ -107,7 +107,8 @@ describe('ItemFinder', () => {
 
   it('looks a coin up by year and mint once Coins is chosen', async () => {
     renderWithProviders(<ItemFinder onPick={vi.fn()} />)
-    // Not offered under Any: the currency view would refuse them.
+    // Not offered under Any: the currency view would refuse the mint, and
+    // read the year as a series year.
     expect(screen.queryByLabelText(/^year/i)).toBeNull()
     await userEvent.click(screen.getByRole('radio', { name: /coins/i }))
     await userEvent.type(screen.getByLabelText(/^year/i), '1881')

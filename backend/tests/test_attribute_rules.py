@@ -31,7 +31,7 @@ NO_MOTTO = RULES[0]
 
 @pytest.fixture(autouse=True)
 def _issues(db: Session) -> None:
-    """Only the issues these tests are about: $1 Silver Certificates, a $1 FRN."""
+    """Only these tests' issues: $1 Silver Certificates, a $1 FRN, a $5 certificate."""
     db.execute(delete(NoteIssue))
     for year, letter in ((1928, None), (1935, "F"), (1935, "G"), (1957, None)):
         add_note_issue(

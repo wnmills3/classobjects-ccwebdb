@@ -61,7 +61,7 @@ _CODE_KEYED_TABLES = frozenset(
         "sales_venue_kind",
         # `sales_writes.record_sale_lines` resolves every fee line's kind through
         # `require_code`, which filters on `is_active`: retiring `commission`
-        # would make every sale charging one fail with 422 "Unknown fee",
+        # would make every sale charging one fail with 422 "Retired fee",
         # naming a code the dialog itself had just offered.
         "sales_fee_kind",
     }

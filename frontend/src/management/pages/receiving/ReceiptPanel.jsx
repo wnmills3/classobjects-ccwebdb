@@ -67,11 +67,11 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   const [photoInputKey, setPhotoInputKey] = useState(0)
   const [uploadError, setUploadError] = useState('')
   // The ids under review, frozen at the moment review was opened -- null
-  // means review is closed. `ReviewPane` never re-reads its `ids` prop (see
-  // its own docstring), so handing it the live `itemIds` prop directly would
-  // let a later change to that prop shrink or reorder the queue out from
-  // under an index `ReviewPane` never clamps. Snapshotting here, once, is
-  // what "frozen" actually requires.
+  // means review is closed. `ReviewPane` takes its `ids` prop as frozen (see
+  // its own docstring) and keeps no copy, so handing it the live `itemIds`
+  // prop directly would let a later change to that prop shrink or reorder
+  // the queue out from under an index `ReviewPane` never clamps.
+  // Snapshotting here, once, is what "frozen" actually requires.
   const [reviewIds, setReviewIds] = useState(null)
   const [friedbergOpen, setFriedbergOpen] = useState(false)
   // The refusal the server sent, held while the operator answers it.

@@ -276,8 +276,8 @@ def test_a_sub_cent_price_is_refused(
 ) -> None:
     """The same disagreement, for `price`.
 
-    `_sync_shares` assigns a single item's share `amount` by straight
-    assignment, but a lot listing's line is divided among its members
+    `_sync_shares` divides every line's `amount` among its items -- one
+    for an item listing, a lot listing's members for a lot --
     *through* `allocate`, which rounds a half cent differently from
     PostgreSQL -- so a sub-cent `price` is refused for the reason a
     sub-cent fee is. Same value shape as the fee test (120.005:
@@ -342,7 +342,7 @@ def test_an_unmapped_venue_kind_is_refused(
     assert listing.status is ListingStatus.active
     # Proves the refusal happened *before* `venue_buyer`, not merely that it
     # happened: this would also pass if the mapping lookup moved back below
-    # `venue_buyer`, since that write only touches the store's own customer
+    # `venue_buyer`, since that write only touches this venue's customer
     # rows -- catching that requires counting rows on this new venue.
     assert _customer_count(db, venue.id) == 0
 

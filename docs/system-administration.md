@@ -1316,7 +1316,8 @@ label, case-insensitively, except nine tables ordered by `sort_order`:
 `grade` (the scale's own order), `denomination` (face value, coins then
 notes), the lifecycles `item_status`, `disposition`, `sales_order_status` and
 `shipment_status`, `item_kind` (by how often each kind occurs),
-`signature_combination` (chronological, narrowed to a note's series year) and
+`signature_combination` (chronological; `?year=` narrows it to the pairs in
+office that year, which no picker asks for) and
 `sales_fee_kind` (the order a platform statement reads, "Other" last). The
 order is decided once, in the API, so the shop, console and entry panels
 agree.

@@ -76,8 +76,8 @@ def _counts(row: dict[str, object]) -> tuple[object, ...]:
 def test_each_thing_a_listing_needs_is_counted_on_its_own(db: Session) -> None:
     box = _box(db)
     grade = _grade_id(db)
-    # Five coins, each with one thing more than the last; only the fifth
-    # has all four. Made in an order that is not the order of readiness.
+    # Five coins, each with a different part of what a listing needs; only
+    # one has all four. Made in an order that is not the order of readiness.
     everything = _piece(
         db, grade_id=grade, storage_location_id=box.id, item_cost=Decimal("25.00")
     )

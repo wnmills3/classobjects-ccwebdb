@@ -87,8 +87,8 @@ class ItemError(Base):
     role `ItemAttributeLink` and `ItemCertification` play.
 
     The unique constraint on `(inventory_item_id, error_type_id)` means the
-    same error recorded twice on one item updates one row rather than
-    creating a second -- it is the same fact, not two.
+    same error cannot be recorded twice on one item -- it is the same fact,
+    not two.
     """
 
     __tablename__ = "item_error"

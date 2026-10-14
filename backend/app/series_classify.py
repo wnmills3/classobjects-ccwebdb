@@ -287,7 +287,7 @@ def decide(
 def _with_facts(*columns: ColumnElement[Any] | QueryableAttribute[Any]) -> Select[Any]:
     """`columns` of every unsplit item, joined to its kind and currency detail.
 
-    The shape both `_items` and `disagreements` read; each adds its own
+    The shape `_items`, `disagreements` and `_stale` read; each adds its own
     columns and its own condition on `series_id`.
     """
     return (

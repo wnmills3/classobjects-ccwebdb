@@ -1039,10 +1039,11 @@ def _lot_members(db: Session, lot: SalesLot) -> list[InventoryItem]:
     """Freeze one assembling lot's membership, and hand back the items in it.
 
     The lot's row is taken FOR UPDATE *before* its members are read, and that
-    order is the whole point. Nothing bumps `sales_lot.version` when a
-    membership row is written -- `add_member` inserts into `sales_lot_item`
-    and never updates `sales_lot` -- so the optimistic lock `version_id_col`
-    gives this table cannot see a concurrent membership change at all. It only
+    order is the whole point. Writing a membership row does not bump
+    `sales_lot.version` -- `add_member` inserts into `sales_lot_item` and
+    never updates `sales_lot`; only a caller's `lot_writes.touch` moves it --
+    so the optimistic lock `version_id_col` gives this table does not see a
+    concurrent membership change on its own. It only
     protects the status write at the end of `offer` from another *status*
     writer. Reading the membership under the row lock, and
     `lot_writes._refuse_unless_assembling` taking the same lock before it

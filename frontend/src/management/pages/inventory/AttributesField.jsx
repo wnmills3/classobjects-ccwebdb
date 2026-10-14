@@ -11,10 +11,11 @@ const ATTRIBUTE_FROM = {
 }
 
 //: `item_attribute.attribute_group`'s members, for the add form's group
-//: picker. The reference API has no endpoint listing an enum's values --
-//: only each existing row's own `extra.attribute_group` -- so this mirrors
-//: `AttributeGroup` in backend/app/models/reference.py by hand; keep the two
-//: in step if that enum changes.
+//: picker. The reference API sends the codes alone -- the `attribute_group`
+//: field's `choices` on `GET /api/reference/item_attribute` -- and this
+//: picker does not read them, so this mirrors `AttributeGroup` in
+//: backend/app/models/reference.py by hand; keep the two in step if that
+//: enum changes.
 const ATTRIBUTE_GROUPS = [
   { code: 'serial', label: 'Serial' },
   { code: 'variety', label: 'Variety' },
@@ -73,9 +74,9 @@ export default function AttributesField({ item, codes, onChange, kind }) {
             allowAdd
             labelOnly
             // No top-level `applies_to` field: the API reads it from `extra`
-            // (`ReferenceValueCreate`). A value added with none would fit no
-            // kind and vanish from this very picker the moment it appeared
-            // -- see `fitsKind`, whose exact inverse `sideFor` is.
+            // (`ReferenceValueCreate`). A value added with none would be
+            // stored as `any` and offered for coins and notes alike -- see
+            // `fitsKind`, whose exact inverse `sideFor` is.
             // `attribute_group` is NOT NULL with no database default, and the
             // owner chose to ask rather than have one picked silently:
             // `groupField`/`groupOptions` put a required group picker in the

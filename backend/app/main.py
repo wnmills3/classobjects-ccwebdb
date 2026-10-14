@@ -86,7 +86,7 @@ app.include_router(reports.router, prefix=settings.api_prefix)
 # order, because the narrower type is still assignable to the wider one.
 #
 # A registered handler has no order to get wrong. Starlette's
-# `ExceptionMiddleware._lookup_exception_handler` walks the raised
+# `_exception_handler._lookup_exception_handler` walks the raised
 # exception's `__mro__` and returns the **first class in that MRO** with a
 # registered handler -- `SettlementInputInvalid`'s own entry, found before
 # `AuctionRefused`'s, regardless of which was registered first or which

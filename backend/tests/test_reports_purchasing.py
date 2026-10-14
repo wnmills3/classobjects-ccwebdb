@@ -1510,7 +1510,7 @@ def _mint_label(db: Session, code: str) -> str:
 
 
 def test_received_items_shows_a_coins_year_and_mint(db: Session) -> None:
-    """Three coins, each with a different year shape and its own mint.
+    """Four coins, each with a different year shape, two with their own mint.
 
     Received in an order that differs from their codes, and no two alike, so
     a year or mint read from the wrong item shows.

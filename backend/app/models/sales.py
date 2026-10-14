@@ -466,7 +466,7 @@ class SalesLot(TimestampMixin, Base):
     __tablename__ = "sales_lot"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    #: Public: what a buyer sees.
+    #: The group's working name; a buyer sees its listing's own title.
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("''")

@@ -25,8 +25,10 @@ class ParamError(Exception):
 
     `unknown` holds the offending names when the failure was unrecognized
     parameters; `errors` holds pydantic's own `ValidationError.errors()` when
-    it was a bad value. Exactly one of the two is non-empty, so a caller (the
-    router, the CLI) can tell which case it is without re-parsing the message.
+    it was a bad value. Exactly one of the two is non-empty when
+    `resolve_params` raises it, so a caller (the router, the CLI) can tell
+    which case it is without re-parsing the message; the CLI's own refusal of
+    a `--param` with no `=` carries neither.
     """
 
     def __init__(

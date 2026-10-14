@@ -93,8 +93,9 @@ def test_a_series_read_from_the_text_survives_a_year_change(
     db: Session,
     make_item: ItemFactory,
 ) -> None:
-    # Only this pass's own guesses are taken back; a text match is reported by
-    # the batch's disagreement check, not cleared by a save.
+    # Only this pass's own guesses and accepted entry suggestions are taken
+    # back; a text match is reported by the batch's disagreement check, not
+    # cleared by a save.
     wlh = code_id(db, Series, "winged_liberty_head_dime")
     dime = _dime(db, make_item, 1942, series_id=wlh)
     record_derived(db, dime.id, ["series_id"], SERIES_MATCH)

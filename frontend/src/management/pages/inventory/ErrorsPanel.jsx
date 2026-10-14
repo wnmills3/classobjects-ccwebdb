@@ -217,8 +217,8 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
               labelOnly
               // No top-level `applies_to` field -- see AttributesField.jsx
               // for the same shape. An error type added here
-              // without the item's side would fit no kind and vanish from
-              // this very picker the moment it appeared (`fitsKind`, whose
+              // without the item's side would be stored as `any` and offered
+              // for coins and notes alike (`fitsKind`, whose
               // exact inverse `sideFor` is); `error_type` has no
               // `attribute_group` column, so nothing else goes in `extra`.
               addFields={{ applies_to: sideFor(kind) }}

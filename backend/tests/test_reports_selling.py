@@ -911,7 +911,7 @@ def test_an_odd_cent_three_way_split_still_sums_exactly(
     """100.00 split three equal ways leaves a leftover cent (`allocate`).
 
     It has to land on one share or another rather than vanish, and the
-    row's own `gross`/`cost_basis`/`gain` -- summed in SQL and Python over
+    row's own `gross`/`cost_basis`/`gain` -- summed in Python over
     the shares that actually exist -- must still land on the whole exact
     figure regardless of which share it landed on.
     """

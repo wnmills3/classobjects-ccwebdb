@@ -3,9 +3,9 @@
 Three guards ask this before ending or selling a listing: Record sale
 (`sales_writes._refuse_manual_auction_sale`), End on the Listings page
 (`routers.offers._refuse_auction_lot`) and the item writes that end offers
-(`routers.inventory._refuse_auction_lots`). `app.auctions` is the sole writer
-of `auction_lot`, so an auction lot is ended or sold only through its
-auction, and each guard refuses the listings this names.
+(`routers.inventory._refuse_auction_lots`). `app.auctions` alone decides
+which `auction_lot` rows exist, so an auction lot is ended or sold only
+through its auction, and each guard refuses the listings this names.
 
 A module of its own because `app.auctions` imports `sales_writes`, so the
 lookup cannot live in `app.auctions` without a cycle.

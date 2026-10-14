@@ -186,7 +186,7 @@ def test_receiving_twice_is_refused(
         headers=admin_headers,
     )
     assert again.status_code == 409
-    # The spec promises the 409 names the current status and the date it
+    # The spec promises the 409 names the item and the date it
     # arrived, not just that it was already received -- that's what tells a
     # double-submitted form apart from the wrong row.
     assert "received" in again.text

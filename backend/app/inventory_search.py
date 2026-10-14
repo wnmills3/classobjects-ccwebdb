@@ -482,7 +482,7 @@ COIN_VIEW = ViewSpec(
         "bullion_form": Facet("bullion_form_id", "bullion_form"),
         # Resolves to `mark` because the matching filter compares against
         # `m.mark`. Offering `mint.code` here would list values the filter
-        # then rejects with a 422.
+        # then finds no item by.
         "mint_mark": Facet(
             "mint_id", "mint", (_J_COIN_DETAIL,), "cd", "mark", filter="mint"
         ),

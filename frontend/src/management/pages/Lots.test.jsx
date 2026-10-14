@@ -156,8 +156,8 @@ describe('Lots', () => {
   })
 
   it('shows a load failure without blanking the page', async () => {
-    // A venues- or lots-load failure must not take the page down: the error
-    // is shown and the page stays usable.
+    // A lots-load failure must not take the page down: the error is shown
+    // and the page stays usable.
     api.listLots.mockRejectedValue(new ApiError(500, 'boom', {}))
     renderWithProviders(<Lots />, { strict: true })
     expect(await screen.findByText(/boom/)).toBeVisible()
@@ -249,8 +249,8 @@ describe('Lots', () => {
     // in StrictMode, which invokes every effect setup, cleanup, setup on
     // mount: a ref left at `useRef(true)` and only disarmed in its cleanup
     // is false for the rest of the dialog's life, so `if (!mounted.current)
-    // return` in the catch below swallows the message and the operator sees
-    // a Save that did nothing at all. That is why this renders with
+    // return` in `useGuardedSave`'s catch swallows the message and the
+    // operator sees a Save that did nothing at all. That is why this renders with
     // `strict: true` -- the harness does not by default.
     const user = userEvent.setup()
     api.listLots.mockResolvedValue({ lots: [] })
