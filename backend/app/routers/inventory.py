@@ -2930,7 +2930,8 @@ def _refuse_lost_update(
     people editing different fields of one item both keep their work. The
     version is then not compared -- the base is the finer check -- and the
     version column still guards the narrow window between the request's read
-    and its commit.
+    and its commit (where the request takes `lock_for_sale`, whose re-read
+    hides a version that moved, `_recheck_under_the_lock` guards it).
     """
     if base is not None:
         _refuse_field_conflicts(db, item, before, sent, base)
@@ -2942,6 +2943,39 @@ def _refuse_lost_update(
         f"version {expected}, current is {item.version}). Reload and "
         f"reapply your changes.",
     )
+
+
+def _recheck_under_the_lock(
+    db: Session,
+    item: InventoryItem,
+    sent: dict[str, Any],
+    base: dict[str, Any] | None,
+    expected: int | None,
+) -> dict[str, Any]:
+    """Ask `_refuse_lost_update` again, of the item a save landed on meanwhile.
+
+    For `update_item` when the item's version moved between its read and
+    `lock_for_sale`. That pass re-reads the rows it locks, so the session
+    now holds the other save's version, and the version column's check at
+    the UPDATE can no longer see it. Asked again of what the caller sent:
+    a `version` is refused, as the commit would have been; a `base` is
+    merged against the item as it now stands, so a change to another field
+    -- a checkout's disposition, say -- is kept rather than refused; and a
+    caller that sent neither asked for no check. Returns the item's fields
+    as they now stand, the change log's `before`.
+    """
+    if expected is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{item.item_code} was changed while saving. Reload and retry.",
+        )
+    # Nothing is written yet, so nothing pending is lost: every row is read
+    # again, the item's detail rows included, under the lock now held.
+    db.expire_all()
+    current = field_values(db, item)
+    if base is not None:
+        _refuse_field_conflicts(db, item, current, sent, base)
+    return current
 
 
 def _years_after(
@@ -3103,6 +3137,7 @@ def update_item(
     standing = _sale_standing_change(db, item, data)
     locked = None
     if standing is not None:
+        read = item.version
         locked = offering_writes.lock_for_sale(
             db,
             listing_ids=[
@@ -3111,6 +3146,8 @@ def update_item(
             item_ids=[item.id],
             including_paused=True,
         )
+        if item.version != read:
+            before = _recheck_under_the_lock(db, item, sent, base, expected)
 
     note_changes = _note_changes(db, data, item.currency_detail)
 
@@ -3341,6 +3378,19 @@ def set_item_errors(
         {"error_type": entry.error_type, "details": entry.details}
         for entry in payload.errors
     ]
+    if payload.base is not None:
+        base = field_changes.sorted_errors(
+            {"error_type": entry.error_type, "details": entry.details}
+            for entry in payload.base
+        )
+        # Changed since the caller read it, and not into what this save
+        # sends: saving would drop that change without anyone seeing it.
+        if before not in (base, field_changes.sorted_errors(after)):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"The errors on {item.item_code} were changed by "
+                "someone else. Reload and reapply your changes.",
+            )
     with committing(db, _STALE_ITEMS):
         db.execute(delete(ItemError).where(ItemError.inventory_item_id == item.id))
         for entry in payload.errors:
@@ -3416,6 +3466,10 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
     lot state but `assembling`.
     """
     item = _get_item(db, item_id)
+    # Held, and re-read, while the guards below ask about it: an add to a
+    # lot (`lot_writes.add_member`) takes the same row, so the two cannot
+    # each pass their check against the other's unwritten change.
+    db.refresh(item, with_for_update=True)
 
     if item.deleted_at is not None:
         return  # Already gone. Deleting twice is not an error.

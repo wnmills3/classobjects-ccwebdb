@@ -2028,7 +2028,7 @@ describe('ItemEditForm: errors wait for Save', () => {
       expect(api.setItemErrors).toHaveBeenCalledWith(
         12,
         [{ error_type: 'off_center_coin', details: '10%' }],
-        { acknowledgeForSale: false },
+        { acknowledgeForSale: false, base: [] },
       ),
     )
     expect(api.updateInventoryItem).not.toHaveBeenCalled()
@@ -2059,7 +2059,13 @@ describe('ItemEditForm: errors wait for Save', () => {
       expect(api.setItemErrors).toHaveBeenCalledWith(
         12,
         [{ error_type: 'off_center_coin', details: null }],
-        { acknowledgeForSale: false },
+        {
+          acknowledgeForSale: false,
+          base: [
+            { error_type: 'off_center_coin', details: '5%' },
+            { error_type: 'die_crack', details: null },
+          ],
+        },
       ),
     )
   })
@@ -2124,7 +2130,7 @@ describe('ItemEditForm: errors wait for Save', () => {
       expect(api.setItemErrors).toHaveBeenCalledWith(
         12,
         [{ error_type: 'die_crack', details: null }],
-        { acknowledgeForSale: true },
+        { acknowledgeForSale: true, base: [] },
       ),
     )
   })

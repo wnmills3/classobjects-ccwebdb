@@ -80,8 +80,43 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     expect(api.setItemErrors).toHaveBeenCalledWith(
       12,
       [{ error_type: 'miscut', details: "miscut at 3 o'clock" }],
-      { acknowledgeForSale: false },
+      { acknowledgeForSale: false, base: [] },
     )
+  })
+
+  it('sends as its base what it last read or saved, not a failed change', async () => {
+    const user = userEvent.setup()
+    api.getItemErrors.mockResolvedValue({
+      inventory_item_id: 12,
+      errors: [
+        { error_type: 'miscut', details: 'note a', source: 'manual', noted_at: '' },
+      ],
+    })
+    api.setItemErrors
+      .mockRejectedValueOnce(new Error('server is unhappy'))
+      .mockResolvedValue({ inventory_item_id: 12, errors: [] })
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: vocabularies,
+    })
+    const input = await screen.findByLabelText('Miscut details')
+    const read = [{ error_type: 'miscut', details: 'note a' }]
+
+    await user.type(input, ' b')
+    await user.tab()
+    await screen.findByText('server is unhappy')
+    await user.type(input, 'c')
+    await user.tab()
+    await user.type(input, 'd')
+    await user.tab()
+
+    const bases = api.setItemErrors.mock.calls.map(([, , options]) => options.base)
+    // The failed save left the server holding what was read; the one
+    // that succeeded is what the next save starts from.
+    expect(bases).toEqual([
+      read,
+      read,
+      [{ error_type: 'miscut', details: 'note a bc' }],
+    ])
   })
 
   it('does not offer a type already recorded', async () => {
@@ -138,7 +173,13 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     expect(api.setItemErrors).toHaveBeenCalledWith(
       12,
       [{ error_type: 'off_center_coin', details: 'note b' }],
-      { acknowledgeForSale: false },
+      {
+        acknowledgeForSale: false,
+        base: [
+          { error_type: 'miscut', details: 'note a' },
+          { error_type: 'off_center_coin', details: 'note b' },
+        ],
+      },
     )
     // Scoped to the recorded-error list: "Miscut" freed up by the removal is
     // correctly still offered again by the picker below it.
@@ -166,7 +207,10 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     expect(api.setItemErrors).toHaveBeenCalledWith(
       12,
       [{ error_type: 'miscut', details: 'corrected note' }],
-      { acknowledgeForSale: false },
+      {
+        acknowledgeForSale: false,
+        base: [{ error_type: 'miscut', details: 'note a' }],
+      },
     )
   })
 
@@ -227,7 +271,10 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     expect(api.setItemErrors).toHaveBeenCalledWith(
       12,
       [{ error_type: 'miscut', details: null }],
-      { acknowledgeForSale: false },
+      {
+        acknowledgeForSale: false,
+        base: [{ error_type: 'miscut', details: 'note a' }],
+      },
     )
   })
 
@@ -407,7 +454,7 @@ describe('ErrorsPanel, an item that is for sale', () => {
     expect(api.setItemErrors).toHaveBeenLastCalledWith(
       12,
       [{ error_type: 'miscut', details: null }],
-      { acknowledgeForSale: true },
+      { acknowledgeForSale: true, base: [] },
     )
 
     // Sticky: the second change does not ask again.
@@ -416,9 +463,11 @@ describe('ErrorsPanel, an item that is for sale', () => {
       'inverted_overprint',
     )
     await user.click(screen.getByRole('button', { name: 'Add error' }))
-    expect(api.setItemErrors).toHaveBeenLastCalledWith(12, expect.anything(), {
-      acknowledgeForSale: true,
-    })
+    expect(api.setItemErrors).toHaveBeenLastCalledWith(
+      12,
+      expect.anything(),
+      expect.objectContaining({ acknowledgeForSale: true }),
+    )
   })
 
   it('renders no warning for an item that is not for sale', async () => {

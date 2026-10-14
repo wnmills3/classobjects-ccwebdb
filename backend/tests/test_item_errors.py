@@ -227,3 +227,60 @@ def test_an_unknown_field_in_the_request_is_refused(
         assert resp.status_code == 422, resp.text
 
     assert _errors_of(db, item) == set()
+
+
+def test_a_save_from_a_stale_set_is_refused_and_keeps_the_other_change(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Two editors read the same set; the first saves an addition, then the second."""
+    item = build_bare_item(db)
+    url = f"/api/inventory/{item.id}/errors"
+    read = [{"error_type": "doubled_die", "details": None}]
+    assert client.put(url, json={"errors": read}, headers=admin_headers).is_success
+    first = [*read, {"error_type": "off_center", "details": None}]
+    assert client.put(
+        url, json={"errors": first, "base": read}, headers=admin_headers
+    ).is_success
+
+    second = [*read, {"error_type": "die_crack", "details": None}]
+    refused = client.put(
+        url, json={"errors": second, "base": read}, headers=admin_headers
+    )
+
+    assert refused.status_code == 409, refused.text
+    assert "changed by someone else" in refused.json()["detail"]
+    assert _errors_of(db, item) == {
+        code_id(db, ErrorType, "doubled_die"),
+        code_id(db, ErrorType, "off_center"),
+    }
+
+
+def test_a_stale_set_that_already_matches_what_is_sent_is_saved(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Both editors made the same change: there is nothing to lose."""
+    item = build_bare_item(db)
+    url = f"/api/inventory/{item.id}/errors"
+    wanted = [{"error_type": "off_center", "details": None}]
+    assert client.put(url, json={"errors": wanted}, headers=admin_headers).is_success
+
+    saved = client.put(url, json={"errors": wanted, "base": []}, headers=admin_headers)
+
+    assert saved.status_code == 200, saved.text
+
+
+def test_without_a_base_a_save_replaces_whatever_is_there(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A caller that sends no base has asked for the replace, and gets it."""
+    item = build_bare_item(db)
+    url = f"/api/inventory/{item.id}/errors"
+    body = {"errors": [{"error_type": "off_center"}]}
+    assert client.put(url, json=body, headers=admin_headers).is_success
+
+    replaced = client.put(
+        url, json={"errors": [{"error_type": "die_crack"}]}, headers=admin_headers
+    )
+
+    assert replaced.status_code == 200, replaced.text
+    assert _errors_of(db, item) == {code_id(db, ErrorType, "die_crack")}

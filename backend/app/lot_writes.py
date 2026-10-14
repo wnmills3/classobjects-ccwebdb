@@ -331,6 +331,12 @@ def add_member(db: Session, lot: SalesLot, item: InventoryItem) -> SalesLotItem:
     nothing -- the same discipline `offering_writes.offer` follows.
     """
     _refuse_unless_assembling(db, lot)
+    # The item's row too, after the lot's (the canonical order) and before
+    # it is asked whether it can join: a delete takes the same row, and
+    # adding a member writes `sales_lot_item`, never the item, so the
+    # item's version cannot see that race. `_refuse_unless_assembling` has
+    # just flushed, so the re-read discards nothing.
+    db.refresh(item, with_for_update=True)
     _refuse_unofferable(item)
     _refuse_partial(db, item)
     other = lot_holding(db, item.id)

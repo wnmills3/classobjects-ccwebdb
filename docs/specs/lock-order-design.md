@@ -115,6 +115,7 @@ in `refuse_if_lot_unheld`, and here.
 | Writer | How it reaches `_acquire` |
 |---|---|
 | `offering_writes.offer` | `lock_for_sale(item_ids=...)`, after `_lot_members` has taken the lot row |
+| `routers.offers.create_offers` | one `lock_for_sale(item_ids=...)` over every item in the batch, before the first `offer`: taken one `offer` at a time, in the order the batch was typed, two items could be taken in the opposite order to a checkout's |
 | `offering_writes.end_offer` | `lock_for_sale(listing_ids=..., including_paused=True)` |
 | `order_writes.place_order` | `_lock_listings` → `lock_for_sale(listing_ids=...)` |
 | `order_writes.revise_order` | `_lock_listings`, after its own `sales_order` row lock |
@@ -152,6 +153,18 @@ checkout had already ended, and for a lot listing that would rewrite
 `sales_lot.status` from `sold` to `dissolved`
 (`test_buying_a_lot_races_marking_one_of_its_coins_missing`).
 
+`lock_for_sale` re-reads the rows it locks, so after it the session holds
+the current version, and the version column's own check at the UPDATE can
+no longer see a save that landed between the request's read and its lock.
+`update_item` therefore asks its lost-update check again when the version
+moved (`_recheck_under_the_lock`): a `version` the caller sent is refused
+(409); a `base` is merged again against the item as it now stands, so a
+change to another field -- a checkout's disposition -- is kept. Receiving
+and `bulk_edit` send no version and are not refused for a change they were
+never shown: a coin that went missing while its lot was bought is still
+recorded missing (`test_buying_a_lot_races_marking_one_of_its_coins_missing`,
+`tests/test_lock_rereads.py`).
+
 **Splitting** is items → listings, the canonical direction, and takes no lot
 row: its listing loop filters `Listing.inventory_item_id == parent.id`,
 which is NULL on a lot listing, and `split_item` refuses outright a parent
@@ -179,6 +192,9 @@ Statements and `db.refresh(..., with_for_update=True)` calls alike:
 | `routers.orders.update_order_status` | `sales_order` | taken before `return_stock` |
 | `auctions._lock_auction` | `auction` | outermost row for every auction transition |
 | `splitting.split_item` | `inventory_item` | the parent, held across the `end_offer` call |
+| `lot_writes.add_member` | `inventory_item` | after the lot row: the item, re-read before it is asked whether it can join |
+| `routers.inventory.delete_item` | `inventory_item` | single kind: the item, re-read before its guards, so a delete and an add to a lot cannot each pass against the other's unwritten change |
+| `image_links._hold_items` | `inventory_item` | single kind: the items whose photographs are filed, moved, promoted or unfiled, so a place (`next_position`) and the one primary are read and written by one request at a time |
 | `routers.users._admin_count` | `users` | single kind, no selling rows: the active managers, locked so two saves cannot each remove one of the last two |
 
 ## Related rules
