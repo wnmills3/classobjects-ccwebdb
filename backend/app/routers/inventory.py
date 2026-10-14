@@ -753,14 +753,14 @@ def _record_outcome(
 @router.post(
     "/receive",
     responses={
-        404: {"description": "An item id names no item that can be received."},
         409: {
             "description": "An item is already received, is for sale and the "
             "caller has not acknowledged it, or its offer cannot be ended here."
         },
         422: unprocessable(
-            "Request validation failed, or the outcome, the arrival date or "
-            "the storage location is not one the receipt can take."
+            "Request validation failed, an item id names no item that can be "
+            "received, or the outcome, the arrival date or the storage "
+            "location is not one the receipt can take."
         ),
     },
 )
@@ -814,7 +814,10 @@ def receive_items(
     ).all()
     missing = sorted(set(payload.item_ids) - {i.id for i in items})
     if missing:
-        raise HTTPException(status_code=404, detail=f"Unknown item ids: {missing}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown item ids: {missing}",
+        )
 
     received_id = require_code(db, ItemStatus, "received", "status")
     if payload.outcome == "received":
@@ -1094,7 +1097,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     that route's own function, so a freshly entered item is described no
     differently from one read back later.
     """
-    order = get_or_404(
+    order = get_or_422(
         db,
         PurchaseOrder,
         payload.purchase_order_id,
@@ -2810,7 +2813,7 @@ def bulk_edit(
     missing = sorted(set(payload.ids) - found)
     if missing:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"No such item(s): {missing}. Nothing was changed.",
         )
     before = {item.id: _sent_values(db, item, sent) for item in items}

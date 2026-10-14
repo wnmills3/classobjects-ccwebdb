@@ -79,7 +79,7 @@ def test_one_bad_id_changes_nothing(
         headers=admin_headers,
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 422
     for item in items:
         db.refresh(item)
         assert item.year_start == 1878, "a rejected bulk edit must apply nothing"

@@ -50,7 +50,13 @@ from ..schemas import (
     VendorOut,
     VendorUpdate,
 )
-from ._resolve import found_or_404, get_or_404, refuse_future, unprocessable
+from ._resolve import (
+    found_or_404,
+    get_or_404,
+    get_or_422,
+    refuse_future,
+    unprocessable,
+)
 from ._tx import commit_unique
 
 vendors_router = APIRouter(prefix="/vendors", tags=["acquisitions"])
@@ -359,10 +365,10 @@ def get_purchase_order(
 
 
 def _seller_id(db: Session, seller_id: int | None) -> int | None:
-    """The seller a purchase names, or None; 404 for one that does not exist."""
+    """The seller a purchase names, or None; 422 for one that does not exist."""
     if seller_id is None:
         return None
-    return get_or_404(db, Seller, seller_id, f"Unknown seller_id: {seller_id}").id
+    return get_or_422(db, Seller, seller_id, f"Unknown seller_id: {seller_id}").id
 
 
 def _refuse_seller_name(db: Session, name: str, keep: int | None) -> None:
@@ -479,7 +485,7 @@ def create_purchase_order(
     calling that route's own function, so the two can never drift into
     describing a freshly created order differently from an existing one.
     """
-    vendor = get_or_404(
+    vendor = get_or_422(
         db, Vendor, payload.vendor_id, f"Unknown vendor_id: {payload.vendor_id}"
     )
 

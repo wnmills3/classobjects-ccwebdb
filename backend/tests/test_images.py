@@ -701,7 +701,7 @@ def test_an_upload_for_an_unknown_item_stores_nothing(
         data={"inventory_item_id": "999999"},
         headers=admin_headers,
     )
-    assert response.status_code == 404, response.text
+    assert response.status_code == 422, response.text
     assert _stored(media_root) == []
 
 

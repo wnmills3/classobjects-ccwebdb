@@ -180,6 +180,30 @@ def test_moving_to_the_same_item_is_refused(
     assert refused.status_code == 409
 
 
+def test_an_unknown_target_is_a_422_and_an_unknown_link_a_404(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """The target is a field of the body; the link is the resource in the path."""
+    source = build_item(db)
+    link = _filed(db, source, "b2" * 32, primary=True)
+    db.commit()
+
+    unknown_target = client.post(
+        f"/api/image-links/{link.id}/move",
+        json={"inventory_item_id": 999999},
+        headers=admin_headers,
+    )
+    assert unknown_target.status_code == 422, unknown_target.text
+    assert "999999" in unknown_target.json()["detail"]
+
+    unknown_link = client.post(
+        "/api/image-links/999999/move",
+        json={"inventory_item_id": source.id},
+        headers=admin_headers,
+    )
+    assert unknown_link.status_code == 404, unknown_link.text
+
+
 def test_moving_onto_an_item_for_sale_is_refused_until_acknowledged(
     client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
 ) -> None:

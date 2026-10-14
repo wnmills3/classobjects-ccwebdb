@@ -226,7 +226,7 @@ def test_a_purchase_gives_a_mail_sellers_address_as_it_is_stored(
     assert res.json()["seller_url"] == "mailto:coins@example.com"
 
 
-def test_an_unknown_seller_is_a_404(
+def test_an_unknown_seller_is_a_422(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     vendor = Vendor(name="ebay.com")
@@ -237,7 +237,7 @@ def test_an_unknown_seller_is_a_404(
         json={"vendor_id": vendor.id, "seller_id": 999999},
         headers=admin_headers,
     )
-    assert res.status_code == 404
+    assert res.status_code == 422
 
 
 def test_a_purchases_seller_is_changed_and_cleared(

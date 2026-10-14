@@ -84,9 +84,9 @@ serve the Lists page (`list-maintenance-design.md`).
 
 - `POST /api/purchase-orders` -- `vendor_id`, `order_number` (trimmed; blank
   or absent -> the next generated `Order-NNNN`), `ordered_on` (not after
-  tomorrow), `source_url` (http(s) only), `seller_id` (404 for an unknown
+  tomorrow), `source_url` (http(s) only), `seller_id` (422 for an unknown
   one), `notes`. 201 with `PurchaseOrderDetailOut`, which names the seller:
-  `seller_id`, `seller` (the name) and `seller_url` (their store). 404 for an
+  `seller_id`, `seller` (the name) and `seller_url` (their store). 422 for an
   unknown vendor; 409 when that vendor already has that order number.
 - `PATCH /api/purchase-orders/{id}` -- `order_number`, `ordered_on`,
   `source_url`, `seller_id` (null clears it) and `notes`; the vendor is not
@@ -104,7 +104,7 @@ serve the Lists page (`list-maintenance-design.md`).
 
 | Field | Rule |
 |---|---|
-| `purchase_order_id` | required; 404 if unknown |
+| `purchase_order_id` | required; 422 if unknown |
 | `item_kind` | required code |
 | `source_title` | required, 1-500 |
 | `description` | default "" |

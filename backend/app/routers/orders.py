@@ -44,7 +44,7 @@ from ..schemas import (
     OrderRevision,
     OrderStatusUpdate,
 )
-from ._resolve import found_or_404, get_or_404
+from ._resolve import found_or_404, get_or_404, get_or_422
 from ._tx import commit, committing
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -531,7 +531,7 @@ def revise(
     """Replace an order's lines, prices, customer and notes, all or nothing."""
     order = _load(db, order_id)
     order = found_or_404(order, _ORDER_NOT_FOUND)
-    customer = get_or_404(db, Customer, payload.customer_id, "No such customer")
+    customer = get_or_422(db, Customer, payload.customer_id, "No such customer")
     revise_order(
         db,
         order,

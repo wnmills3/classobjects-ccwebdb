@@ -605,6 +605,15 @@ def test_an_unknown_value_is_a_404(
     assert _merge(client, admin_headers, "no_such_table", "a", "b").status_code == 404
 
 
+def test_an_unknown_target_is_a_422(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The value merged into is named in the body: a bad field, not a missing row."""
+    response = _merge(client, admin_headers, "grade_designation", "CAM", "NOPE")
+    assert response.status_code == 422, response.text
+    assert "NOPE" in response.json()["detail"]
+
+
 def test_only_staff_merge(client: TestClient, customer_headers: dict[str, str]) -> None:
     url = "/api/reference/grade_designation/CAM/merge"
     assert client.post(url, json={"into": "DCAM"}).status_code == 401

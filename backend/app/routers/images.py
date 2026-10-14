@@ -31,7 +31,7 @@ from ..models import (
 from ..references import code_to_id
 from ..schemas import ImageFromUrl, ImageLinkIn, ImageLinkOut, ImageOut
 from ..storage import get_storage
-from ._resolve import found_or_404, get_or_404, unprocessable
+from ._resolve import found_or_404, get_or_404, get_or_422, unprocessable
 
 router = APIRouter(prefix="/images", tags=["images"])
 
@@ -96,7 +96,7 @@ async def upload_image(
     """
     item: InventoryItem | None = None
     if inventory_item_id is not None:
-        item = get_or_404(
+        item = get_or_422(
             db,
             InventoryItem,
             inventory_item_id,
@@ -175,7 +175,7 @@ def add_image_from_url(
     A refused fetch stores nothing, and neither does a role that is not one:
     it is looked up before anything is fetched.
     """
-    item = get_or_404(
+    item = get_or_422(
         db,
         InventoryItem,
         payload.inventory_item_id,
@@ -240,7 +240,7 @@ def attach_image(
     one changes what a buyer is looking at.
     """
     image = get_or_404(db, Image, image_id, _IMAGE_NOT_FOUND)
-    item = get_or_404(
+    item = get_or_422(
         db,
         InventoryItem,
         payload.inventory_item_id,

@@ -176,7 +176,11 @@ def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
     }
     missing = sorted(ids - set(found))
     if missing:
-        _refuse(db, status.HTTP_404_NOT_FOUND, f"Unknown listing id(s): {missing}")
+        _refuse(
+            db,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"Unknown listing id(s): {missing}",
+        )
     return found
 
 
@@ -427,7 +431,7 @@ def place_order(
     been inserted would be a second statement against that row, bumping
     `version` to 2 on a brand-new order.
 
-    Raises `HTTPException`: 404 for a listing that does not exist, and 409
+    Raises `HTTPException`: 422 for a listing that does not exist, and 409
     for one no longer sellable in the shop, one currently paused or ended, or
     one without the stock asked for. Every one goes through `_refuse`, which
     rolls the transaction back before raising -- so a caller that catches

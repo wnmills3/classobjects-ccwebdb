@@ -193,7 +193,7 @@ def test_cannot_order_withdrawn_listing(
 def test_unknown_listing_rejected(
     client: TestClient, customer_headers: dict[str, str]
 ) -> None:
-    assert post_order(client, customer_headers, 999999, 1).status_code == 404
+    assert post_order(client, customer_headers, 999999, 1).status_code == 422
 
 
 def test_duplicate_line_rejected(

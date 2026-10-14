@@ -158,7 +158,7 @@ def test_one_bad_id_writes_nothing(
         json={"item_ids": [good.id, 10_000_000], "outcome": "received"},
         headers=admin_headers,
     )
-    assert res.status_code == 404
+    assert res.status_code == 422
     assert "10000000" in res.text
 
     db.expire_all()
