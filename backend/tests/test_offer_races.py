@@ -111,8 +111,8 @@ def _cleanup_race_rows(cleanup: Session) -> None:
 
     A **lot** listing's `inventory_item_id` is NULL, so matching listings on
     that column alone leaves every lot listing this file commits behind --
-    and the `inventory_item` delete two statements later then fails on
-    `sales_lot_item.inventory_item_id`'s `ondelete="RESTRICT"`, inside this
+    and the `sales_lot` delete two statements later then fails on
+    `listing.sales_lot_id`'s `ondelete="RESTRICT"`, inside this
     same `finally`, replacing whatever the `try` raised with a foreign-key
     error. Hence the `or_` on `Listing.sales_lot_id` below: a lot listing is
     this file's if any of its memberships names one of this file's items.

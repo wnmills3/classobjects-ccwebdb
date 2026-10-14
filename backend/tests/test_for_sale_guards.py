@@ -485,7 +485,7 @@ def test_an_acknowledged_missing_persists_the_status_without_autoflush(
     """The receipt's own status change survives the listing being ended.
 
     Deliberately run the way production runs. `SessionLocal`
-    (app/database.py) sets `autoflush=False`; the test session above does
+    (app/database.py) sets `autoflush=False`; the test session does
     not, so it flushes on every query. That difference is the whole test:
     `receive_items` assigns `item.status_id` and then ends the listing
     through `offering_writes.end_offer`, which locks the same rows with
@@ -903,7 +903,7 @@ def test_a_lot_sale_refuses_a_split_of_the_member_it_sold(
     anywhere. The plausible route is a returned tube or mint set that went
     out inside a lot and is now being broken up.
 
-    The for-sale guard does not catch it. `sale_state.guard` passes
+    The for-sale guard does not catch it. The split route narrows it to
     `kinds={"listing"}`, and the sale released the claims and ended the
     listing, so its listing half finds nothing and its order half is
     filtered out -- which is why "For sale" is asserted *absent* here: the

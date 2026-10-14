@@ -1432,7 +1432,7 @@ describe('ItemEditForm keyboard accelerators', () => {
 
 describe('field labels in the grid', () => {
   it('keeps each label whole as one grid item, accelerator letter and all', async () => {
-    // `.field` is `display: grid` with four columns, and every direct child
+    // `.field` is `display: grid` with three columns, and every direct child
     // is a grid item. A label built from loose text around a `<u>` would put
     // each piece of the word in a different column ("T      i      tle").
     // Asserted here, on the real form, and not only on AccessLabel in

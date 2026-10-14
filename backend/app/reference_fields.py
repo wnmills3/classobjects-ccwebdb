@@ -1,7 +1,7 @@
 """What a vocabulary's own columns are, and reading them from a request.
 
 Every vocabulary has a code, a label and a position. Some carry more -- a
-denomination its currency, face value and side; a mint its mark -- and a
+denomination its currency, face value and kind; a mint its mark -- and a
 value cannot be added without them. This module describes those columns so a
 form can ask for each one (`fields_of`), turns what the form sent back into
 column values (`column_values`), and gives a value a code when the caller

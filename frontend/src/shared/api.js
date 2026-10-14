@@ -160,8 +160,8 @@ function attachmentName(header) {
 
 /**
  * A request's body as `fetch` takes it, with the headers that describe it:
- * `{ payload, headers }`. A form goes URL-encoded, anything else as JSON,
- * and no body at all is no payload.
+ * `{ payload, headers }`. A form goes URL-encoded, a `FormData` untouched,
+ * anything else as JSON, and no body at all is no payload.
  */
 function encodeBody(body, form) {
   if (form) return { payload: new URLSearchParams(body), headers: {} }

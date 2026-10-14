@@ -59,7 +59,7 @@ const STORE = {
   version: 1,
 }
 
-// The same coin consigned to an auction house. Its platform kind is what
+// Another coin, consigned to an auction house. Its platform kind is what
 // `Listings.jsx` looks up to tell `RecordSaleDialog` a blank buyer means this
 // house's undisclosed buyer -- the only row shape that exercises that lookup.
 const HERITAGE = {

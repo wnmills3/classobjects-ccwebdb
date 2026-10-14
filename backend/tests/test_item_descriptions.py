@@ -176,8 +176,8 @@ def test_a_coin_leads_with_its_name_then_its_metal(db: Session) -> None:
 def test_a_coins_variety_follows_its_name(db: Session) -> None:
     """An overmintmark is entered as the variety and read after the name.
 
-    "O/S" goes in Variety (`fieldHelp.js`), and the description and the
-    listing title both carry it.
+    "O/S" goes in Variety, and the description and the listing title both
+    carry it.
     """
     item = build_item(
         db,

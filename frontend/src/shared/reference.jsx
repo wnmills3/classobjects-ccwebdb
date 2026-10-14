@@ -175,8 +175,8 @@ export function ReferenceSelect({
   //: `{ applies_to: 'currency' }`, the kind the item being entered is. Goes
   //: into the POST's `extra`, which is where the reference API reads a
   //: table's own columns; `ReferenceValueCreate` has no top-level field for
-  //: them, so the value would otherwise be created with none and vanish from
-  //: this very picker (see `fitsKind`).
+  //: them, so the value would otherwise take the table's default -- a series
+  //: is a coin's -- and can vanish from this very picker (see `fitsKind`).
   addFields = {},
   //: When true, the add form asks for a label alone and derives the code
   //: from it with `codeFromLabel`, rather than asking for both. Attributes

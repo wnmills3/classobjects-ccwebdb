@@ -129,7 +129,7 @@ Rules that keep it honest:
   Lincoln Presidential Dollar" names the Lincoln cent too).
 - **A note class excludes.** A design of another class than the note's
   recorded class is not a candidate: a Federal Reserve Bank Note whose text
-  says "Brown Seal" is a conflict, not a Series 1929 National.
+  says "Small Size National" is a conflict, not a Series 1929 National.
 - **Conflicts are findings, not errors to suppress.** A $1 note rated
   "funnyback" but recorded as Series 1923 has a wrong rating or a wrong year;
   only the note in hand can say which.

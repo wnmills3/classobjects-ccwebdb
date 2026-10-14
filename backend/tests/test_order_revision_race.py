@@ -347,8 +347,9 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
         outcomes = sorted(pool.map(lambda f: f(), [cancel, edit], timeout=30), key=str)
 
     # Cancel is never refused here: `OrderStatusUpdate` carries no version,
-    # so the only thing that could refuse it -- the order already being
-    # cancelled -- cannot happen with a single cancelling thread.
+    # so the only thing that could refuse it -- stock with no live listing
+    # to return to (`_no_stock_to_return`) -- cannot happen on a store
+    # listing that is still active.
     assert outcomes.count("cancel") == 1, outcomes
     assert outcomes.count(409) <= 1, outcomes
     edit_won = "edit" in outcomes
@@ -398,7 +399,7 @@ def test_a_concurrently_edited_item_no_longer_refuses_a_revision(
 
     Fails for its stated reason if that re-read goes: remove
     `.execution_options(populate_existing=True)` from
-    `offering_writes._lock_items` and the revision is refused 409 again.
+    `offering_writes._lock_rows` and the revision is refused 409 again.
     """
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=2, buyers=2)
 

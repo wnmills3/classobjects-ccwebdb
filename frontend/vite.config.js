@@ -124,13 +124,14 @@ export default defineConfig({
     // belongs only at the display/input edge. Running the suite in UTC keeps
     // it reproducible regardless of which machine or CI runner executes it.
     //
-    // The one deliberate exception is ReceiptPanel.test.jsx's arrival-date
-    // test: under a UTC runner, "local date" and "UTC date" are the same
-    // value, so that test cannot tell a correct local-date default apart from
-    // a regressed UTC-based one. That test overrides `process.env.TZ` for its
-    // own duration (Node re-reads TZ live, including for already-constructed
-    // `Date` objects -- verified empirically, not assumed) and restores it
-    // afterwards, rather than the whole suite paying for one test's need.
+    // The deliberate exceptions are ReceiptPanel.test.jsx's arrival-date test
+    // and format.test.js's calendar-day test: under a UTC runner, "local
+    // date" and "UTC date" are the same value, so neither can tell a correct
+    // local-date reading apart from a regressed UTC-based one. Each overrides
+    // `process.env.TZ` for its own duration (Node re-reads TZ live, including
+    // for already-constructed `Date` objects -- verified empirically, not
+    // assumed) and restores it afterwards, rather than the whole suite paying
+    // for two tests' need.
     env: {
       TZ: 'UTC',
     },

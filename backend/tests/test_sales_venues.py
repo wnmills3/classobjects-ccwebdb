@@ -27,7 +27,7 @@ def test_the_platform_kinds_are_seeded(db: Session) -> None:
 
 
 def test_platform_kinds_cannot_be_retired() -> None:
-    # The store is found by kind, and the API branches on it.
+    # The store's kind is looked up by code, and the API branches on it.
     assert not retirable("sales_venue_kind", "marketplace")
 
 

@@ -767,7 +767,7 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
     public shop, claiming the item again with it.
 
     No `claim_invariant_waiver` here even though `listing.status` is set to
-    `ended` directly below, bypassing `offering_writes`, mid-test: the claim
+    `ended` below through `_set_status`, bypassing `_end`, mid-test: the claim
     it leaves behind reads `paused` against an `ended` listing for exactly
     the middle of this test, but `end_offer` (below) releases that stray
     claim itself once it decides nothing holds the item any more -- see the
@@ -1174,10 +1174,11 @@ def test_offering_a_lot_twice_is_refused_by_name(
 ) -> None:
     """The frozen-lot guard, which nothing else in the suite reaches.
 
-    Without it the second offer does not sail through -- the members' own
-    claims make `_locked_offers` fire `elsewhere` -- but it fails naming an
-    *item* with an `OfferRefused`, losing both the lot in the message and the
-    409-vs-422 mapping the `LotRefused`/`EmptyLot` split exists for. So the
+    Without it the second offer does not sail through -- each member is an
+    open member of an offered lot, so `_refuse_grouped` fires -- but it fails
+    as an `OfferRefused` about one *item*, losing both the lot's own refusal
+    and the 409-vs-422 mapping the `LotRefused`/`EmptyLot` split exists for.
+    So the
     exception type and the message are what is asserted, not merely that
     something was refused.
     """
@@ -1252,8 +1253,8 @@ def test_offering_a_lot_in_the_shop_pauses_a_member_s_shop_listing(
 ) -> None:
     """The one-line refusal is for a duplicate *item* listing, not for a lot.
 
-    The spec's exception -- "offering an *item* on the store while it is
-    already active on the store is simply refused" -- is about a second
+    The spec's exception -- "offering an item on the store while it is
+    already there is refused" -- is about a second
     listing of the same thing. A lot is not a duplicate of its member's
     listing: it is the coin moving from being sold on its own to being sold
     as part of a group, which is the same one-step transition shop -> eBay

@@ -8,8 +8,9 @@
  * information the stylesheet split removed, and removed for the same reason.
  *
  * This is not the access control. `require_admin` on the backend is, and it
- * guards every one of these endpoints whether or not the path is guessable.
- * Keeping the map out of the shop is defense in depth.
+ * guards every one of these endpoints but the public list of vocabularies,
+ * whether or not the path is guessable. Keeping the map out of the shop is
+ * defense in depth.
  *
  * Exported as `api` spreading the shared object, so a console page imports one
  * `api` and calls shop and console methods alike without knowing which is

@@ -614,8 +614,8 @@ def _refuse_auction_lot(db: Session, listing: Listing) -> None:
     """Refuse to end an auction lot's listing directly.
 
     An auction-format listing has **at most one** `auction_lot`
-    (`uq_auction_lot_listing_id`), and `app.auctions` is that row's sole
-    writer -- `remove_lot`, `cancel` and `settle` each end the listing
+    (`uq_auction_lot_listing_id`), and `app.auctions` alone decides whether
+    that row exists -- `remove_lot`, `cancel` and `settle` each end the listing
     *and* either delete the `auction_lot` row or record its result, in one
     transaction. This endpoint calls only `offering_writes.end_offer`, which
     has no idea `auction_lot` exists: ending an auction listing through here

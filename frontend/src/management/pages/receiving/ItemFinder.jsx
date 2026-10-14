@@ -62,9 +62,10 @@ function sharedParams(filters, orderId) {
 }
 
 /**
- * The filters only one kind has. Sent only once that kind is chosen: they
- * are shown only then, and the other view would refuse them as unknown
- * filters.
+ * The filters shown for only one kind. Sent only once that kind is chosen:
+ * they are shown only then, and the other view would refuse the mint, the
+ * serial number and the series year as unknown filters, and read a coin's
+ * year as a note's series year.
  */
 function kindParams(kind, filters) {
   const params = {}

@@ -63,7 +63,7 @@ re-reads the row with `populate_existing` must flush in between;
   unopened over a weekend, the day it arrived and the moment someone recorded
   it are different facts. It is written only for `received`. Omitted, it is
   stored as NULL -- "we don't know when" is a real answer, different from
-  "today" -- although the console always sends one.
+  "today" -- although the console sends one unless its date box is emptied.
 - **A future date is refused (422) beyond `utc_today + 1 day`.** The server
   only knows UTC while "today" is local, and a caller's local date can lead
   UTC's by up to a day. The extra day accepts every timezone's honest today

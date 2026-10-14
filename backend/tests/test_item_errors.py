@@ -3,7 +3,7 @@
 An item may carry more than one mint or printing error -- miscut and
 overprint are routinely found on the same bill -- which is exactly what a
 single `error_type_id` foreign key could not express. These tests exercise
-the join table end to end: two errors on one item, the unique constraint that
+the join table end to end: two errors on one item, the request check that
 refuses the same one twice, and the replace semantics of the write endpoint.
 """
 
@@ -60,7 +60,7 @@ def test_two_errors_round_trip(
     admin_user: User,
     db: Session,
 ) -> None:
-    """Miscut and overprint on the same bill: both survive, each with its own note."""
+    """Doubled die and off center on one coin: both survive, each with its own note."""
     item = build_bare_item(db)
 
     resp = client.put(

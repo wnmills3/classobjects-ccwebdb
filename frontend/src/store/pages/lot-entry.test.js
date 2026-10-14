@@ -61,8 +61,9 @@ describe('summarize', () => {
   })
 
   it('counts the pieces too when they differ from the members', () => {
-    // Three entries, one of which is a roll of twenty. Both numbers are
-    // true, and `piece_count` is the one that says what arrives in the box.
+    // Two entries and twenty-two pieces, as when one entry is a roll. Both
+    // numbers are true, and `piece_count` is the one that says what arrives
+    // in the box.
     expect(summarize({ ...LOT, piece_count: 22 })).toBe(
       'Lot of 2 items, 22 pieces in all',
     )

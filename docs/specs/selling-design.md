@@ -20,7 +20,8 @@ straight:
 The owner and managers work it in the management console: the **Platforms**
 page (`/management/platforms`); **Offer for sale...** and **Group into
 lot...** on the coin and currency pages; and the **Selling** menu group --
-**Listings**, **Lots**, **Auctions**, **Sales** and **Platforms**. The orders
+**Listings**, **Lots**, **Auctions**, **Sales**, **Platforms** and **Spot
+prices**. The orders
 a sale produces appear on the **Sales** page (`/management/sales`,
 `order-on-behalf-design.md`). The public shop sees only web-store,
 fixed-price, active listings.
@@ -158,7 +159,7 @@ stored on a sale.
 | `paused_by_listing_id` | FK `listing`: the offer this store listing is paused for, and so which ending resumes it |
 | `external_id`, `external_url` | the platform's id and page. Nothing writes `external_url`: no request field and no pass sets it, so the page shown is always derived from the platform's URL template and `external_id` |
 | `price` | for an auction listing, the **starting bid** (0 if none) |
-| `quantity_available` | always 1 on a lot listing (`ck_listing_lot_quantity_one`) |
+| `quantity_available` | never above 1 on a lot listing (`ck_listing_lot_quantity_one`) |
 | `title`, `description` | the public wording of the offer |
 | `listed_at`, `ended_at` | when it opened and ended |
 
