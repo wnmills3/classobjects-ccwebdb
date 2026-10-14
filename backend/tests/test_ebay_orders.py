@@ -234,6 +234,37 @@ def test_a_merged_purchases_seller_and_notes_go_to_the_one_kept(
     assert "one coin short, refunded 4.00" in (survivor.notes or "")
 
 
+def test_a_merged_purchases_note_is_kept_though_the_kept_one_holds_its_words(
+    db: Session, tmp_path: Path
+) -> None:
+    """A note is carried whole, unless the kept purchase has that very note."""
+    first = _purchase(db, "262626262621", DAY)
+    first.notes = "no refund given\nsame parcel"
+    second = _purchase(db, "262626262622", DAY)
+    second.notes = "refund"
+    third = _purchase(db, "262626262623", DAY)
+    third.notes = "same parcel"
+    db.flush()
+    path = _history(
+        tmp_path,
+        [
+            ("26-26262-62626", "Mar 04, 2025", "262626262621", "one"),
+            ("26-26262-62626", "Mar 04, 2025", "262626262622", "two"),
+            ("26-26262-62626", "Mar 04, 2025", "262626262623", "three"),
+        ],
+    )
+
+    _run(db, path)
+
+    survivor = db.get(PurchaseOrder, first.id)
+    assert survivor is not None
+    assert (survivor.notes or "").split("\n") == [
+        "no refund given",
+        "same parcel",
+        "refund",
+    ]
+
+
 def test_the_kept_purchases_own_seller_stays_and_the_review_names_the_other(
     db: Session, tmp_path: Path
 ) -> None:

@@ -2,7 +2,8 @@
 
 Made against nothing, a save would overwrite whatever another person had
 saved since, unseen. The item editor may send `base` instead
-(`test_inventory_edit.py`); these four take a version only.
+(`test_field_merge.py`); these five take a version only, an
+auction lot's being its auction's.
 """
 
 from __future__ import annotations
@@ -18,8 +19,9 @@ from fastapi.testclient import TestClient
         ("/api/sales-lots/1", {"title": "Renamed"}),
         ("/api/sales-venues/store", {"name": "Renamed"}),
         ("/api/auctions/1", {"notes": "Renamed"}),
+        ("/api/auctions/1/lots/1", {"lot_number": "1A"}),
     ],
-    ids=["listing", "lot", "platform", "auction"],
+    ids=["listing", "lot", "platform", "auction", "auction lot"],
 )
 def test_an_edit_without_a_version_is_refused(
     client: TestClient, admin_headers: dict[str, str], url: str, body: dict[str, str]

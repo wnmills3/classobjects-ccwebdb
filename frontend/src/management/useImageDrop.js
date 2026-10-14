@@ -28,8 +28,9 @@ function onDragOver(e) {
  * message naming it (`pickError`), rather than silently skipping it. A paste
  * takes only the pictures on the clipboard, with no message about anything
  * else there; one holding no picture is left alone. A choice from the file
- * box never reaches the refusal, since its `accept="image/*"` already keeps
- * a non-image out of `e.target.files`.
+ * box rarely reaches the refusal: its `accept="image/*"` keeps most
+ * non-images out, but the file dialog can still be switched to show every
+ * file, and one chosen that way is refused as a drop is.
  *
  * `disabled` turns the target off: nothing is taken, and a paste is left
  * alone to land wherever it was aimed.

@@ -370,7 +370,10 @@ def _cb_designs(db: Session, params: DesignsParams) -> ReportResult:
                 _SER.c.label.label("series_label"),
                 func.count().label("items"),
                 func.min(_I.c.year_start).label("year_min"),
-                func.max(_I.c.year_start).label("year_max"),
+                # A ranged date (`1999-2009`) reaches its own last year.
+                func.max(func.coalesce(_I.c.year_end, _I.c.year_start)).label(
+                    "year_max"
+                ),
                 func.sum(_I.c.total_cost).label("total_cost"),
             )
             .select_from(src)

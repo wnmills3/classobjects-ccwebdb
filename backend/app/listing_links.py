@@ -23,10 +23,11 @@ purchases (which names no order), and when its address is a listing's page
 that one of its items already carries -- that listing is still recorded, on
 the item. Any other address an eBay purchase holds is kept and reported.
 
-Otherwise nothing already recorded is replaced. `create_item` applies the
-purchase rule as each item is entered; this module's pass fills what older
-records lack, every item's change logged in its History under the person
-named.
+Otherwise nothing already recorded is replaced. As each item is entered,
+`create_item` gives a purchase with no address the item's, and the
+purchase's detail offers the new item its `lot_page` by the same rule this
+pass reads; the pass fills what older records lack, every item's change
+logged in its History under the person named.
 
     python -m app.listing_links                          report, touching nothing
     python -m app.listing_links --commit --by EMAIL      fill the gaps
@@ -49,7 +50,9 @@ from sqlalchemy.orm import Session
 from . import field_changes, pass_cli
 from .database import SessionLocal
 from .ebay_orders import ITEM_ID, ORDER_PAGE, is_ebay, vendor_key
+from .live import live_item
 from .models import InventoryItem, PurchaseOrder, Vendor
+from .purchases import WEB_ADDRESS
 
 #: Where each site puts a listing's own id in its web address. An order page
 #: (Whatnot's `/order/`, eBay's order.ebay.com) names an order, not a listing.
@@ -60,7 +63,6 @@ _LISTING_IDS = (
     re.compile(r"proxibid\.com/lotinformation/(\d+)", re.IGNORECASE),
 )
 _EBAY_ID = re.compile(r"^\d{9,15}$")
-_WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
 #: Whatnot's own host name: the whole label, so a site whose name only
 #: contains the letters is not Whatnot.
 _WHATNOT_HOST = re.compile(r"(?:^|\.)whatnot\.com$")
@@ -102,7 +104,45 @@ def is_marketplace(vendor: Vendor) -> bool:
 
 def _web_address(value: str | None) -> str | None:
     """The value when it is a web address, otherwise None."""
-    return value if value and _WEB_ADDRESS.match(value) else None
+    return value if value and WEB_ADDRESS.match(value) else None
+
+
+def _is_lot_page(vendor: Vendor, address: str | None, lots: set[str]) -> bool:
+    """Whether `address` is one lot's page its purchase's items may take.
+
+    Not at a marketplace, whose order holds many listings; only a page that
+    carries a lot id (a shop's location page is the purchase's, but no
+    listing); and only while no item names another lot.
+    """
+    return (
+        address is not None
+        and not is_marketplace(vendor)
+        and listing_id_from(address) is not None
+        and lots <= {address}
+    )
+
+
+def lot_page(db: Session, order: PurchaseOrder) -> str | None:
+    """The lot page a new item on this purchase is given as its listing, or None.
+
+    The rule the pass fills an older item by, so an item entered now and one
+    filled later take the same address.
+    """
+    own = _web_address(order.source_url)
+    if own is None:
+        return None
+    lots = {
+        url
+        for url in db.scalars(
+            select(InventoryItem.listing_url).where(
+                InventoryItem.purchase_order_id == order.id,
+                InventoryItem.listing_url.is_not(None),
+                live_item(),
+            )
+        )
+        if url is not None
+    }
+    return own if _is_lot_page(order.vendor, own, lots) else None
 
 
 @dataclass
@@ -163,14 +203,7 @@ def _address_for(
     items already name.
     """
     own = _web_address(order.source_url)
-    if (
-        own is not None
-        and not is_marketplace(vendor)
-        # Only a page that is recognisably a lot's: a shop's location
-        # page is the purchase's, but no listing.
-        and listing_id_from(own) is not None
-        and lots <= {own}  # one lot: no item names another
-    ):
+    if _is_lot_page(vendor, own, lots):
         return own
     if is_ebay(vendor) and _EBAY_ID.match(item.sellers_item_id or ""):
         return ebay_listing_url(item.sellers_item_id or "")

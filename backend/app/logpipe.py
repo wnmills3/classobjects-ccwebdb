@@ -75,13 +75,26 @@ def rotate(path: Path, keep: int) -> None:
     if path.exists() and path.stat().st_size == 0:
         path.unlink()
         return
+    # The current file is moved aside before anything older is touched: one
+    # another program holds open cannot be moved, and the rotation must then
+    # fail with every older file still where it was.
+    aside = None
+    if path.exists():
+        aside = path.with_name(f"{path.stem}.rotating{path.suffix}")
+        path.replace(aside)
+    if keep == 1:
+        if aside is not None:
+            aside.unlink()
+        return
     oldest = numbered(path, keep - 1)
     if oldest.exists():
         oldest.unlink()
-    for n in range(keep - 2, -1, -1):
+    for n in range(keep - 2, 0, -1):
         source = numbered(path, n)
         if source.exists():
             source.replace(numbered(path, n + 1))
+    if aside is not None:
+        aside.replace(numbered(path, 1))
 
 
 class RollingWriter:

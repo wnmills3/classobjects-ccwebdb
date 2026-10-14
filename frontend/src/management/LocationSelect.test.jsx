@@ -188,6 +188,22 @@ describe('LocationSelect', () => {
     },
   )
 
+  it('says a kind is needed when Add location is pressed without one', async () => {
+    const user = userEvent.setup()
+    renderPicker()
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: /storage location/i }),
+      '__add__',
+    )
+    const add = screen.getByRole('button', { name: 'Add location' })
+    // Live, not greyed out: pressing it says what is missing.
+    expect(add).toBeEnabled()
+    await user.click(add)
+
+    expect(api.createStorageLocation).not.toHaveBeenCalled()
+    expect(screen.getByText('Choose a kind first.')).toBeInTheDocument()
+  })
+
   it('shows a refusal and keeps what was typed', async () => {
     const user = userEvent.setup()
     api.createStorageLocation.mockRejectedValue(

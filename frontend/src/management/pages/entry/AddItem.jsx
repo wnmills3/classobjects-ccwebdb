@@ -91,8 +91,9 @@ function sharedWith(item) {
  * opened on the page -- from its table, or entered here, which `onEntered`
  * reports. That is the item the next is made like; with none opened, or one
  * no longer on the purchase, it is the latest. `defaults` is the purchase's
- * tax values, sent with every item entered on it; `orderUrl` its lot page,
- * offered as the item's listing.
+ * tax values, sent with every item entered on it; `orderUrl` the lot page
+ * the server names for it (`lot_page`), sent as the item's listing, and
+ * null when there is none.
  */
 export default function AddItem({
   purchaseOrderId,
@@ -148,7 +149,12 @@ export default function AddItem({
 
   function add(e) {
     e.preventDefault()
-    if (!title.trim() || disabledReason) return
+    // The purchase's own reason is printed above the form.
+    if (disabledReason) return
+    if (!title.trim()) {
+      setError('Give the item a title: what the seller called it.')
+      return
+    }
     // Nearly everything bought is American: the country starts as the
     // United States, to be changed or emptied in the editor. A default, not
     // a fact about the piece -- which is why it is set here, where the item
@@ -157,6 +163,7 @@ export default function AddItem({
   }
 
   async function addAnother() {
+    if (disabledReason) return
     setBusy(true)
     try {
       // Read again: the editor may have changed what the next piece shares.
@@ -195,7 +202,10 @@ export default function AddItem({
     onChanged?.()
   }
 
-  const blocked = busy || Boolean(disabledReason) || Boolean(entering)
+  // Held only while a request is out or the editor is open. A reason the
+  // purchase gives, or a missing title, is said instead, and the press sends
+  // nothing.
+  const blocked = busy || Boolean(entering)
 
   return (
     <div className="admin-form">
@@ -224,11 +234,7 @@ export default function AddItem({
           />
         </label>
         <div className="row">
-          <button
-            type="submit"
-            data-help="add_item"
-            disabled={blocked || !title.trim()}
-          >
+          <button type="submit" data-help="add_item" disabled={blocked}>
             {busy ? 'Adding...' : 'Add item'}
           </button>
           {like && (

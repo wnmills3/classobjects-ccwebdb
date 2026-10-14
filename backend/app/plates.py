@@ -34,9 +34,11 @@ FACILITIES: dict[str, str] = {"dc": "Washington, DC", "fw": "Fort Worth, TX"}
 #: `FW`, a check letter and up to five digits, the first two optional and
 #: space allowed between the parts. The space after a check letter belongs to
 #: the letter's own group, so with no letter there is one run of space to
-#: match and only one way to match it.
-_FACE = re.compile(r"^(FW)?\s*(?:([A-Z])\s*)?(\d{1,5})$")
-_BACK = re.compile(r"^\d{1,5}$")
+#: match and only one way to match it. Digits are `0` to `9` only -- another
+#: script's look like a plate number and are not -- while the space between
+#: the parts stays any script's.
+_FACE = re.compile(r"^(FW)?\s*(?:([A-Z])\s*)?([0-9]{1,5})$")
+_BACK = re.compile(r"^[0-9]{1,5}$")
 
 
 def face_plate(text: str | None) -> str | None:

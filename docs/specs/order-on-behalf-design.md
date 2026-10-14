@@ -15,7 +15,7 @@ paid order, every order records who placed it and every change to it.
 | Question | Rule |
 |---|---|
 | Who an order can be for | **Any customer record**, account holder or not. Choosing an account with no customer record creates one. |
-| When contents may change | **While `pending` or `paid`.** Not from `packed` on, and not when `cancelled` or `refunded`. |
+| When contents may change | **While `pending` or `paid`, on an order that has never been packed.** Not from `packed` on, and not when `cancelled` or `refunded`. An order set back to `pending` or `paid` after it was packed, shipped or delivered (read from its status history) keeps its lines: its coins have left. |
 | Line prices | **The listing's price by default; a manager may override it** (not below zero). Existing lines keep the price they were bought at unless changed. |
 | Accountability | **Who placed the order, plus a history row for every change.** |
 | Shape | **One order-writing module (`app/order_writes.py`) behind separate manager endpoints.** The shop's `POST /api/orders` keeps its contract. |
@@ -87,7 +87,9 @@ another platform (`sales_writes`); an on-behalf order leaves them unset.
 `lines` is the order's complete desired contents.
 
 1. Lock and re-read the `sales_order` row first. Status not `pending` or
-   `paid`: 409. `version` differs: 409, "changed by someone else… reload".
+   `paid`, or a status history that ever reached `packed`, `shipped` or
+   `delivered`: 409. `version` differs: 409, "changed by someone else…
+   reload".
    An order that records a sale on another platform takes no stock: a line
    added or grown on it is a 409 naming the platform. Its prices, customer
    and notes may still be changed.
@@ -107,8 +109,10 @@ another platform (`sales_writes`); an on-behalf order leaves them unset.
 
 **Status changes** (`PATCH /api/orders/{id}`, any `sales_order_status`
 code: `pending`, `paid`, `packed`, `shipped`, `delivered`, `cancelled`,
-`refunded`) lock the order row, write a `status` change row and bump
-`version`.
+`refunded`, with the `version` the order was read at) lock the order row,
+write a `status` change row and bump `version`. No `version`: 422; a
+`version` the order has moved past: 409, so a status chosen from a stale
+page is not applied over a change its chooser never saw.
 
 - Cancelling an order that has not been packed returns its stock
   (`return_stock`, through the same lock path). Cancelling one whose listing
@@ -139,7 +143,7 @@ code: `pending`, `paid`, `packed`, `shipped`, `delivered`, `cancelled`,
 | `POST /api/users/{id}/customer` | manager | Find or create the customer record behind an account. |
 | `PUT /api/orders/{id}` | manager | `revise_order`. Body: `version`, `customer_id`, `items` of `{listing_id, quantity, unit_price}`, `notes`. |
 | `GET /api/orders/{id}/changes` | manager | Change rows, newest first, with the changing account's email and each line's listing title. |
-| `PATCH /api/orders/{id}` | manager | Status, as above. |
+| `PATCH /api/orders/{id}` | manager | Status, as above. Body: `status`, `version`. |
 
 The manager endpoints' request schemas forbid extra fields. 422 for a
 quantity below 1, a unit price below 0, a listing twice in one order, or no
@@ -177,12 +181,13 @@ for **Edit** on a `pending` or `paid` order:
 adjustment due" badge, "entered by <email>" when the placing account's email
 is not the customer's, **Edit** on `pending` and `paid` orders, and
 **History** (`orders/OrderHistory.jsx`, changes grouped by edit). Each row's
-status is a select. On an unpacked order `cancelled` and `refunded` are
-disabled, with the reason as their tooltip, where the server would refuse
-them: an outside sale, or a store order with a line whose listing has ended
-(`listing_ended`). The console reads "unpacked" from the current status; the
-server also reads the order's history. A cancelled order's select is
-disabled.
+status is a select, saved as it is chosen with the order's `version`. Every
+option stays live. Choosing one the server would refuse sends nothing and
+says why above the table: `cancelled` or `refunded` on an unpacked outside
+sale, or on an unpacked store order with a line whose listing has ended
+(`listing_ended`); and any other status on a cancelled order, whose stock
+is back on sale. The console reads "unpacked" from the current status; the
+server also reads the order's history.
 
 ## Tests
 

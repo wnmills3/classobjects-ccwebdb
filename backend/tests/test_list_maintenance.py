@@ -13,6 +13,7 @@ from app.models import (
     Denomination,
     FriedbergNumber,
     ItemKind,
+    LocationHistory,
     NoteType,
     PurchaseOrder,
     Seller,
@@ -345,6 +346,25 @@ def test_only_an_unused_location_is_deleted(
 
     assert refused.status_code == 409
     assert gone.status_code == 204
+
+
+def test_a_location_an_item_was_once_kept_in_counts_as_used(
+    db: Session, client: TestClient, admin_headers: Headers
+) -> None:
+    """A move recorded to it is part of an item's history, so it stays."""
+    former = _location(db, "401")
+    item = build_bare_item(db)
+    db.add(LocationHistory(inventory_item_id=item.id, storage_location_id=former.id))
+    db.commit()
+
+    rows = _by_id(client.get("/api/storage-locations", headers=admin_headers).json())
+    refused = client.delete(
+        f"/api/storage-locations/{former.id}", headers=admin_headers
+    )
+
+    assert rows[former.id]["item_count"] == 1
+    assert refused.status_code == 409
+    assert "held 1 item record" in refused.json()["detail"]
 
 
 # --------------------------------------------------------------------------

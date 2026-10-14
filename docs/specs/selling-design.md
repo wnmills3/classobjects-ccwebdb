@@ -72,7 +72,7 @@ of one.
 | Action | Effect |
 |---|---|
 | **Offer** an item or lot (platform, format, price, public text, external id) | Refused if any affected item is deleted, split, or not `received`; is already sold (`sold`, `shipped`, `delivered`) or held by an unshipped order; is a member of an offered lot; is on offer on a **non-store** platform ("end it first"); or the platform is retired. An active **store** listing of an affected item is **paused**, with `paused_by_listing_id` set -- except that offering an item on the store while it is already there is refused. The new listing and its claims are `active`; items become `listed`; a lot becomes `offered`. A batch is all or nothing, lists every refused item with its reason, and refuses an item named twice. |
-| **Edit** a listing | Price, public title and description, external id. Once a listing has ended only its external id may change (through the API; the console edits active rows only): its terms are part of the sale's record. |
+| **Edit** a listing | Price, public title and description, external id. A web-store lot's title cannot be blanked: it is the only name a buyer sees. Once a listing has ended only its external id may change (through the API; the console edits active rows only): its terms are part of the sale's record. |
 | **End** a listing | `ended`, claims `released`. Store listings it paused **resume**. A lot listing's lot **dissolves** (members released). Items nothing else offers go back to `held`. Ending an ended listing changes nothing. A listing that is a lot of an auction is refused: it ends only through its auction. |
 | **Record a sale** on an outside listing | One order on that platform: buyer (matched case-insensitively, or created; blank is the platform's undisclosed buyer), price, `external_order_id`, fee lines, shares, snapshot. The listing ends **sold**: claims released, the lot `sold`, members' paused store listings **ended** rather than resumed, items `sold`. Refused for a store listing and for a listing that is a lot of an auction, which sells through settlement. |
 | **Add to an auction** (`draft` or `scheduled`) | Offers the lot, or wraps one item in a new lot of one titled by the item's source title, with `format = auction`, and creates its `auction_lot`. Same refusals and pausing as Offer. |
@@ -159,7 +159,7 @@ stored on a sale.
 | `paused_by_listing_id` | FK `listing`: the offer this store listing is paused for, and so which ending resumes it |
 | `external_id`, `external_url` | the platform's id and page. Nothing writes `external_url`: no request field and no pass sets it, so the page shown is always derived from the platform's URL template and `external_id` |
 | `price` | for an auction listing, the **starting bid** (0 if none) |
-| `quantity_available` | never above 1 on a lot listing (`ck_listing_lot_quantity_one`) |
+| `quantity_available` | an offer opens at 1: an item is one record with one cost, and gain reporting counts that cost against every order line's share, so several units of one item would count it several times. Never above 1 on a lot listing (`ck_listing_lot_quantity_one`) |
 | `title`, `description` | the public wording of the offer |
 | `listed_at`, `ended_at` | when it opened and ended |
 
@@ -302,7 +302,9 @@ auction house bills per buyer, not per lot). Shop checkout calls
 after any `auction` or `sales_order` row above them
 (`lock-order-design.md`). The `offer_claim` partial unique index is the
 backstop if two requests still race. Platform, listing, lot, auction and
-order details are optimistic (`version`, 409 on mismatch). Checkout refuses a
+order details are optimistic (`version`, 409 on mismatch). An auction lot's
+number and reserve have no version of their own: their PATCH carries the
+auction's `version`, and a lot edit moves it. Checkout refuses a
 listing that is not `active`, so a store listing paused while in a cart
 cannot be bought.
 
@@ -323,7 +325,8 @@ staff-only.
 2. **Offer from inventory.** The coin and currency pages' bulk bar has
    **Offer for sale...** and **Group into lot...** (the selection becomes a
    new lot, or joins an assembling one). The offer dialog takes platform and
-   format, then per item: price, public title (suggested by
+   format (the web store takes Fixed price only, said on pressing Offer),
+   then per item: price, public title (suggested by
    `GET /api/offers/titles`) and description, external id, with cost basis,
    value, estimated fees and net, and margin. **Fill blank prices** sets
    each price not yet typed to the lowest that leaves the margin entered
@@ -372,7 +375,7 @@ Admin-only unless noted; the console's calls live in `management/api.js`.
 | `POST /api/listings/{id}/sale` | record an outside sale: price, buyer username, order number, fees, `equal_shares` |
 | `GET/POST /api/sales-lots`, `GET/PATCH/DELETE /api/sales-lots/{id}` | lots; `PATCH` changes wording and membership (`add_item_ids`, `remove_item_ids`) together while assembling; the list is paged (`limit` ≤ 500, default 200; `offset`; `total`) and filterable by `status` |
 | `GET/POST /api/auctions`, `PATCH /api/auctions/{id}` | auctions; the list filters by `venue` and `status`; `PATCH` never changes platform or status |
-| `POST /api/auctions/{id}/lots`, `PATCH`/`DELETE .../lots/{lot_id}` | add, renumber or re-reserve, remove (`returned_to_location_id` as a query parameter) |
+| `POST /api/auctions/{id}/lots`, `PATCH`/`DELETE .../lots/{lot_id}` | add, renumber or re-reserve (`version`: the auction's), remove (`returned_to_location_id` as a query parameter) |
 | `POST /api/auctions/{id}/{schedule\|consign\|close\|cancel\|settle}` | transitions; `consign` takes `on_date`, `cancel` and `settle` take `returned_to_location_id` |
 
 `GET /api/catalog` (public) returns a store lot as one entry whose members
@@ -381,12 +384,14 @@ carry their public descriptions. The catalog has no write endpoints.
 **Errors.** 409 for conflicts with other work, naming what is in the way or
 reporting a stale version. 422 for bad input: unknown platform, format or
 fee kind, an empty lot, a negative or sub-cent amount; also a quantity above
-1 on an outside platform, a store lot offered with no title, and an auction
-on the web store. An offer refusal
+1 on any offer, a store lot offered with no title or edited to none, and an
+auction on the web store (an auction created there, or an offer in the
+auction format). An offer refusal
 answers `{detail, refused: [{item_code, reason}]}`; refusals from
 `sales_writes` and `auctions` answer `{detail, refused: [{reason,
-lot_number}]}`. Settle reports every problem at once: an auction not
-`closed`, a lot with no result or two, a sold lot with no hammer price or --
+lot_number}]}`. Settle refuses an auction that is not `closed` on that
+alone; on a closed one it reports every problem at once: a lot with no
+result or two, a sold lot with no hammer price or --
 outside an auction house, where a blank buyer is the undisclosed buyer --
 no buyer, a price on a lot that did not sell, fees given twice or for someone
 who bought nothing, or coins with nowhere to return to. It answers 422 only

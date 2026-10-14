@@ -148,18 +148,30 @@ lots, items and listings before it, the inverse of `settle`.
 its `offers_holding` read *above* the locks only chooses what to lock. The
 item edits (`bulk_edit`, `update_item`) follow the same pattern. The
 authoritative read is a second `offers_holding` call after the writes, under
-the locks. Acting on the first read could end a listing a concurrent
-checkout had already ended, and for a lot listing that would rewrite
-`sales_lot.status` from `sold` to `dissolved`
+the locks: it also finds an offer made between the first read and the
+locks, which acting on the first read would leave standing. A listing a
+concurrent checkout ended meanwhile is safe either way -- `_end` returns
+early on an `ended` listing (*Ending is idempotent*, below), so a `sold`
+lot is never rewritten to `dissolved`
 (`test_buying_a_lot_races_marking_one_of_its_coins_missing`).
 
 `lock_for_sale` re-reads the rows it locks, so after it the session holds
 the current version, and the version column's own check at the UPDATE can
 no longer see a save that landed between the request's read and its lock.
 `update_item` therefore asks its lost-update check again when the version
-moved (`_recheck_under_the_lock`): a `version` the caller sent is refused
-(409); a `base` is merged again against the item as it now stands, so a
-change to another field -- a checkout's disposition -- is kept. Receiving
+moved (`_recheck_under_the_lock`), as `_refuse_lost_update` asks it: a
+`base` is merged again against the item as it now stands, so a change to
+another field -- a checkout's disposition -- is kept, whether or not a
+`version` came with it (the console sends both); a `version` sent without a
+base is refused (409).
+
+What an edit works out from the item -- its years, `no_date`, a fine weight
+the weight rule must redo, and the kind guards (coin-only fields, a
+denomination, designation or series of the other kind) -- is worked out
+after the lock, from the item as it stands under it. Worked out before, it
+would write back the values the landed save replaced. `update_item` and
+`bulk_edit` therefore take `lock_for_sale` straight after reading the item,
+ahead of their guards. Receiving
 and `bulk_edit` send no version and are not refused for a change they were
 never shown: a coin that went missing while its lot was bought is still
 recorded missing (`test_buying_a_lot_races_marking_one_of_its_coins_missing`,
@@ -194,19 +206,32 @@ Statements and `db.refresh(..., with_for_update=True)` calls alike:
 | `splitting.split_item` | `inventory_item` | the parent, held across the `end_offer` call |
 | `lot_writes.add_member` | `inventory_item` | after the lot row: the item, re-read before it is asked whether it can join |
 | `routers.inventory.delete_item` | `inventory_item` | single kind: the item, re-read before its guards, so a delete and an add to a lot cannot each pass against the other's unwritten change |
-| `image_links._hold_items` | `inventory_item` | single kind: the items whose photographs are filed, moved, promoted or unfiled, so a place (`next_position`) and the one primary are read and written by one request at a time |
+| `image_links.hold_items` | `inventory_item` | single kind: the items whose photographs are filed, moved, promoted or unfiled, so a place (`next_position`) and the one primary are read and written by one request at a time. Also taken by `routers.images.upload_image` before it stores the picture, and by `routers.images.delete_image` on the items the photograph is filed on before it deletes it. `make_primary`, `move` and `detach` read the link again once its item is held, and refuse with 409 if it was moved or unfiled meanwhile |
 | `routers.users._admin_count` | `users` | single kind, no selling rows: the active managers, locked so two saves cannot each remove one of the last two |
-| `reference_merge._lock_items` | `inventory_item` | the items a merge moves, in id order, before any record under them is written -- an item edit writes the item first too |
+| `reference_merge._lock_items` | `inventory_item` | the items a merge moves, in id order, before any record under them is written -- an item edit holds or writes the item first too |
+| `routers.inventory._hold_item` | `inventory_item` | single kind: the item, before `set_item_errors` reads and rewrites its errors, and before an `update_item` that sets attributes (and holds no lock already) writes its links -- either would otherwise write the records before the item row, the inverse of a merge. Selects the id only, so the version column still refuses a save that landed in between |
 | `routers.customers.add_address` | `customer` | single kind: two default addresses added at once wait for each other rather than both inserting |
 
-One transaction-scoped advisory lock sits beside them:
-`image_store.hold_content`, keyed by a stored picture's hash. `ingest`
-holds it from its look for that hash to its commit, and
-`image_store.remove_unheld` holds it while it asks whether any row still
-names the files before deleting them -- so a delete never removes the
-files of the same picture uploaded again meanwhile, and two uploads of one
-picture are one row. `acquisitions.next_order_number` holds its own, over
-the generated purchase numbers.
+Two transaction-scoped advisory locks sit beside them:
+
+- `image_store.hold_content`, keyed by a stored picture's hash. `ingest`
+  holds it from its look for that hash to its commit, and
+  `image_store.remove_unheld` holds it while it asks whether any row still
+  names the files before deleting them -- so a delete never removes the
+  files of the same picture uploaded again meanwhile, and two uploads of one
+  picture are one row. `routers.images.delete_image` holds it from before it
+  deletes the image row until its commit, so an upload of the same picture
+  waits and stores it again rather than answering with the row being
+  deleted. `image_enlarge._enlarge` holds a new picture's hash from its look
+  until its batch commits, so one batch holds up to `image_enlarge.BATCH`
+  hashes across that many fetches.
+- `acquisitions.next_order_number`'s, over the generated purchase numbers,
+  held until the purchase that took the number commits.
+
+A request that holds both an item and a picture's hash holds the item first
+(`hold_items`, then `hold_content`): upload, fetch by web address and
+delete. `app.photo_import`, run by hand, stores a file before it finds the
+item and so takes them the other way.
 
 ## Related rules
 

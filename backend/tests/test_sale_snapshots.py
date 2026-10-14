@@ -36,9 +36,12 @@ def _order(
 def _status(
     client: TestClient, headers: dict[str, str], order_id: int, status: str
 ) -> None:
-    """Move the order to this status, which must be allowed."""
+    """Move the order to this status, from its current version; must be allowed."""
+    version = client.get(f"/api/orders/{order_id}", headers=headers).json()["version"]
     response = client.patch(
-        f"/api/orders/{order_id}", json={"status": status}, headers=headers
+        f"/api/orders/{order_id}",
+        json={"status": status, "version": version},
+        headers=headers,
     )
     assert response.status_code == 200, response.text
 

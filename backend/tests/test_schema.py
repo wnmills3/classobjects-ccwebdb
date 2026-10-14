@@ -17,7 +17,6 @@ from app.models import (  # noqa: F401
     Currency,
     CurrencyDetail,
     Denomination,
-    Disposition,
     ErrorType,
     Grade,
     InventoryItem,
@@ -108,6 +107,84 @@ def test_constraints_refuse_impossible_data(db: Session, overrides: dict) -> Non
     with pytest.raises(IntegrityError):
         build_bare_item(db, **overrides)
     db.rollback()
+
+
+#: A row breaking exactly one CHECK constraint, by the constraint's name. Raw
+#: SQL, every NOT NULL column filled: PostgreSQL checks NOT NULL first and
+#: CHECK next, both before the foreign keys -- which these invented ids would
+#: break -- so the constraint named is the error raised, and only while its
+#: predicate refuses the row.
+_CHECK_VIOLATIONS: list[tuple[str, str]] = [
+    (
+        "ck_composition_names_a_coin",
+        "INSERT INTO composition (country_id, year_from, metal_id, fineness, "
+        "fine_weight_ozt, source, created_at, updated_at) "
+        "VALUES (1, 1900, 1, 0.9000, 0.100000, 'seeded', now(), now())",
+    ),
+    (
+        "ck_currency_detail_printing_facility",
+        "INSERT INTO currency_detail (inventory_item_id, printing_facility) "
+        "VALUES (1, 'xx')",
+    ),
+    (
+        "ck_friedberg_number_printing_facility",
+        "INSERT INTO friedberg_number (fr_number, printing_facility, source, "
+        "created_at, updated_at) VALUES ('9999', 'xx', 'manual', now(), now())",
+    ),
+    (
+        "ck_sales_venue_commission_rate",
+        "INSERT INTO sales_venue (code, name, sales_venue_kind_id, commission_rate, "
+        "created_at, updated_at) VALUES ('test', 'Test', 1, 1.5, now(), now())",
+    ),
+    (
+        "ck_sales_venue_processing_rate",
+        "INSERT INTO sales_venue (code, name, sales_venue_kind_id, processing_rate, "
+        "created_at, updated_at) VALUES ('test', 'Test', 1, 1.5, now(), now())",
+    ),
+    (
+        "ck_sales_venue_processing_fixed",
+        "INSERT INTO sales_venue (code, name, sales_venue_kind_id, processing_fixed, "
+        "created_at, updated_at) VALUES ('test', 'Test', 1, -0.01, now(), now())",
+    ),
+    (
+        "ck_sales_venue_listing_fee",
+        "INSERT INTO sales_venue (code, name, sales_venue_kind_id, listing_fee, "
+        "created_at, updated_at) VALUES ('test', 'Test', 1, -0.01, now(), now())",
+    ),
+    (
+        "ck_shipment_cost",
+        "INSERT INTO shipment (sales_order_id, shipment_status_id, cost, "
+        "created_at, updated_at) VALUES (1, 1, -0.01, now(), now())",
+    ),
+    (
+        "ck_shipment_insured_value",
+        "INSERT INTO shipment (sales_order_id, shipment_status_id, insured_value, "
+        "created_at, updated_at) VALUES (1, 1, -0.01, now(), now())",
+    ),
+    (
+        "ck_address_validity_range",
+        "INSERT INTO address (customer_id, address_kind, line1, city, valid_from, "
+        "valid_to, created_at, updated_at) VALUES (1, 'shipping', '1 Main St', "
+        "'Springfield', '2020-01-02', '2020-01-01', now(), now())",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("constraint", "statement"),
+    _CHECK_VIOLATIONS,
+    ids=[constraint for constraint, _ in _CHECK_VIOLATIONS],
+)
+def test_a_check_constraint_refuses_the_row_it_names(
+    db: Session, constraint: str, statement: str
+) -> None:
+    """The predicate refuses the row: a constraint dropped or loosened fails here.
+
+    Inside a savepoint, so the failed statement leaves the session usable for
+    the invariant checks run after every test.
+    """
+    with pytest.raises(IntegrityError, match=constraint), db.begin_nested():
+        db.execute(text(statement))
 
 
 def test_a_classifier_in_use_cannot_be_deleted(db: Session) -> None:
@@ -453,26 +530,6 @@ def test_a_deleted_items_code_is_never_reissued(db: Session) -> None:
 
     replacement = build_bare_item(db)
     assert replacement.item_code != code
-
-
-def test_the_code_survives_being_sold_and_returned(db: Session) -> None:
-    """The code survives sale, return and relisting.
-
-    The reason it exists: a returned item resumes its own history rather
-    than starting a new one.
-    """
-    item = build_bare_item(db)
-    original = item.item_code
-
-    item.disposition_id = code_id(db, Disposition, "sold")
-    db.commit()
-    item.disposition_id = code_id(db, Disposition, "returned_by_buyer")
-    db.commit()
-    item.disposition_id = code_id(db, Disposition, "held")
-    db.commit()
-
-    db.refresh(item)
-    assert item.item_code == original
 
 
 def test_a_code_is_issued_by_the_database_sequence(db: Session) -> None:

@@ -300,9 +300,10 @@ def derived_code(
 ) -> str:
     """The code a value takes when none was sent.
 
-    A denomination's says what it is, as the shipped ones do --
-    `usd_coin_0_05`, `usd_note_100` -- so the same face value always has the
-    same code. Any other value is named for its label.
+    A denomination's says what it is -- `usd_coin_0_05`, `usd_note_100` --
+    with a coin's face value written to the cent and a note's as it is read,
+    trailing zeros dropped: a 50-cent note derives `usd_note_0_5`, where the
+    shipped one is `usd_note_0_50`. Any other value is named for its label.
     """
     if model.__tablename__ == "denomination":
         currency = _BY_TABLE["currency"]

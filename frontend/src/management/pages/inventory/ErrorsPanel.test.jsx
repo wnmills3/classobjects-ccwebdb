@@ -119,6 +119,60 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     ])
   })
 
+  it('bases a save made while another is out on that one, not on the set read', async () => {
+    const user = userEvent.setup()
+    api.getItemErrors.mockResolvedValue({
+      inventory_item_id: 12,
+      errors: [
+        { error_type: 'miscut', details: 'note a', source: 'manual', noted_at: '' },
+        {
+          error_type: 'inverted_overprint',
+          details: null,
+          source: 'manual',
+          noted_at: '',
+        },
+      ],
+    })
+    let answer
+    api.setItemErrors
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve
+        }),
+      )
+      .mockResolvedValue({ inventory_item_id: 12, errors: [] })
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: vocabularies,
+    })
+    const input = await screen.findByLabelText('Miscut details')
+
+    // The note box is left by the press on Remove: two saves, one after the
+    // other, the first still unanswered when the second is asked for.
+    await user.type(input, ' b')
+    await user.click(screen.getByRole('button', { name: 'Remove Inverted Overprint' }))
+    answer({ inventory_item_id: 12, errors: [] })
+
+    await vi.waitFor(() => expect(api.setItemErrors).toHaveBeenCalledTimes(2))
+    const [first, second] = api.setItemErrors.mock.calls
+    expect(second[1]).toEqual([{ error_type: 'miscut', details: 'note a b' }])
+    // What the first save sent is what the server holds when the second
+    // arrives: anything else is refused as someone else's change.
+    expect(second[2].base).toEqual(first[1])
+  })
+
+  it('says an error must be chosen when Add error is pressed with none, and saves nothing', async () => {
+    const user = userEvent.setup()
+    api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: vocabularies,
+    })
+    const add = await screen.findByRole('button', { name: 'Add error' })
+    expect(add).toBeEnabled()
+    await user.click(add)
+    expect(screen.getByText('Choose the error first.')).toBeVisible()
+    expect(api.setItemErrors).not.toHaveBeenCalled()
+  })
+
   it('does not offer a type already recorded', async () => {
     api.getItemErrors.mockResolvedValue({
       inventory_item_id: 12,

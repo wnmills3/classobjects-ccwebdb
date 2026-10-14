@@ -47,6 +47,11 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   // as `base` so a save over someone else's change since is refused. Not
   // `rows`: a change that failed to save is in `rows` and not on the server.
   const saved = useRef(null)
+  // The saves, one after another. A save asked for while another is out
+  // waits for it, so its base is what that one left on the server: sent at
+  // once, it would carry the set read before, and the server would refuse
+  // it as overwriting someone else's change.
+  const saving = useRef(Promise.resolve())
   // Why the set could not be read, while it could not; and a count of the
   // readings asked for, so "Try again" reads it once more. Until it has been
   // read there is nothing to edit: every change sends the whole set, and one
@@ -110,7 +115,8 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   }
 
   /**
-   * PUTs the whole set. No-op in the controlled mode -- the caller sends it.
+   * PUTs the whole set, after any save still out. No-op in the controlled
+   * mode -- the caller sends it.
    *
    * No "still mounted?" guard (`useMounted`): both continuations only call
    * this panel's own `setError`, and React 19 makes a `setState` on an
@@ -119,19 +125,27 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   function save(next) {
     if (controlled) return
     const sending = withNoEmptyDetails(next)
-    api
-      .setItemErrors(itemId, sending, {
-        acknowledgeForSale: acknowledged,
-        base: saved.current,
-      })
-      .then(() => {
-        saved.current = sending
-        setError('')
-      })
-      .catch((err) => setError(err.message))
+    saving.current = saving.current.then(() =>
+      api
+        .setItemErrors(itemId, sending, {
+          acknowledgeForSale: acknowledged,
+          base: saved.current,
+        })
+        .then(() => {
+          saved.current = sending
+          setError('')
+        })
+        .catch((err) => setError(err.message)),
+    )
   }
 
   function addRow() {
+    // Live with nothing chosen, and says what it wants rather than greying.
+    if (!type) {
+      setError('Choose the error first.')
+      return
+    }
+    setError('')
     const next = [
       ...list,
       { error_type: type, details: details === '' ? null : details },
@@ -247,7 +261,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
               value={details}
               onChange={(e) => setDetails(e.target.value)}
             />
-            <button type="button" onClick={addRow} disabled={!type}>
+            <button type="button" onClick={addRow}>
               Add error
             </button>
           </div>

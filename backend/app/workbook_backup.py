@@ -44,10 +44,11 @@ sheet or in none.
 create one and run `alembic upgrade head` against it. Any rows the
 migrations put there are removed first, the tables are loaded in
 foreign-key order (a column that points at its own table, or at one loaded
-later, is filled in a second pass), and every id sequence is moved past the
-highest id. It refuses the live database -- identified by the server, not
-by how the URL is spelled -- and any database that already holds inventory
-items: restore into a new one, compare it, then switch to it. A workbook
+later, is filled in a second pass), every id sequence is moved past the
+highest id, and the item-code sequence past the highest item code. It
+refuses the live database -- identified by the server, not by how the URL
+is spelled -- and any database that already holds inventory items: restore
+into a new one, compare it, then switch to it. A workbook
 with a sheet the database has no table for is refused too, rather than
 loaded without it.
 
@@ -117,7 +118,14 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.types import TypeEngine
 
 from . import media_backup
-from .backup import generated_columns, resync_sequence, stored_columns
+from .backup import (
+    HIGHEST_ITEM_CODE,
+    ITEM_CODE_SEQUENCE,
+    generated_columns,
+    resync_item_codes,
+    resync_sequence,
+    stored_columns,
+)
 from .cell_text import keep_text
 from .config import REPO_ROOT, settings
 from .storage import get_storage
@@ -965,6 +973,7 @@ def _load(engine: Engine, book: Workbook, *, unknown_for_missing: bool) -> Impor
             _second_pass(conn, part)
         for table in tables:
             resync_sequence(conn, conn.dialect, table)
+            resync_item_codes(conn, conn.dialect, table)
     return Imported(counts, substituted)
 
 
@@ -1057,7 +1066,9 @@ def _second_pass(conn: Connection, part: _Loaded) -> None:
 class Difference:
     """A table whose contents differ between two databases.
 
-    A side that does not have the table at all counts -1 rows.
+    A side that does not have the table at all counts -1 rows. For the
+    item-code sequence (`ITEM_CODE_SEQUENCE`) the two numbers are the code
+    each side would issue next, -1 for a side without one.
     """
 
     table: str
@@ -1082,10 +1093,34 @@ def _digest(conn: Connection, table: Table) -> tuple[int, str]:
     return int(row[0]), str(row[1])
 
 
+def _item_codes(conn: Connection, tables: dict[str, Table]) -> tuple[int, int] | None:
+    """The item code the sequence issues next, and the highest one held.
+
+    None for a database with no item codes to issue: no item table with a
+    code, or no sequence. Read without drawing from the sequence.
+    """
+    items = tables.get("inventory_item")
+    if items is None or "item_code" not in items.columns:
+        return None
+    found = conn.execute(text("SELECT to_regclass(:s)"), {"s": ITEM_CODE_SEQUENCE})
+    if found.scalar() is None:
+        return None
+    quoted = conn.dialect.identifier_preparer.quote(ITEM_CODE_SEQUENCE)
+    state = text(f"SELECT last_value, is_called FROM {quoted}")
+    last, called = conn.execute(state).one()
+    highest = conn.execute(text(HIGHEST_ITEM_CODE)).scalar()
+    upcoming = int(last) + 1 if called else int(last)
+    return upcoming, int(highest or 0)
+
+
 def compare(left: Engine, right: Engine) -> list[Difference]:
     """Every table whose rows differ, compared cell by cell through a digest.
 
     A table only one side has is a difference too, whichever side that is.
+    So is an item-code sequence that would issue, on either side, a code that
+    side already holds: equal rows that refuse the next item are no restore.
+    The sequences are not compared with each other -- a code drawn and never
+    kept leaves live's past its highest code, as no restore's can be.
     Each side is read in one snapshot, so a row saved while the comparison
     runs is not seen in one table and missed in another.
     """
@@ -1099,6 +1134,16 @@ def compare(left: Engine, right: Engine) -> list[Difference]:
     ):
         if _revision(a) != _revision(b):
             out.append(Difference(VERSION_TABLE, 1, 1))
+        left_codes = _item_codes(a, {t.name: t for t in tables})
+        right_codes = _item_codes(b, others)
+        if any(codes[0] <= codes[1] for codes in (left_codes, right_codes) if codes):
+            out.append(
+                Difference(
+                    ITEM_CODE_SEQUENCE,
+                    left_codes[0] if left_codes else -1,
+                    right_codes[0] if right_codes else -1,
+                )
+            )
         for table in tables:
             other = others.pop(table.name, None)
             if other is None:

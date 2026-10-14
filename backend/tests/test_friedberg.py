@@ -22,11 +22,12 @@ from app.models import (
     SealColor,
     User,
 )
+from app.routers import friedberg as friedberg_router
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item, code_id
+from tests.builders import build_bare_item, code_id, patch_current
 
 
 def _currency_item(db: Session, **overrides: object) -> InventoryItem:
@@ -1062,3 +1063,181 @@ def test_correcting_a_number_to_lgs_checks_the_rows_seal(
         headers=admin_headers,
     )
     assert refused.status_code == 422, refused.text
+
+
+def test_correcting_a_number_to_lgs_checks_the_seal_of_every_note_holding_it(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The notes hold the row, so a corrected number is what each one shows."""
+    _light_green(db)
+    row = _add_friedberg(db, fr_number="9946-B")
+    green_note = _currency_item(db)
+    assert green_note.currency_detail is not None
+    green_note.currency_detail.seal_color_id = code_id(db, SealColor, "green")
+    green_note.currency_detail.friedberg_id = row.id
+    db.commit()
+
+    refused = client.patch(
+        f"/api/friedberg/{row.id}",
+        json={"fr_number": "9946-B LGS"},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert "light green" in refused.json()["detail"].lower()
+    db.expire_all()
+    assert db.get_one(FriedbergNumber, row.id).fr_number == "9946-B"
+
+    # A note with no seal recorded contradicts nothing.
+    unsealed = _add_friedberg(db, fr_number="9947-B")
+    blank_note = _currency_item(db)
+    assert blank_note.currency_detail is not None
+    blank_note.currency_detail.friedberg_id = unsealed.id
+    db.commit()
+    corrected = client.patch(
+        f"/api/friedberg/{unsealed.id}",
+        json={"fr_number": "9947-B LGS"},
+        headers=admin_headers,
+    )
+    assert corrected.status_code == 200, corrected.text
+
+
+def test_a_notes_seal_cannot_be_changed_against_its_lgs_number(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The seal is checked against the number it holds, whichever changes."""
+    light = _light_green(db)
+    note = _currency_item(db)
+    assert note.currency_detail is not None
+    note.currency_detail.seal_color_id = light
+    row = _add_friedberg(db, fr_number="9948-B LGS")
+    note.currency_detail.friedberg_id = row.id
+    db.commit()
+
+    refused = patch_current(
+        client,
+        f"/api/inventory/{note.id}",
+        json={"seal_color": "green"},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert "9948-B LGS" in refused.json()["detail"]
+    db.expire_all()
+    assert db.get_one(CurrencyDetail, note.id).seal_color_id == light
+
+
+def _delete_behind_the_session(db: Session, row_id: int) -> None:
+    """Delete a catalog row as another request would: unseen by this session.
+
+    `synchronize_session=False` leaves the row the request loaded in place,
+    so its own write meets the database's refusal, not the session's.
+    """
+    db.execute(
+        delete(FriedbergNumber)
+        .where(FriedbergNumber.id == row_id)
+        .execution_options(synchronize_session=False)
+    )
+
+
+def test_attaching_a_row_deleted_since_it_was_read_is_a_422_not_a_500(
+    db: Session,
+    client: TestClient,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row goes between the attach reading it and committing.
+
+    Simulated by deleting it at the attach's last check, as the Lists page's
+    delete would if it committed then: the foreign key refuses the attach,
+    and that reads as the unknown id it now is.
+    """
+    item = _currency_item(db)
+    row_id = _add_friedberg(db, fr_number="9949").id
+    monkeypatch.setattr(
+        friedberg_router,
+        "_refuse_shade_mismatch",
+        lambda *_args: _delete_behind_the_session(db, row_id),
+    )
+
+    resp = client.post(
+        f"/api/inventory/{item.id}/friedberg",
+        json={"friedberg_id": row_id, "status": "proposed"},
+        headers=admin_headers,
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert str(row_id) in resp.json()["detail"]
+    db.expire_all()
+    assert db.get_one(CurrencyDetail, item.id).friedberg_id is None
+
+
+def test_correcting_a_row_deleted_since_it_was_read_is_a_404_not_a_500(
+    db: Session,
+    client: TestClient,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row goes between the correction reading it and committing."""
+    row_id = _add_friedberg(db, fr_number="9950").id
+    monkeypatch.setattr(
+        friedberg_router,
+        "_refuse_shade_mismatch",
+        lambda *_args: _delete_behind_the_session(db, row_id),
+    )
+
+    resp = client.patch(
+        f"/api/friedberg/{row_id}",
+        json={"fr_number": "9950-B"},
+        headers=admin_headers,
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert str(row_id) in resp.json()["detail"]
+
+
+def test_a_series_letter_is_kept_in_capitals(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """`a` and `A` are one series, so they are one type."""
+    first = client.post(
+        "/api/friedberg",
+        json=_typed("9956-B", None) | {"series_letter": "a"},
+        headers=admin_headers,
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["series_letter"] == "A"
+
+    again = client.post(
+        "/api/friedberg",
+        json=_typed("9957-B", None) | {"series_letter": "A"},
+        headers=admin_headers,
+    )
+    assert again.status_code == 409, again.text
+    assert again.json()["existing"]["fr_number"] == "9956-B"
+
+    # A search in lower case finds what is kept in capitals.
+    resp = client.get(
+        "/api/friedberg",
+        params={"series_letter": "a", "district_letter": "b"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert [row["fr_number"] for row in resp.json()] == ["9956-B"]
+
+
+def test_a_numbers_letter_in_either_case_is_one_number(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """`9958A` and `9958a` are the same number, so the second is a 409."""
+    first = client.post(
+        "/api/friedberg", json={"fr_number": "9958A"}, headers=admin_headers
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["fr_number"] == "9958a"
+
+    again = client.post(
+        "/api/friedberg", json={"fr_number": "9958a"}, headers=admin_headers
+    )
+    assert again.status_code == 409, again.text
+    assert str(first.json()["id"]) in again.json()["detail"]

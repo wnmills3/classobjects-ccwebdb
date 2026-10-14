@@ -1321,7 +1321,10 @@ def test_settlement_ends_only_item_listings_it_did_not_name(
     Every listing pointing at another through `paused_by_listing_id` is an
     item listing (`sales_lot_id IS NULL`). If that ever stops being true,
     `end_offer(sold=True)`'s second `_end` would dissolve a lot whose row
-    this transaction may not hold, and this test is what says so first.
+    this transaction may not hold. This fixture pauses only an item listing,
+    so it cannot itself build a paused lot listing; the refusal that keeps
+    one from existing is
+    `test_a_lot_listing_can_never_be_paused_by_another_offer`'s to measure.
 
     The pause is inspected **before** `settle`, and the set is asserted to
     be exactly the one listing rather than merely lot-free: `_end` clears

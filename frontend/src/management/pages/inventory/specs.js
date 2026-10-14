@@ -39,7 +39,12 @@ export const SHARED_KEYS = {
 //: number -- matched in part, on both views. It has no letter: every letter
 //: of its label that the browser leaves free is another field's on one view
 //: or the other.
-const SELLERS_ITEM_ID = ["Seller's item id", 'sellers_item_id', '900000000003', null]
+const SELLERS_ITEM_ID = [
+  "Seller's item id",
+  'sellers_item_id',
+  'eBay item number',
+  null,
+]
 
 //: What an item carries rather than what it is: a recorded error (off
 //: center, miscut) and an attribute (Star Note, Radar, First Strike). On
@@ -100,7 +105,7 @@ export const COIN_VIEW = {
   textFilters: [
     ['Item code', 'item_code', 'CC-000123', 'i'],
     SELLERS_ITEM_ID,
-    ['Grade', 'grade', '65, 55%, BU+, BU%, PR69+', 'g'],
+    ['Grade', 'grade', 'a grade, or a range like BU%', 'g'],
   ],
   facetFilters: [
     ['Denomination', 'denomination', 'denomination', 'm'],
@@ -178,7 +183,7 @@ export const CURRENCY_VIEW = {
     ['Item code', 'item_code', 'CC-000123', 'i'],
     SELLERS_ITEM_ID,
     // Typed, as on the coin view: 64, 64%, UNC, UNC%.
-    ['Grade', 'grade', '64, 58%, UNC, UNC%', 'g'],
+    ['Grade', 'grade', 'a grade, or a range like UNC%', 'g'],
   ],
   facetFilters: [
     ['Denomination', 'denomination', 'denomination', 'm'],

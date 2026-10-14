@@ -160,13 +160,10 @@ def test_auction_transitions_are_admin_only(
     for path in ("/api/auctions/1/lots/1",):
         assert client.delete(path).status_code == 401
         assert client.delete(path, headers=customer_headers).status_code == 403
-        assert client.patch(path, json={"lot_number": "1A"}).status_code == 401
-        assert (
-            client.patch(
-                path, json={"lot_number": "1A"}, headers=customer_headers
-            ).status_code
-            == 403
-        )
+        body = {"lot_number": "1A", "version": 1}
+        assert client.patch(path, json=body).status_code == 401
+        refused = client.patch(path, json=body, headers=customer_headers)
+        assert refused.status_code == 403
 
 
 # --------------------------------------------------------------------------
@@ -289,14 +286,26 @@ def test_updating_an_auction_and_a_stale_version(
 
 
 def test_updating_an_auction_s_title_to_null_is_unprocessable(
-    client: TestClient, admin_headers: dict[str, str], draft_auction: Auction
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    draft_auction: Auction,
 ) -> None:
+    """The router's own refusal, not the schema's.
+
+    The body carries the current version, so the request is valid in every
+    other way: without it, the schema answers 422 for the missing version and
+    the null title is never looked at.
+    """
     response = client.patch(
         f"/api/auctions/{draft_auction.id}",
         headers=admin_headers,
-        json={"title": None},
+        json={"title": None, "version": draft_auction.version},
     )
     assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "title cannot be null"
+    db.expire_all()
+    assert db.get_one(Auction, draft_auction.id).title == "September Signature Sale"
 
 
 # --------------------------------------------------------------------------
@@ -552,16 +561,88 @@ def test_renumbering_a_lot(
         json={"lot_number": "1", "item_id": item.id, "price": "1.00"},
     )
     lot_id = added.json()["lots"][0]["id"]
+    version = added.json()["version"]
 
     response = client.patch(
         f"/api/auctions/{draft_auction.id}/lots/{lot_id}",
         headers=admin_headers,
-        json={"lot_number": "1A", "reserve": "15.00"},
+        json={"lot_number": "1A", "reserve": "15.00", "version": version},
     )
     assert response.status_code == 200, response.text
     row = response.json()["lots"][0]
     assert row["lot_number"] == "1A"
     assert row["reserve"] == "15.00"
+    # The auction's version is the lot's token, so a lot edit moves it.
+    assert response.json()["version"] > version
+
+
+def test_a_lot_edit_without_the_auction_s_version_is_refused(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    draft_auction: Auction,
+    make_item: ItemFactory,
+) -> None:
+    item = make_item()
+    added = client.post(
+        f"/api/auctions/{draft_auction.id}/lots",
+        headers=admin_headers,
+        json={"lot_number": "1", "item_id": item.id, "price": "1.00"},
+    )
+    lot_id = added.json()["lots"][0]["id"]
+
+    refused = client.patch(
+        f"/api/auctions/{draft_auction.id}/lots/{lot_id}",
+        headers=admin_headers,
+        json={"lot_number": "1A"},
+    )
+
+    assert refused.status_code == 422, refused.text
+    missing = [error["loc"] for error in refused.json()["detail"]]
+    assert ["body", "version"] in missing
+
+
+def test_a_second_lot_edit_from_the_same_loaded_page_is_a_conflict(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    draft_auction: Auction,
+    make_item: ItemFactory,
+) -> None:
+    """Two people editing one lot from one loaded page: the second is told.
+
+    A lot row carries no version of its own, so the auction's stands for
+    it: each lot edit moves it, and a token from before the first edit no
+    longer matches. Without that, the second save would overwrite the
+    first's reserve unseen.
+    """
+    item = make_item()
+    added = client.post(
+        f"/api/auctions/{draft_auction.id}/lots",
+        headers=admin_headers,
+        json={"lot_number": "1", "item_id": item.id, "price": "1.00"},
+    )
+    lot_id = added.json()["lots"][0]["id"]
+    loaded = added.json()["version"]
+
+    first = client.patch(
+        f"/api/auctions/{draft_auction.id}/lots/{lot_id}",
+        headers=admin_headers,
+        json={"lot_number": "1", "reserve": "150.00", "version": loaded},
+    )
+    assert first.status_code == 200, first.text
+
+    second = client.patch(
+        f"/api/auctions/{draft_auction.id}/lots/{lot_id}",
+        headers=admin_headers,
+        json={"lot_number": "3A", "reserve": None, "version": loaded},
+    )
+    assert second.status_code == 409, second.text
+    assert "changed by someone else" in second.json()["detail"]
+
+    db.expire_all()
+    row = db.get_one(AuctionLot, lot_id)
+    assert row.lot_number == "1"
+    assert row.reserve == Decimal("150.00")
 
 
 def test_renumbering_a_lot_in_a_closed_auction_is_refused(
@@ -584,7 +665,7 @@ def test_renumbering_a_lot_in_a_closed_auction_is_refused(
     response = client.patch(
         f"/api/auctions/{closed_auction_of_two_lots.id}/lots/{lot.id}",
         headers=admin_headers,
-        json={"lot_number": "1A"},
+        json={"lot_number": "1A", "version": closed_auction_of_two_lots.version},
     )
     assert response.status_code == 409, response.text
     assert "closed" in response.json()["detail"]
@@ -618,6 +699,7 @@ def test_renumbering_is_decided_on_the_auction_as_it_is_not_as_it_was_read(
     )
     assert added.status_code == 201, added.text
     lot_id = added.json()["lots"][0]["id"]
+    version = added.json()["version"]
 
     # Loaded before the row changes, so the identity map holds `scheduled`.
     assert scheduled_auction.status is AuctionStatus.scheduled
@@ -632,7 +714,7 @@ def test_renumbering_is_decided_on_the_auction_as_it_is_not_as_it_was_read(
     response = client.patch(
         f"/api/auctions/{scheduled_auction.id}/lots/{lot_id}",
         headers=admin_headers,
-        json={"lot_number": "1A"},
+        json={"lot_number": "1A", "version": version},
     )
     assert response.status_code == 409, response.text
     assert "closed" in response.json()["detail"]
@@ -662,7 +744,7 @@ def test_renumbering_a_lot_while_scheduled(
     response = client.patch(
         f"/api/auctions/{scheduled_auction.id}/lots/{lot_id}",
         headers=admin_headers,
-        json={"lot_number": "1A"},
+        json={"lot_number": "1A", "version": added.json()["version"]},
     )
     assert response.status_code == 200, response.text
     assert response.json()["lots"][0]["lot_number"] == "1A"
@@ -698,7 +780,7 @@ def test_renumbering_a_lot_while_consigned(
     response = client.patch(
         f"/api/auctions/{scheduled_auction.id}/lots/{lot_id}",
         headers=admin_headers,
-        json={"lot_number": "1A"},
+        json={"lot_number": "1A", "version": consigned.json()["version"]},
     )
     assert response.status_code == 200, response.text
     assert response.json()["lots"][0]["lot_number"] == "1A"
@@ -720,9 +802,10 @@ def test_renumbering_a_lot_to_null_is_unprocessable(
     response = client.patch(
         f"/api/auctions/{draft_auction.id}/lots/{lot_id}",
         headers=admin_headers,
-        json={"lot_number": None},
+        json={"lot_number": None, "version": added.json()["version"]},
     )
     assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "lot_number cannot be null"
 
 
 def test_renumbering_a_lot_to_a_number_already_used_is_a_conflict(
@@ -748,9 +831,10 @@ def test_renumbering_a_lot_to_a_number_already_used_is_a_conflict(
     response = client.patch(
         f"/api/auctions/{draft_auction.id}/lots/{lot_id}",
         headers=admin_headers,
-        json={"lot_number": "1"},
+        json={"lot_number": "1", "version": added.json()["version"]},
     )
     assert response.status_code == 409, response.text
+    assert "already used" in response.json()["detail"]
 
 
 # --------------------------------------------------------------------------

@@ -7,8 +7,9 @@ import ModalDialog from './ModalDialog'
  * the thing about to change rather than asking "are you sure": the page
  * behind is covered while the dialog is open. `children` says what the
  * action does. The confirm button reads `confirmLabel`, or `busyLabel` while
- * the request is out, and is disabled then and whenever `disabled` says the
- * answer is not complete yet; the other button, `cancelLabel`, backs out.
+ * the request is out, and is disabled only then; the other button,
+ * `cancelLabel`, backs out. An answer that is not complete yet keeps the
+ * button live: `onConfirm` says what is missing when it is pressed.
  */
 export default function ConfirmDialog({
   question,
@@ -16,7 +17,6 @@ export default function ConfirmDialog({
   busyLabel,
   cancelLabel,
   busy,
-  disabled = false,
   onConfirm,
   onCancel,
   children,
@@ -26,7 +26,7 @@ export default function ConfirmDialog({
       <h2>{question}</h2>
       {children}
       <div className="row">
-        <button disabled={busy || disabled} onClick={onConfirm}>
+        <button disabled={busy} onClick={onConfirm}>
           {busy ? busyLabel : confirmLabel}
         </button>
         <button className="link" onClick={onCancel}>

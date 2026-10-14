@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import and_, case, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from .. import listing_links
 from ..deps import AdminUser, DbSession
 from ..item_history import location_label
 from ..live import OUTSTANDING_STATUSES, live_item
@@ -351,6 +352,7 @@ def get_purchase_order(
         seller=order.seller.name if order.seller is not None else None,
         seller_url=order.seller.store_url if order.seller is not None else None,
         notes=order.notes,
+        lot_page=listing_links.lot_page(db, order),
         lines=[
             PurchaseOrderLineOut(
                 id=item.id,

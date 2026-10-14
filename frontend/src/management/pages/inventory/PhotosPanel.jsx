@@ -107,6 +107,7 @@ export default function PhotosPanel({
   const vocabulary = useReference('image_role', { includeRetired: true }) ?? []
   const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
   const [address, setAddress] = useState('')
+  const [addressError, setAddressError] = useState('')
   // The photograph whose Move picker is open, and what it last refused.
   const [moving, setMoving] = useState(null)
   const [moveError, setMoveError] = useState('')
@@ -149,6 +150,12 @@ export default function PhotosPanel({
   const drop = useImageDrop({ onImages: addImages })
 
   function addFromAddress() {
+    // The button stays live: pressed with no address, it says what is missing.
+    if (!address.trim()) {
+      setAddressError('Type or paste a web address first.')
+      return
+    }
+    setAddressError('')
     onAdd({ kind: 'url', url: address.trim(), role: nextSide })
     setAddress('')
   }
@@ -363,12 +370,16 @@ export default function PhotosPanel({
               type="url"
               placeholder="https://"
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
+              onChange={(e) => {
+                setAddress(e.target.value)
+                setAddressError('')
+              }}
             />
           </label>
-          <button type="button" onClick={addFromAddress} disabled={!address.trim()}>
+          <button type="button" onClick={addFromAddress}>
             Add from web address
           </button>
+          {addressError && <p className="error">{addressError}</p>}
         </div>
       )}
     </div>

@@ -12,7 +12,6 @@ separating them.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 
 from sqlalchemy import func, select
@@ -28,6 +27,7 @@ from .imaging import (
     original_key,
 )
 from .models import DerivativeKind, Image, ImageDerivative
+from .purchases import WEB_ADDRESS
 from .storage import StorageBackend, get_storage
 
 __all__ = [
@@ -43,12 +43,10 @@ __all__ = [
 #: content's hash: see `hold_content`.
 _CONTENT_LOCK = 2026101401
 
-_WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
-
 
 def is_web_address(value: str | None) -> bool:
     """Whether `value` is an `http(s)` address: the only kind kept as a source."""
-    return bool(value and _WEB_ADDRESS.match(value))
+    return bool(value and WEB_ADDRESS.match(value))
 
 
 #: Longest edge per rendition. Both are generated at ingest rather than on
@@ -91,8 +89,9 @@ def hold_content(db: Session, sha256: str) -> None:
 
     A stored file is named by its content's hash, so every row holding the
     same picture names the same files. Without this, an upload of a picture
-    being deleted could insert its row between the delete's commit and its
-    removal of the files, and be left a row with no bytes; and two uploads
+    being deleted could find the row the delete has not yet committed and
+    answer with it, or insert its own row between the delete's commit and
+    its removal of the files -- either way left with no bytes; and two uploads
     of one picture at once could each find no row and each insert one, the
     second refused by `uq_image_sha256` with an error. Holding the hash, the
     second waits for the first to commit and then reads what it wrote.

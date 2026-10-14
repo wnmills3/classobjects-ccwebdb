@@ -290,39 +290,64 @@ def _refuse_unlistable(
 ) -> None:
     """422 for a batch whose shape this platform cannot list, before any write.
 
-    Two rules that read only the request and the platform, so they are
-    decided ahead of the first item or lot being looked up: the quantity,
-    then a shop lot's title.
+    Rules that read only the request and the platform, so they are decided
+    ahead of the first item or lot being looked up: the quantity, the
+    format, then a shop lot's title.
     """
-    # Off the store a listing is one unit. An outside sale is recorded as a
-    # line of one that ends the listing (`sales_writes.SaleLine`), so a
-    # listing of several would end with units still on it and its item
-    # still `listed` behind a sale.
-    if payload.quantity > 1 and not venue.is_own_store:
+    # An offer is one unit, wherever it is made. An item is one record with
+    # one cost, and gain reporting counts that cost against every share an
+    # order line writes for it, so units sold separately would count it once
+    # each. An outside sale is also recorded as a line of one that ends the
+    # listing (`sales_writes.SaleLine`), so a listing of several would end
+    # with units still on it and its item still `listed` behind a sale.
+    if payload.quantity > 1:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                f"quantity must be 1 on {venue.name}: only the web store "
-                "sells an item a unit at a time"
+                f"quantity must be 1 on {venue.name}: an item is offered as one unit"
             ),
         )
 
-    # A lot offered in the shop is named to buyers by this title and nothing
-    # else: an item listing left untitled is named by its item, but a lot has
-    # no item, and its own title is the group's working name, which the
-    # catalog does not show (`routers.catalog._lot_entry`).
-    if (
-        payload.lot_id is not None
-        and venue.is_own_store
-        and listing_format is ListingFormat.fixed_price
-        and not payload.title.strip()
-    ):
+    # The shop sells at a fixed price through checkout and nothing else: an
+    # auction listing there would hold its items while the catalog could not
+    # show it, checkout could not sell it and Record sale refuses a store
+    # listing.
+    if venue.is_own_store and listing_format is not ListingFormat.fixed_price:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                "title is required to offer a lot in the web store: it is "
-                "the only name a buyer sees"
+                f"{venue.name} sells at a fixed price through checkout: "
+                "offer an auction on another platform"
             ),
+        )
+
+    if payload.lot_id is not None and venue.is_own_store and not payload.title.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=_UNTITLED_LOT
+        )
+
+
+#: Why a shop lot needs a title. A lot offered in the shop is named to buyers
+#: by its listing's title and nothing else: an item listing left untitled is
+#: named by its item, but a lot has no item, and its own title is the group's
+#: working name, which the catalog does not show
+#: (`routers.catalog._lot_entry`). Asked when the lot is offered and when its
+#: listing is edited.
+_UNTITLED_LOT = (
+    "title is required for a lot in the web store: it is the only name a buyer sees"
+)
+
+
+def _refuse_untitled_shop_lot(listing: Listing, data: dict[str, Any]) -> None:
+    """422 if an edit would blank the title of a lot listing in the shop."""
+    if (
+        "title" in data
+        and listing.sales_lot_id is not None
+        and listing.sales_venue.is_own_store
+        and not str(data["title"]).strip()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=_UNTITLED_LOT
         )
 
 
@@ -405,8 +430,15 @@ def create_offers(
         # first offer: `offer` locks only the item it is given, so a batch
         # taken one item at a time, in the order it was typed, can hold one
         # coin while a checkout holds another, each waiting on the other.
-        offering_writes.lock_for_sale(
-            db, item_ids=[line.item_id for line in payload.items]
+        item_ids = [line.item_id for line in payload.items]
+        locked = offering_writes.lock_for_sale(db, item_ids=item_ids)
+        # Each `offer` below takes its own pass, which takes the lot rows of
+        # the live offers holding its item. A lot offered between this pass's
+        # unlocked read and its item lock has no lot row held here, and that
+        # later pass would take it while these items are held: lots after
+        # items, the inversion a checkout of that lot deadlocks against.
+        offering_writes.refuse_if_lot_unheld(
+            offering_writes.offers_holding(db, item_ids), locked.lot_ids
         )
         for line in payload.items:
             item = item_by_id(db, line.item_id)
@@ -609,6 +641,7 @@ def update_listing(
     refuse_stale_version(data.pop("version", None), listing.version, _STALE)
     refuse_null_required(data, _REQUIRED_ON_UPDATE)
     _refuse_rewriting_an_ended_offer(listing, data)
+    _refuse_untitled_shop_lot(listing, data)
 
     for field, value in data.items():
         setattr(listing, field, value)

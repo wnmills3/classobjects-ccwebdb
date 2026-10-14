@@ -121,11 +121,13 @@ describe('owner Orders', () => {
     ])
   })
 
-  it('changes a status and reloads the list', async () => {
+  it('changes a status, from the version it was read at, and reloads the list', async () => {
+    // The version is what lets the server refuse a status chosen from a page
+    // read before someone else moved the order on.
     const user = await renderPage()
     await user.selectOptions(within(rowFor(12)).getByRole('combobox'), 'shipped')
 
-    expect(api.setOrderStatus).toHaveBeenCalledWith(12, 'shipped')
+    expect(api.setOrderStatus).toHaveBeenCalledWith(12, 'shipped', 1)
     await waitFor(() => expect(api.listOrders).toHaveBeenCalledTimes(2))
   })
 
@@ -144,7 +146,7 @@ describe('owner Orders', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const user = await renderPage()
     await user.selectOptions(within(rowFor(12)).getByRole('combobox'), 'cancelled')
-    expect(api.setOrderStatus).toHaveBeenCalledWith(12, 'cancelled')
+    expect(api.setOrderStatus).toHaveBeenCalledWith(12, 'cancelled', 1)
   })
 
   it('asks before refunding an unshipped order, whose stock goes back', async () => {
@@ -156,66 +158,82 @@ describe('owner Orders', () => {
     expect(api.setOrderStatus).not.toHaveBeenCalled()
   })
 
-  it('does not offer a refund before shipping for a sale made on another platform', async () => {
+  /** The page over these orders, loaded, with a user to drive it. */
+  async function renderOrders(orders) {
+    api.listOrders.mockResolvedValue(orders)
+    const user = userEvent.setup()
+    renderWithProviders(<Orders />, {
+      auth: adminAuth(),
+      route: '/orders',
+      strict: true,
+    })
+    await screen.findByText('Ada Lovelace')
+    return user
+  }
+
+  /**
+   * Choose `status` for order 12 and expect it refused on the page: nothing
+   * sent, no confirmation asked, the reason shown, and every option still
+   * live -- a greyed-out choice cannot say why.
+   */
+  async function expectRefusedHere(user, status, reason) {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const select = within(rowFor(12)).getByRole('combobox')
+    for (const option of within(select).getAllByRole('option')) {
+      expect(option).toBeEnabled()
+    }
+    expect(select).toBeEnabled()
+
+    await user.selectOptions(select, status)
+
+    expect(await screen.findByText(reason)).toBeInTheDocument()
+    expect(api.setOrderStatus).not.toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(within(rowFor(12)).getByRole('combobox')).toHaveValue(ORDERS[0].status)
+  }
+
+  it('says why a refund before shipping is refused for a sale made on another platform', async () => {
     // Refunding it would return stock to a listing the sale ended; the
     // server refuses that as it refuses a cancellation.
-    api.listOrders.mockResolvedValue([
+    const user = await renderOrders([
       { ...ORDERS[0], sales_venue_code: 'ebay', sales_venue_name: 'eBay' },
     ])
-    renderWithProviders(<Orders />, {
-      auth: adminAuth(),
-      route: '/orders',
-      strict: true,
-    })
-    await screen.findByText('Ada Lovelace')
+    await expectRefusedHere(user, 'refunded', /Sold on eBay.*no stock to return/)
+  })
+
+  it('says why a cancelled order cannot be moved on, and sends nothing', async () => {
+    const user = await renderOrders([{ ...ORDERS[0], status: 'cancelled' }])
     const select = within(rowFor(12)).getByRole('combobox')
-    expect(within(select).getByRole('option', { name: /refunded/i })).toBeDisabled()
+    expect(select).toBeEnabled()
+
+    await user.selectOptions(select, 'paid')
+
+    expect(
+      await screen.findByText(/cancelled and its stock has been returned/),
+    ).toBeInTheDocument()
+    expect(api.setOrderStatus).not.toHaveBeenCalled()
+    expect(within(rowFor(12)).getByRole('combobox')).toHaveValue('cancelled')
   })
 
-  it('locks the status of a cancelled order', async () => {
-    await renderPage()
-    expect(within(rowFor(11)).getByRole('combobox')).toBeDisabled()
-  })
-
-  it('does not offer cancel for a sale made on another platform', async () => {
+  it('says why cancelling a sale made on another platform is refused', async () => {
     // The server refuses the transition with a 409 (routers/orders.py); the
-    // page offering it and then reporting a refusal is the confusing half.
-    api.listOrders.mockResolvedValue([
+    // page says so itself rather than asking to confirm and then failing.
+    const user = await renderOrders([
       { ...ORDERS[0], sales_venue_code: 'ebay', sales_venue_name: 'eBay' },
     ])
-    renderWithProviders(<Orders />, {
-      auth: adminAuth(),
-      route: '/orders',
-      strict: true,
-    })
-    await screen.findByText('Ada Lovelace')
-    const select = within(rowFor(12)).getByRole('combobox')
-    const cancelled = within(select).getByRole('option', { name: /cancelled/i })
-    expect(cancelled).toBeDisabled()
+    await expectRefusedHere(user, 'cancelled', /Sold on eBay.*no stock to return/)
   })
 
-  it('does not offer cancel for a shop order whose listing has ended', async () => {
+  it('says why cancelling a shop order whose listing has ended is refused', async () => {
     // A lot bought in the shop ends its listing at checkout; the server
     // refuses the cancellation for the same reason as an outside sale.
-    api.listOrders.mockResolvedValue([
+    const user = await renderOrders([
       {
         ...ORDERS[0],
         items: ORDERS[0].items.map((line) => ({ ...line, listing_ended: true })),
       },
     ])
-    renderWithProviders(<Orders />, {
-      auth: adminAuth(),
-      route: '/orders',
-      strict: true,
-    })
-    await screen.findByText('Ada Lovelace')
-    const select = within(rowFor(12)).getByRole('combobox')
-    const cancelled = within(select).getByRole('option', { name: /cancelled/i })
-    expect(cancelled).toBeDisabled()
-    expect(cancelled).toHaveAttribute(
-      'title',
-      expect.stringMatching(/listing has ended/),
-    )
+    await expectRefusedHere(user, 'cancelled', /listing has ended/)
   })
 
   it('still offers cancel for an ordinary shop order', async () => {
@@ -224,14 +242,15 @@ describe('owner Orders', () => {
     expect(within(select).getByRole('option', { name: /cancelled/i })).toBeEnabled()
   })
 
-  it('does offer cancel for an outside sale that has already shipped', async () => {
-    // The refusal the test above covers is the server's, and the server only
+  it('does cancel an outside sale that has already shipped', async () => {
+    // The refusal the tests above cover is the server's, and the server only
     // refuses a cancellation that would really return stock. A shipped order
     // returns none, so cancelling one is allowed -- it is how a refund is
     // recorded. An `auction_house` sale is created `delivered`, so every one
-    // arrives in this state; greying the option out would make that workflow
+    // arrives in this state; refusing it here would make that workflow
     // unreachable from the console.
-    api.listOrders.mockResolvedValue([
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const user = await renderOrders([
       {
         ...ORDERS[0],
         sales_venue_code: 'heritage',
@@ -239,18 +258,11 @@ describe('owner Orders', () => {
         status: 'delivered',
       },
     ])
-    renderWithProviders(<Orders />, {
-      auth: adminAuth(),
-      route: '/orders',
-      strict: true,
-    })
-    await screen.findByText('Ada Lovelace')
-    const select = within(rowFor(12)).getByRole('combobox')
-    const cancelled = within(select).getByRole('option', { name: /cancelled/i })
-    expect(cancelled).toBeEnabled()
-    // The tooltip goes with the greying, so it must go too -- a disabled
-    // reason left on an enabled option is a claim the page no longer makes.
-    expect(cancelled).not.toHaveAttribute('title')
+
+    await user.selectOptions(within(rowFor(12)).getByRole('combobox'), 'cancelled')
+
+    expect(api.setOrderStatus).toHaveBeenCalledWith(12, 'cancelled', 1)
+    expect(screen.queryByText(/no stock to return/)).toBeNull()
   })
 
   it('shows a refusal without losing the list', async () => {

@@ -171,6 +171,50 @@ def test_a_version_that_moves_before_the_lot_is_locked_is_a_conflict(
     )
 
 
+def test_an_assembling_lot_is_renamed_with_the_version_its_form_loaded(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+    make_lot: Callable[..., SalesLot],
+) -> None:
+    """The wording's own write must not be mistaken for someone else's save.
+
+    Renaming writes `sales_lot`, which moves its `version`; the token the
+    form sent is compared with the row as locked, before that write, so a
+    rename carrying the current version lands. The same token sent again
+    afterwards is stale, and is refused.
+    """
+    lot = make_lot([make_item(title="The only member")])
+    db.commit()
+    loaded = lot.version
+
+    renamed = client.patch(
+        f"/api/sales-lots/{lot.id}",
+        headers=admin_headers,
+        json={
+            "version": loaded,
+            "title": "Two Morgan Dollars",
+            "description": "Lightly toned",
+        },
+    )
+    assert renamed.status_code == 200, renamed.text
+    body = renamed.json()
+    assert body["title"] == "Two Morgan Dollars"
+    assert body["description"] == "Lightly toned"
+    assert body["version"] > loaded
+
+    stale = client.patch(
+        f"/api/sales-lots/{lot.id}",
+        headers=admin_headers,
+        json={"version": loaded, "title": "Renamed from a stale form"},
+    )
+    assert stale.status_code == 409, stale.text
+    assert "changed by someone else" in stale.json()["detail"]
+    db.expire_all()
+    assert db.get_one(SalesLot, lot.id).title == "Two Morgan Dollars"
+
+
 def test_editing_an_offered_lot_is_refused(
     client: TestClient,
     admin_headers: dict[str, str],

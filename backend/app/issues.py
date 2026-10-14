@@ -143,13 +143,15 @@ CURRENCY_ISSUES: dict[str, Issue] = {
     "star_mismatch": Issue(
         # Scoped to notes with a recorded serial. Without the IS NOT NULL
         # guard, a null serial reads as "not a star pattern" by construction
-        # -- coalesce(NULL LIKE '*%', false) is false -- so a note that
+        # -- coalesce(NULL LIKE '%*%', false) is false -- so a note that
         # simply has no serial typed in yet, but does carry the star
         # attribute, would look like a disagreement. It is not one: there is
         # nothing here to disagree with. With the guard the LIKE expression
-        # cannot be NULL, so it needs no coalesce.
+        # cannot be NULL, so it needs no coalesce. A star anywhere in the
+        # serial is one, as `app.serial_patterns` reads it when it derives
+        # the attribute.
         "cud.serial_number IS NOT NULL AND "
-        "(cud.serial_number LIKE '*%' OR cud.serial_number LIKE '%*') "
+        "(cud.serial_number LIKE '%*%') "
         "<> EXISTS (SELECT 1 FROM item_attribute_link x "
         "JOIN item_attribute na ON na.id = x.item_attribute_id "
         "WHERE x.inventory_item_id = i.id AND na.code = 'star' "

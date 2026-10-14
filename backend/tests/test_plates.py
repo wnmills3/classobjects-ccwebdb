@@ -64,6 +64,17 @@ def test_a_face_plate_of_another_shape_is_refused(typed: str) -> None:
         plates.face_plate(typed)
 
 
+def test_a_plates_digits_are_0_to_9_only() -> None:
+    # Full-width and other scripts' digits look like a plate number and are
+    # not one; written by code point so the file holds them visibly.
+    full_width_82 = chr(0xFF18) + chr(0xFF12)
+    arabic_indic_1234 = "".join(chr(code) for code in (0x661, 0x662, 0x663, 0x664))
+    with pytest.raises(ValueError, match="face plate"):
+        plates.face_plate("E" + full_width_82)
+    with pytest.raises(ValueError, match="digits only"):
+        plates.back_plate(arabic_indic_1234)
+
+
 def test_a_back_plate_is_digits() -> None:
     assert plates.back_plate(" 1234 ") == "1234"
     assert plates.back_plate("") is None

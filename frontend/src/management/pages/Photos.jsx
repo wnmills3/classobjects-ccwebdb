@@ -93,7 +93,13 @@ function PhotoRow({ row, onLinked }) {
   }
 
   function attempt(acknowledgeForSale) {
-    if (!selected) return
+    // Live whatever the row holds: a press with nothing chosen says what is
+    // missing, and one while a request is out sends no second request.
+    if (linking) return
+    if (!selected) {
+      setError('Choose an item first: find it by its code, then Link.')
+      return
+    }
     setLinking(true)
     api
       .attachImage(row.image_id, {
@@ -138,11 +144,7 @@ function PhotoRow({ row, onLinked }) {
       )}
       {error && <p className="error">{error}</p>}
       {!refusal && (
-        <button
-          type="button"
-          disabled={!selected || linking}
-          onClick={() => attempt(false)}
-        >
+        <button type="button" onClick={() => attempt(false)}>
           Link
         </button>
       )}
@@ -150,7 +152,7 @@ function PhotoRow({ row, onLinked }) {
         <div className="for-sale" role="alert">
           {refusal}
           <div className="row">
-            <button type="button" disabled={linking} onClick={() => attempt(true)}>
+            <button type="button" onClick={() => attempt(true)}>
               {linking ? 'Linking...' : 'Link anyway'}
             </button>
             <button type="button" className="link" onClick={() => setRefusal('')}>

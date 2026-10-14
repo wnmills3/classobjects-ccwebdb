@@ -178,9 +178,13 @@ describe('ReceiptPanel', () => {
     expect(note).toHaveValue('edge knock')
   })
 
-  it('does nothing at all when no item is selected', async () => {
+  it('does nothing at all when no item is selected, and says why', async () => {
     renderWithProviders(<ReceiptPanel itemIds={[]} onDone={vi.fn()} />)
-    expect(await screen.findByRole('button', { name: /^receive$/i })).toBeDisabled()
+    const receive = await screen.findByRole('button', { name: /^receive$/i })
+    expect(receive).toBeEnabled()
+    await userEvent.click(receive)
+    expect(screen.getByText(/no item is chosen to receive/i)).toBeInTheDocument()
+    expect(api.receiveItems).not.toHaveBeenCalled()
   })
 
   it('keeps the confirm-and-correct section out of the way until asked', async () => {
@@ -905,10 +909,14 @@ describe('ReceiptPanel: Identify', () => {
 
     await retypeSerial(serial, 'A12345678B')
 
-    expect(confirm).toBeDisabled()
+    // Live, with the reason beside it: a press opens nothing.
+    expect(confirm).toBeEnabled()
     expect(
       screen.getByText(/receive or undo the identify changes first/i),
     ).toBeInTheDocument()
+    await userEvent.click(confirm)
+    expect(screen.queryByLabelText(/^grade$/i)).not.toBeInTheDocument()
+    expect(serial).toHaveValue('A12345678B')
   })
 
   it('sends the for-sale acknowledgement with the save as well', async () => {

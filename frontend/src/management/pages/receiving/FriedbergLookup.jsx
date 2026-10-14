@@ -214,6 +214,8 @@ export default function FriedbergLookup({
   }, [searchNow, initial])
 
   const [recordFrNumber, setRecordFrNumber] = useState('')
+  // A Save pressed with the number box empty; said until one is typed.
+  const [askedForNumber, setAskedForNumber] = useState(false)
   const [recordError, setRecordError] = useState('')
   const [recording, setRecording] = useState(false)
   // A number refused because its type is already on file under another --
@@ -399,6 +401,13 @@ export default function FriedbergLookup({
    * attached as it is; recording it again would be a 409.
    */
   async function save(status) {
+    // The Save buttons stay live: a press with no number says so, and one
+    // with a malformed number sends nothing -- its problem is shown beside.
+    if (!recordFrNumber.trim()) {
+      setAskedForNumber(true)
+      return
+    }
+    if (typedProblem) return
     if (yearRefusal) {
       setRecordError(yearRefusal)
       return
@@ -701,6 +710,9 @@ export default function FriedbergLookup({
               </button>
             </div>
             {typedProblem && <p className="error">{typedProblem}</p>}
+            {askedForNumber && !recordFrNumber.trim() && (
+              <p className="error">Type or paste the Fr. number first.</p>
+            )}
             {recordError && <p className="error">{recordError}</p>}
             {correction && (
               <button type="button" disabled={busy} onClick={correctAndUse}>
@@ -708,18 +720,10 @@ export default function FriedbergLookup({
               </button>
             )}
             <div className="row">
-              <button
-                type="button"
-                disabled={!recordFrNumber.trim() || busy || Boolean(typedProblem)}
-                onClick={() => save('proposed')}
-              >
+              <button type="button" disabled={busy} onClick={() => save('proposed')}>
                 Save as proposed
               </button>
-              <button
-                type="button"
-                disabled={!recordFrNumber.trim() || busy || Boolean(typedProblem)}
-                onClick={() => save('confirmed')}
-              >
+              <button type="button" disabled={busy} onClick={() => save('confirmed')}>
                 Save as confirmed
               </button>
             </div>

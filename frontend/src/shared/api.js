@@ -87,6 +87,10 @@ function readDetail(body) {
 /**
  * Exchange the stored refresh token for a new pair, store it and return it;
  * null when there is no refresh token or the server refuses it.
+ *
+ * Only a 401 or 403 refuses the token. Any other failure -- a server
+ * restarting, a proxy's 502 -- says nothing about the session, so it is
+ * thrown as an `ApiError` and the stored tokens are kept.
  */
 async function refreshTokens() {
   const tokens = loadTokens()
@@ -97,7 +101,14 @@ async function refreshTokens() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: tokens.refresh_token }),
   })
-  if (!res.ok) return null
+  if (res.status === 401 || res.status === 403) return null
+  if (!res.ok) {
+    const parsed = parseBody(await res.text())
+    if (parsed === undefined) {
+      throw new ApiError(res.status, res.statusText || `Request failed (${res.status})`)
+    }
+    throw new ApiError(res.status, readDetail(parsed), parsed)
+  }
 
   const fresh = await res.json()
   saveTokens(fresh)

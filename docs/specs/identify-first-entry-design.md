@@ -95,8 +95,9 @@ single item:
 - The for-sale acknowledgement covers both: the PATCH's 409 is answered by
   the same dialog as the receipt's, and the resubmission sends
   `acknowledge_for_sale` with both.
-- **Confirm or correct fields** is disabled while Identify has unsaved edits
-  (saying why), so the full editor never opens over values it cannot see.
+- **Confirm or correct fields** stays live while Identify has unsaved
+  edits, and pressing it then says to receive or undo them first instead
+  of opening: the full editor never opens over values it cannot see.
   Identify is hidden while the editor is open, and reads the item again when
   it closes, so its `base` is what the editor saved.
 - A coin whose years are a range shows its Year box disabled: one box cannot

@@ -10,9 +10,10 @@ transactions genuinely overlap. Removing the listing lock
 ``order_writes.place_order`` takes (``_lock_listings``) makes these tests fail,
 which is the point.
 
-The contended column is ``listing.quantity_available``, and the lock is taken
-on `listing` rather than on the item -- which is correct, because availability
-is a property of the offer, not of the object.
+The contended column is ``listing.quantity_available`` -- availability is a
+property of the offer, not of the object -- and the listing row is taken
+through ``offering_writes.lock_for_sale``, which holds the listing's items
+before the listing itself.
 """
 
 from __future__ import annotations

@@ -221,7 +221,24 @@ export function ReferenceSelect({
     setError('')
   }
 
+  /** What the add form still needs before it can send, or '' when nothing. */
+  function missingForAdd() {
+    if (draft.label.trim() === '') return 'A label is needed first.'
+    const usable = labelOnly ? derivedCode : draft.code.trim() || derivedCode
+    if (usable === '') {
+      return 'The label needs a letter or a digit to make a code from.'
+    }
+    if (labelOnly && groupField && draft.group === '') return 'Choose a group first.'
+    return ''
+  }
+
   async function addValue() {
+    // Add is kept live: pressing it before the form is complete says why.
+    const missing = missingForAdd()
+    if (missing) {
+      setError(missing)
+      return
+    }
     const label = draft.label.trim()
     const code = labelOnly ? derivedCode : draft.code.trim() || derivedCode
     if (labelOnly) {
@@ -265,11 +282,6 @@ export function ReferenceSelect({
   if (adding) {
     // Vocabularies grow with use: rather than abandoning an entry that does
     // not fit, the missing value is added here and selected immediately.
-    const canAdd = labelOnly
-      ? draft.label.trim() !== '' &&
-        derivedCode !== '' &&
-        (!groupField || draft.group !== '')
-      : draft.label.trim() !== '' && (draft.code.trim() !== '' || derivedCode !== '')
     return (
       <div className="add-reference" ref={addForm}>
         {labelOnly ? (
@@ -282,8 +294,8 @@ export function ReferenceSelect({
             {/* What will actually be stored, visible before saving -- a
                 person typing "Off-Center" should see it becomes
                 off_center, not guess. Empty for a label that derives to
-                nothing (e.g. "!!!"), which is exactly why Add stays
-                disabled below rather than trusting the raw label alone. */}
+                nothing (e.g. "!!!"), which is exactly why Add refuses it,
+                saying so, rather than trusting the raw label alone. */}
             <span className="derived-code">{derivedCode}</span>
             {groupField && (
               <select
@@ -315,7 +327,7 @@ export function ReferenceSelect({
             />
           </>
         )}
-        <button type="button" onClick={addValue} disabled={!canAdd}>
+        <button type="button" onClick={addValue}>
           Add
         </button>
         <button type="button" className="link" onClick={() => setAdding(false)}>

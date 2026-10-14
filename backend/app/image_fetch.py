@@ -161,7 +161,9 @@ def fetch_image(
             finally:
                 response.close()
         raise ImageFetchRefused(f"more than {_MAX_REDIRECTS} redirects")
-    except httpx.HTTPError as exc:
+    # `InvalidURL` is not an `HTTPError`: an address the library will not
+    # send (a control character in it) is the person's to correct, too.
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
         raise ImageFetchRefused(f"the address could not be fetched: {exc}") from exc
     finally:
         if own:

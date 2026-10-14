@@ -540,11 +540,20 @@ def remove_alias(
     return _value_with_aliases(db, row, model)
 
 
+#: Why a merge another request's write overtook is refused.
+_MERGED_MEANWHILE = (
+    "This value changed while it was being merged; read the vocabulary again and retry."
+)
+
+
 @router.post(
     "/{table}/{code}/merge",
     responses={
         404: {"description": "The table or the value merged away is unknown."},
-        409: {"description": "The two values cannot be merged."},
+        409: {
+            "description": "The two values cannot be merged, or another request "
+            "changed them while this one merged."
+        },
         422: unprocessable("The value to merge into is unknown."),
     },
 )
@@ -565,6 +574,9 @@ def merge_value(
     Refused (409) again when any item it would move is for sale, until
     `acknowledge_for_sale` says the caller has seen that -- the dry run names
     those items in `for_sale`, so the console can ask before it comes to this.
+    And refused (409), with nothing written, when another request's write
+    overtakes this one: the same value merged twice at once, or an item
+    given the value while it was being removed.
     """
     model = _model_or_404(table)
     try:
@@ -597,10 +609,16 @@ def merge_value(
     except reference_merge.MergeError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        # Another request merged this value, gave an item it, or gave the
+        # kept value one of its names since this one read them: the database
+        # refuses the second writer, and it reads as the refusal it is.
+        db.rollback()
+        raise HTTPException(status_code=409, detail=_MERGED_MEANWHILE) from exc
     if payload.dry_run:
         db.rollback()
     else:
-        db.commit()
+        commit_unique(db, _MERGED_MEANWHILE)
     return ReferenceMergeOut(
         table=result.table,
         code=result.code,

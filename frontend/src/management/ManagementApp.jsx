@@ -83,9 +83,9 @@ function Console() {
                 still land. */}
             <Route path="/purchases/new" element={<NewPurchase />} />
             <Route path="/sales" element={<Orders />} />
-            {/* A second address for the same page, so links and bookmarks to it
-                still land. */}
-            <Route path="/orders" element={<Orders />} />
+            {/* An older address for the same page, so links and bookmarks to it
+                still land -- on /sales, where the menu marks the page shown. */}
+            <Route path="/orders" element={<Navigate to="/sales" replace />} />
             <Route path="/people" element={<AdminPeople />} />
             <Route path="/listings" element={<Listings />} />
             <Route path="/lots" element={<Lots />} />

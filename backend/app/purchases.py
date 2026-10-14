@@ -4,7 +4,8 @@ Neutral ground for the two regexes `routers.acquisitions` (receiving) and
 `reports.data_quality` (`dq_purchases`) both need to read the same way: a
 report that restated either pattern instead of importing it could drift from
 what receiving itself accepts, and a report has no business importing a
-router just to reach one regex.
+router just to reach one regex. `image_store` takes `WEB_ADDRESS` from here
+too, for the address a photograph was fetched from.
 """
 
 from __future__ import annotations

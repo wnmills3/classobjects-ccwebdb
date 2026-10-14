@@ -38,8 +38,9 @@ statements are not a sorted acquisition, and the listing half is where a lot
 makes that a real hazard (`_lock_listing_rows`).
 
 **That order lives in exactly one function, `_acquire`, and every writer that
-takes more than one kind of row reaches it through `lock_for_sale`.** Ten
+takes more than one kind of row reaches it through `lock_for_sale`.** Eleven
 call sites call `lock_for_sale` itself: `offer` and `end_offer` here,
+`routers.offers.create_offers` (for a batch, before each `offer`),
 `order_writes._lock_listings` (for `place_order`, `revise_order` and
 `return_stock`), `sales_writes.record_sale_lines`, `auctions.remove_lot`,
 `cancel` and `settle`, and `routers.inventory`'s `receive_items`,
@@ -713,14 +714,17 @@ def refuse_if_lot_unheld(listings: Iterable[Listing], lot_ids: Collection[int]) 
 
     **Asked by the caller, not by `lock_for_sale`, and the difference is the
     whole design.** Locking a lot listing without its lot row is harmless in
-    itself -- `offer` does it on every race it loses to a lot offer, then
-    refuses cleanly with `OfferRefused` and never touches a lot row at all.
-    It only becomes the inversion again if the caller goes on to call
-    `end_offer` on that listing, whose own pass takes the lot row *late*,
-    while items and listings are already held. So the refusal belongs at the
-    sites that end derived listings: `routers.inventory`'s `receive_items`,
-    `bulk_edit` and `update_item`, each of which ends whatever
-    `offers_holding` returns. Making `lock_for_sale` refuse instead turns an
+    itself -- a single `offer` does it on every race it loses to a lot offer,
+    then refuses cleanly with `OfferRefused` and never touches a lot row at
+    all. It only becomes the inversion again if the caller goes on to take a
+    second pass while the first one's items are held: `end_offer` on that
+    listing, whose own pass takes the lot row *late*, or another `offer`,
+    whose pass takes the lot rows of the offers holding its item. So the
+    refusal belongs at the sites that do: `routers.inventory`'s
+    `receive_items`, `bulk_edit` and `update_item`, each of which ends
+    whatever `offers_holding` returns, and `routers.offers.create_offers`,
+    whose batch pass is followed by one `offer` per item. Making
+    `lock_for_sale` refuse instead turns an
     ordinary lost race into a 500 -- measured, it reds
     `test_offering_a_lot_races_offering_one_of_its_members`.
 
@@ -800,12 +804,15 @@ def lock_for_sale(
     That is harmless until a caller **ends** such a listing: `end_offer`
     takes its lot row *late*, while items and listings are already held,
     which is the inversion this whole module exists to prevent, one level
-    down. So: **a caller that may call `end_offer` on a listing it did not
-    name must first pass that set through `refuse_if_lot_unheld` with
-    `lot_ids`.** Three do -- `routers.inventory`'s `receive_items`,
-    `bulk_edit` and `update_item`, each of which ends whatever
-    `offers_holding` returns rather than a list of ids. Every other caller
-    ends only listings it named, whose lot rows are always held.
+    down. A batch that follows this pass with one `offer` per item meets the
+    same hazard, because each `offer` takes a pass of its own. So: **a
+    caller that may call `end_offer` on a listing it did not name, or that
+    takes further passes while this one's rows are held, must first pass the
+    live offers through `refuse_if_lot_unheld` with `lot_ids`.** Four do --
+    `routers.inventory`'s `receive_items`, `bulk_edit` and `update_item`,
+    each of which ends whatever `offers_holding` returns rather than a list
+    of ids, and `routers.offers.create_offers`. Every other caller ends only
+    listings it named, whose lot rows are always held.
     `auctions.settle` is the exception in form only: it passes item ids and
     ends each unsold lot's own listing, under the `auction` row it holds, on
     a closed auction whose lots cannot change, so the lot rows its
@@ -849,8 +856,8 @@ def lock_for_sale(
     # row held here.
     #
     # Nothing in this function covers that window. `refuse_if_lot_unheld`
-    # does -- for the callers that ask it, the three `routers.inventory`
-    # writers the docstring names. `lock_for_sale` reports the
+    # does -- for the callers that ask it, the four writers the docstring
+    # names. `lock_for_sale` reports the
     # lot rows it holds in `LockedForSale.lot_ids` and leaves the question
     # there, because asking it here refuses a real path: see that function.
     lot_ids = {row.sales_lot_id for row in chosen if row.sales_lot_id is not None}

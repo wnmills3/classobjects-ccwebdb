@@ -270,19 +270,16 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
     order first, listings second -- so two admins racing a cancel and an edit
     on the very same order must serialize on that lock rather than deadlock.
 
-    `OrderStatusUpdate` carries no version, so a cancel is not refused merely
-    because an edit changed the order since a caller last read it: whichever
-    writer's lock lands second simply acts on the row's *current* state.
-    Both orderings are real, and this test's setup produces both across
-    runs: if the edit's lock lands first, both
-    writers succeed (the cancel returns whatever the edit just left on the
-    order); if the cancel's lock lands first, the edit is refused with 409
-    as no-longer-editable. What must hold either way, and what this test
-    checks: no deadlock, and stock is exactly conserved -- `return_stock`
-    always hands back precisely the units the order holds *at the moment it
-    runs*, never a unit short or a unit conjured from nowhere. That
-    conservation depends on the order-row lock, not the listing lock, which
-    has ample stock here.
+    Both writers carry the version they read before the race, so whichever
+    writer's lock lands second finds the order moved on and is refused with
+    409: the cancel by `update_order_status`'s version check, the edit as
+    no-longer-editable (or by its own version check). Both orderings are
+    real, and this test's setup produces both across runs. What must hold
+    either way, and what this test checks: no deadlock, exactly one winner,
+    and stock exactly conserved -- the edit's three units held, or the
+    cancel's return of precisely the two the order held, never a unit short
+    or a unit conjured from nowhere. That depends on the order-row lock, not
+    the listing lock, which has ample stock here.
     """
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=5, buyers=2)
     with committed() as s:
@@ -304,7 +301,7 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
         s = committed()
         try:
             admin = _present(s.get(User, admin_id))
-            payload = OrderStatusUpdate(status="cancelled")
+            payload = OrderStatusUpdate(status="cancelled", version=version)
             barrier.wait(timeout=10)
             update_order_status(order_id, payload, s, admin)
             return "cancel"
@@ -346,13 +343,10 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
         # of an indefinitely stuck test run.
         outcomes = sorted(pool.map(lambda f: f(), [cancel, edit], timeout=30), key=str)
 
-    # Cancel is never refused here: `OrderStatusUpdate` carries no version,
-    # so the only thing that could refuse it -- stock with no live listing
-    # to return to (`_no_stock_to_return`) -- cannot happen on a store
-    # listing that is still active.
-    assert outcomes.count("cancel") == 1, outcomes
-    assert outcomes.count(409) <= 1, outcomes
+    # Exactly one winner: the loser read the version the winner moved on.
+    assert outcomes.count(409) == 1, outcomes
     edit_won = "edit" in outcomes
+    assert edit_won != ("cancel" in outcomes), outcomes
 
     with committed() as s:
         listing = _present(s.get(Listing, listing_id))
@@ -360,21 +354,18 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
         final_status = _status_code(s, final_order)
         final_items = [item.quantity for item in final_order.items]
 
-    # Whichever writer's order-row lock landed first, cancelling always
-    # returns every unit the order held *at that moment* -- 2 if cancel's
-    # lock landed first (the edit never got to apply), 3 if the edit's did
-    # (and applied cleanly first) -- so stock is exactly conserved either
-    # way: 5 - 2 (the purchase) is restored in full, never a unit short or
-    # a unit conjured from nowhere. That conservation is what a missing
-    # order-row lock would break.
-    assert final_status == "cancelled", (outcomes, final_status)
-    assert listing.quantity_available == 5, (outcomes, listing.quantity_available)
+    # The edit's win holds three units of the five; the cancel's returns
+    # every unit the order held -- the purchase's two -- for five on hand.
+    # A unit short or one conjured from nowhere is what a missing order-row
+    # lock would produce.
     if edit_won:
-        assert outcomes.count(409) == 0, outcomes
+        assert final_status == "pending", (outcomes, final_status)
         assert final_items == [3], outcomes
+        assert listing.quantity_available == 2, (outcomes, listing.quantity_available)
     else:
-        assert outcomes.count(409) == 1, outcomes
+        assert final_status == "cancelled", (outcomes, final_status)
         assert final_items == [2], outcomes
+        assert listing.quantity_available == 5, (outcomes, listing.quantity_available)
 
 
 def test_a_concurrently_edited_item_no_longer_refuses_a_revision(
@@ -498,7 +489,7 @@ def test_a_concurrently_edited_item_no_longer_refuses_a_cancellation(
             buyer,
         )
         session_a.commit()
-        order_id = order.id
+        order_id, version = order.id, order.version
 
         listing = _present(session_a.get(Listing, listing_id))
         assert listing.quantity_available == 0
@@ -514,7 +505,7 @@ def test_a_concurrently_edited_item_no_longer_refuses_a_cancellation(
             session_b.commit()
 
         admin = _present(session_a.get(User, admin_id))
-        payload = OrderStatusUpdate(status="cancelled")
+        payload = OrderStatusUpdate(status="cancelled", version=version)
         update_order_status(order_id, payload, session_a, admin)
 
     with committed() as session_c:
@@ -665,19 +656,24 @@ def test_a_stale_data_error_inside_a_cancellation_is_a_409_not_a_500(
             session, customer_for_user(session, buyer), [Line(listing_id, 1)], buyer
         )
         session.commit()
-        order_id = order.id
+        order_id, version = order.id, order.version
 
         admin = _present(session.get(User, admin_id))
         monkeypatch.setattr(session, "flush", _stale_on_first_real_flush(session))
         with pytest.raises(HTTPException) as excinfo:
             update_order_status(
-                order_id, OrderStatusUpdate(status="cancelled"), session, admin
+                order_id,
+                OrderStatusUpdate(status="cancelled", version=version),
+                session,
+                admin,
             )
         monkeypatch.undo()
 
     assert excinfo.value.status_code == 409
     assert f"Order #{order_id}" in excinfo.value.detail
     assert "reload" in excinfo.value.detail.lower()
+    # The flush's refusal, not the version check's, which also says reload.
+    assert "while saving" in excinfo.value.detail
 
     with committed() as verify:
         # The clause rolls back, so neither the status nor the stock moved --

@@ -180,7 +180,7 @@ error belongs to that order and clears when the address changes.
   parcel of twenty into one location is not twenty identical picks. The note
   is not carried over: it describes one object.
 - **Confirm or correct fields** opens `ReviewPane`, the inventory
-  page's own review component; editing writes `PATCH`. It is disabled while Identify has unsaved changes; Identify
+  page's own review component; editing writes `PATCH`. While Identify has unsaved changes it opens nothing, and the reason is shown beside it; Identify
   is hidden while it is open and reads the item again when it closes. While it is closed, `ErrorsPanel` records mint or printing
   errors; only one of the two is mounted at a time, because each replaces the
   item's whole error set (the editor's on its Save, this one on every change).

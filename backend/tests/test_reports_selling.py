@@ -411,7 +411,7 @@ def test_local_date_uses_the_local_zone_not_the_session_zone(
     only a savepoint release), so it is still in effect when the report
     itself reads the row back.
 
-    Survives: removing `.astimezone()` from `local_date` (leaving a bare
+    Catches: removing `.astimezone()` from `local_date` (leaving a bare
     `.date()`) makes this fail with `days_listed == 6`, not 7.
     """
     venue = _venue(db, "ebay")

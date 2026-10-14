@@ -72,9 +72,10 @@ claims and the lot's memberships together, so "a lot listing holds this
 coin" and "this coin is in an offered lot" are one fact. So no lot listing
 carries `paused_by_listing_id`, and `end_offer(sold=True)`'s second `_end`
 ends only item listings, which return before touching a lot row.
-`test_a_lot_listing_can_never_be_paused_by_another_offer` and
-`test_settlement_ends_only_item_listings_it_did_not_name`
-(`tests/test_auction_settlement.py`) fail if `_refuse_grouped` is relaxed.
+`test_a_lot_listing_can_never_be_paused_by_another_offer`
+(`tests/test_auction_settlement.py`) fails if `_refuse_grouped` is relaxed;
+`test_settlement_ends_only_item_listings_it_did_not_name` checks the rows a
+real settlement acts on.
 """
 
 from __future__ import annotations
@@ -1371,11 +1372,12 @@ def settle(
     record keeps the first spelling the grid used, never the fold. The `fees`
     mapping is keyed the same way.
 
-    Raises `AuctionRefused` -- listing **every** problem, not the first -- if
-    the auction is not `closed`, any lot lacks a result, any lot has two, any
-    line names a lot from another auction, a sold lot lacks a hammer price
-    or (outside an auction house) a buyer, an unsold lot carries a price,
-    fees are given twice for one buyer or for someone who bought nothing, or
+    Raises `AuctionRefused` if the auction is not `closed`, alone and before
+    the grid is read. Otherwise raises it listing **every** problem in the
+    grid, not the first: any lot lacks a result, any lot has two, any line
+    names a lot from another auction, a sold lot lacks a hammer price or
+    (outside an auction house) a buyer, an unsold lot carries a price, fees
+    are given twice for one buyer or for someone who bought nothing, or
     coins have nowhere to come back to.
 
     Raises the narrower `SettlementInputInvalid` -- still an

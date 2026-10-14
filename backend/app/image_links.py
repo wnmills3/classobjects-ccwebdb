@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Collection
+from pathlib import PurePosixPath
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -24,14 +25,17 @@ from .models import Image, ImageRole, InventoryItem, ItemImage
 from .references import code_to_id
 
 __all__ = [
+    "CHANGED_MEANWHILE",
     "LinkRefused",
     "attach",
     "detach",
     "fill_primary_vacancy",
+    "hold_items",
     "make_primary",
     "move",
     "name_for_place",
     "next_position",
+    "replace_role",
     "set_role",
 ]
 
@@ -40,11 +44,19 @@ __all__ = [
 _PLACE_NAME = re.compile(r"^(?P<code>.+)_(?P<position>\d{2,})(?P<ext>\.[A-Za-z0-9]+)$")
 
 
+#: Why a link moved or unfiled between a request's read and its write is
+#: refused.
+CHANGED_MEANWHILE = (
+    "This photograph was moved or unfiled while saving; "
+    "read the photographs again and retry."
+)
+
+
 class LinkRefused(Exception):
     """This photograph cannot be linked to this item."""
 
 
-def _hold_items(db: Session, item_ids: Collection[int | None]) -> None:
+def hold_items(db: Session, item_ids: Collection[int | None]) -> None:
     """Take these items' rows FOR UPDATE, in id order, before their photographs.
 
     A photograph's place is the item's last place plus one, and the shop's
@@ -54,6 +66,10 @@ def _hold_items(db: Session, item_ids: Collection[int | None]) -> None:
     find no primary and both take it, which `uq_item_image_primary`
     refuses with an error rather than an answer. Holding the item's row
     makes the second wait and read what the first wrote.
+
+    Taken before a stored picture's hash (`image_store.hold_content`) by
+    anything that holds both, so two such requests cannot each hold what
+    the other waits for.
     """
     ids = sorted({item_id for item_id in item_ids if item_id is not None})
     if ids:
@@ -63,6 +79,23 @@ def _hold_items(db: Session, item_ids: Collection[int | None]) -> None:
             .order_by(InventoryItem.id)
             .with_for_update()
         )
+
+
+def _still_on(db: Session, link: ItemImage, item_id: int | None) -> None:
+    """Refuse unless `link`, read again under its item's hold, is still on it.
+
+    The link is read before its item is held, and another request may move
+    or unfile it in between: acted on as it was read, a promotion would
+    demote the primary of the item it has left, and a removal would take it
+    off an item this request never asked about.
+    """
+    current = db.scalar(
+        select(ItemImage)
+        .where(ItemImage.id == link.id)
+        .execution_options(populate_existing=True)
+    )
+    if current is None or current.inventory_item_id != item_id:
+        raise LinkRefused(CHANGED_MEANWHILE)
 
 
 def _clear_primary(db: Session, item_id: int, keep: int | None = None) -> None:
@@ -86,7 +119,7 @@ def next_position(db: Session, item_id: int) -> int:
     The item's row is held from here to the caller's commit, so the place
     is still free when the caller files a photograph in it.
     """
-    _hold_items(db, [item_id])
+    hold_items(db, [item_id])
     last = db.scalar(
         select(func.max(ItemImage.sort_order)).where(
             ItemImage.inventory_item_id == item_id
@@ -123,7 +156,7 @@ def attach(
     produce a primary link, and the caller learns that only from
     `link.is_primary` on the row returned.
     """
-    _hold_items(db, [item.id])
+    hold_items(db, [item.id])
     existing = db.scalar(
         select(ItemImage).where(
             ItemImage.inventory_item_id == item.id,
@@ -166,13 +199,15 @@ def name_for_place(db: Session, link: ItemImage) -> None:
     Only a name that is an item's place -- another real item's code and a
     position -- is replaced: a camera's `DSC00417.JPG` says where the file
     came from and stays. And only a photograph filed nowhere else: a group
-    photograph shared by three items is named for none of them alone.
+    photograph shared by three items is named for none of them alone. The
+    name is read without the folder an imported file was in
+    (`box3/CC-######_01.jpg`), and the new one carries none.
     """
     image = db.get(Image, link.image_id)
     item = db.get(InventoryItem, link.inventory_item_id)
     if image is None or item is None:
         return
-    match = _PLACE_NAME.match(image.source_ref or "")
+    match = _PLACE_NAME.match(PurePosixPath(image.source_ref or "").name)
     if match is None:
         return
     shared = db.scalar(
@@ -198,7 +233,8 @@ def move(db: Session, link: ItemImage, target: InventoryItem) -> ItemImage:
     name was its old one (`name_for_place`).
     """
     source_id = link.inventory_item_id
-    _hold_items(db, [source_id, target.id])
+    hold_items(db, [source_id, target.id])
+    _still_on(db, link, source_id)
     if source_id == target.id:
         raise LinkRefused(f"This photograph is already filed on {target.item_code}.")
     held = db.scalar(
@@ -241,12 +277,28 @@ def set_role(db: Session, link: ItemImage, role: str | None) -> None:
     db.flush()
 
 
+def replace_role(db: Session, old_role_id: int, new_role_id: int) -> None:
+    """File every photograph shown as one role under another: a merged role.
+
+    `app.reference_merge` calls it for an `image_role` merged away, having
+    locked the items it moves. A role says only what a photograph shows --
+    no primary or position depends on it -- so nothing else moves with it.
+    """
+    db.execute(
+        update(ItemImage)
+        .where(ItemImage.image_role_id == old_role_id)
+        .values(image_role_id=new_role_id)
+    )
+
+
 def make_primary(db: Session, link: ItemImage) -> None:
     """Make this the photograph the shop shows, demoting the incumbent."""
     if link.inventory_item_id is None:
         raise LinkRefused("An unattached photograph cannot be an item's primary.")
-    _hold_items(db, [link.inventory_item_id])
-    _clear_primary(db, link.inventory_item_id, keep=link.id)
+    item_id = link.inventory_item_id
+    hold_items(db, [item_id])
+    _still_on(db, link, item_id)
+    _clear_primary(db, item_id, keep=link.id)
     link.is_primary = True
     db.flush()
 
@@ -301,7 +353,8 @@ def detach(db: Session, link: ItemImage) -> None:
     to a buyer.
     """
     item_id = link.inventory_item_id
-    _hold_items(db, [item_id])
+    hold_items(db, [item_id])
+    _still_on(db, link, item_id)
     db.delete(link)
     db.flush()
     if item_id is not None:

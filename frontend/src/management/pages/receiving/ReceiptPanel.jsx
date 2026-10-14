@@ -161,6 +161,12 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   }
 
   async function submit(outcome, acknowledged = false) {
+    // The outcome buttons stay live: a press with nothing chosen says so
+    // and sends nothing.
+    if (itemIds.length === 0) {
+      setError('No item is chosen to receive: pick one from the search first.')
+      return
+    }
     setBusy(true)
     try {
       // What the person identified is a fact about the piece in hand, so it
@@ -399,7 +405,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
 
       <div className="receipt-actions">
         {OUTCOMES.map(([outcome, label]) => (
-          <button key={outcome} disabled={disabled} onClick={() => submit(outcome)}>
+          <button key={outcome} disabled={busy} onClick={() => submit(outcome)}>
             {label}
           </button>
         ))}
@@ -414,11 +420,14 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
       <div className="review-toggle">
         {reviewIds === null && (
           <>
-            {/* The editor would open over Identify values it cannot see. */}
+            {/* The editor would open over Identify values it cannot see:
+                while they are unsaved a press opens nothing, and the
+                reason is printed beside the button. */}
             <button
               type="button"
-              disabled={identifyDirty}
-              onClick={() => setReviewIds(itemIds)}
+              onClick={() => {
+                if (!identifyDirty) setReviewIds(itemIds)
+              }}
             >
               Confirm or correct fields
             </button>

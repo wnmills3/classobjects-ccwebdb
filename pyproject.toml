@@ -155,8 +155,3 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 no_implicit_optional = true
 strict_equality = true
-
-[[tool.mypy.overrides]]
-# Alembic revisions are generated; type checking them checks a template.
-module = "alembic.*"
-ignore_errors = true

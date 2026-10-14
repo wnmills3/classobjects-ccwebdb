@@ -51,7 +51,7 @@ needs the database edited by hand.
 | **Rename** | `PATCH /api/reference/{table}/{code}` | The label only. The code is the contract (saved filters, bookmarks, integrations) and never changes. Nothing migrates: records refer by foreign key. |
 | **Edit details...** (a vocabulary with columns of its own) | same, with `extra` | Changes the vocabulary's own columns -- which items a series is offered for, its years, a mint's mark -- keyed and read as when a value is added. Only the columns sent change; a blank empties one, and is a 422 where the column cannot be empty. A change that breaks a uniqueness rule is a 409 naming its columns. The form (`VocabularyDetailsForm.jsx`) sends only what was changed. |
 | **Move** (sequenced tables only) | same, with `sort_order` | Changes the value's position; the page shows a Position column for a sequenced vocabulary. |
-| **Retire / restore** | same, with `is_active` | Takes the value out of the pickers; every record using it stays as it is. Refused (409) for a value the application looks up by code: the tables in `_CODE_KEYED_TABLES` (statuses, dispositions, strike type, item kind, fee kind and other lifecycles) and the single values in `_CODE_KEYED_VALUES` (country `US`, note class `frn`, the photo roles a photograph's filename names, and a few more), both in `app/references.py`. Each value carries `retirable` so the page can say so up front. Such a value can still be renamed. |
+| **Retire / restore** | same, with `is_active` | Takes the value out of the pickers; every record using it stays as it is. Refused (409) for a value the application looks up by code: the tables in `_CODE_KEYED_TABLES` (statuses, dispositions, strike type, item kind, fee kind and other lifecycles) and the single values in `_CODE_KEYED_VALUES` (country `US`, note class `frn`, the photo roles a photograph's filename names, the storage location kind `consigned` the auction code makes, and a few more), both in `app/references.py`. Each value carries `retirable`, so pressing Retire or Merge into... on such a value says why at once, without asking the server. Such a value can still be renamed. |
 | **Merge into...** | `POST /api/reference/{table}/{code}/merge` | Moves every item holding the value to another, makes its names that value's aliases, and deletes it. A `dry_run` preview is shown first. Refused for a value another vocabulary or facts table uses, a code-keyed value, or a retired target; items on sale need `acknowledge_for_sale`. |
 | **Aliases** | `POST` / `DELETE .../{code}/aliases` | See `item-attributes-design.md`. |
 
@@ -161,7 +161,9 @@ absent) and `extra`, keyed by field `name`:
   required column left out, is a 422 naming the field. A blank is the same
   as leaving the column out.
 - **The code is worked out when none is sent.** A denomination's says what it
-  is, as the shipped ones do -- `usd_coin_0_03`, `usd_note_5000` -- and any
+  is -- `usd_coin_0_03`, `usd_note_5000`: a coin's face value to the cent, a
+  note's as it is read, so a 50-cent note derives `usd_note_0_5` where the
+  shipped one is `usd_note_0_50` -- and any
   other is named for its label (`Collector's Set` -> `collectors_set`). 409
   when the code is taken, or was merged into another value (the message
   names which), 422 when the label gives none.
@@ -220,7 +222,9 @@ For attributes and error types the add form asks for **a label only**
   vanish from the list that created it.
 - **Group** is required for an attribute: `attribute_group` is NOT NULL with
   no default, so the form has a group picker (Serial, Variety, Release,
-  Qualifier, Verification) and Add stays disabled until one is chosen.
+  Qualifier, Verification), and Add pressed before one is chosen says
+  "Choose a group first." and sends nothing. Add stays live throughout:
+  pressed with no label, or a label that makes no code, it says which.
 
 A photograph's role picker (`PhotosPanel`) adds a role the same way, by its
 label alone; a role has no kind and no group.

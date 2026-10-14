@@ -23,9 +23,11 @@ import { useHelpBand } from './help-context'
  * this needs none.
  *
  * The last field explained stays shown when focus moves to one with no help,
- * rather than the explanation flickering away between fields. Scopes nest:
- * the innermost one that finds help for the focused field shows it, and the
- * event goes no further.
+ * rather than the explanation flickering away between fields. A field
+ * marked with a key that has no text clears it instead, and in development
+ * warns, since that is a missing entry rather than a field without help.
+ * Scopes nest: the innermost one that finds a marked field answers for it,
+ * and the event goes no further.
  */
 export default function HelpScope({ children }) {
   const band = useHelpBand()
@@ -33,9 +35,16 @@ export default function HelpScope({ children }) {
 
   function explain(e, element) {
     const key = element?.closest?.('[data-help]')?.dataset.help
-    if (!key || !FIELD_HELP[key]) return
-    if (band) band.setField(key)
-    else setLocalField(key)
+    if (!key) return
+    // A field marked with a key that has no text is a misspelt or missing
+    // entry, not a field without help: the last field's text must not stay
+    // shown under it, and in development the miss is said aloud.
+    const known = Boolean(FIELD_HELP[key])
+    if (!known && import.meta.env.DEV) {
+      console.warn(`No field help for data-help="${key}"`)
+    }
+    if (band) band.setField(known ? key : null)
+    else setLocalField(known ? key : null)
     e.stopPropagation()
   }
 

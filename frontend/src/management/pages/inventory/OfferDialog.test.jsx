@@ -367,7 +367,7 @@ describe('OfferDialog', () => {
     expect(screen.getByRole('status')).toHaveTextContent('0 price(s) filled.')
   })
 
-  it('works to the margin typed, and offers no fill for one that is not a margin', async () => {
+  it('works to the margin typed, and says why on the press for one that is not a margin', async () => {
     const user = userEvent.setup()
     renderDialog()
     await fillIn(user, { venue: 'store', prices: [] })
@@ -375,10 +375,21 @@ describe('OfferDialog', () => {
     const fill = screen.getByRole('button', { name: 'Fill blank prices' })
     expect(margin).toHaveValue('20')
 
+    // Live whatever is typed: a greyed-out button says nothing about why.
     await user.clear(margin)
-    expect(fill).toBeDisabled()
+    expect(fill).toBeEnabled()
+    await user.click(fill)
+    expect(screen.getByLabelText('Price for CC-000007')).toHaveValue('')
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'The margin must be a number from 0 up to 100',
+    )
     await user.type(margin, '100')
-    expect(fill).toBeDisabled()
+    expect(fill).toBeEnabled()
+    await user.click(fill)
+    expect(screen.getByLabelText('Price for CC-000007')).toHaveValue('')
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'The margin must be a number from 0 up to 100',
+    )
 
     await user.clear(margin)
     await user.type(margin, '40')
@@ -608,12 +619,40 @@ describe('OfferDialog: a lot offered with no title', () => {
     )
   })
 
-  it('leaves a web store auction of the lot to the server', async () => {
+  it('sends no auction to the web store, and says why on the press', async () => {
     const user = userEvent.setup()
     await openLot(user, 'store')
+    await user.type(screen.getByLabelText('Title for Three dollars'), 'Three Morgans')
     await user.selectOptions(screen.getByLabelText('Format'), 'auction')
     await user.click(offerLot())
-    await waitFor(() => expect(api.createOffers).toHaveBeenCalled())
+
+    expect(
+      screen.getByText(/The web store sells at a fixed price through checkout/),
+    ).toBeVisible()
+    expect(api.createOffers).not.toHaveBeenCalled()
+    // Live, to be pressed again once the format is changed.
+    expect(offerLot()).toBeEnabled()
+
+    await user.selectOptions(screen.getByLabelText('Format'), 'fixed_price')
+    await user.click(offerLot())
+    await waitFor(() =>
+      expect(api.createOffers).toHaveBeenCalledWith(
+        expect.objectContaining({ venue: 'store', format: 'fixed_price', lot_id: 3 }),
+      ),
+    )
+  })
+
+  it('sends no auction of an item to the web store either', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await fillIn(user, { venue: 'store' })
+    await user.selectOptions(screen.getByLabelText('Format'), 'auction')
+    await user.click(offerButton())
+
+    expect(
+      screen.getByText(/The web store sells at a fixed price through checkout/),
+    ).toBeVisible()
+    expect(api.createOffers).not.toHaveBeenCalled()
   })
 
   it('asks no title of an item offered in the web store', async () => {

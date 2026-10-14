@@ -153,7 +153,7 @@ class UserUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    full_name: str | None = None
+    full_name: str | None = Field(default=None, max_length=255)
     role: UserRole | None = None
     is_active: bool | None = None
 
@@ -292,7 +292,8 @@ class ImageLinkIn(BaseModel):
     image_role: str | None = None
     is_primary: bool = False
     #: Its place among the item's photographs; none goes after the last.
-    sort_order: int | None = None
+    #: Bounded to the INTEGER column it is stored in.
+    sort_order: int | None = Field(default=None, ge=-(2**31), le=2**31 - 1)
     #: Set after a refusal to say the caller knows the item is for sale
     #: (app.sale_state). The shop serves an item's primary photograph.
     acknowledge_for_sale: bool = False
@@ -477,7 +478,7 @@ class CustomerUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    display_name: str | None = None
+    display_name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = None
     phone: str | None = None
     notes: str | None = None
@@ -518,10 +519,10 @@ class AddressIn(BaseModel):
 
     address_kind: AddressKind = AddressKind.shipping
     line1: Annotated[str, Field(min_length=1, max_length=255)]
-    line2: str | None = None
+    line2: str | None = Field(default=None, max_length=255)
     city: Annotated[str, Field(min_length=1, max_length=128)]
-    region: str | None = None
-    postal_code: str | None = None
+    region: str | None = Field(default=None, max_length=128)
+    postal_code: str | None = Field(default=None, max_length=32)
     country: str | None = None
     is_default: bool = True
 
@@ -677,6 +678,9 @@ class OrderStatusUpdate(BaseModel):
     #: A `sales_order_status` code: pending, paid, packed, shipped,
     #: delivered, cancelled, refunded.
     status: str = Field(min_length=1, max_length=64)
+    #: The version the order was read at; a mismatch is a 409, so a status
+    #: chosen from a stale page is not applied over a change never seen.
+    version: int
 
 
 class OrderChangeOut(BaseModel):
@@ -768,7 +772,7 @@ class SplitPieceIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source_title: str = Field(min_length=1, max_length=500)
-    piece_count: int = Field(default=1, ge=1)
+    piece_count: int = Field(default=1, ge=1, le=2**31 - 1)
     #: The value of ONE piece, on whatever basis the caller chose -- face
     #: value, melt, a catalog price. Required in `relative` mode, ignored in
     #: `equal`. What it measures is the caller's decision; this only divides
@@ -1119,7 +1123,7 @@ class InventoryItemUpdate(BaseModel):
     fine_weight_ozt: Weight | None = None
     #: The weight as written, where it is not one number ("1 oz each").
     weight_note: str | None = Field(default=None, max_length=200)
-    piece_count: int | None = Field(default=None, ge=1)
+    piece_count: int | None = Field(default=None, ge=1, le=2**31 - 1)
     item_cost: Money | None = None
     shipping_cost: Money | None = None
     #: A fraction, not a percentage: 0.0635 is 6.35%. Zero records a purchase
@@ -1262,7 +1266,7 @@ class ItemCreate(BaseModel):
 
     #: Pieces in the lot itself. A lot is simply piece_count > 1 -- splitting
     #: it into individually tracked pieces is a later step.
-    piece_count: int = Field(default=1, ge=1)
+    piece_count: int = Field(default=1, ge=1, le=2**31 - 1)
 
     item_cost: Money = Decimal("0.00")
     shipping_cost: Money = Decimal("0.00")
@@ -1952,7 +1956,8 @@ class OfferIn(BaseModel):
     venue: str = Field(min_length=1, max_length=64)
     #: `fixed_price` or `auction`.
     format: str = "fixed_price"
-    quantity: int = Field(default=1, ge=1)
+    #: Held to `listing.quantity_available`, an INTEGER.
+    quantity: int = Field(default=1, ge=1, le=2**31 - 1)
     #: Capped because one batch is one transaction holding one `FOR UPDATE`
     #: row lock per item: an unbounded list is a single request that can lock
     #: every item in the table. 200 is well past any real screenful -- the
@@ -2310,6 +2315,10 @@ class AuctionLotUpdate(BaseModel):
 
     lot_number: str | None = Field(default=None, min_length=1, max_length=32)
     reserve: Money | None = None
+    #: The **auction's** version as the page loaded it: a lot row has no
+    #: version of its own, so the auction's stands for it, and a lot edit
+    #: moves it. A mismatch is a 409.
+    version: int
 
 
 class AuctionConsignIn(BaseModel):
@@ -2594,6 +2603,10 @@ class PurchaseOrderDetailOut(BaseModel):
     seller: str | None = None
     seller_url: str | None = None
     notes: str | None = None
+    #: The lot's page a new item on this purchase takes as its listing:
+    #: its web address when that is one lot's page, else None
+    #: (`listing_links.lot_page`).
+    lot_page: str | None = None
     lines: list[PurchaseOrderLineOut]
 
 
@@ -2789,6 +2802,18 @@ class FriedbergNumberCreate(BaseModel):
         return _checked_fr(value)
 
     series_letter: str | None = Field(default=None, max_length=4)
+
+    @field_validator("series_letter")
+    @classmethod
+    def _series_letter_in_capitals(cls, value: str | None) -> str | None:
+        """Trimmed and upper-cased; blank is none.
+
+        `a` and `A` are one series, and the letter is part of a type's
+        identity, so kept as typed one type could be recorded twice.
+        """
+        letter = _strip_or_none(value)
+        return letter.upper() if letter is not None else None
+
     seal_color: str | None = None
     signature_combination: str | None = None
     #: The Federal Reserve district's letter, A (Boston) to L (San

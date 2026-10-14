@@ -316,6 +316,9 @@ def _found(
         ("MS65", {"business:65", "sms:65", "None:65"}),
         ("65", {"business:65", "proof:65", "sms:65", "None:65"}),
         ("PROOF", {"proof:65"}),
+        # The proof ladder's words are its steps, on proofs alone.
+        ("GEM PROOF", {"proof:65"}),
+        ("Choice Proof", set()),
         # A word is its whole range; a plus after it, the plus grades in it.
         ("AU", {"business:55", "business:55+", "business:58"}),
         ("AU+", {"business:55+"}),

@@ -616,9 +616,12 @@ _RECEIVED_NOTE = (
 #: starts at its current status has only such a row. Neither is an arrival,
 #: so both are excluded by the same
 #: `from_status_id IS NOT NULL` test, and this note says so in plain words.
+#: A piece detached from its split lot is in the same position: its arrival
+#: was the lot's, which reaches only the lot's own children.
 _OPENING_ROW_NOTE = (
-    "Items entered already received, and history recorded before status "
-    "changes were tracked, are not counted as arrivals."
+    "Items entered already received, history recorded before status "
+    "changes were tracked, and pieces detached from the lot they were split "
+    "from are not counted as arrivals."
 )
 
 

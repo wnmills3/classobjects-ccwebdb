@@ -1,7 +1,7 @@
 """The design series kept up to date on every save (`series_classify.refresh_series`).
 
 Through the API, as a person's save reaches it: a single edit, a bulk edit,
-a note whose seal is evidence. See docs/specs/identify-first-entry-design.md.
+a note whose seal is evidence. See docs/specs/series-classification-design.md.
 """
 
 from __future__ import annotations

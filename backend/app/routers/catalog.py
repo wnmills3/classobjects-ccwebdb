@@ -220,7 +220,7 @@ def _lot_entry(listing: Listing) -> CatalogItemOut:
         # falls back to its item's title and description, which describe the
         # coin; a lot's are the group's working name and note, kept for the
         # office, so a lot listing with no wording shows none. A store lot
-        # is not offered untitled (`routers.offers`).
+        # is neither offered nor edited untitled (`routers.offers`).
         title=listing.title,
         description=listing.description,
         price=listing.price,

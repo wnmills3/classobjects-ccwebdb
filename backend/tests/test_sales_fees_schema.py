@@ -160,3 +160,16 @@ def test_both_money_tables_refuse_a_negative_amount(db: Session) -> None:
                 "VALUES (1, 1, -0.01, 0)"
             )
         )
+    # The fee's predicate, not only its name: a constraint that admitted a
+    # negative amount would pass the name check above.
+    with (
+        pytest.raises(IntegrityError, match="ck_sales_order_fee_non_negative"),
+        db.begin_nested(),
+    ):
+        db.execute(
+            text(
+                "INSERT INTO sales_order_fee "
+                "(sales_order_id, sales_fee_kind_id, amount) "
+                "VALUES (1, 1, -0.01)"
+            )
+        )

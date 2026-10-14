@@ -333,6 +333,15 @@ describe('Lists: sellers, vendors and storage locations', () => {
     expect(screen.queryByText('Nothing here yet.')).toBeNull()
   })
 
+  it('counts a location by the item records that name it, not by items', async () => {
+    // An item kept there now also has the move that put it there in its
+    // history: the count is records, and one item can be two of them.
+    open('locations')
+    await screen.findByText('20l')
+    expect(screen.getByRole('columnheader', { name: 'Item records' })).toBeVisible()
+    expect(screen.queryByRole('columnheader', { name: 'Items' })).toBeNull()
+  })
+
   it("corrects a location's identifier, and leaves the auction code's own alone", async () => {
     const user = userEvent.setup()
     api.updateStorageLocation.mockResolvedValue({})

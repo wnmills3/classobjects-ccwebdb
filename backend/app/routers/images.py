@@ -11,8 +11,10 @@ second copy. The same file uploaded twice costs one file.
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import String, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import image_fetch, image_links, image_store, sale_state
@@ -32,10 +34,18 @@ from ..references import code_to_id
 from ..schemas import ImageFromUrl, ImageLinkIn, ImageLinkOut, ImageOut
 from ..storage import get_storage
 from ._resolve import found_or_404, get_or_404, get_or_422, unprocessable
+from ._tx import committing
 
 router = APIRouter(prefix="/images", tags=["images"])
 
 _IMAGE_NOT_FOUND = "Image not found"
+_CHANGED_MEANWHILE = image_links.CHANGED_MEANWHILE
+_DESTROYED_MEANWHILE = (
+    "This photograph was deleted while saving; read the photographs again."
+)
+
+#: The longest web address `image.source_url` holds.
+_SOURCE_URL_LENGTH = cast("String", Image.__table__.c["source_url"].type).length or 0
 
 #: A derivative is immutable -- its key contains the hash of its source -- so
 #: it can be cached hard. A year is the usual maximum.
@@ -57,6 +67,26 @@ def image_urls(sha256: str) -> dict[str, str]:
         "thumbnail_url": f"{settings.api_prefix}/images/{sha256}/thumb",
         "image_url": f"{settings.api_prefix}/images/{sha256}/web",
     }
+
+
+def fileable_item(db: Session, item_id: int, unknown_detail: str) -> InventoryItem:
+    """The item a photograph is to be filed on, or a 422 saying why it cannot be.
+
+    `unknown_detail` for an id that names nothing. A deleted item should never
+    have existed and a split one is retired into its parts, so neither is
+    given a photograph -- as `app.photo_import` declines them.
+    """
+    item = get_or_422(db, InventoryItem, item_id, unknown_detail)
+    if item.deleted_at is not None:
+        reason = "was deleted"
+    elif item.split_at is not None:
+        reason = "was split"
+    else:
+        return item
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail=f"{item.item_code} {reason}: no photograph is filed on it.",
+    )
 
 
 def to_image_out(image: Image) -> ImageOut:
@@ -92,18 +122,17 @@ async def upload_image(
 
     The item is found, the for-sale guard asked and the role looked up
     before `ingest` writes the bytes, so a refused upload leaves no file
-    behind with no row pointing at it.
+    behind with no row pointing at it. The item is held before the
+    picture's hash, the order adding by web address takes them in.
     """
     item: InventoryItem | None = None
     if inventory_item_id is not None:
-        item = get_or_422(
-            db,
-            InventoryItem,
-            inventory_item_id,
-            f"Unknown inventory_item_id: {inventory_item_id}",
+        item = fileable_item(
+            db, inventory_item_id, f"Unknown inventory_item_id: {inventory_item_id}"
         )
         sale_state.guard(db, [item], acknowledged=acknowledge_for_sale)
         code_to_id(db, ImageRole, image_role, "image_role")
+        image_links.hold_items(db, [item.id])
 
     # One byte past the limit is enough to know it is over: the rest of an
     # oversized upload is never read into memory.
@@ -175,9 +204,8 @@ def add_image_from_url(
     A refused fetch stores nothing, and neither does a role that is not one:
     it is looked up before anything is fetched.
     """
-    item = get_or_422(
+    item = fileable_item(
         db,
-        InventoryItem,
         payload.inventory_item_id,
         f"Unknown inventory_item_id: {payload.inventory_item_id}",
     )
@@ -189,6 +217,16 @@ def add_image_from_url(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
+    # The address kept is the one the bytes came from, and its full-size
+    # form can be longer than the address pasted.
+    if len(fetched_from) > _SOURCE_URL_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"{fetched_from[:60]}... is longer than the "
+                f"{_SOURCE_URL_LENGTH} characters kept for an address."
+            ),
+        )
 
     position = image_links.next_position(db, item.id)
     try:
@@ -240,29 +278,28 @@ def attach_image(
     one changes what a buyer is looking at.
     """
     image = get_or_404(db, Image, image_id, _IMAGE_NOT_FOUND)
-    item = get_or_422(
-        db,
-        InventoryItem,
-        payload.inventory_item_id,
-        f"No such item: {payload.inventory_item_id}",
+    item = fileable_item(
+        db, payload.inventory_item_id, f"No such item: {payload.inventory_item_id}"
     )
 
     sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
 
-    try:
-        link = image_links.attach(
-            db,
-            image=image,
-            item=item,
-            role=payload.image_role,
-            is_primary=payload.is_primary,
-            sort_order=payload.sort_order,
-        )
-    except image_links.LinkRefused as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    # A photograph unfiled from one item and filed here is named for here.
-    image_links.name_for_place(db, link)
-    db.commit()
+    # A photograph destroyed after it was read here is refused by its
+    # foreign key when the link is written: a conflict, not a fault.
+    with committing(db, _CHANGED_MEANWHILE, gone_detail=_DESTROYED_MEANWHILE):
+        try:
+            link = image_links.attach(
+                db,
+                image=image,
+                item=item,
+                role=payload.image_role,
+                is_primary=payload.is_primary,
+                sort_order=payload.sort_order,
+            )
+        except image_links.LinkRefused as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # A photograph unfiled from one item and filed here is named for here.
+        image_links.name_for_place(db, link)
     db.refresh(link)
     return link_out(db, link)
 
@@ -401,6 +438,14 @@ def delete_image(
     keys = [derivative.storage_key for derivative in image.derivatives]
     keys.append(image.storage_key)
     held = image.sha256
+
+    # Held before anything is deleted, items first as every filing holds
+    # them. A photograph filed on one of these items meanwhile waits, and
+    # finds no incumbent primary when it goes on; an upload of the same
+    # picture waits too, and finds no row to answer with whose files the
+    # removal below would take.
+    image_links.hold_items(db, [item.id for item in attached])
+    image_store.hold_content(db, held)
 
     db.delete(image)
     db.flush()

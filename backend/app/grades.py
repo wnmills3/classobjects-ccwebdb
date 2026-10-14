@@ -3,9 +3,9 @@
 docs/specs/item-attributes-design.md, section 3. A coin's grade is split:
 ``PR69+`` is strike type ``proof`` with grade ``69+``; ``MS65`` is
 ``business`` with ``65``. Adjectival grades take a fixed number -- the bottom
-of their standard range, except AU, which is 55 -- with the owner's ladder
-for UNC and BU: plain is Uncirculated (60), one plus is Choice (63), two
-pluses are Gem (65).
+of their standard range, except AU, which is 55, and PROOF, which is 63 as
+Choice Proof is -- with the owner's ladder for UNC and BU: plain is
+Uncirculated (60), one plus is Choice (63), two pluses are Gem (65).
 
 Everything that reads a compound grade -- an API client sending ``MS65``,
 for one -- goes through :func:`split`; everything that shows one goes
@@ -172,6 +172,8 @@ _PREFIX_RANGES: dict[str, tuple[int, int]] = {
 #: BU is 60-62, BU+ 63-64, BU++ 65-66 (spec, *Searching a grade*).
 _LADDER_STEPS = ((60, 62), (63, 64), (65, 66))
 _LADDER_WORDS = {"UNC": None, "BU": None, "CHOICE": 1, "GEM": 2}
+#: The same steps on proofs alone: Choice Proof 63-64, Gem Proof 65-66.
+_PROOF_LADDER = {"CHOICE_PROOF": 1, "GEM_PROOF": 2}
 
 #: Words that name a strike rather than a grade.
 _STRIKE_WORDS = {"PROOF": "PR", "PR": "PR", "PF": "PR", "SP": "SP", "SPECIMEN": "SP"}
@@ -259,6 +261,10 @@ def _word_term(code: str) -> GradeTerm | None:
     word = base.rstrip("+")
     pluses = len(base) - len(word)
     word = word.removesuffix("_UNC").removesuffix("_BU")
+    proof_step = _PROOF_LADDER.get(word)
+    if proof_step is not None and not pluses:
+        low, high = _rank_span(*_LADDER_STEPS[proof_step])
+        return GradeTerm(low, high, None, "PR")
     if word in _LADDER_WORDS:
         return _ladder_term(_LADDER_WORDS[word], pluses, wild)
     if word in _STRIKE_WORDS and not pluses:

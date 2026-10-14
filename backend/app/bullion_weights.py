@@ -20,8 +20,10 @@ looked at, and only its empty fields are filled. Two sources, in order:
   words state, what most items of the same bullion form and metal hold: when
   at least `PEER_SHARE` of them (and at least `PEER_MINIMUM`) agree on a fine
   weight, the item takes the
-  commonest gross weight, fineness and fine weight among those. Guessed
-  values are never counted as peers, and a peer weight is not applied to an
+  commonest gross weight, fineness and fine weight among those. An item
+  holding a guessed value is never counted as a peer; one whose fine weight
+  a save worked out from a typed gross weight and fineness is. A peer
+  weight is not applied to an
   item whose own fineness differs -- a sterling round is not a .999 one.
   Peers that record no fineness are taken to be fine metal, so their weight
   goes only to an item of unknown fineness or of .999 and above.
@@ -35,7 +37,9 @@ is taken as it stands.
     python -m app.bullion_weights --list                   ... naming every item
     python -m app.bullion_weights --commit --by EMAIL      write the guesses
 
-Every change is logged in the item's History under the person named.
+The changes to the three weight columns are logged in the item's History
+under the person named. Anything else the save's defaults fill is recorded
+as derived (`item_field_source`), as a Save records it, and is not logged.
 """
 
 from __future__ import annotations
@@ -58,7 +62,6 @@ from .database import SessionLocal
 from .field_sources import (
     HELD,
     WEIGHT_PEERS,
-    WEIGHT_RULES,
     WEIGHT_TEXT,
     record_derived,
     sources_by_item,
@@ -71,6 +74,9 @@ __all__ = ["Guess", "Plan", "apply", "fineness_in", "plan", "weight_in"]
 KINDS: tuple[str, ...] = ("bullion", "medal", "token")
 #: The columns this pass may fill.
 COLUMNS: tuple[str, ...] = ("gross_weight_ozt", "fineness", "fine_weight_ozt")
+
+#: The rules that guess a value rather than work one out from the item's own.
+_GUESSES: frozenset[str] = frozenset({WEIGHT_TEXT, WEIGHT_PEERS})
 
 #: How much of a form's items must agree before their weight is a guess.
 PEER_SHARE = Decimal("0.6")
@@ -243,8 +249,11 @@ def _peers(
         if item.bullion_form_id is None or item.fine_weight_ozt is None:
             continue
         rules = guessed.get(item.id, {})
-        if any(rules.get(column) in WEIGHT_RULES for column in COLUMNS):
-            continue  # a guess is not evidence for the next guess
+        # A guess is not evidence for the next guess. A fine weight worked
+        # out from a guessed gross weight or fineness falls with its input; one
+        # worked out from typed values is as good as typed.
+        if any(rules.get(column) in _GUESSES for column in COLUMNS):
+            continue
         held.setdefault((item.bullion_form_id, item.metal_id), []).append(item)
     peers: dict[tuple[int, int | None], _Peers] = {}
     for key, items in held.items():

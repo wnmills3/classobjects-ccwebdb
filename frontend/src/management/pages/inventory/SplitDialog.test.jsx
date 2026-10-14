@@ -82,6 +82,33 @@ describe('SplitDialog', () => {
     await waitFor(() => expect(onSplit).toHaveBeenCalledWith(RESULT))
   })
 
+  it('leaves Year blank for a lot dated as a range, so each piece keeps the range', async () => {
+    const user = userEvent.setup()
+    open({ ...LOT, piece_count: 2, year_start: 1964, year_end: 1970 })
+    expect(screen.getByLabelText('Year of piece 1')).toHaveValue('')
+    expect(screen.getByLabelText('Year of piece 2')).toHaveValue('')
+    await user.click(screen.getByRole('button', { name: 'Split into 2 pieces' }))
+
+    const sent = api.splitItem.mock.calls[0][1]
+    expect(sent.pieces.map((piece) => piece.year_start)).toEqual([undefined, undefined])
+  })
+
+  it('starts Year at the lot year for a lot of one year, stored with both ends', () => {
+    open({ ...LOT, piece_count: 2, year_start: 1980, year_end: 1980 })
+    expect(screen.getByLabelText('Year of piece 1')).toHaveValue('1980')
+  })
+
+  it("asks no year of a note lot's pieces: a note's year is its series year", async () => {
+    const user = userEvent.setup()
+    open({ ...LOT, item_kind: 'currency', year_start: null, piece_count: 2 })
+    expect(screen.queryByRole('columnheader', { name: 'Year' })).toBeNull()
+    expect(screen.queryByLabelText('Year of piece 1')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Split into 2 pieces' }))
+
+    const sent = api.splitItem.mock.calls[0][1]
+    expect(sent.pieces.every((piece) => !('year_start' in piece))).toBe(true)
+  })
+
   it('divides by value only once every piece has one', async () => {
     const user = userEvent.setup()
     open({ ...LOT, piece_count: 2, item_cost: '91.00' })

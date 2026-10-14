@@ -31,6 +31,10 @@ router = APIRouter(prefix="/sales-venues", tags=["selling"])
 
 _STALE = "This platform was changed by someone else. Reload and reapply your changes."
 
+#: PostgreSQL's SQLSTATEs for a unique index and a foreign key refusing a row.
+_UNIQUE_VIOLATION = "23505"
+_FOREIGN_KEY_VIOLATION = "23503"
+
 
 def _out(db: Session, venue: SalesVenue) -> SalesVenueOut:
     """Shape one platform row for the wire, with its kind and vendor resolved."""
@@ -162,9 +166,20 @@ def update_sales_venue(
     try:
         commit(db, _STALE)
     except IntegrityError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="That purchase source is already linked to another platform",
-        ) from exc
+        # Read by cause: a second platform taking the same purchase source
+        # is the unique index, and a purchase source deleted after the check
+        # above is the foreign key. Anything else is neither, and is re-raised.
+        sqlstate = getattr(exc.orig, "sqlstate", None)
+        if sqlstate == _UNIQUE_VIOLATION:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="That purchase source is already linked to another platform",
+            ) from exc
+        if sqlstate == _FOREIGN_KEY_VIOLATION:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"No purchase source with id {data.get('vendor_id')}",
+            ) from exc
+        raise
     db.refresh(venue)
     return _out(db, venue)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import socket
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -81,7 +82,8 @@ def test_only_web_addresses_are_fetched(url: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "address", ["127.0.0.1", "10.0.0.5", "192.168.1.9", "169.254.169.254", "::1"]
+    "address",
+    ["127.0.0.1", "10.0.0.5", "192.168.1.9", "169.254.169.254", "::1", "224.0.0.1"],
 )
 def test_an_address_inside_the_network_is_refused(address: str) -> None:
     calls: list[httpx.Request] = []
@@ -96,6 +98,29 @@ def test_an_address_inside_the_network_is_refused(address: str) -> None:
             "http://inside.example/a.jpg",
             client=_client(handler),
             resolve=_resolver({"inside.example": address}),
+        )
+    assert calls == []
+
+
+def test_a_host_with_any_address_inside_the_network_is_refused() -> None:
+    """Every address the host gives is checked, not only the first."""
+    calls: list[httpx.Request] = []
+
+    def resolve(_host: str, *_args: object, **_kwargs: object) -> list[Any]:
+        """A public address first, then one inside the network."""
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 443)),
+        ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Answer anything, recording that a request was made at all."""
+        calls.append(request)
+        return httpx.Response(200, content=b"x")
+
+    with pytest.raises(ImageFetchRefused, match="not a public"):
+        fetch_image(
+            "http://mixed.example/a.jpg", client=_client(handler), resolve=resolve
         )
     assert calls == []
 
@@ -186,10 +211,12 @@ def test_a_file_over_the_limit_is_refused(monkeypatch: pytest.MonkeyPatch) -> No
         "http://public.example:abc/a.jpg",
         "http://public.example:99999/a.jpg",
         "http://[::1/a.jpg",
+        # A control character no HTTP request may carry.
+        f"http://public.example/a{chr(1)}.jpg",
     ],
 )
 def test_an_address_that_cannot_be_read_is_refused_not_an_error(url: str) -> None:
-    """A port that is no number, or a bracket never closed, is a refusal.
+    """A port that is no number, a bracket never closed, or a control character.
 
     The caller turns `ImageFetchRefused` into a message for the person who
     typed the address; any other exception reaches them as a server error.
@@ -373,6 +400,62 @@ def test_a_fetch_naming_an_unknown_role_stores_nothing(
     assert "image_role" in res.json()["detail"]
     root = Path(settings.media_root)
     assert [p for p in root.rglob("*") if p.is_file()] == []
+
+
+def test_an_address_too_long_to_keep_at_full_size_stores_nothing(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The full-size form of an address is longer than the one pasted.
+
+    The address kept is the one the bytes came from, and a column holds it:
+    one that will not fit is refused with a reason, not a server error.
+    """
+    monkeypatch.setattr(image_fetch, "fetch_image", lambda _url: _webp("plum"))
+    item = make_item()
+    head, tail = "https://i.ebayimg.com/images/g/", "/s-l140.webp"
+    url = head + "x" * (2000 - len(head) - len(tail)) + tail
+    assert len(url) == 2000
+
+    res = _from_url(client, admin_headers, url=url, inventory_item_id=item.id)
+
+    assert res.status_code == 422, res.text
+    assert "characters" in res.json()["detail"]
+    db.expire_all()
+    filed = select(ItemImage.id).where(ItemImage.inventory_item_id == item.id)
+    assert db.scalar(filed) is None
+
+
+def test_fetching_onto_a_deleted_item_fetches_nothing(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deleted item should never have existed: nothing is filed on it."""
+    asked: list[str] = []
+
+    def fetch(url: str) -> bytes:
+        """Answer with a picture, noting that the address was fetched."""
+        asked.append(url)
+        return _webp("gray")
+
+    monkeypatch.setattr(image_fetch, "fetch_image", fetch)
+    item = make_item(deleted_at=datetime(2026, 1, 1, tzinfo=UTC))
+
+    res = _from_url(
+        client,
+        admin_headers,
+        url="https://public.example/a.webp",
+        inventory_item_id=item.id,
+    )
+
+    assert res.status_code == 422, res.text
+    assert "deleted" in res.json()["detail"]
+    assert asked == []
 
 
 def test_fetching_needs_an_item_and_a_manager(

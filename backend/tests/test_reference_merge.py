@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from app import aliases
+from app import aliases, image_links
 from app.models import (
     CoinDetail,
     CurrencyDetail,
@@ -17,6 +17,7 @@ from app.models import (
     ItemAttributeLink,
     ItemCertification,
     ItemError,
+    ItemFieldChange,
     ItemImage,
     ItemKind,
     Mint,
@@ -26,8 +27,13 @@ from app.models import (
     SealColor,
     Series,
     SeriesAlias,
+    SeriesYearRange,
 )
-from app.seeding import _seed_reference_aliases, _seed_table
+from app.seeding import (
+    _seed_reference_aliases,
+    _seed_series_year_ranges,
+    _seed_table,
+)
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import event, select
@@ -444,6 +450,48 @@ def test_a_photographs_role_moves(
     assert link.image_role_id == code_id(db, ImageRole, "detail")
 
 
+def test_a_photographs_role_is_changed_by_the_one_writer_of_item_image(
+    db: Session,
+    client: TestClient,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`app.image_links` is the only writer of `item_image`, a merge included."""
+    role = _added(client, admin_headers, "image_role", "Writer Test")
+    item = build_bare_item(db)
+    image = Image(
+        sha256="8" * 64,
+        storage_key="orig/merge-writer-test.jpg",
+        media_type="image/jpeg",
+        byte_size=10,
+    )
+    db.add(image)
+    db.flush()
+    role_id = code_id(db, ImageRole, role)
+    detail_id = code_id(db, ImageRole, "detail")
+    db.add(
+        ItemImage(inventory_item_id=item.id, image_id=image.id, image_role_id=role_id)
+    )
+    db.commit()
+    calls: list[tuple[int, int]] = []
+    real = image_links.replace_role
+
+    def spy(session: Session, old_role_id: int, new_role_id: int) -> None:
+        """Note the call, then make it."""
+        calls.append((old_role_id, new_role_id))
+        real(session, old_role_id, new_role_id)
+
+    monkeypatch.setattr(image_links, "replace_role", spy)
+
+    response = _merge(client, admin_headers, "image_role", role, "detail")
+
+    assert response.status_code == 200, response.text
+    assert calls == [(role_id, detail_id)]
+    db.expire_all()
+    link = db.scalars(select(ItemImage).where(ItemImage.image_id == image.id)).one()
+    assert link.image_role_id == detail_id
+
+
 def test_an_item_with_both_errors_keeps_one(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
@@ -549,6 +597,27 @@ def test_a_name_too_long_to_be_an_alias_is_said_not_silently_lost(
         assert long_label in body["names_not_kept"][0]
 
 
+def test_a_name_that_differs_only_in_case_is_promised_once(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A label and a code that read the same are one name, kept once.
+
+    The merge keeps the first and finds the second already held; the
+    preview must say the same.
+    """
+    code = _added(client, admin_headers, "grade_designation", "Toned", code="toned")
+
+    preview = _merge(
+        client, admin_headers, "grade_designation", code, "DCAM", dry_run=True
+    )
+    made = _merge(client, admin_headers, "grade_designation", code, "DCAM")
+
+    assert preview.status_code == 200, preview.text
+    assert made.status_code == 200, made.text
+    assert preview.json()["aliases"] == ["Toned"]
+    assert made.json()["aliases"] == preview.json()["aliases"]
+
+
 def test_a_name_that_is_another_values_own_is_not_promised_either(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
@@ -613,6 +682,103 @@ def test_a_seed_alias_follows_a_code_merged_twice_over(
     assert aliases.resolve(db, GradeDesignation, "chain test") == aliases.Resolved(
         code_id(db, GradeDesignation, "DCAM"), "alias"
     )
+
+
+def test_a_seed_range_naming_a_merged_design_lands_on_the_one_it_became(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A design's year ranges follow a merge, as its other seed rows do."""
+    assert (
+        _merge(
+            client, admin_headers, "series", "gobrecht_dollar", "flowing_hair_dollar"
+        ).status_code
+        == 200
+    )
+
+    shipped = [{"series": "gobrecht_dollar", "year_start": 1836, "year_end": 1839}]
+    assert _seed_series_year_ranges(db, {"series_year_range": shipped}) == {
+        "created": 1
+    }
+    kept = code_id(db, Series, "flowing_hair_dollar")
+    ranges = db.scalars(
+        select(SeriesYearRange).where(SeriesYearRange.series_id == kept)
+    ).all()
+    assert [(r.year_start, r.year_end) for r in ranges] == [(1836, 1839)]
+
+
+def test_a_second_merge_of_the_same_value_is_a_409_not_a_500(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Two merges at once: the second meets the first's record and is refused.
+
+    Inserted directly, as the first request's commit would leave it, while
+    the value is still there for the second request to find.
+    """
+    db.add(
+        ReferenceMerge(
+            table_name="grade_designation",
+            code="CAM",
+            label="CAM (Cameo)",
+            merged_into="DCAM",
+        )
+    )
+    db.commit()
+
+    response = _merge(client, admin_headers, "grade_designation", "CAM", "DCAM")
+
+    assert response.status_code == 409, response.text
+    assert code_id(db, GradeDesignation, "CAM") is not None
+
+
+def test_a_merge_is_in_each_moved_items_history(
+    db: Session,
+    make_item: ItemFactory,
+    client: TestClient,
+    admin_headers: dict[str, str],
+) -> None:
+    """Who moved a field, and from what to what, as an edit would log it."""
+    item = make_item(grade_designation_id=code_id(db, GradeDesignation, "CAM"))
+    bystander = make_item(grade_designation_id=code_id(db, GradeDesignation, "DCAM"))
+
+    response = _merge(client, admin_headers, "grade_designation", "CAM", "DCAM")
+
+    assert response.status_code == 200, response.text
+    changes = db.execute(
+        select(
+            ItemFieldChange.inventory_item_id,
+            ItemFieldChange.field_name,
+            ItemFieldChange.old_value,
+            ItemFieldChange.new_value,
+            ItemFieldChange.changed_by_id,
+        ).where(
+            ItemFieldChange.inventory_item_id.in_([item.id, bystander.id]),
+            ItemFieldChange.field_name == "grade_designation",
+        )
+    ).all()
+    assert len(changes) == 1
+    item_id, field, old, new, by = changes[0]
+    assert (item_id, field, old, new) == (item.id, "grade_designation", "CAM", "DCAM")
+    assert by is not None
+
+
+def test_a_coins_mint_merge_is_in_its_history(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    carson = _added(client, admin_headers, "mint", "Carson Log", extra={"mark": "CG"})
+    item = build_bare_item(db)
+    db.add(CoinDetail(inventory_item_id=item.id, mint_id=code_id(db, Mint, carson)))
+    db.commit()
+
+    response = _merge(client, admin_headers, "mint", carson, "CC")
+
+    assert response.status_code == 200, response.text
+    logged = db.execute(
+        select(ItemFieldChange.old_value, ItemFieldChange.new_value).where(
+            ItemFieldChange.inventory_item_id == item.id,
+            ItemFieldChange.field_name == "mint",
+        )
+    ).all()
+    assert [tuple(row) for row in logged] == [(carson, "CC")]
 
 
 def test_a_retired_value_is_not_a_merge_target(

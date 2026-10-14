@@ -47,6 +47,9 @@ const BLANK_VENDOR_DRAFT = { name: '', vendor_kind: '', url: '' }
  */
 function VendorField({ vendors, value, onChange, onVendorAdded }) {
   const addOption = useAddOption()
+  // Add stays live: a press with no name says so, rather than a dimmed
+  // button that says nothing.
+  const [askedEmpty, setAskedEmpty] = useState(false)
   const { adding, setAdding, draft, setDraft, error, add, wrapper, ready } =
     useInlineAdd({
       blank: BLANK_VENDOR_DRAFT,
@@ -92,12 +95,21 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
           onChange={(e) => setDraft({ ...draft, vendor_kind: e.target.value })}
           placeholder="vendor kind"
         />
-        <button type="button" onClick={add} disabled={!ready}>
+        <button
+          type="button"
+          onClick={() => {
+            setAskedEmpty(!ready)
+            if (ready) add()
+          }}
+        >
           Add
         </button>
         <button type="button" className="link" onClick={() => setAdding(false)}>
           Cancel
         </button>
+        {askedEmpty && !ready && (
+          <span className="error">Type the vendor&apos;s name first.</span>
+        )}
         {error && <span className="error">{error}</span>}
       </div>
     )
@@ -128,18 +140,6 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
       ))}
     </select>
   )
-}
-
-/**
- * The purchase's web address when it is a lot's page, or null. At eBay and
- * Whatnot an order holds many listings and its page is no listing's; the
- * backend's `app.listing_links` draws the line by the vendor's host name;
- * this reads the vendor's name alone.
- */
-function lotPage(purchase) {
-  return /ebay|whatnot/i.test(purchase.vendor ?? '')
-    ? null
-    : (purchase.source_url ?? null)
 }
 
 /** A seller picker's text as the API takes it: an id, or null for none. */
@@ -410,6 +410,8 @@ export default function NewPurchase() {
   const [form, setForm] = useState(BLANK_PURCHASE)
   const [creating, setCreating] = useState(false)
   const [purchaseError, setPurchaseError] = useState('')
+  //: Create was pressed with no vendor; said until one is picked.
+  const [askedNoVendor, setAskedNoVendor] = useState(false)
   const [purchase, setPurchase] = useState(null)
   //: Bumped to re-run the order-list effect. See `startAnother`.
   const [ordersEpoch, setOrdersEpoch] = useState(0)
@@ -522,6 +524,11 @@ export default function NewPurchase() {
 
   async function createPurchase(e) {
     e.preventDefault()
+    // Create stays live: a press with no vendor says so and sends nothing.
+    if (!form.vendor_id) {
+      setAskedNoVendor(true)
+      return
+    }
     setCreating(true)
     try {
       const payload = {
@@ -579,6 +586,7 @@ export default function NewPurchase() {
     setPurchase(null)
     setPurchaseError('')
     setForm(BLANK_PURCHASE)
+    setAskedNoVendor(false)
     setPickError('')
     setReloadError('')
     setOrderFilter('')
@@ -765,7 +773,9 @@ export default function NewPurchase() {
               // A purchase's own: a title typed for one is not the next one's.
               key={`items-${purchase.id}`}
               purchaseOrderId={purchase.id}
-              orderUrl={lotPage(purchase)}
+              // The server's rule (`listing_links.lot_page`): a lot's page,
+              // never a marketplace's order or a shop's location page.
+              orderUrl={purchase.lot_page ?? null}
               defaults={itemDefaults}
               items={purchase.lines ?? []}
               likeId={lastOpened}
@@ -926,10 +936,13 @@ export default function NewPurchase() {
               <textarea rows={2} value={form.notes} onChange={set('notes')} />
             </label>
             <div className="row">
-              <button type="submit" disabled={creating || !form.vendor_id}>
+              <button type="submit" disabled={creating}>
                 {creating ? 'Creating...' : 'Create purchase'}
               </button>
             </div>
+            {askedNoVendor && !form.vendor_id && (
+              <p className="error">Pick a vendor first: every purchase is from one.</p>
+            )}
           </form>
         )}
       </HelpScope>

@@ -69,6 +69,31 @@ SMALL_SIZE_FROM = 1928
 LOW_SERIAL_ZEROS = 4
 HIGH_SERIAL_FIRST_DIGIT = "9"
 
+#: The designations that say what the digits spell (`_pattern_designations`):
+#: the ones `fancy_serial` sums up.
+DIGIT_PATTERNS: frozenset[str] = frozenset(
+    {
+        "solid_serial",
+        "binary",
+        "trinary",
+        "radar",
+        "repeater",
+        "double_quad",
+        "ladder",
+        "birthday",
+    }
+)
+
+
+#: Every designation `analyse` can return: the codes whose links this
+#: module judges as its own, and the only ones it does.
+DESIGNATIONS: frozenset[str] = DIGIT_PATTERNS | {
+    "low_serial",
+    "high_serial",
+    "star",
+    "fancy_serial",
+}
+
 
 def digits_of(serial: str) -> str:
     """The numeric part, with the prefix/suffix letters and star removed."""
@@ -154,7 +179,7 @@ def analyse(serial: str) -> set[str]:
     # a replacement note, which is a different question on a grading form and
     # a different suffix on the catalog number: a star alone says nothing of
     # the digits, so it does not make a serial fancy.
-    if found - {"star", "low_serial", "high_serial"}:
+    if found & DIGIT_PATTERNS:
         found.add("fancy_serial")
     return found
 
@@ -283,12 +308,17 @@ def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:
 
     A designation this module added, still in force, that the serial no
     longer earns -- the serial was corrected -- is taken back with it. One a
-    person set, or removed, is never touched.
+    person set, or removed, is never touched. A retired designation is not
+    added anywhere, and the links it already has are left as they are.
     """
-    attribute_ids = {
-        code: ident
-        for ident, code in db.execute(select(ItemAttribute.id, ItemAttribute.code))
-    }
+    attribute_ids: dict[str, int] = {}
+    retired: set[str] = set()
+    for ident, code, active in db.execute(
+        select(ItemAttribute.id, ItemAttribute.code, ItemAttribute.is_active)
+    ):
+        attribute_ids[code] = ident
+        if not active:
+            retired.add(code)
     codes = {ident: code for code, ident in attribute_ids.items()}
     # The links in force that this module added, by item: the only ones it
     # may take back.
@@ -338,7 +368,12 @@ def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:
         if is_incomplete(serial):
             stats["incomplete_serial"] += 1
             incomplete.append((item_code, serial))
-        to_add += _missing_links(item_id, earned, attribute_ids, existing, stats)
+        to_add += _missing_links(
+            item_id, earned - retired, attribute_ids, existing, stats
+        )
+        for code in sorted(earned & retired):
+            # Retired: no new use of it, but the links it has stay as they are.
+            stats[f"retired_attribute:{code}"] += 1
 
     if commit and (to_add or to_remove):
         _write(db, to_add, to_remove, stats)

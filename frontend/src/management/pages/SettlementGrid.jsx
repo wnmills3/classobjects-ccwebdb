@@ -41,7 +41,7 @@ const EMPTY_LINE = { result: '', hammer_price: '', buyer_username: '' }
  * it; it only says what "Settle" is about to do and that a refused grid
  * writes nothing.
  */
-function SettleConfirm({ auction, busy, canSettle, onConfirm, onCancel }) {
+function SettleConfirm({ auction, busy, onConfirm, onCancel }) {
   return (
     <ConfirmDialog
       question={`Settle ${auction.title}?`}
@@ -49,7 +49,6 @@ function SettleConfirm({ auction, busy, canSettle, onConfirm, onCancel }) {
       busyLabel="Settling..."
       cancelLabel="Keep reviewing"
       busy={busy}
-      disabled={!canSettle}
       onConfirm={onConfirm}
       onCancel={onCancel}
     >
@@ -191,8 +190,9 @@ export default function SettlementGrid({
   // (`auction.consigned_on is not None`) and at least one lot with a
   // chosen, non-sold result has nowhere named to come back to
   // (`_custody_problems`' `coming_home` check). `ReturnLocationConfirm` in
-  // `Auctions.jsx` disables its confirm button the same way, on the same
-  // `consigned_on` predicate -- this is that pattern
+  // `Auctions.jsx` asks the same way, on the same `consigned_on` predicate:
+  // the button stays live, and a press without the location sends nothing
+  // and names it -- this is that pattern
   // applied here, so the owner cannot walk into a refusal the console could
   // see coming.
   const needsReturnLocation =
@@ -202,6 +202,16 @@ export default function SettlementGrid({
       return result !== '' && result !== 'sold'
     })
   const canSettle = !needsReturnLocation || returnedToLocationId !== ''
+
+  /** Open the confirmation, or say what is missing and open nothing. */
+  function askToSettle() {
+    if (!canSettle) {
+      setError('Choose where unsold and withdrawn items come back to first.')
+      return
+    }
+    setError('')
+    setConfirming(true)
+  }
 
   async function settle() {
     setSettling(true)
@@ -390,9 +400,7 @@ export default function SettlementGrid({
       </dl>
 
       <div className="row">
-        <button disabled={!canSettle} onClick={() => setConfirming(true)}>
-          Settle...
-        </button>
+        <button onClick={askToSettle}>Settle...</button>
         {!canSettle && (
           <span className="muted">
             Choose where unsold and withdrawn items come back to first.
@@ -404,7 +412,6 @@ export default function SettlementGrid({
         <SettleConfirm
           auction={auction}
           busy={settling}
-          canSettle={canSettle}
           onConfirm={settle}
           onCancel={() => setConfirming(false)}
         />

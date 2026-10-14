@@ -37,11 +37,17 @@ _STILL_REFERENCED = frozenset({"23001", "23503"})
 
 
 @contextmanager
-def committing(db: Session, stale_detail: str) -> Iterator[None]:
+def committing(
+    db: Session, stale_detail: str, *, gone_detail: str | None = None
+) -> Iterator[None]:
     """Run the block's writes and commit them, or roll everything back.
 
     `StaleDataError` from the block or the commit becomes a 409 with
-    `stale_detail`; any other exception is rolled back and re-raised as is.
+    `stale_detail`. With `gone_detail`, a foreign key refusing a row whose
+    referent was deleted since the handler read it is a 409 with that
+    wording too: the handler found it, and another request removed it
+    before this one wrote. Any other exception is rolled back and re-raised
+    as is.
     """
     try:
         yield
@@ -51,6 +57,16 @@ def committing(db: Session, stale_detail: str) -> Iterator[None]:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=stale_detail
         ) from stale
+    except IntegrityError as exc:
+        db.rollback()
+        if (
+            gone_detail is None
+            or getattr(exc.orig, "sqlstate", None) not in _STILL_REFERENCED
+        ):
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=gone_detail
+        ) from exc
     except Exception:
         db.rollback()
         raise

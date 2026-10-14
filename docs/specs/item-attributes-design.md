@@ -192,9 +192,9 @@ MS65 is business strike + 65; SP68 is specimen + 68; PR69+ is proof + 69+.
   Plus is allowed wherever it occurs, including where no service would give
   one (69+).
 - **Adjectival grades take a fixed number** (`grades.ADJECTIVAL`), the
-  bottom of the standard range for all but AU: UNC and BU are MS60, Choice
-  MS63, Gem MS65; PROOF and Choice Proof PR63, Gem Proof PR65; AU 55, XF 40,
-  VF 20, F 12, VG 8, G 4. UNC and BU climb with pluses (BU+ is 63, BU++ 65);
+  bottom of the standard range for all but AU and PROOF: UNC and BU are
+  MS60, Choice MS63, Gem MS65; PROOF and Choice Proof PR63, Gem Proof PR65;
+  AU 55, XF 40, VF 20, F 12, VG 8, G 4. UNC and BU climb with pluses (BU+ is 63, BU++ 65);
   AU+ is 55+. Note adjectivals take the bottom of the note scale's range
   (`grades.NOTE_ADJECTIVAL`: Gem Unc N65 ... AU N50 ... G N4).
   Only CIRC and UNGRADED stay unnumbered. The rating as written stays in
@@ -232,7 +232,8 @@ the green sticker.
 - A prefix names the strike: `PR65` is a proof, `MS65` anything shown as MS
   (business, SMS, or no strike recorded).
 - The ladder words are steps: `BU` is 60-62, `BU+` 63-64, `BU++` 65-66, `BU%`
-  all three.
+  all three. `Choice Proof` and `Gem Proof` are the 63-64 and 65-66 steps
+  on proofs alone.
 - Any other word is its whole range -- `AU` is 50 to 58+ -- and a plus after
   it narrows to the plus grades.
 - `grade_min` takes the bottom of its term and `grade_max` the top, so

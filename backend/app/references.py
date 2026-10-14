@@ -73,6 +73,10 @@ _CODE_KEYED_VALUES = frozenset(
         ("currency", "USD"),
         ("country", "US"),
         ("note_type", "frn"),
+        # `auctions` finds every consigned location's kind by this code, and
+        # a seed load never brings back a merged code: merging it away would
+        # fail every consignment for good.
+        ("storage_location_kind", "consigned"),
         # `photo_names` turns a filename's sequence number into one of these
         # three codes and `photo_import` resolves each through `code_to_id`,
         # which refuses a retired value. Retiring one would fail every

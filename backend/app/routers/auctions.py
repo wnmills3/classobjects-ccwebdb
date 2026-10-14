@@ -40,6 +40,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from .. import auctions, lot_writes, offering_writes, sales_writes
 from ..deps import AdminUser, DbSession
@@ -403,7 +404,12 @@ def update_auction_lot(
     db: DbSession,
     _admin: AdminUser,
 ) -> AuctionOut:
-    """Renumber a lot, or change its reserve.
+    """Renumber a lot, or change its reserve. Send the auction's `version`.
+
+    A lot row has no version of its own, so the auction's stands for it: the
+    body names the version the page loaded, a mismatch with the auction as
+    locked is a 409, and a successful edit moves the auction's version so a
+    second edit from the same page is told rather than silently winning.
 
     Gated by `app.auctions.refuse_unless_lot_editable`: `draft`,
     `scheduled` or `consigned` only, the same boundary
@@ -431,6 +437,10 @@ def update_auction_lot(
     auctions.refuse_unless_lot_editable(db, auction_lot)
     lot_number = payload.lot_number
     data: dict[str, Any] = payload.model_dump(exclude_unset=True)
+    # Against the auction row the gate has just locked and re-read, which is
+    # held until the commit: a lot has no version of its own, so the
+    # auction's is the token for its number and reserve.
+    refuse_stale_version(data.pop("version"), auction.version, _STALE)
     if "lot_number" in data and data["lot_number"] is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -439,6 +449,13 @@ def update_auction_lot(
 
     for field, value in data.items():
         setattr(auction_lot, field, value)
+    # The edit writes only `auction_lot`, which leaves the auction's version
+    # where it was; marking a column moves it, so a second edit from the
+    # same loaded page carries a stale token and is told. SQLAlchemy emits
+    # no UPDATE for an assignment that matches the loaded value, hence
+    # `flag_modified`, with the attribute read first so it is loaded.
+    _ = auction.title
+    flag_modified(auction, "title")
 
     try:
         commit(db, _STALE)

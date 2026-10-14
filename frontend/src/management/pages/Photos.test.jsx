@@ -109,6 +109,21 @@ describe('Photos', () => {
     })
   })
 
+  it('Link with no item chosen says so and sends nothing', async () => {
+    const user = userEvent.setup()
+    api.listUnattachedImages.mockResolvedValue([unattached({ image_id: 7 })])
+
+    renderWithProviders(<Photos />)
+
+    const row = (await screen.findAllByRole('listitem'))[0]
+    const link = within(row).getByRole('button', { name: 'Link' })
+    expect(link).toBeEnabled()
+    await user.click(link)
+
+    expect(within(row).getByText(/choose an item first/i)).toBeVisible()
+    expect(api.attachImage).not.toHaveBeenCalled()
+  })
+
   it('a refused attach shows the server refusal for that row and keeps it listed', async () => {
     // The first attempt never acknowledges -- see the module docstring: the
     // question is asked only once the server has actually said there is

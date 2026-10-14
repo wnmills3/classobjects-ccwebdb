@@ -265,3 +265,46 @@ def test_a_lots_listing_is_still_lot_text_once_it_is_the_title(
     assert db.get_one(Series, nickel.series_id).code == "jefferson_nickel"
     assert [case for case in report.review if case.reason == "conflict"] == []
     assert classify(db).review == []
+
+
+def test_no_piece_of_a_lot_takes_the_design_its_listing_names(
+    db: Session, admin_user: User
+) -> None:
+    """Every piece of the lot is moved before any is classified.
+
+    A listing naming a design the pieces could be is the lot's text, not
+    evidence about one piece. Classified while its siblings still held their
+    face values, the first piece moved would read the listing as its own.
+    """
+    vendor = Vendor(name="Commemorative Lot Seller")
+    db.add(vendor)
+    db.flush()
+    order = PurchaseOrder(
+        vendor_id=vendor.id, order_number="LOT-2", ordered_on=date(2024, 12, 1)
+    )
+    db.add(order)
+    db.flush()
+    lot = "Lot of 3 Washington/Carver Commemorative Half Dollars"
+    halves = [
+        build_bare_item(
+            db,
+            denomination_id=code_id(db, Denomination, "usd_coin_0_50"),
+            year_start=year,
+            year_end=year,
+            source_title="0.5",
+            description=lot,
+            purchase_order_id=order.id,
+        )
+        for year in (1952, 1953)
+    ]
+
+    todo = plan(db)
+    assert {c.item_code for c in todo.changes} == {h.item_code for h in halves}
+    apply(db, todo, admin_user.id)
+    db.commit()
+
+    for half in halves:
+        db.refresh(half)
+        assert half.source_title == lot
+        # The facts allow Franklin and the commemorative; only the lot says which.
+        assert half.series_id is None, half.item_code

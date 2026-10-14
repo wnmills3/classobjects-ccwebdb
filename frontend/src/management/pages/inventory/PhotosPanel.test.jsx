@@ -406,6 +406,19 @@ describe('PhotosPanel: adding another photograph', () => {
     expect(screen.getByRole('button', { name: /add from web address/i })).toBeEnabled()
   })
 
+  it('says why when asked to add from an empty web address, and holds nothing', async () => {
+    const user = userEvent.setup()
+    const onAdd = vi.fn()
+    withOne({ onAdd })
+    const add = await screen.findByRole('button', { name: /add from web address/i })
+    expect(add).toBeEnabled()
+
+    await user.click(add)
+
+    expect(screen.getByText(/type or paste a web address first/i)).toBeVisible()
+    expect(onAdd).not.toHaveBeenCalled()
+  })
+
   it('lists a held photograph as not saved yet, and discards it', async () => {
     const user = userEvent.setup()
     const onDiscard = vi.fn()

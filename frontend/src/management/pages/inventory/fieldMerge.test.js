@@ -9,10 +9,17 @@ describe('sameValue', () => {
     expect(sameValue('', 'x')).toBe(false)
   })
 
-  it('compares numbers as numbers, the way the server does', () => {
-    expect(sameValue('84', '84.00')).toBe(true)
+  it('compares a numeric field as numbers, as app.field_changes does', () => {
+    const numeric = { numeric: true }
+    expect(sameValue('84', '84.00', numeric)).toBe(true)
+    expect(sameValue(1881, '1881', numeric)).toBe(true)
+    expect(sameValue('84.00', '84.01', numeric)).toBe(false)
+  })
+
+  it('compares any other field as text: an identifier 0153 is not 153', () => {
+    expect(sameValue('0153', '153')).toBe(false)
+    expect(sameValue('84', '84.00')).toBe(false)
     expect(sameValue(1881, '1881')).toBe(true)
-    expect(sameValue('84.00', '84.01')).toBe(false)
   })
 
   it('compares attribute lists as sets', () => {
@@ -44,6 +51,23 @@ describe('merging a change made elsewhere', () => {
 
     const theirsHere = { ...opened, version: 2, description: 'original skin' }
     expect(conflictsOf(theirsHere, opened, draft)).toEqual(['description'])
+  })
+
+  it('flags a change to a text field that only a number comparison would miss', () => {
+    // The server refuses this save (its fields other than NUMERIC_FIELDS are
+    // text), so the form must show the conflict for a choice to be made.
+    const draft = { back_plate_number: '160' }
+    const base = { ...opened, back_plate_number: '0153' }
+    const theirs = { ...base, version: 2, back_plate_number: '153' }
+    expect(conflictsOf(theirs, base, draft)).toEqual(['back_plate_number'])
+  })
+
+  it('compares a cost as a number, so 84 against 84.00 is no conflict', () => {
+    const draft = { item_cost: '90.00' }
+    const base = { ...opened, item_cost: '84.00' }
+    expect(conflictsOf({ ...base, version: 2, item_cost: '84' }, base, draft)).toEqual(
+      [],
+    )
   })
 
   it('does not flag the same change made twice', () => {

@@ -10,7 +10,10 @@ kept, and deletes it:
   changed to the kept value, and each item's version moves, so a form
   opened before the merge cannot put the old value back. An item that
   already has the kept value in a link table keeps that link; the old one is
-  dropped.
+  dropped. Each field moved -- a classifier, the attributes, the errors --
+  goes into the item's history under the person who merged
+  (`app.field_changes`), and a photograph's role is changed by
+  `app.image_links`, the one writer of `item_image`.
 - **Anything else refuses.** A value used by another vocabulary or a facts
   table (a denomination's currency, a series' note class, a note issue, an
   order's status) is left alone and the merge is refused, naming the uses:
@@ -30,14 +33,17 @@ reason it cannot be retired (`references.retirable`).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy import Column, FromClause, delete, func, select, update
 from sqlalchemy.orm import Session
 
-from . import aliases, sale_state
+from . import aliases, field_changes, image_links, sale_state, serial_patterns
 from .models import (
     Base,
     InventoryItem,
+    ItemAttribute,
+    ItemAttributeLink,
     ReferenceMerge,
     ReferenceMixin,
 )
@@ -63,6 +69,10 @@ _ONCE_PER_ITEM = frozenset({"item_attribute_link", "item_error"})
 
 #: Tables that belong to the value itself and go with it.
 _OWNED = frozenset({"series_alias"})
+
+#: Record tables whose column is the item field of the same name less `_id`
+#: -- `grade_designation`, `mint`, `seal_color` -- as the item history logs it.
+_FIELD_TABLES = frozenset({"inventory_item", "coin_detail", "currency_detail"})
 
 
 class MergeError(ValueError):
@@ -121,10 +131,17 @@ def _row(db: Session, model: type[ReferenceMixin], code: str) -> ReferenceMixin:
 def _new_names(
     db: Session, model: type[ReferenceMixin], source: ReferenceMixin
 ) -> list[str]:
-    """Every name the merged value went by: label, code and aliases, once each."""
+    """Every name the merged value went by: label, code and aliases, once each.
+
+    Once ignoring case, as every comparison of names is: the kept value takes
+    the first spelling, and a second would be refused as the name it holds.
+    """
     names = [source.label, source.code]
     names += aliases.aliases_by_row(db, model).get(source.id, [])
-    return list(dict.fromkeys(aliases.normalise(n) for n in names if n.strip()))
+    once: dict[str, str] = {}
+    for name in (aliases.normalise(n) for n in names if n.strip()):
+        once.setdefault(name.lower(), name)
+    return list(once.values())
 
 
 def _target(db: Session, model: type[ReferenceMixin], into: str) -> ReferenceMixin:
@@ -280,6 +297,124 @@ def _lock_items(db: Session, item_ids: set[int]) -> None:
         )
 
 
+def _attribute_codes(db: Session, item_id: int) -> list[str]:
+    """The item's attributes in force, as codes: the history's `attributes`."""
+    return sorted(
+        db.scalars(
+            select(ItemAttribute.code)
+            .join(
+                ItemAttributeLink,
+                ItemAttributeLink.item_attribute_id == ItemAttribute.id,
+            )
+            .where(
+                ItemAttributeLink.inventory_item_id == item_id,
+                ItemAttributeLink.removed_at.is_(None),
+            )
+        )
+    )
+
+
+def _history_before(
+    db: Session, model: type[ReferenceMixin], source: ReferenceMixin
+) -> dict[int, dict[str, Any]]:
+    """Each item's fields the merge will move, by item, as they stand now.
+
+    A classifier column is the field of its name less `_id`, holding the
+    merged code; an attribute or an error moves the whole set, as the
+    editor logs it.
+    """
+    before: dict[int, dict[str, Any]] = {}
+    for column in _references(model.__table__):
+        owner = column.table.name
+        if owner not in RECORD_TABLES:
+            continue
+        item_column = column.table.c[RECORD_TABLES[owner]]
+        holding = select(item_column).where(column == source.id)
+        if owner in _FIELD_TABLES:
+            name = column.name.removesuffix("_id")
+            for item_id in db.scalars(holding):
+                before.setdefault(item_id, {})[name] = source.code
+        elif owner == "item_attribute_link":
+            in_force = holding.where(column.table.c.removed_at.is_(None))
+            for item_id in db.scalars(in_force):
+                before.setdefault(item_id, {})["attributes"] = _attribute_codes(
+                    db, item_id
+                )
+        elif owner == "item_error":
+            for item_id in db.scalars(holding):
+                before.setdefault(item_id, {})["errors"] = field_changes.error_set(
+                    db, item_id
+                )
+    return before
+
+
+def _log_history(
+    db: Session,
+    before: dict[int, dict[str, Any]],
+    target: ReferenceMixin,
+    user_id: int | None,
+) -> None:
+    """Log each moved field in its item's history, as an edit would."""
+    for item_id, fields in before.items():
+        after: dict[str, Any] = {}
+        for name in fields:
+            if name == "attributes":
+                after[name] = _attribute_codes(db, item_id)
+            elif name == "errors":
+                after[name] = field_changes.error_set(db, item_id)
+            else:
+                after[name] = target.code
+        field_changes.record(db, item_id, fields, after, list(fields), user_id=user_id)
+
+
+def _release_serial_links(
+    db: Session, source: ReferenceMixin, target: ReferenceMixin
+) -> None:
+    """Hand the serial pass's links to the merge unless the pass derives the target.
+
+    `serial_patterns` takes back every link it marked as its own whose code
+    the serial no longer earns. Moved to a code it never derives, its links
+    would be taken back on its next run, so they stop being its own.
+    """
+    if target.code in serial_patterns.DESIGNATIONS:
+        return
+    db.execute(
+        update(ItemAttributeLink)
+        .where(
+            ItemAttributeLink.item_attribute_id == source.id,
+            ItemAttributeLink.derived_by == serial_patterns.RULE,
+        )
+        .values(derived_by=None)
+    )
+
+
+def _move_records(
+    db: Session,
+    model: type[ReferenceMixin],
+    source: ReferenceMixin,
+    target: ReferenceMixin,
+) -> None:
+    """Point every record table's rows at the kept value instead of the merged one."""
+    for column in _references(model.__table__):
+        owner = column.table.name
+        if owner not in RECORD_TABLES:
+            continue
+        if owner == "item_image":
+            image_links.replace_role(db, source.id, target.id)
+            continue
+        item_column = column.table.c[RECORD_TABLES[owner]]
+        if owner in _ONCE_PER_ITEM:
+            # `plan` -- called at the top of `merge` -- has already counted
+            # these into `result.dropped`, so only the deletion happens
+            # here. Counting again would double it.
+            has_target = select(item_column).where(column == target.id)
+            duplicate = (column == source.id) & item_column.in_(has_target)
+            db.execute(delete(column.table).where(duplicate))
+        db.execute(
+            update(column.table).where(column == source.id).values({column: target.id})
+        )
+
+
 def merge(
     db: Session,
     model: type[ReferenceMixin],
@@ -291,9 +426,10 @@ def merge(
     """Move everything from `code` to `into`, delete `code`, remember it.
 
     The items it moves are locked first, in id order, before any record
-    under them is written: an item edit writes the item's row and then its
-    records, and a merge taking the records first could each hold what the
-    other waits for.
+    under them is written: every item edit holds or writes the item's row
+    before its records (`routers.inventory._hold_item` where the records
+    would otherwise go first), and a merge taking the records first could
+    each hold what the other waits for.
     """
     result, source, target = plan(db, model, code, into)
     table = model.__tablename__
@@ -305,21 +441,11 @@ def merge(
     _lock_items(db, late)
     items |= late
 
-    for column in _references(model.__table__):
-        owner = column.table.name
-        if owner not in RECORD_TABLES:
-            continue
-        item_column = column.table.c[RECORD_TABLES[owner]]
-        if owner in _ONCE_PER_ITEM:
-            # `plan` -- called at the top of this function -- has already
-            # counted these into `result.dropped`, so only the deletion
-            # happens here. Counting again would double it.
-            has_target = select(item_column).where(column == target.id)
-            duplicate = (column == source.id) & item_column.in_(has_target)
-            db.execute(delete(column.table).where(duplicate))
-        db.execute(
-            update(column.table).where(column == source.id).values({column: target.id})
-        )
+    before = _history_before(db, model, source)
+    if model is ItemAttribute:
+        _release_serial_links(db, source, target)
+    _move_records(db, model, source, target)
+    _log_history(db, before, target, user_id)
 
     if items:
         # Moves each item's version, so a stale form is refused.

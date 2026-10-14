@@ -197,9 +197,9 @@ the procedure is in [system-administration.md](system-administration.md)
 - `python -m app.workbook_backup import FILE --to URL` loads only into an
   empty database at the same migration revision as the workbook (for a
   workbook exported from the current code, `alembic upgrade head` first), and
-  refuses the database `DATABASE_URL` in `.env` names. Restore
-  into a database of another name, then point `DATABASE_URL` at it (or
-  restore before `.env` names `ccwebdb`); the full procedure is in
+  refuses the database `DATABASE_URL` names -- `ccwebdb`, by default and in
+  `.env.example`. Restore into a database of another name, then point
+  `DATABASE_URL` at it; the full procedure is in
   *The workbook backup* in system-administration.md.
 - Do not run `app.seed` afterwards: the restored database already holds its
   own accounts, and you sign in with one of those.

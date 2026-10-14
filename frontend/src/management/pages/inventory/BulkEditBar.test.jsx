@@ -240,9 +240,26 @@ describe('BulkEditBar', () => {
     ).toBeVisible()
   })
 
-  it('cannot offer a selection with nothing on this page', () => {
+  it('says why it cannot offer a selection with nothing on this page', async () => {
+    const user = userEvent.setup()
     render(<BulkEditBar ids={[5]} rows={ROWS} onApplied={vi.fn()} onClear={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Offer for sale...' })).toBeDisabled()
+    const offer = screen.getByRole('button', { name: 'Offer for sale...' })
+    expect(offer).toBeEnabled()
+    await user.click(offer)
+    expect(screen.getByText(/None of the selected items is on this page/)).toBeVisible()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('says a value is wanted when Apply is pressed with none, and sends nothing', async () => {
+    const user = userEvent.setup()
+    render(
+      <BulkEditBar view="coins" ids={[1, 2]} onApplied={vi.fn()} onClear={vi.fn()} />,
+    )
+    const apply = screen.getByRole('button', { name: 'Apply to 2' })
+    expect(apply).toBeEnabled()
+    await user.click(apply)
+    expect(screen.getByText('Type the new value first.')).toBeVisible()
+    expect(api.bulkEditInventory).not.toHaveBeenCalled()
   })
 
   // Two calls, not one: `api.createLot({add_item_ids: [1, 2]})` is a body the
@@ -472,7 +489,9 @@ describe('BulkEditBar', () => {
     // A picker of the places there are, not a box to type an id into.
     expect(screen.queryByPlaceholderText('New value')).toBeNull()
     const apply = screen.getByRole('button', { name: 'Apply to 2' })
-    expect(apply).toBeDisabled()
+    await user.click(apply)
+    expect(screen.getByText('Choose the location first.')).toBeVisible()
+    expect(api.bulkEditInventory).not.toHaveBeenCalled()
 
     await user.selectOptions(
       await screen
@@ -497,7 +516,8 @@ describe('BulkEditBar', () => {
     const field = screen.getByRole('combobox', { name: 'Field to change' })
     await user.selectOptions(field, 'Location')
     // 1964 is a year, not location number 1964: nothing is chosen yet.
-    expect(screen.getByRole('button', { name: 'Apply to 1' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Apply to 1' }))
+    expect(screen.getByText('Choose the location first.')).toBeVisible()
 
     await user.selectOptions(field, 'Grade')
     expect(screen.getByPlaceholderText('New value')).toHaveValue('')

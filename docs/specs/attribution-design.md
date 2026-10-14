@@ -133,7 +133,7 @@ available ones for that view.
 
 | Check | Views | Finds |
 |---|---|---|
-| `no_year` | both | coin view: no year; currency view: no series year |
+| `no_year` | both | coin view: no year, unless marked as having no date; currency view: no series year |
 | `no_country` | both | no country |
 | `no_grade` | both | a coin or banknote with no grade |
 | `no_denomination` | both | a coin or banknote with no denomination |

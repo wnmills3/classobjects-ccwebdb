@@ -221,6 +221,14 @@ export default function OfferDialog({
       setFilled('Choose a platform first: the margin is worked out after its fees.')
       return
     }
+    // A margin no price can reach -- blank, not a number, 100 or more, or
+    // more than this platform's rates leave room for -- fills nothing.
+    if (priceForMargin('1.00', margin, chosen) === '') {
+      setFilled(
+        `The margin must be a number from 0 up to 100 that ${chosen.name}'s fees leave room for.`,
+      )
+      return
+    }
     const filled = {}
     let uncosted = 0
     for (const subject of subjects) {
@@ -252,6 +260,15 @@ export default function OfferDialog({
         `Price must be an amount like 189.00: ${unpriced
           .map((subject) => subject.label)
           .join(', ')}`,
+      )
+      return
+    }
+    // The web store sells at a fixed price through checkout: an auction there
+    // could neither be bought in the shop nor recorded as sold, and the
+    // server refuses it.
+    if (chosen?.is_own_store && format !== 'fixed_price') {
+      setOfferError(
+        'The web store sells at a fixed price through checkout: choose Fixed price, or another platform for an auction.',
       )
       return
     }
@@ -397,11 +414,7 @@ export default function OfferDialog({
             onChange={(e) => setMargin(e.target.value)}
           />
         </label>
-        <button
-          type="button"
-          onClick={fillPrices}
-          disabled={priceForMargin('1.00', margin, chosen) === ''}
-        >
+        <button type="button" onClick={fillPrices}>
           Fill blank prices
         </button>
         {filled && <output className="notice">{filled}</output>}

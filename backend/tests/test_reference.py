@@ -329,13 +329,18 @@ def test_item_kind_keeps_its_curated_order(client: TestClient) -> None:
 def test_signature_combinations_keep_their_chronological_order(
     client: TestClient,
 ) -> None:
-    """Oldest first: the order the pairs held office in."""
+    """Oldest first: the order the pairs held office in.
+
+    Julian / Morgenthau (1934) before Clark / Snyder (1949): by label or by
+    code the two sort the other way, so only the curated order passes.
+    """
     codes = [
         v["code"]
         for v in client.get("/api/reference/signature_combination").json()["values"]
     ]
 
     assert codes.index("tate_mellon") < codes.index("woods_mellon")
+    assert codes.index("julian_morgenthau") < codes.index("clark_snyder")
 
 
 def test_a_value_added_late_still_sorts_alphabetically(
@@ -637,6 +642,8 @@ _LOOKED_UP_BY_CODE = (
     ("image_role", "reverse"),
     ("image_role", "unassigned"),
     ("note_type", "frn"),
+    # `auctions` finds the kind of every consigned location by this code.
+    ("storage_location_kind", "consigned"),
     ("storage_form", "single"),
     ("vendor_kind", "unknown"),
 )

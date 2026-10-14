@@ -11,19 +11,25 @@ from decimal import Decimal
 
 import pytest
 from app.models import (
+    AppliesTo,
+    CoinDetail,
     CurrencyDetail,
     Denomination,
+    ErrorType,
     Grade,
     InventoryItem,
+    ItemError,
     ItemKind,
     ItemStatus,
     Metal,
+    Mint,
     SealColor,
     Series,
     StrikeType,
 )
 from fastapi.testclient import TestClient
 from httpx import Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -729,6 +735,98 @@ def test_a_note_field_sent_unchanged_does_not_move_the_version(
 
     assert same.status_code == 200, same.text
     assert client.get(path, headers=admin_headers).json()["version"] == opened
+
+
+@pytest.mark.parametrize("field", ["mint", "variety"])
+def test_a_coin_field_sent_blank_for_a_note_gives_it_no_coin_detail(
+    client: TestClient, admin_headers: dict[str, str], db: Session, field: str
+) -> None:
+    """A note holds one detail row, its own, and a blank changes nothing."""
+    note = _note(db, serial_number="A11111111A")
+    path = f"/api/inventory/{note.id}"
+    opened = client.get(path, headers=admin_headers).json()["version"]
+
+    saved = client.patch(
+        path, json={field: None, "version": opened}, headers=admin_headers
+    )
+
+    assert saved.status_code == 200, saved.text
+    db.expire_all()
+    assert db.get(CoinDetail, note.id) is None
+    assert client.get(path, headers=admin_headers).json()["version"] == opened
+
+
+def test_a_mint_sent_unchanged_does_not_move_the_version(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    coin = build_bare_item(db)
+    db.add(CoinDetail(inventory_item_id=coin.id, mint_id=code_id(db, Mint, "S")))
+    db.commit()
+    path = f"/api/inventory/{coin.id}"
+    opened = client.get(path, headers=admin_headers).json()["version"]
+
+    same = client.patch(
+        path,
+        json={"mint": "S", "variety": None, "version": opened},
+        headers=admin_headers,
+    )
+
+    assert same.status_code == 200, same.text
+    assert client.get(path, headers=admin_headers).json()["version"] == opened
+
+
+def test_an_error_of_the_other_kind_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A coin's error on a banknote is refused by name, as an attribute would be."""
+    coin_error = db.scalars(
+        select(ErrorType.code)
+        .where(ErrorType.applies_to == AppliesTo.coin)
+        .order_by(ErrorType.id)
+    ).first()
+    assert coin_error is not None
+    note = build_bare_item(
+        db, item_kind_id=code_id(db, ItemKind, "currency"), year_start=None
+    )
+
+    refused = client.put(
+        f"/api/inventory/{note.id}/errors",
+        json={"errors": [{"error_type": coin_error}]},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert coin_error in refused.json()["detail"]
+    db.expire_all()
+    recorded = db.scalars(
+        select(ItemError).where(ItemError.inventory_item_id == note.id)
+    ).all()
+    assert recorded == []
+
+
+def test_a_design_series_of_the_other_kind_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A banknote's design series is not a coin's, in an edit or a bulk edit."""
+    coin = build_bare_item(db)
+
+    edited = patch_current(
+        client,
+        f"/api/inventory/{coin.id}",
+        json={"series": "funnyback"},
+        headers=admin_headers,
+    )
+    bulk = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [coin.id], "changes": {"series": "funnyback"}},
+        headers=admin_headers,
+    )
+
+    assert edited.status_code == 422, edited.text
+    assert bulk.status_code == 422, bulk.text
+    assert "funnyback" in edited.json()["detail"]
+    db.refresh(coin)
+    assert coin.series_id is None
 
 
 def test_a_serial_number_sent_blank_is_stored_as_none(

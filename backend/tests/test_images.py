@@ -705,6 +705,27 @@ def test_an_upload_for_an_unknown_item_stores_nothing(
     assert _stored(media_root) == []
 
 
+def test_an_upload_for_a_deleted_item_stores_nothing(
+    client: TestClient, admin_headers: dict[str, str], db: Session, media_root: Path
+) -> None:
+    """A deleted item should never have existed: nothing is filed on it."""
+    from datetime import UTC, datetime
+
+    from tests.conftest import build_item
+
+    item = build_item(db, deleted_at=datetime(2026, 1, 1, tzinfo=UTC))
+
+    response = client.post(
+        "/api/images",
+        files={"file": ("coin.jpg", make_jpeg(color=(3, 6, 9)), "image/jpeg")},
+        data={"inventory_item_id": str(item.id)},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422, response.text
+    assert "deleted" in response.json()["detail"]
+    assert _stored(media_root) == []
+
+
 def test_an_upload_naming_an_unknown_role_stores_nothing(
     client: TestClient, admin_headers: dict[str, str], db: Session, media_root: Path
 ) -> None:

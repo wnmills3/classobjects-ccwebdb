@@ -502,6 +502,128 @@ def test_app_backup_copies_a_row_that_points_at_a_later_row_of_its_table(
         target.dispose()
 
 
+# -- item codes ------------------------------------------------------------------
+
+#: An item code is drawn from a sequence no column owns, so neither an id
+#: sequence's resync nor `TRUNCATE ... RESTART IDENTITY` moves it. Written as
+#: the baseline migration writes it.
+CODES_SCHEMA = """
+CREATE TABLE alembic_version (version_num varchar(32) PRIMARY KEY);
+CREATE SEQUENCE item_code_seq START WITH 1;
+CREATE TABLE inventory_item (
+    id serial PRIMARY KEY,
+    item_code varchar(32) NOT NULL UNIQUE
+        DEFAULT ('CC-' || lpad(nextval('item_code_seq')::text, 6, '0')),
+    note text
+);
+"""
+
+#: Three codes issued in turn, then the sequence moved well past the ids, so
+#: a restore that set the code sequence from the highest id would still
+#: issue a code already held.
+CODES_ROWS = """
+INSERT INTO alembic_version VALUES ('rev_1');
+INSERT INTO inventory_item (note) VALUES ('first'), ('second'), ('third');
+SELECT setval('item_code_seq', 40);
+INSERT INTO inventory_item (note) VALUES ('fourth');
+"""
+
+#: The code the next item is given once the restore holds the rows above.
+NEXT_CODE = "CC-000042"
+
+
+@pytest.fixture
+def codes(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Engine, str]]:
+    """A source holding issued item codes, and an empty target as migrated."""
+    admin = _admin()
+    names = ("ccwebdb_test_wb_codes_source", "ccwebdb_test_wb_codes_target")
+    with admin.connect() as conn:
+        for name in names:
+            drop_database(conn, name)
+            conn.execute(text(f'CREATE DATABASE "{name}"'))
+    source = create_engine(_url(names[0]))
+    target = create_engine(_url(names[1]))
+    with source.begin() as conn:
+        conn.execute(text(CODES_SCHEMA))
+        conn.execute(text(CODES_ROWS))
+    with target.begin() as conn:
+        conn.execute(text(CODES_SCHEMA))
+        conn.execute(text("INSERT INTO alembic_version VALUES ('rev_1')"))
+    target.dispose()
+    # The live database is not the target: the source stands in for it.
+    monkeypatch.setattr(wb.settings, "database_url", _url(names[0]))
+    try:
+        yield source, _url(names[1])
+    finally:
+        source.dispose()
+        with admin.connect() as conn:
+            for name in names:
+                drop_database(conn, name)
+        admin.dispose()
+
+
+def _new_item_code(url: str) -> str:
+    """The code the database at `url` gives the next item it is handed."""
+    engine = create_engine(url)
+    try:
+        with engine.begin() as conn:
+            return str(
+                conn.execute(
+                    text(
+                        "INSERT INTO inventory_item (note) VALUES ('new') "
+                        "RETURNING item_code"
+                    )
+                ).scalar_one()
+            )
+    finally:
+        engine.dispose()
+
+
+def test_a_restored_workbook_issues_item_codes_past_every_one_it_holds(
+    codes: tuple[Engine, str], tmp_path: Path
+) -> None:
+    source, target_url = codes
+    path = tmp_path / "codes.xlsx"
+    wb.export_workbook(source, path)
+    wb.import_workbook(path, target_url)
+
+    assert _new_item_code(target_url) == NEXT_CODE
+
+
+def test_an_app_backup_copy_issues_item_codes_past_every_one_it_holds(
+    codes: tuple[Engine, str],
+) -> None:
+    source, target_url = codes
+    target = create_engine(target_url)
+    try:
+        tables = [wb.reflect(source).tables["inventory_item"]]
+        assert dict(backup.copy_rows(source, target, tables)) == {"inventory_item": 4}
+    finally:
+        target.dispose()
+
+    assert _new_item_code(target_url) == NEXT_CODE
+
+
+def test_compare_notices_an_item_code_sequence_left_behind(
+    codes: tuple[Engine, str], tmp_path: Path
+) -> None:
+    """Equal rows are not a usable restore if the next code is one in use."""
+    source, target_url = codes
+    path = tmp_path / "codes.xlsx"
+    wb.export_workbook(source, path)
+    wb.import_workbook(path, target_url)
+    target = create_engine(target_url)
+    try:
+        assert wb.compare(source, target) == []
+        with target.begin() as conn:
+            conn.execute(text("SELECT setval('item_code_seq', 1, false)"))
+        differences = wb.compare(source, target)
+    finally:
+        target.dispose()
+
+    assert any("item_code_seq" in d.table for d in differences)
+
+
 # -- what an export refuses, and what it reads ----------------------------------
 
 

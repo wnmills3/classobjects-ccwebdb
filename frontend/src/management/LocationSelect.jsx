@@ -27,6 +27,8 @@ const BLANK_DRAFT = { kind: '', institution: '', identifier: '' }
 export default function LocationSelect({ value, onChange, disabled = false }) {
   const loaded = useRequest('locations', () => api.listStorageLocations())
   const [added, setAdded] = useState([])
+  //: True once Add location was pressed before a kind was chosen.
+  const [held, setHeld] = useState(false)
   const addOption = useAddOption()
   const locations = [...(loaded.data ?? []), ...added]
   const { adding, setAdding, draft, setDraft, error, add, wrapper, ready } =
@@ -65,12 +67,14 @@ export default function LocationSelect({ value, onChange, disabled = false }) {
           value={draft.identifier}
           onChange={(e) => setDraft({ ...draft, identifier: e.target.value })}
         />
-        <button type="button" onClick={add} disabled={!ready}>
+        {/* Kept live: pressed without a kind, it says that one is needed. */}
+        <button type="button" onClick={() => (ready ? add() : setHeld(true))}>
           Add location
         </button>
         <button type="button" className="link" onClick={() => setAdding(false)}>
           Cancel
         </button>
+        {held && !ready && <span className="error">Choose a kind first.</span>}
         {error && <span className="error">{error}</span>}
       </div>
     )

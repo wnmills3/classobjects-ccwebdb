@@ -7,8 +7,19 @@ note too cheaply, and a wrong one is a claim the note cannot support.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
-from app.serial_patterns import analyse, is_incomplete
+from app.models import CurrencyDetail, InventoryItem, ItemAttribute, ItemAttributeLink
+from app.serial_patterns import analyse, is_incomplete, run
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from tests.builders import ItemFactory
+
+#: A star and nothing else: no ladder, repeater or fancy digits.
+STAR_SERIAL = "A38164927*"
 
 
 @pytest.mark.parametrize(
@@ -169,3 +180,123 @@ def test_pre_1928_notes_are_not_shape_checked() -> None:
 
     assert check("S143r1", 1852) == []
     assert check("S143r1", 1957) != []
+
+
+# ---------------------------------------------------------------------------
+# The pass over the collection
+# ---------------------------------------------------------------------------
+
+
+def _note(db: Session, make_item: ItemFactory, serial: str) -> InventoryItem:
+    """A bought banknote with this serial number, its words naming no attribute."""
+    note = make_item(
+        kind="currency",
+        description="plain",
+        grade_id=None,
+        strike_type_id=None,
+        item_cost=Decimal("5.00"),
+    )
+    db.add(CurrencyDetail(inventory_item_id=note.id, serial_number=serial))
+    db.commit()
+    return note
+
+
+def _links(db: Session, item: InventoryItem) -> list[tuple[str, str | None]]:
+    """The item's attribute links in force: code, and the rule that added it."""
+    return sorted(
+        db.execute(
+            select(ItemAttribute.code, ItemAttributeLink.derived_by)
+            .join(
+                ItemAttribute, ItemAttribute.id == ItemAttributeLink.item_attribute_id
+            )
+            .where(
+                ItemAttributeLink.inventory_item_id == item.id,
+                ItemAttributeLink.removed_at.is_(None),
+            )
+        ).tuples()
+    )
+
+
+def test_a_retired_designation_is_not_added(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """Retiring a value stops every new use of it, the pass's included."""
+    note = _note(db, make_item, STAR_SERIAL)
+    star = db.scalars(select(ItemAttribute).where(ItemAttribute.code == "star")).one()
+    star.is_active = False
+    db.commit()
+
+    stats, _ = run(db, commit=True)
+
+    assert _links(db, note) == []
+    assert stats["retired_attribute:star"] == 1
+
+
+def test_a_retired_designation_the_pass_added_is_kept(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """Retiring leaves every record that uses the value as it is."""
+    note = _note(db, make_item, STAR_SERIAL)
+    run(db, commit=True)
+    star = db.scalars(select(ItemAttribute).where(ItemAttribute.code == "star")).one()
+    star.is_active = False
+    db.commit()
+
+    run(db, commit=True)
+
+    assert _links(db, note) == [("star", "serial_pattern")]
+
+
+def test_links_merged_into_another_attribute_survive_the_next_pass(
+    db: Session,
+    make_item: ItemFactory,
+    client: TestClient,
+    admin_headers: dict[str, str],
+) -> None:
+    """A merge moves the pass's links to a value the pass does not derive.
+
+    They are then the merge's, not the pass's: a pass that read them as its
+    own would take them back as designations the serial no longer earns.
+    """
+    note = _note(db, make_item, STAR_SERIAL)
+    run(db, commit=True)
+    made = client.post(
+        "/api/reference/item_attribute",
+        json={
+            "code": "replacement_test",
+            "label": "Replacement Test",
+            "extra": {"applies_to": "currency", "attribute_group": "serial"},
+        },
+        headers=admin_headers,
+    )
+    assert made.status_code == 201, made.text
+    merged = client.post(
+        "/api/reference/item_attribute/star/merge",
+        json={"into": "replacement_test"},
+        headers=admin_headers,
+    )
+    assert merged.status_code == 200, merged.text
+
+    run(db, commit=True)
+
+    assert _links(db, note) == [("replacement_test", None)]
+
+
+def test_links_merged_into_a_designation_the_pass_derives_stay_its_own(
+    db: Session,
+    make_item: ItemFactory,
+    client: TestClient,
+    admin_headers: dict[str, str],
+) -> None:
+    """Into a code the pass derives, the link is still the pass's to judge."""
+    note = _note(db, make_item, "A12344321B")
+    run(db, commit=True)
+    assert ("radar", "serial_pattern") in _links(db, note)
+    merged = client.post(
+        "/api/reference/item_attribute/radar/merge",
+        json={"into": "repeater"},
+        headers=admin_headers,
+    )
+    assert merged.status_code == 200, merged.text
+
+    assert ("repeater", "serial_pattern") in _links(db, note)

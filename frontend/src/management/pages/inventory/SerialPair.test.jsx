@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -17,6 +17,16 @@ const STAR = {
   series: '2017',
 }
 const PLAIN = { ...STAR, id: 8, item_code: 'CC-000008', serial_number: 'B12345678A' }
+
+/**
+ * Wait until the search has been answered and the answer shown: an
+ * assertion made before then holds whatever the answer would show.
+ */
+async function answered() {
+  await act(async () => {
+    await api.getSerialPairs.mock.results[0].value.catch(() => {})
+  })
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -55,6 +65,7 @@ describe('SerialPair', () => {
   it('says nothing when there is no match', async () => {
     render(<SerialPair itemId={412} serial="B12345678A" />)
     await waitFor(() => expect(api.getSerialPairs).toHaveBeenCalled())
+    await answered()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
@@ -90,6 +101,7 @@ describe('SerialPair', () => {
     api.getSerialPairs.mockRejectedValue(new Error('boom'))
     render(<SerialPair itemId={412} serial="B12345678A" />)
     await waitFor(() => expect(api.getSerialPairs).toHaveBeenCalled())
+    await answered()
     expect(screen.queryByText(/boom/)).not.toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })

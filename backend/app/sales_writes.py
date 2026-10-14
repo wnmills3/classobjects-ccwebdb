@@ -427,11 +427,11 @@ def record_sale_lines(
     happened.
 
     The order of the checks below is locked status, then price, then fees,
-    then the items,
-    the fee kinds, the order status and only then the buyer, which is the
-    first thing that writes. Each check runs over every line before the
-    next begins, so a two-line order refuses on the same grounds and in the
-    same sequence a one-line order does.
+    then one platform, then the items, the fee kinds, the order status and
+    only then the buyer, which is the first thing that writes. Each check
+    runs over every line before the next begins, so a two-line order
+    refuses on the same grounds and in the same sequence a one-line order
+    does.
     """
     if not lines:
         raise SaleInputInvalid("a sale needs at least one listing")
