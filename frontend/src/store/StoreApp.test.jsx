@@ -55,6 +55,21 @@ describe('shop shell', () => {
     expect(screen.getByRole('link', { name: /cart \(3\)/i })).toBeInTheDocument()
   })
 
+  it('puts the certificate seal in the footer and loads its script once', () => {
+    // StrictMode mounts the shell twice; a second script would draw a second seal.
+    renderWithProviders(<StoreApp />, { strict: true })
+    const footer = screen.getByRole('contentinfo')
+    expect(footer.querySelector('#DigiCertClickID_kOj5Uc3j')).not.toBeNull()
+    const scripts = document.querySelectorAll(
+      'script[src="https://seal.digicert.com/seals/cascade/seal.min.js"]',
+    )
+    expect(scripts).toHaveLength(1)
+    expect(window.__dcid).toContainEqual({
+      cid: 'DigiCertClickID_kOj5Uc3j',
+      tag: 'kOj5Uc3j',
+    })
+  })
+
   it('offers no console navigation, even to an administrator', () => {
     renderWithProviders(<StoreApp />, { auth: adminAuth() })
     expect(screen.queryByRole('link', { name: /manage/i })).not.toBeInTheDocument()
