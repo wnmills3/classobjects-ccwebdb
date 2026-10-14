@@ -209,7 +209,7 @@ def test_a_deleted_item_cannot_be_received(
         headers=admin_headers,
     )
 
-    assert refused.status_code == 404, refused.text
+    assert refused.status_code == 422, refused.text
     assert str(deleted.id) in refused.json()["detail"]
     db.expire_all()
     assert (deleted.status_id, live.status_id) == (ordered, ordered)

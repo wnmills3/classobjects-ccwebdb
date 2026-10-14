@@ -60,7 +60,7 @@ from ..schemas import (
     SignatureChoice,
     SignatureChoicesOut,
 )
-from ._resolve import get_or_404
+from ._resolve import get_or_404, get_or_422
 
 #: The catalog's own endpoints live under `/friedberg`; attaching a row to an
 #: item, and clearing it, are inventory-shaped, so they get their own router
@@ -664,7 +664,7 @@ def attach_friedberg(
 
     detail = _note_detail(db, item_id)
 
-    friedberg = get_or_404(
+    friedberg = get_or_422(
         db,
         FriedbergNumber,
         payload.friedberg_id,

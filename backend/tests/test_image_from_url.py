@@ -388,4 +388,4 @@ def test_fetching_needs_an_item_and_a_manager(
     missing = _from_url(
         client, admin_headers, url="https://x/a.jpg", inventory_item_id=999999
     )
-    assert missing.status_code == 404
+    assert missing.status_code == 422

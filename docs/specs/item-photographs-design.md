@@ -235,7 +235,7 @@ once and the request sent to the address checked -- the name carried in the
 `Host` header and as the TLS server name, so the certificate is still
 verified against it -- so a host cannot answer public to the check and
 private to the connection (DNS rebinding). A refused fetch, or bytes
-`imaging` will not take, is a 422 naming why, and stores nothing; 404 for an
+`imaging` will not take, is a 422 naming why, and stores nothing; 422 for an
 unknown item; 409 when the item already has that photograph; the for-sale
 acknowledgement as for an upload. Bytes already stored (the same hash) are
 filed under the existing image, which keeps its own name.

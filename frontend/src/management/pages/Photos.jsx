@@ -108,7 +108,7 @@ function PhotoRow({ row, onLinked }) {
       .catch((err) => {
         // A 409 whose message starts "For sale" is `sale_state.guard`
         // asking to be told again, on purpose -- see the module docstring.
-        // Anything else (a network failure, a 404 because the item was
+        // Anything else (a network failure, a 422 because the item was
         // deleted between the search and the click) is an ordinary failure.
         if (err.status === 409 && err.message.startsWith('For sale')) {
           setError('')

@@ -938,7 +938,7 @@ def test_raising_a_quantity_on_a_listing_turned_to_auction_is_refused(
     assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
 
 
-def test_revising_with_an_unknown_customer_is_a_404(
+def test_revising_with_an_unknown_customer_is_a_422(
     client: TestClient,
     listing: Listing,
     customer_headers: dict[str, str],
@@ -954,10 +954,10 @@ def test_revising_with_an_unknown_customer_is_a_404(
         customer_id=999999,
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 422
 
 
-def test_revising_with_an_unknown_listing_is_a_404(
+def test_revising_with_an_unknown_listing_is_a_422(
     client: TestClient,
     listing: Listing,
     customer_headers: dict[str, str],
@@ -973,7 +973,7 @@ def test_revising_with_an_unknown_listing_is_a_404(
         [{"listing_id": 999999, "quantity": 1, "unit_price": "189.00"}],
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 422
     db.refresh(listing)
     assert listing.quantity_available == 4
     assert [c[0] for c in _changes(db, order["id"])] == ["placed"]

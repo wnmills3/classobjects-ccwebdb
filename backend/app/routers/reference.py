@@ -536,8 +536,9 @@ def remove_alias(
 @router.post(
     "/{table}/{code}/merge",
     responses={
-        404: {"description": "The table or either of the two values is unknown."},
+        404: {"description": "The table or the value merged away is unknown."},
         409: {"description": "The two values cannot be merged."},
+        422: unprocessable("The value to merge into is unknown."),
     },
 )
 def merge_value(
@@ -581,6 +582,11 @@ def merge_value(
     except reference_merge.NoSuchValue as exc:
         db.rollback()
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except reference_merge.NoSuchTarget as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
     except reference_merge.MergeError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc

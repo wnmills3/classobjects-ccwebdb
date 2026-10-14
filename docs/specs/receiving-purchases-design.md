@@ -79,7 +79,7 @@ re-reads the row with `populate_existing` must flush in between;
   sometimes turns up.
 - **Location** is set through `set_location` only for `received` with a
   `storage_location_id`; an unknown id is 422 whatever the outcome.
-- **Unknown item id**: 404 naming the ids. **Unknown outcome**: 422 naming
+- **Unknown item id**: 422 naming the ids. **Unknown outcome**: 422 naming
   the four.
 - **A for-sale item** (`missing`, `returned`, `canceled` only): refused with
   409 until `acknowledge_for_sale`, then every live offer holding the items

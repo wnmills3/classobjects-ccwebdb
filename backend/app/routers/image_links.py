@@ -20,7 +20,7 @@ from .. import image_links, sale_state
 from ..deps import AdminUser, DbSession
 from ..models import InventoryItem, ItemImage
 from ..schemas import ImageLinkMove, ImageLinkOut, ImageLinkUpdate
-from ._resolve import get_or_404
+from ._resolve import get_or_404, get_or_422
 from .images import link_out
 
 router = APIRouter(prefix="/image-links", tags=["images"])
@@ -68,7 +68,7 @@ def move_link(
     the item it leaves and the item it joins both change what a buyer sees.
     """
     link = _guarded_link(db, link_id, acknowledged=payload.acknowledge_for_sale)
-    target = get_or_404(
+    target = get_or_422(
         db,
         InventoryItem,
         payload.inventory_item_id,

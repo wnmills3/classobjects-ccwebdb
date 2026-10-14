@@ -43,7 +43,7 @@ from .models import (
 )
 from .references import retirable
 
-__all__ = ["MergeError", "MergePlan", "NoSuchValue", "merge", "plan"]
+__all__ = ["MergeError", "MergePlan", "NoSuchTarget", "NoSuchValue", "merge", "plan"]
 
 #: Tables that describe an item, and so move with a merge. Each maps to the
 #: column naming the item, so the item's version can be moved too.
@@ -70,7 +70,11 @@ class MergeError(ValueError):
 
 
 class NoSuchValue(MergeError):
-    """One of the two values does not exist."""
+    """The value being merged away does not exist."""
+
+
+class NoSuchTarget(MergeError):
+    """The value to merge into does not exist."""
 
 
 @dataclass
@@ -131,7 +135,10 @@ def plan(
     if code == into:
         raise MergeError("A value cannot be merged into itself.")
     source = _row(db, model, code)
-    target = _row(db, model, into)
+    try:
+        target = _row(db, model, into)
+    except NoSuchValue as exc:
+        raise NoSuchTarget(str(exc)) from exc
     if not retirable(table, code):
         raise MergeError(
             f"{source.label} cannot be merged away: the application looks it up "

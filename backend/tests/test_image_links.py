@@ -276,6 +276,22 @@ def test_attaching_through_the_api_files_the_photograph(
     assert made.json()["item_code"] == item.item_code
 
 
+def test_attaching_to_an_unknown_item_is_a_422(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """The item is named in the body, so an id that names nothing is a bad field."""
+    image = _image(db, "6e" * 32)
+    db.commit()
+
+    refused = client.post(
+        f"/api/images/{image.id}/links",
+        json={"inventory_item_id": 999999},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 422, refused.text
+    assert "999999" in refused.json()["detail"]
+
+
 def test_attaching_to_a_listed_item_is_refused_until_acknowledged(
     client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
 ) -> None:

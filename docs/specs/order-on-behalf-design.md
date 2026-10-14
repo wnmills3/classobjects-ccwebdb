@@ -67,7 +67,7 @@ status_code="pending", external_order_id=None)`.** `lines` are
 
 1. Take the rows through `_lock_listings`, which goes through
    `offering_writes.lock_for_sale`: lot rows, then items, then listings
-   (`lock-order-design.md`). Unknown listing: 404.
+   (`lock-order-design.md`). Unknown listing: 422.
 2. With no `venue` (a shop or on-behalf order): the listing must be the
    store's and `active`, else 409. Always: quantity above
    `quantity_available` is 409 naming the listing and what remains.

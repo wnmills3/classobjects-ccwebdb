@@ -286,13 +286,13 @@ def test_creating_a_purchase_order_with_an_order_number(
     assert body["source_url"] == "https://order.ebay.com/ord/show?orderId=1"
 
 
-def test_an_unknown_vendor_is_a_404(
+def test_an_unknown_vendor_is_a_422(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     res = client.post(
         "/api/purchase-orders", json={"vendor_id": 10_000_000}, headers=admin_headers
     )
-    assert res.status_code == 404
+    assert res.status_code == 422
 
 
 def test_the_same_vendor_and_order_number_twice_is_a_409(

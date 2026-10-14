@@ -404,7 +404,7 @@ def test_a_coin_denomination_on_a_currency_item_is_refused(
     assert "denomination" in res.text
 
 
-def test_an_unknown_purchase_order_is_a_404(
+def test_an_unknown_purchase_order_is_a_422(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     res = client.post(
@@ -412,7 +412,7 @@ def test_an_unknown_purchase_order_is_a_404(
         json=_coin_payload(10_000_000),
         headers=admin_headers,
     )
-    assert res.status_code == 404
+    assert res.status_code == 422
 
 
 def test_an_unknown_field_is_refused(

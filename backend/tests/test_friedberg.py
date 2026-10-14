@@ -229,6 +229,21 @@ def test_attaching_to_a_coin_is_404(
     assert resp.status_code == 404, resp.text
 
 
+def test_attaching_an_unknown_catalog_row_is_a_422(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The catalog row is named in the body: an id naming nothing is a bad field."""
+    item = _currency_item(db)
+
+    resp = client.post(
+        f"/api/inventory/{item.id}/friedberg",
+        json={"friedberg_id": 999999, "status": "proposed"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "999999" in resp.json()["detail"]
+
+
 def test_unknown_status_is_422_listing_valid_ones(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
