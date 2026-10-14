@@ -1460,7 +1460,7 @@ describe('NewPurchase: the seller', () => {
     expect(screen.queryByRole('link', { name: 'deswin3834' })).toBeNull()
   })
 
-  it('is changed and cleared under Edit details', async () => {
+  it('is changed under Edit details', async () => {
     const user = userEvent.setup()
     const purchase = { ...FRESH_PURCHASE, id: 22, seller_id: null, source_text: null }
     api.getPurchaseOrder.mockResolvedValue(purchase)

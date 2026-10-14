@@ -3,8 +3,10 @@
 Shared by the routers so a missing row, an unknown code or a stale version
 token is refused with one status and one wording wherever it is sent. Two
 statuses, on purpose: an id in the **path** that names nothing is a 404 (the
-resource does not exist), and an id or code in the **body** that names
-nothing is a 422, like any other invalid field.
+resource does not exist), and a code in the **body** that names nothing is
+a 422, like any other invalid field. An id in the body is a 422 where the
+route resolves it with `get_or_422`; the routes that resolve one with
+`get_or_404` answer 404 for it, and say so in their own `responses`.
 """
 
 from __future__ import annotations

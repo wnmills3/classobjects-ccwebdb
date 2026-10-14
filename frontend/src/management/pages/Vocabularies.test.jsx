@@ -367,7 +367,7 @@ describe('Vocabularies', () => {
   it('names the old names a merge cannot keep, before it asks and after', async () => {
     const user = userEvent.setup()
     const lost = [
-      "'National Bank Note of the Old Series': longer than the 32 characters an alias holds",
+      "'National Bank Note of the Old Series, First Charter Period, Original Issue': longer than the 64 characters an alias holds",
       "'Legal Tender': already the name of Legal Tender Note",
     ]
     api.mergeReferenceValue.mockImplementation(async (table, code, into, dryRun) => ({

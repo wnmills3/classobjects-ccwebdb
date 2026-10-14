@@ -6,7 +6,15 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import cast
 
-from app.field_sources import HELD, SERIES_CLASSIFY, SERIES_MATCH
+import pytest
+from app.field_sources import (
+    HELD,
+    SERIES_CLASSIFY,
+    SERIES_MATCH,
+    WEIGHT,
+    WEIGHT_PEERS,
+    WEIGHT_TEXT,
+)
 from app.inventory_search import (
     COIN_VIEW,
     CURRENCY_VIEW,
@@ -553,6 +561,26 @@ def test_dq_derived_counts_a_field_a_rule_filled(db: Session) -> None:
     row = next(r for r in result.rows if r["field"] == "Series")
     assert row["rule"] == "Series classification"
     assert row["items"] == 1
+
+
+@pytest.mark.parametrize(
+    ("rule", "title"),
+    [
+        (WEIGHT, "Gross weight times fineness"),
+        (WEIGHT_TEXT, "Read from the item's text"),
+        (WEIGHT_PEERS, "Taken from like items"),
+    ],
+)
+def test_dq_derived_names_a_weight_rule_for_a_reader(
+    db: Session, rule: str, title: str
+) -> None:
+    item = build_bare_item(db)
+    _mark_derived(db, item, "fine_weight_ozt", rule)
+
+    result = DQ_DERIVED.run(db, DqDerivedParams())
+
+    row = next(r for r in result.rows if r["field"] == "Fine weight")
+    assert row["rule"] == title
 
 
 def test_dq_derived_shows_the_raw_column_name_for_an_untitled_field(

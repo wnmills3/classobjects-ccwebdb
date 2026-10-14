@@ -762,14 +762,16 @@ def test_offering_a_lot_races_offering_one_of_its_members(
     """A lot and one of its own members cannot both be offered.
 
     Survives: removing `.with_for_update()` from
-    `offering_writes._lock_items` (`app/offering_writes.py`) makes this
-    fail -- neither writer holds the coin's row, both decide on what they
-    read before the other committed, and the loser's disposition write dies
-    on `InventoryItem.version` instead of being refused with a reason:
+    `offering_writes._lock_rows` (`app/offering_writes.py`), the statement
+    `_lock_items` and `_lock_lots` share, makes this fail -- neither writer
+    holds the coin's row, both decide on what they read before the other
+    committed, and the loser's disposition write dies on
+    `InventoryItem.version` instead of being refused with a reason:
     `AssertionError: ['stale', 'won']`.
 
     That mutation is a race about which thread gets to its disposition
-    write first, so it reproduces *often* rather than *always*. The
+    write first, so it reproduces in *some* runs, about one in four, rather
+    than in all of them. The
     guarantee itself is not probabilistic -- what varies is only whether
     the two threads overlap closely enough for the missing lock to matter
     on a given run.
@@ -870,20 +872,21 @@ def test_two_checkouts_race_for_one_lot(
 ) -> None:
     """One lot sitting in two carts is bought exactly once, and ends once.
 
-    Survives: removing `.with_for_update(...)` from **all three** statements
-    in `offering_writes._acquire` -- `_lock_lots`, `_lock_items` and
-    `_lock_listing_rows` -- makes this fail: both checkouts then decide on a
+    Survives: removing `.with_for_update(...)` from **both** statements
+    `offering_writes._acquire` locks with -- `_lock_rows`, which takes the
+    lot's row and then the members', and `_lock_listing_rows` -- makes this
+    fail in some runs, about one in twelve: both checkouts then decide on a
     `quantity_available` they read before the other committed, and the loser
     dies on `Listing.version` rather than being told what is left:
     `AssertionError: ['stale', 'won']`.
 
     `order_writes._lock_listings` reaches the listing lock through
     `offering_writes.lock_for_sale`, which takes the lot's row and the
-    members' rows *before* it -- and **any one of those three serializes two
+    members' rows *before* it -- and **either statement serializes two
     checkouts of one lot on its own**: removing only the listing lock, or
-    leaving only the item lock, still passes. The guarantee is
-    over-determined, which is why this test names three sites instead of
-    one; the *ordering* those three are taken in is what
+    only the row lock, still passes. The guarantee is
+    over-determined, which is why this test names two sites instead of
+    one; the *ordering* the three kinds of row are taken in is what
     `test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order`
     (`tests/test_offering_writes.py`) measures, because no single-lock
     mutation can reach it.
