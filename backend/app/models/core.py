@@ -149,7 +149,10 @@ class Vendor(TimestampMixin, Base):
 
     orders: Mapped[list[PurchaseOrder]] = relationship(back_populates="vendor")
 
-    __table_args__ = (UniqueConstraint("name", name="uq_vendor_name"),)
+    # Unique whatever the case: "eBay" beside "ebay" is one source twice.
+    # Written as PostgreSQL stores the expression (see the note on
+    # ix_inventory_item_fts), or the drift test reports it changed.
+    __table_args__ = (Index("uq_vendor_name", text("lower(name::text)"), unique=True),)
 
 
 class Seller(TimestampMixin, Base):
@@ -157,8 +160,8 @@ class Seller(TimestampMixin, Base):
 
     The vendor is usually the marketplace -- ebay.com, whatnot.com -- and the
     seller is the account on it: `example_seller`, a Whatnot shop. One
-    seller sells many purchases. Names are unique, checked
-    case-insensitively by the API as vendors' are.
+    seller sells many purchases. Names are unique whatever their case,
+    as vendors' are.
     """
 
     __tablename__ = "seller"
@@ -170,7 +173,8 @@ class Seller(TimestampMixin, Base):
 
     orders: Mapped[list[PurchaseOrder]] = relationship(back_populates="seller")
 
-    __table_args__ = (UniqueConstraint("name", name="uq_seller_name"),)
+    # Unique whatever the case, as a vendor's name is.
+    __table_args__ = (Index("uq_seller_name", text("lower(name::text)"), unique=True),)
 
 
 class PurchaseOrder(TimestampMixin, Base):

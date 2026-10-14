@@ -13,7 +13,7 @@ from app.models import CurrencyDetail, Denomination, InventoryItem, Series
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.builders import ItemFactory, code_id
+from tests.builders import ItemFactory, code_id, patch_current
 
 DIME = "usd_coin_0_10"
 
@@ -44,7 +44,9 @@ def _patch(
     client: TestClient, headers: dict[str, str], item: InventoryItem, **changes: object
 ) -> None:
     """Save these changes on the item, which must be accepted."""
-    response = client.patch(f"/api/inventory/{item.id}", json=changes, headers=headers)
+    response = patch_current(
+        client, f"/api/inventory/{item.id}", json=changes, headers=headers
+    )
     assert response.status_code == 200, response.text
 
 

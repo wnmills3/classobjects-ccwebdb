@@ -12,14 +12,15 @@ Uniqueness is enforced by the two partial indexes on `customer`
 SELECT-then-INSERT is inherently racy -- two concurrent sales to the same new
 buyer would both find nothing and both insert -- and it is the database
 indexes, not application-level locking, that keep a second row out. The
-loser of that race is not turned into a reader of the winner's row: its
-insert fails with `IntegrityError`, which no caller maps, so that request
-ends as a 500 with nothing written and succeeds when repeated.
+insert sits in a savepoint, so the loser of that race loses only the
+insert: it reads the winner's row and carries on in the same transaction,
+as `order_writes.customer_for_user` does for a login.
 """
 
 from __future__ import annotations
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .models import Customer, SalesVenue
@@ -68,6 +69,10 @@ def venue_buyer(db: Session, venue: SalesVenue, username: str | None) -> Custome
         sales_venue_id=venue.id,
         venue_username=stored,
     )
-    db.add(customer)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(customer)
+            db.flush()
+    except IntegrityError:
+        return db.execute(query).scalar_one()
     return customer

@@ -160,6 +160,7 @@ def test_a_platform_fee_its_column_holds_is_taken() -> None:
             "processing_rate": "1",
             "processing_fixed": "0.30",
             "listing_fee": "0",
+            "version": 1,
         }
     )
     assert str(venue.commission_rate) == "0.1325"

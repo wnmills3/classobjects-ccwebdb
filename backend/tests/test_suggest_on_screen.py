@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from tests.builders import build_purchase_order
+from tests.builders import build_purchase_order, patch_current
 
 COIN = {
     "item_kind": "coin",
@@ -106,8 +106,8 @@ def test_unsaved_changes_read_as_the_same_changes_saved(
 
     on_screen = _on_screen(client, admin_headers, item_id, {"changes": changes})
     before_save = _saved(client, admin_headers, item_id)
-    saved = client.patch(
-        f"/api/inventory/{item_id}", json=changes, headers=admin_headers
+    saved = patch_current(
+        client, f"/api/inventory/{item_id}", json=changes, headers=admin_headers
     )
     assert saved.status_code == 200, saved.text
 
@@ -131,8 +131,8 @@ def test_the_defaults_a_save_fills_are_in_the_suggestion(
     changes = {"denomination": "usd_coin_1_00", "series": "morgan_dollar"}
 
     on_screen = _on_screen(client, admin_headers, item_id, {"changes": changes})
-    saved = client.patch(
-        f"/api/inventory/{item_id}", json=changes, headers=admin_headers
+    saved = patch_current(
+        client, f"/api/inventory/{item_id}", json=changes, headers=admin_headers
     )
     assert saved.status_code == 200, saved.text
 

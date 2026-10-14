@@ -87,6 +87,11 @@ def add_address(
     actually went.
     """
     customer = get_or_404(db, Customer, customer_id, _NO_SUCH_CUSTOMER)
+    # Held while the default is stood down and the new one written: two
+    # defaults added at once would each demote the old one and each insert,
+    # and `uq_address_default` would refuse the second with an error. Held,
+    # the second waits and then demotes the first's.
+    db.refresh(customer, with_for_update=True)
 
     country_id = code_to_id(db, Country, body.country, "country")
 

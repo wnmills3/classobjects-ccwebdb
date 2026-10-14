@@ -217,13 +217,13 @@ that actually sold the pieces. One seller sells many purchases.
 
 | `vendor` | Notes |
 |---|---|
-| `name` | unique (`uq_vendor_name`) |
+| `name` | unique whatever its case (`uq_vendor_name`, on `lower(name)`) |
 | `host` (indexed), `url` | the site, when there is one |
 | `vendor_kind_id` | fk null: marketplace, auction, mint, dealer, private, unknown |
 
 | `seller` | Notes |
 |---|---|
-| `name` | unique (`uq_seller_name`); the API also refuses a name that differs only in case |
+| `name` | unique whatever its case (`uq_seller_name`, on `lower(name)`) |
 | `store_url` | their store or profile page (http(s)), or a `mailto:` address (a mail address typed alone is stored as one) |
 
 | `purchase_order` | Notes |
@@ -542,12 +542,12 @@ Disposition changes caused by offering and selling belong to
 |---|---|
 | `storage_location_kind_id`, `institution`, `identifier` (box or container number), `notes` | |
 
-Unique `(storage_location_kind_id, institution, identifier)`
-(`uq_storage_location_identity`), plus
-`uq_storage_location_identity_no_identifier` on `(storage_location_kind_id,
-institution) WHERE identifier IS NULL`: the constraint alone never fires when
-`identifier` is null, and two concurrent first consignments to one auction
-house would otherwise each create a location.
+Unique on `(storage_location_kind_id, lower(coalesce(institution, '')),
+lower(coalesce(identifier, '')))` (`uq_storage_location_identity`): the same
+place in another case is the same location, and an absent institution or
+box is empty rather than NULL -- Postgres treats two NULLs as distinct, and
+two concurrent first consignments to one auction house would otherwise each
+create a location.
 
 `location_history` (`inventory_item_id`, `storage_location_id`, `moved_at`,
 `moved_by_id`, `note`) answers "where was this in March".
@@ -882,7 +882,7 @@ within gross; the `pcgs_status`, `friedberg_status`, `size_class` and
 | `uq_purchase_order_vendor_number` | order numbers unique per vendor when present |
 | `uq_friedberg_number_identity`, `uq_pcgs_type_identity` | one catalog row per fully known type |
 | `uq_customer_venue_username`, `uq_customer_venue_undisclosed` | one buyer per platform account |
-| `uq_storage_location_identity_no_identifier` | one location per institution with no box number |
+| `uq_vendor_name`, `uq_seller_name`, `uq_storage_location_identity` | on lowered text: one row whatever the case |
 | `uq_note_issue`, `uq_series_year_range` | `NULLS NOT DISTINCT` identities for seeded facts |
 
 **Indexes.** Every foreign key that is filtered on. On `inventory_item`:
@@ -906,8 +906,12 @@ same order (`app.issues`).
 SQLAlchemy's `version_id_col`: every UPDATE checks the version it read, so two
 people editing one record cannot silently overwrite each other. Editing is a
 document edit where a person can resolve a conflict, so a row lock held across
-a form would be wrong. `listing.quantity_available` is excluded: it is a
-counter decremented under a row lock.
+a form would be wrong. Every PATCH of these rows must send the version it
+was made against (an item's may send `base` instead); one that sends none
+is a 422. The order path decrements `listing.quantity_available` under a
+row lock it has just re-read, so its own UPDATE never meets a stale
+version; the decrement does move the version, so a listing form opened
+before a sale is refused when saved after it.
 
 **Row locks.** Anything that moves stock or claims locks the affected rows
 `FOR UPDATE` in one fixed order — lot rows, then items by ascending id, then

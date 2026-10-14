@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.builders import ItemFactory
+from tests.builders import ItemFactory, patch_current
 
 
 def _round(db: Session, make_item: ItemFactory, **fields: object) -> InventoryItem:
@@ -29,7 +29,9 @@ def _patch(
     client: TestClient, headers: dict[str, str], item: InventoryItem, **body: object
 ) -> dict[str, object]:
     """Save `body` on `item`, and return the item as the editor then reads it."""
-    response = client.patch(f"/api/inventory/{item.id}", json=body, headers=headers)
+    response = patch_current(
+        client, f"/api/inventory/{item.id}", json=body, headers=headers
+    )
     assert response.status_code == 200, response.text
     detail: dict[str, object] = client.get(
         f"/api/inventory/{item.id}", headers=headers
@@ -159,7 +161,8 @@ def test_a_fine_weight_above_the_gross_weight_is_refused_naming_both(
     item = _round(db, make_item)
     path = f"/api/inventory/{item.id}"
 
-    both = client.patch(
+    both = patch_current(
+        client,
         path,
         json={"gross_weight_ozt": "1", "fine_weight_ozt": "2"},
         headers=admin_headers,
@@ -169,12 +172,12 @@ def test_a_fine_weight_above_the_gross_weight_is_refused_naming_both(
     assert "gross_weight_ozt" in both.json()["detail"]
 
     _patch(client, admin_headers, item, gross_weight_ozt="1", fine_weight_ozt="1")
-    fine_alone = client.patch(
-        path, json={"fine_weight_ozt": "1.5"}, headers=admin_headers
+    fine_alone = patch_current(
+        client, path, json={"fine_weight_ozt": "1.5"}, headers=admin_headers
     )
     assert fine_alone.status_code == 422, fine_alone.text
-    gross_alone = client.patch(
-        path, json={"gross_weight_ozt": "0.5"}, headers=admin_headers
+    gross_alone = patch_current(
+        client, path, json={"gross_weight_ozt": "0.5"}, headers=admin_headers
     )
     assert gross_alone.status_code == 422, gross_alone.text
 
@@ -238,8 +241,11 @@ def test_a_fineness_of_zero_is_refused(
     """Fineness is a fraction above zero; nothing is no fineness, not zero."""
     item = _round(db, make_item)
 
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={"fineness": "0"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"fineness": "0"},
+        headers=admin_headers,
     )
 
     assert response.status_code == 422, response.text

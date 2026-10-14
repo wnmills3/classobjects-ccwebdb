@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item, code_id
+from tests.builders import build_bare_item, code_id, patch_current
 
 # ---------------------------------------------------------------------------
 # Taking a grade apart
@@ -196,8 +196,11 @@ def test_a_compound_grade_sent_to_an_item_is_split(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     item = build_bare_item(db)
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={"grade": "PR69+"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"grade": "PR69+"},
+        headers=admin_headers,
     )
     assert response.status_code == 200, response.text
 
@@ -214,8 +217,8 @@ def test_a_number_alone_leaves_the_strike_type(
         grade_id=code_id(db, Grade, "65"),
         strike_type_id=code_id(db, StrikeType, "proof"),
     )
-    client.patch(
-        f"/api/inventory/{item.id}", json={"grade": "66"}, headers=admin_headers
+    patch_current(
+        client, f"/api/inventory/{item.id}", json={"grade": "66"}, headers=admin_headers
     )
     body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
     assert body["grade_display"] == "PR66"
@@ -225,7 +228,8 @@ def test_an_unknown_strike_type_is_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     item = build_bare_item(db)
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"strike_type": "wishful"},
         headers=admin_headers,

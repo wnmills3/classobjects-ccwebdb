@@ -20,6 +20,8 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from tests.builders import patch_current
+
 
 def test_the_platform_kinds_are_seeded(db: Session) -> None:
     codes = set(db.scalars(select(SalesVenueKind.code)))
@@ -305,8 +307,8 @@ def test_unlink_a_vendor_with_null(
     db.commit()
     _create(client, admin_headers, code="whatnot", vendor_id=vendor.id)
 
-    response = client.patch(
-        f"{URL}/whatnot", json={"vendor_id": None}, headers=admin_headers
+    response = patch_current(
+        client, f"{URL}/whatnot", json={"vendor_id": None}, headers=admin_headers
     )
     assert response.status_code == 200
     assert response.json()["vendor_id"] is None
@@ -316,7 +318,7 @@ def test_a_stale_version_is_a_conflict(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     created = _create(client, admin_headers)
-    client.patch(f"{URL}/ebay", json={"name": "one"}, headers=admin_headers)
+    patch_current(client, f"{URL}/ebay", json={"name": "one"}, headers=admin_headers)
     response = client.patch(
         f"{URL}/ebay",
         json={"name": "two", "version": created["version"]},
@@ -328,14 +330,14 @@ def test_a_stale_version_is_a_conflict(
 def test_the_store_keeps_its_kind_and_stays_active(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    kind = client.patch(
-        f"{URL}/store", json={"kind": "marketplace"}, headers=admin_headers
+    kind = patch_current(
+        client, f"{URL}/store", json={"kind": "marketplace"}, headers=admin_headers
     )
-    retire = client.patch(
-        f"{URL}/store", json={"is_active": False}, headers=admin_headers
+    retire = patch_current(
+        client, f"{URL}/store", json={"is_active": False}, headers=admin_headers
     )
-    rename = client.patch(
-        f"{URL}/store", json={"name": "Our shop"}, headers=admin_headers
+    rename = patch_current(
+        client, f"{URL}/store", json={"name": "Our shop"}, headers=admin_headers
     )
     assert kind.status_code == 422
     assert retire.status_code == 422
@@ -345,7 +347,9 @@ def test_the_store_keeps_its_kind_and_stays_active(
 def test_patching_an_unknown_platform_is_404(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    response = client.patch(f"{URL}/nope", json={"name": "x"}, headers=admin_headers)
+    response = patch_current(
+        client, f"{URL}/nope", json={"name": "x"}, headers=admin_headers
+    )
     assert response.status_code == 404
 
 
@@ -353,7 +357,9 @@ def test_an_explicit_null_name_is_refused(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     _create(client, admin_headers)
-    response = client.patch(f"{URL}/ebay", json={"name": None}, headers=admin_headers)
+    response = patch_current(
+        client, f"{URL}/ebay", json={"name": None}, headers=admin_headers
+    )
     assert response.status_code == 422
     assert "name" in response.json()["detail"]
 
@@ -362,8 +368,8 @@ def test_an_explicit_null_is_active_is_refused(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     _create(client, admin_headers)
-    response = client.patch(
-        f"{URL}/ebay", json={"is_active": None}, headers=admin_headers
+    response = patch_current(
+        client, f"{URL}/ebay", json={"is_active": None}, headers=admin_headers
     )
     assert response.status_code == 422
     assert "is_active" in response.json()["detail"]

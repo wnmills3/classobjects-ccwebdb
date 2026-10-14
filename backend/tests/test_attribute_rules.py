@@ -24,7 +24,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from tests.builders import ItemFactory, add_note_issue, code_id, review_cases
+from tests.builders import (
+    ItemFactory,
+    add_note_issue,
+    code_id,
+    patch_current,
+    review_cases,
+)
 
 NO_MOTTO = RULES[0]
 
@@ -207,8 +213,11 @@ def test_a_removed_no_motto_stays_removed(
 ) -> None:
     note = _note(db, make_item, 1928)
     run(db, commit=True)
-    response = client.patch(
-        f"/api/inventory/{note.id}", json={"attributes": []}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{note.id}",
+        json={"attributes": []},
+        headers=admin_headers,
     )
     assert response.status_code == 200, response.text
 
@@ -228,7 +237,8 @@ def test_correcting_the_series_takes_the_rules_link_back(
     run(db, commit=True)
     assert _link(db, note) is not None
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{note.id}",
         json={"series_year": 1957, "series_letter": None},
         headers=admin_headers,
@@ -248,7 +258,8 @@ def test_a_new_early_note_gets_no_motto_when_saved(
 ) -> None:
     note = _note(db, make_item, 1957)
     run(db, commit=True)
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{note.id}",
         json={"series_year": 1928},
         headers=admin_headers,
@@ -289,7 +300,8 @@ def test_a_class_taken_back_takes_no_motto_with_it(
     note = _note(db, make_item, 1935, "F")
     run(db, commit=True)
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{note.id}",
         json={"series_letter": "E"},
         headers=admin_headers,
@@ -311,7 +323,8 @@ def test_no_motto_a_person_set_again_is_not_the_rules_to_take_back(
     note = _note(db, make_item, 1935, "F")
     run(db, commit=True)
     for codes in ([], ["no_motto"]):
-        response = client.patch(
+        response = patch_current(
+            client,
             f"/api/inventory/{note.id}",
             json={"attributes": codes},
             headers=admin_headers,
@@ -319,7 +332,8 @@ def test_no_motto_a_person_set_again_is_not_the_rules_to_take_back(
         assert response.status_code == 200, response.text
 
     # 1935G was printed both ways: the rule no longer says "always".
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{note.id}",
         json={"series_letter": "G"},
         headers=admin_headers,

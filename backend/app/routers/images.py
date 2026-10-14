@@ -15,7 +15,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from .. import image_fetch, image_links, sale_state
+from .. import image_fetch, image_links, image_store, sale_state
 from ..config import settings
 from ..deps import AdminUser, DbSession
 from ..image_store import ingest
@@ -400,6 +400,7 @@ def delete_image(
 
     keys = [derivative.storage_key for derivative in image.derivatives]
     keys.append(image.storage_key)
+    held = image.sha256
 
     db.delete(image)
     db.flush()
@@ -413,7 +414,6 @@ def delete_image(
 
     # The bytes go only once the rows that point at them are gone: a failed
     # commit leaves the image whole, and a failed removal here leaves only
-    # files no row points at.
-    storage = get_storage()
-    for key in keys:
-        storage.delete(key)
+    # files no row points at. And only if no upload of the same picture has
+    # committed since, which would name the same files (`remove_unheld`).
+    image_store.remove_unheld(db, {held: keys})

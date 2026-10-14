@@ -27,6 +27,7 @@ from openpyxl import Workbook, load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from tests.builders import patch_current
 from tests.conftest import build_item
 
 HEADER = [
@@ -618,7 +619,8 @@ def test_a_listing_id_is_typed_in_and_changed(
     assert created.status_code == 201, created.text
     assert created.json()["sellers_item_id"] == "900000000010"
     item_id = created.json()["id"]
-    cleared = client.patch(
+    cleared = patch_current(
+        client,
         f"/api/inventory/{item_id}",
         json={"sellers_item_id": "  "},
         headers=admin_headers,
@@ -652,7 +654,8 @@ def test_a_set_form_is_entered_and_changed(
     )
     assert created.status_code == 201, created.text
     assert created.json()["set_form"] == "mint_set"
-    changed = client.patch(
+    changed = patch_current(
+        client,
         f"/api/inventory/{created.json()['id']}",
         json={"set_form": "proof_set"},
         headers=admin_headers,

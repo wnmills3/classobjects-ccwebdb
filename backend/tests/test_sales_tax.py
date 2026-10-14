@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item
+from tests.builders import build_bare_item, patch_current
 
 
 def configure(monkeypatch: pytest.MonkeyPatch, rate: str, *, shipping: bool) -> None:
@@ -105,7 +105,8 @@ def test_changing_the_setting_later_leaves_existing_items_alone(
     )
 
     configure(monkeypatch, "0.0800", shipping=False)
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"source_title": "Renamed after the rate changed"},
         headers=admin_headers,
@@ -130,8 +131,11 @@ def test_no_tax_charged_is_a_rate_of_zero(
         db, item_cost=Decimal("179.00"), shipping_cost=Decimal("0.00")
     )
 
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={"tax_rate": "0"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"tax_rate": "0"},
+        headers=admin_headers,
     )
 
     assert response.status_code == 200
@@ -151,7 +155,8 @@ def test_shipping_can_be_left_untaxed_on_one_item(
         db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00")
     )
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"tax_includes_shipping": False},
         headers=admin_headers,
@@ -186,8 +191,8 @@ def test_nulling_a_tax_field_is_refused_naming_it(
     """Both columns are NOT NULL: a null must be a 422, not a database 500."""
     item = build_bare_item(db)
 
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={field: None}, headers=admin_headers
+    response = patch_current(
+        client, f"/api/inventory/{item.id}", json={field: None}, headers=admin_headers
     )
 
     assert response.status_code == 422
@@ -200,8 +205,11 @@ def test_a_rate_above_one_is_refused(
     """A rate is a fraction. 6.35 typed for 6.35% would multiply cost by 7.35."""
     item = build_bare_item(db)
 
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={"tax_rate": "6.35"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"tax_rate": "6.35"},
+        headers=admin_headers,
     )
 
     assert response.status_code == 422

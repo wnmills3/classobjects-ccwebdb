@@ -13,8 +13,9 @@ separating them.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -29,7 +30,18 @@ from .imaging import (
 from .models import DerivativeKind, Image, ImageDerivative
 from .storage import StorageBackend, get_storage
 
-__all__ = ["DERIVATIVE_SIZES", "ingest", "is_web_address", "replace_content"]
+__all__ = [
+    "DERIVATIVE_SIZES",
+    "hold_content",
+    "ingest",
+    "is_web_address",
+    "remove_unheld",
+    "replace_content",
+]
+
+#: The advisory lock space for stored content, keyed within it by the
+#: content's hash: see `hold_content`.
+_CONTENT_LOCK = 2026101401
 
 _WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
 
@@ -74,6 +86,39 @@ def named_as_stored(source_ref: str | None, media_type: str) -> str | None:
     return f"{stem}.{file_extension(media_type)}"
 
 
+def hold_content(db: Session, sha256: str) -> None:
+    """Hold this content for the rest of the transaction.
+
+    A stored file is named by its content's hash, so every row holding the
+    same picture names the same files. Without this, an upload of a picture
+    being deleted could insert its row between the delete's commit and its
+    removal of the files, and be left a row with no bytes; and two uploads
+    of one picture at once could each find no row and each insert one, the
+    second refused by `uq_image_sha256` with an error. Holding the hash, the
+    second waits for the first to commit and then reads what it wrote.
+    Unrelated hashes that share a lock key only wait on each other.
+    """
+    db.execute(select(func.pg_advisory_xact_lock(_CONTENT_LOCK, func.hashtext(sha256))))
+
+
+def remove_unheld(db: Session, keys_by_hash: Mapping[str, Sequence[str]]) -> None:
+    """Delete the stored files of content no image holds any more. Commits.
+
+    Called once the commit that removed or replaced the rows has happened --
+    before it, a commit that failed would leave rows naming files that are
+    gone. Each hash is held (`hold_content`) and asked again: an upload of
+    the same picture that committed in the meantime holds its files now, and
+    they stay. The commit at the end releases the holds.
+    """
+    storage = get_storage()
+    for sha256 in sorted(keys_by_hash):
+        hold_content(db, sha256)
+        if db.scalar(select(Image.id).where(Image.sha256 == sha256)) is None:
+            for key in keys_by_hash[sha256]:
+                storage.delete(key)
+    db.commit()
+
+
 def ingest(
     db: Session, raw: bytes, source_ref: str | None, source_url: str | None = None
 ) -> Image:
@@ -90,6 +135,8 @@ def ingest(
     if not is_web_address(source_url):
         source_url = None
 
+    # Held until the caller commits: see `hold_content`.
+    hold_content(db, cleansed.sha256)
     existing = db.scalar(select(Image).where(Image.sha256 == cleansed.sha256))
     if existing is not None:
         # The same picture fetched again: its address is learned if it was
@@ -142,7 +189,7 @@ def _add_renditions(
 
 def replace_content(
     db: Session, image: Image, cleansed: CleansedImage, source_url: str
-) -> list[str]:
+) -> dict[str, list[str]]:
     """Put a better copy of the same photograph behind `image`, in place.
 
     The row keeps its id, so every item it is filed against keeps it: its
@@ -150,13 +197,14 @@ def replace_content(
     holds -- the bytes, their hash, size and dimensions, the renditions made
     from them, and the address they came from.
 
-    Returns the storage keys the row no longer uses. The caller deletes them
-    **after** its commit: deleted before, a commit that failed would leave
-    the row naming files that are gone.
+    Returns the storage keys the row no longer uses, under the hash they
+    hold, for `remove_unheld` **after** the caller's commit.
 
-    The caller has established that no other row already holds these bytes
-    (`uq_image_sha256`); this does not look.
+    The caller has established, holding the new hash (`hold_content`), that
+    no other row already holds these bytes (`uq_image_sha256`); this does
+    not look.
     """
+    old_hash = image.sha256
     unused = [derivative.storage_key for derivative in image.derivatives]
     unused.append(image.storage_key)
 
@@ -182,4 +230,4 @@ def replace_content(
     _add_renditions(db, storage, image, cleansed)
     db.flush()
     db.refresh(image, attribute_names=["derivatives"])
-    return [old for old in unused if old != key]
+    return {old_hash: [old for old in unused if old != key]}

@@ -30,7 +30,7 @@ from app.models import (
 from app.seeding import _seed_reference_aliases, _seed_table
 from fastapi.testclient import TestClient
 from httpx import Response
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from tests.builders import ItemFactory, build_bare_item, code_id
@@ -324,6 +324,39 @@ def test_a_coins_mint_moves_and_its_version_with_it(
     db.expire_all()
     assert db.get_one(CoinDetail, item.id).mint_id == code_id(db, Mint, "CC")
     assert db.get_one(InventoryItem, item.id).version == version + 1
+
+
+def test_a_merge_locks_its_items_before_it_writes_their_records(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """An item edit writes the item, then its records: a merge must not invert that."""
+    carson = _added(client, admin_headers, "mint", "Carson Lock", extra={"mark": "CL"})
+    item = build_bare_item(db)
+    db.add(CoinDetail(inventory_item_id=item.id, mint_id=code_id(db, Mint, carson)))
+    db.commit()
+    sent: list[str] = []
+
+    def record(_conn: object, _cursor: object, statement: str, *_: object) -> None:
+        """Keep each statement, in order."""
+        sent.append(statement)
+
+    connection = db.connection()
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        response = _merge(client, admin_headers, "mint", carson, "CC")
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+
+    assert response.status_code == 200, response.text
+    locks = [
+        i
+        for i, s in enumerate(sent)
+        if "FOR UPDATE" in s and "FROM inventory_item" in s
+    ]
+    writes = [i for i, s in enumerate(sent) if s.startswith("UPDATE coin_detail")]
+    assert locks, sent
+    assert writes, sent
+    assert locks[0] < writes[0]
 
 
 def test_a_notes_seal_moves(

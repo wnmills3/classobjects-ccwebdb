@@ -29,6 +29,7 @@ from tests.builders import (
     build_split_lot,
     code_id,
     do_split,
+    patch_current,
 )
 
 
@@ -145,7 +146,8 @@ def test_editing_the_status_through_the_api_records_it(
     item = build_bare_item(db, status_id=_status_id(db, "ordered"))
     db.commit()
 
-    res = client.patch(
+    res = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"status": "received"},
         headers=admin_headers,

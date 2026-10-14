@@ -14,7 +14,7 @@ from httpx import Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item, build_purchase_order, code_id
+from tests.builders import build_bare_item, build_purchase_order, code_id, patch_current
 
 
 def _bar(db: Session, **overrides: object) -> InventoryItem:
@@ -31,7 +31,9 @@ def _patch(
     client: TestClient, headers: dict[str, str], item_id: int, body: dict[str, object]
 ) -> Response:
     """The response to saving these fields on an item."""
-    return client.patch(f"/api/inventory/{item_id}", json=body, headers=headers)
+    return patch_current(
+        client, f"/api/inventory/{item_id}", json=body, headers=headers
+    )
 
 
 def test_marking_no_date_clears_the_years_and_is_shown(

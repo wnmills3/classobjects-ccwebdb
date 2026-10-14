@@ -51,11 +51,15 @@ from sqlalchemy.orm import Session
 from . import sale_state
 from .database import SessionLocal
 from .image_fetch import ImageFetchRefused, fetch_image
-from .image_store import is_web_address, replace_content
+from .image_store import (
+    hold_content,
+    is_web_address,
+    remove_unheld,
+    replace_content,
+)
 from .image_urls import full_size, named_edge
 from .imaging import ImageRejected, cleanse
 from .models import Image, InventoryItem, ItemImage
-from .storage import get_storage
 
 __all__ = ["Report", "candidates", "main", "run"]
 
@@ -135,11 +139,13 @@ def _area(width: int | None, height: int | None) -> int:
 
 def _enlarge(
     db: Session, image: Image, fetch: Callable[[str], bytes], report: Report
-) -> list[str]:
+) -> dict[str, list[str]]:
     """Fetch one photograph at full size and replace it when that is larger.
 
-    Returns the storage keys the replacement left unused, for deleting once
-    the change is committed; none when the photograph was left as it was.
+    Returns the storage keys the replacement left unused, under the hash
+    they hold, for deleting once the change is committed
+    (`image_store.remove_unheld`); none when the photograph was left as it
+    was.
     """
     address = full_size(image.source_url or "")
     try:
@@ -147,7 +153,7 @@ def _enlarge(
     except (ImageFetchRefused, ImageRejected) as exc:
         report.outcomes[NOT_FETCHED] += 1
         report.left.append((image.id, NOT_FETCHED, f"{address}: {exc}"))
-        return []
+        return {}
     if _area(cleansed.width, cleansed.height) <= _area(image.width, image.height):
         report.outcomes[NOT_LARGER] += 1
         report.left.append(
@@ -158,12 +164,15 @@ def _enlarge(
                 f"{image.width}x{image.height} held",
             )
         )
-        return []
+        return {}
+    # Held until the batch commits, so an upload of the same picture cannot
+    # insert it between this look and the replacement.
+    hold_content(db, cleansed.sha256)
     held = db.scalar(select(Image.id).where(Image.sha256 == cleansed.sha256))
     if held is not None:
         report.outcomes[ALREADY_HELD] += 1
         report.left.append((image.id, ALREADY_HELD, f"as image {held}"))
-        return []
+        return {}
     report.bytes_before += image.byte_size
     unused = replace_content(db, image, cleansed, address)
     report.bytes_after += image.byte_size
@@ -198,15 +207,13 @@ def run(
         return report
 
     selling = _for_sale(db, found)
-    storage = get_storage()
-    unused: list[str] = []
+    unused: dict[str, list[str]] = {}
     pending = 0
 
     def settle() -> None:
         """Commit the batch, then delete the files it left unused."""
         db.commit()
-        for key in unused:
-            storage.delete(key)
+        remove_unheld(db, unused)
         unused.clear()
 
     for image in found:
@@ -216,7 +223,7 @@ def run(
             report.outcomes[FOR_SALE] += 1
             report.left.append((image.id, FOR_SALE, selling[image.id]))
             continue
-        unused.extend(_enlarge(db, image, fetch, report))
+        unused.update(_enlarge(db, image, fetch, report))
         pending += 1
         if pending >= BATCH:
             settle()

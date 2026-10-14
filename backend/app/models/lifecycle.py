@@ -82,23 +82,18 @@ class StorageLocation(TimestampMixin, Base):
     kind: Mapped[StorageLocationKind] = relationship()
 
     __table_args__ = (
-        UniqueConstraint(
-            "storage_location_kind_id",
-            "institution",
-            "identifier",
-            name="uq_storage_location_identity",
-        ),
-        # The same identity for a location with no box number. Postgres
-        # treats two NULLs as distinct, so the constraint above does not
-        # cover a NULL identifier; this index does. One kind and institution
-        # with no box is one location, so concurrent first consignments to
-        # one house (`auctions._consigned_location`) cannot each insert it.
+        # A location's identity: its kind, institution and box, whatever
+        # their case, an absent part read as empty -- so a box-less
+        # location is one row too (Postgres treats two NULLs as distinct),
+        # and concurrent first consignments to one house
+        # (`auctions._consigned_location`) cannot each insert it. Written as
+        # PostgreSQL stores the expressions (see ix_inventory_item_fts).
         Index(
-            "uq_storage_location_identity_no_identifier",
+            "uq_storage_location_identity",
             "storage_location_kind_id",
-            "institution",
+            text("lower(COALESCE(institution, ''::character varying)::text)"),
+            text("lower(COALESCE(identifier, ''::character varying)::text)"),
             unique=True,
-            postgresql_where=text("identifier IS NULL"),
         ),
     )
 

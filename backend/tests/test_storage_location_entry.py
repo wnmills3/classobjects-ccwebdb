@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from tests.builders import build_purchase_order
+from tests.builders import build_purchase_order, patch_current
 from tests.conftest import build_listing
 
 
@@ -115,13 +115,15 @@ def test_the_editor_moves_an_item_and_keeps_each_move(
         str(_new_item(client, admin_headers, db, storage_location_id=safe.id)["id"])
     )
 
-    moved = client.patch(
+    moved = patch_current(
+        client,
         f"/api/inventory/{item_id}",
         json={"storage_location_id": home.id},
         headers=admin_headers,
     )
     assert moved.status_code == 200, moved.text
-    cleared = client.patch(
+    cleared = patch_current(
+        client,
         f"/api/inventory/{item_id}",
         json={"storage_location_id": None},
         headers=admin_headers,
@@ -149,7 +151,8 @@ def test_moving_to_where_it_already_is_records_nothing(
         str(_new_item(client, admin_headers, db, storage_location_id=safe.id)["id"])
     )
 
-    res = client.patch(
+    res = patch_current(
+        client,
         f"/api/inventory/{item_id}",
         json={"storage_location_id": safe.id},
         headers=admin_headers,
@@ -163,7 +166,8 @@ def test_an_unknown_location_refuses_the_edit(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     item_id = int(str(_new_item(client, admin_headers, db)["id"]))
-    res = client.patch(
+    res = patch_current(
+        client,
         f"/api/inventory/{item_id}",
         json={"storage_location_id": 999999},
         headers=admin_headers,
@@ -177,7 +181,8 @@ def test_moving_an_item_on_offer_needs_no_acknowledgement(
     # Where it is kept never shows to a buyer.
     listing = build_listing(db)
     safe = _location(db)
-    res = client.patch(
+    res = patch_current(
+        client,
         f"/api/inventory/{listing.inventory_item_id}",
         json={"storage_location_id": safe.id},
         headers=admin_headers,

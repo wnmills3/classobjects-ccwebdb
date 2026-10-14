@@ -12,7 +12,7 @@ from app.models import InventoryItem, PurchaseOrder
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.builders import build_purchase_order
+from tests.builders import build_purchase_order, patch_current
 
 
 def _order(db: Session) -> PurchaseOrder:
@@ -78,7 +78,8 @@ def test_a_notes_year_cannot_be_set_and_its_series_year_leaves_it_empty(
     note = _create(
         client, admin_headers, _order(db), item_kind="currency", series_year=1952
     )
-    changed = client.patch(
+    changed = patch_current(
+        client,
         f"/api/inventory/{note['id']}",
         json={"series_year": 2017},
         headers=admin_headers,
@@ -86,7 +87,8 @@ def test_a_notes_year_cannot_be_set_and_its_series_year_leaves_it_empty(
     assert changed.status_code == 200, changed.text
     assert _years(db, note["id"]) == (None, None)
 
-    refused = client.patch(
+    refused = patch_current(
+        client,
         f"/api/inventory/{note['id']}",
         json={"year_start": 2017},
         headers=admin_headers,
@@ -99,7 +101,8 @@ def test_a_coin_turned_note_gives_up_its_year(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     coin = _create(client, admin_headers, _order(db), item_kind="coin", year_start=1935)
-    turned = client.patch(
+    turned = patch_current(
+        client,
         f"/api/inventory/{coin['id']}",
         json={"item_kind": "currency"},
         headers=admin_headers,

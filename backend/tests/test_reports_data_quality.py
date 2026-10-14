@@ -61,6 +61,7 @@ from app.reports.data_quality import (
     DqSeriesYearsParams,
     _a_year_before,
 )
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, build_purchase_order, code_id
@@ -156,11 +157,17 @@ _SERIES = "large_cent"
 
 
 def _location(db: Session) -> int:
-    """A storage location's id -- not a seeded vocabulary, built like Receiving's."""
-    location = StorageLocation(
-        storage_location_kind_id=code_id(db, StorageLocationKind, "home"),
-        identifier="test box",
+    """The test box's id, made the first time -- one place is one row."""
+    kind_id = code_id(db, StorageLocationKind, "home")
+    held = db.scalar(
+        select(StorageLocation.id).where(
+            StorageLocation.storage_location_kind_id == kind_id,
+            StorageLocation.identifier == "test box",
+        )
     )
+    if held is not None:
+        return held
+    location = StorageLocation(storage_location_kind_id=kind_id, identifier="test box")
     db.add(location)
     db.commit()
     db.refresh(location)
@@ -943,13 +950,15 @@ def test_dq_locations_groups_by_the_consoles_own_label(db: Session) -> None:
 def test_dq_locations_lists_two_locations_sharing_one_label_as_two_rows(
     db: Session,
 ) -> None:
-    """The console lists two same-label boxes as two entries; so does this report.
+    """The console lists two same-label places as two entries; so does this report.
 
-    Each keeps its own id in the row (`Home (#<id>)`) since the plain label
-    alone could not tell a reader which physical box a row means.
+    Each keeps its own id in the row (`Shelf (#<id>)`) since the plain label
+    alone could not tell a reader which physical place a row means. Two
+    places of one identity cannot exist; these differ in which part names
+    them, which the label does not show.
     """
-    first = _location_of_kind(db, "home")
-    second = _location_of_kind(db, "home")
+    first = _location_of_kind(db, "home", institution="Shelf")
+    second = _location_of_kind(db, "home", identifier="Shelf")
     assert location_label(first) == location_label(second)
 
     build_bare_item(
@@ -995,8 +1004,8 @@ def test_dq_locations_a_unique_label_is_shown_plain(db: Session) -> None:
 
 def test_dq_locations_sorts_by_label_then_id(db: Session) -> None:
     safe = _location_of_kind(db, "safe", identifier="Zzz box")
-    home_low = _location_of_kind(db, "home")
-    home_high = _location_of_kind(db, "home")
+    home_low = _location_of_kind(db, "home", institution="Shelf")
+    home_high = _location_of_kind(db, "home", identifier="Shelf")
     assert home_low.id < home_high.id
     build_bare_item(db, storage_location_id=safe.id)
     build_bare_item(db, storage_location_id=home_high.id)

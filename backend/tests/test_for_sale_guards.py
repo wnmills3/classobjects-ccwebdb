@@ -33,7 +33,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.builders import make_jpeg
+from tests.builders import make_jpeg, patch_current
 from tests.conftest import build_item, item_id_of
 
 
@@ -315,8 +315,11 @@ def test_editing_the_status_of_an_offered_item_is_refused_until_acknowledged(
     client: TestClient, db: Session, admin_headers: dict[str, str]
 ) -> None:
     item, made = _offered_item(db)
-    response = client.patch(
-        f"/api/inventory/{item.id}", json={"status": "missing"}, headers=admin_headers
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"status": "missing"},
+        headers=admin_headers,
     )
     assert response.status_code == 409, response.text
     assert _listing_status(db, made.id) is ListingStatus.active
@@ -329,13 +332,16 @@ def test_editing_only_a_coin_s_own_field_is_refused_until_acknowledged(
     item, _ = _offered_item(db)
     url = f"/api/inventory/{item.id}"
 
-    refused = client.patch(url, json={"variety": "VAM-3"}, headers=admin_headers)
+    refused = patch_current(
+        client, url, json={"variety": "VAM-3"}, headers=admin_headers
+    )
     assert refused.status_code == 409, refused.text
     assert refused.json()["detail"].startswith("For sale"), refused.text
     shown = client.get(url, headers=admin_headers).json()
     assert shown["variety"] is None
 
-    allowed = client.patch(
+    allowed = patch_current(
+        client,
         url,
         json={"variety": "VAM-3", "acknowledge_for_sale": True},
         headers=admin_headers,
@@ -367,7 +373,8 @@ def test_an_acknowledged_status_edit_ends_the_offer(
     item, made = _offered_item(db)
     db.autoflush = autoflush
     try:
-        response = client.patch(
+        response = patch_current(
+            client,
             f"/api/inventory/{item.id}",
             json={"status": "missing", "acknowledge_for_sale": True},
             headers=admin_headers,
@@ -392,7 +399,8 @@ def test_an_acknowledged_edit_that_leaves_status_alone_keeps_the_offer(
 ) -> None:
     """Only a change of status or disposition ends an offer, not any edit."""
     item, made = _offered_item(db)
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={
             "description": "A sharper strike than most",
@@ -470,7 +478,8 @@ def test_an_acknowledged_disposition_edit_ends_the_offer_too(
 ) -> None:
     """A listed coin set back to held would leave a live claim on a held item."""
     item, made = _offered_item(db)
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{item.id}",
         json={"disposition": "held", "acknowledge_for_sale": True},
         headers=admin_headers,
@@ -833,7 +842,8 @@ def test_an_offered_lot_s_member_warns_like_a_listed_item(
     assert lot is not None
     member_id = lot.members[0].inventory_item_id
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{member_id}",
         headers=admin_headers,
         json={"source_title": "Renamed while offered"},
@@ -877,7 +887,8 @@ def test_a_sold_lot_s_member_still_warns_while_the_order_is_open(
     )
     db.commit()
 
-    response = client.patch(
+    response = patch_current(
+        client,
         f"/api/inventory/{member_id}",
         headers=admin_headers,
         json={"source_title": "Renamed after the sale"},
