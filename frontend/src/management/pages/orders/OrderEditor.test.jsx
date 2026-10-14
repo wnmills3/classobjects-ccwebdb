@@ -171,10 +171,25 @@ describe('OrderEditor', () => {
     expect(onSaved).not.toHaveBeenCalled()
   })
 
-  it('refuses to save an empty order or one with no customer', async () => {
+  it('refuses to save an order with no customer', async () => {
     const { user } = await setup()
     await user.click(screen.getByRole('button', { name: 'Save order' }))
     expect(screen.getByText('Choose a customer.')).toBeInTheDocument()
+    expect(api.createOrderFor).not.toHaveBeenCalled()
+  })
+
+  it('refuses to save an empty order', async () => {
+    const { user } = await setup()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Customer' }),
+      await screen.findByRole('option', { name: /Walk-in/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Save order' }))
+    expect(
+      screen.getByText(
+        'An order needs at least one item. To empty an order, cancel it.',
+      ),
+    ).toBeInTheDocument()
     expect(api.createOrderFor).not.toHaveBeenCalled()
   })
 

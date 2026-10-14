@@ -33,11 +33,10 @@ describe('CartProvider', () => {
   })
 
   it('totals in cents, never in floats', () => {
-    // Three at 19.99 is 59.97. Floats agree for this price; three at 99.99
-    // summed as floats is 299.96999999999997.
+    // Three at 99.99 is 299.97; summed as floats it is 299.96999999999997.
     const cart = mount()
-    act(() => cart.current.add(coin(1, '19.99', 5), 3))
-    expect(cart.current.total).toBe('59.97')
+    act(() => cart.current.add(coin(1, '99.99', 5), 3))
+    expect(cart.current.total).toBe('299.97')
   })
 
   it('never adds more than the stock on hand', () => {

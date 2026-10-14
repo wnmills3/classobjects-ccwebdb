@@ -40,6 +40,9 @@ from ..field_sources import (
     SERIES_CLASSIFY,
     SERIES_MATCH,
     SUGGESTION,
+    WEIGHT,
+    WEIGHT_PEERS,
+    WEIGHT_TEXT,
 )
 from ..inventory_search import (
     COIN_VIEW,
@@ -451,6 +454,9 @@ _RULE_TITLES: dict[str, str] = {
     SERIES_BACKFILL: "Series backfill",
     SUGGESTION: "Suggestion",
     RATING: "Rating",
+    WEIGHT: "Gross weight times fineness",
+    WEIGHT_TEXT: "Read from the item's text",
+    WEIGHT_PEERS: "Taken from like items",
 }
 
 

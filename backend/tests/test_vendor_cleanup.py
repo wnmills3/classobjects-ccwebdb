@@ -353,13 +353,13 @@ def test_a_rename_happens_after_a_merge(db: Session) -> None:
         merges=[(typo.id, keep.id)],
         kinds=[],
         deletes=[],
-        renames=[(keep.id, "bullionhounds.com")],
+        renames=[(keep.id, "bullionhound.com")],
         commit=True,
     )
 
     db.expire_all()
     assert db.get(Vendor, typo.id) is None
-    assert db.get_one(Vendor, keep.id).name == "bullionhounds.com"
+    assert db.get_one(Vendor, keep.id).name == "bullionhound.com"
     assert _order_count_for(db, keep.id) == 1
 
 

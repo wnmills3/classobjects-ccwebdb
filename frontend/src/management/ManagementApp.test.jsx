@@ -3,13 +3,14 @@ import { screen, within } from '@testing-library/react'
 import { useMemo, useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-// Only the calls the pages routed to below make on mount: Photos, Lots,
-// Auctions and Reports. Every other case renders at '/nowhere', which mounts
+// Only the calls the pages routed to below make on mount: Order lookup,
+// Photos, Lots, Auctions and Reports. Every other case renders at '/nowhere', which mounts
 // no page at all, so this mock does not have to grow into the full surface
 // the note below warns about -- and without it those cases would reach the
 // real fetch.
 vi.mock('./api', () => ({
   api: {
+    listPurchaseOrders: vi.fn().mockResolvedValue([]),
     listUnattachedImages: vi.fn().mockResolvedValue([]),
     listLots: vi.fn().mockResolvedValue({ lots: [] }),
     listAuctions: vi.fn().mockResolvedValue({ auctions: [] }),

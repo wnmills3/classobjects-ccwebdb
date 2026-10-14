@@ -1871,8 +1871,8 @@ def preview_item(
     """
     item = _get_item(db, item_id)
     data = payload.changes.model_dump(exclude_unset=True)
-    # Attributes have a route and a history of their own; the editor shows
-    # its own held set.
+    # Attributes are links, written apart from the item's columns; the editor
+    # shows its own held set.
     data.pop("attributes", None)
     try:
         _dry_run_save(db, item, data)
