@@ -236,6 +236,29 @@ def test_a_rename_carries_the_host_and_url_with_it(db: Session) -> None:
     assert renamed.url == "https://www.apmex.com"
 
 
+def test_a_rename_carries_a_link_typed_in_capitals(db: Session) -> None:
+    """The host is kept in lower case; the link keeps the case it was typed in."""
+    vendor = Vendor(
+        name="ampex.com", host="www.ampex.com", url="https://www.Ampex.com/coins"
+    )
+    db.add(vendor)
+    db.commit()
+
+    run(
+        db,
+        merges=[],
+        kinds=[],
+        deletes=[],
+        renames=[(vendor.id, "apmex.com")],
+        commit=True,
+    )
+
+    db.expire_all()
+    renamed = db.get_one(Vendor, vendor.id)
+    assert renamed.host == "www.apmex.com"
+    assert renamed.url == "https://www.apmex.com/coins"
+
+
 def test_a_rename_leaves_an_unrelated_host_and_url_alone(db: Session) -> None:
     """Only text that repeated the old name is rewritten."""
     vendor = Vendor(
@@ -324,7 +347,7 @@ def test_a_rename_to_nothing_is_refused(db: Session) -> None:
 
 
 def test_a_rename_to_an_existing_name_is_refused(db: Session) -> None:
-    """`uq_vendor_name` is case-sensitive and would allow it; this names both."""
+    """Refused before `uq_vendor_name` is reached, so the refusal names both."""
     vendor = _vendor(db, "one.example")
     _vendor(db, "Two.Example")
 
@@ -342,20 +365,30 @@ def test_a_rename_to_an_existing_name_is_refused(db: Session) -> None:
     assert db.get_one(Vendor, vendor.id).name == "one.example"
 
 
-def test_a_rename_happens_after_a_merge(db: Session) -> None:
-    """The merged-away row's name is free to reuse in the same call."""
+@pytest.mark.parametrize("autoflush", [True, False])
+def test_a_rename_happens_after_a_merge(db: Session, autoflush: bool) -> None:
+    """The merged-away row's name is free to reuse in the same call.
+
+    Run both ways: production's session does not autoflush, so the merged
+    row's deletion must reach the database before the name is looked up
+    and before the rename is written.
+    """
     typo = _vendor(db, "bullionshark.com")
     keep = _vendor(db, "builionsharks.com")
     _order(db, typo, "B1")
 
-    run(
-        db,
-        merges=[(typo.id, keep.id)],
-        kinds=[],
-        deletes=[],
-        renames=[(keep.id, "bullionshark.com")],
-        commit=True,
-    )
+    db.autoflush = autoflush
+    try:
+        run(
+            db,
+            merges=[(typo.id, keep.id)],
+            kinds=[],
+            deletes=[],
+            renames=[(keep.id, "bullionshark.com")],
+            commit=True,
+        )
+    finally:
+        db.autoflush = True
 
     db.expire_all()
     assert db.get(Vendor, typo.id) is None

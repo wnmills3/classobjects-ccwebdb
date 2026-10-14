@@ -247,6 +247,13 @@ const typedSinceSent = (now, sent) =>
     Object.entries(now).filter(([key, held]) => !(key in sent) || sent[key] !== held),
   )
 
+/** The errors as `GET /inventory/{id}/errors` answers them, as the form holds them. */
+const errorRows = (body) =>
+  (body.errors ?? []).map((e) => ({
+    error_type: e.error_type,
+    details: e.details ?? null,
+  }))
+
 /** Whether the errors as edited differ from the set last read or recorded. */
 const errorsDiffer = (edited, saved) =>
   edited !== null && errorsKey(edited) !== errorsKey(saved)
@@ -276,17 +283,24 @@ function holdsAnything({
 }
 
 /**
- * Whether what is held may be saved as it stands: a change to an item for
- * sale has been acknowledged, every new photograph says what it shows, and
- * no edited field waits for a choice between two values.
+ * What stands in the way of saving what is held, as Save says it when
+ * pressed, or '' when nothing does: a change to an item for sale not yet
+ * acknowledged (`tick`, the label of the box that does), a new photograph
+ * that does not say what it shows, an edited field that waits for a choice
+ * between two values.
  */
-function nothingInTheWay({ forSale, acknowledged, pendingPhotos, conflicts }) {
-  return (
-    (!forSale || acknowledged) &&
-    // A photograph filed without saying what it shows is one nobody finds.
-    pendingPhotos.every((entry) => entry.role) &&
-    conflicts.length === 0
-  )
+function inTheWay({ forSale, acknowledged, tick, pendingPhotos, conflicts }) {
+  if (conflicts.length > 0) {
+    return 'Choose Keep mine or Use theirs for each field changed elsewhere, then Save.'
+  }
+  if (forSale && !acknowledged) {
+    return `This item is for sale: tick "${tick}" above, then Save.`
+  }
+  // A photograph filed without saying what it shows is one nobody finds.
+  if (!pendingPhotos.every((entry) => entry.role)) {
+    return 'Say what each new photograph shows, then Save.'
+  }
+  return ''
 }
 
 /**
@@ -451,16 +465,19 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   const conflicts = conflictsSince(item, baseItem, draft)
   const hasFields = Object.keys(draft).length > 0
   const errorsChanged = errorsDiffer(errors, savedErrors)
-  const canSave =
-    !saving &&
-    holdsAnything({
-      hasFields,
-      pendingPhotos,
-      photoEdits,
-      pendingFriedberg,
-      errorsChanged,
-    }) &&
-    nothingInTheWay({ forSale, acknowledged, pendingPhotos, conflicts })
+  // The for-sale box's own words, which Save names when it is not ticked.
+  const tick = endsOffer ? 'Change the status and end the offer' : 'Change it anyway'
+  // Why Save, pressed now, would save nothing; '' when it would save.
+  const notYet = holdsAnything({
+    hasFields,
+    pendingPhotos,
+    photoEdits,
+    pendingFriedberg,
+    errorsChanged,
+  })
+    ? inTheWay({ forSale, acknowledged, tick, pendingPhotos, conflicts })
+    : 'Nothing to save: nothing has been changed.'
+  const canSave = !saving && notYet === ''
   // `save` is a function declaration below, hoisted for the whole component
   // scope, so it is safe to reference here even though it is defined later --
   // this hook must sit above every early return.
@@ -504,10 +521,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       .getItemErrors(itemId)
       .then((body) => {
         if (cancelled) return
-        const rows = (body.errors ?? []).map((e) => ({
-          error_type: e.error_type,
-          details: e.details ?? null,
-        }))
+        const rows = errorRows(body)
         setSavedErrors(rows)
         setErrors(rows)
       })
@@ -1002,6 +1016,21 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   }
 
   /**
+   * Read the errors again in place of the set edited here; a failure to read
+   * is added to `problems`.
+   */
+  async function rereadErrors(problems) {
+    try {
+      const rows = errorRows(await api.getItemErrors(itemId))
+      setSavedErrors(rows)
+      setErrors(rows)
+      problems.push('the errors as now recorded are shown')
+    } catch (err) {
+      problems.push(`the errors could not be read again: ${err.message}`)
+    }
+  }
+
+  /**
    * What follows the fields, in order: a Friedberg number attached, the
    * errors, the changes to filed photographs, the new photographs. Each
    * that fails stays held; returns what to say of those that did.
@@ -1021,6 +1050,10 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         setSavedErrors(errors)
       } catch (err) {
         problems.push(`the errors were not recorded: ${err.message}`)
+        // Changed elsewhere since they were read: every later save would be
+        // refused the same way, so the set as it now stands is shown, to
+        // work from.
+        if (err.status === 409) await rereadErrors(problems)
       }
     }
     const failedEdits = await applyPhotoEdits()
@@ -1065,6 +1098,12 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
    * is saved.
    */
   async function save() {
+    // Save is never greyed out: pressed with something in the way, it says
+    // what, and sends nothing.
+    if (notYet) {
+      setError(notYet)
+      return
+    }
     setSaving(true)
     const heldFriedberg = pendingFriedberg
     if (!(await clearedFirst(heldFriedberg))) return
@@ -1345,9 +1384,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           uses={item.sale_state ?? []}
           checked={acknowledged}
           onChange={setAcknowledged}
-          action={
-            endsOffer ? 'Change the status and end the offer' : 'Change it anyway'
-          }
+          action={tick}
         />
         {/* A new status (or disposition) takes an offered item off sale:
             the save ends its offer. Said before the box is ticked, not
@@ -1606,7 +1643,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         )}
 
         <div className="row">
-          <SaveButton saving={saving} disabled={!canSave} onClick={save} />
+          <SaveButton saving={saving} disabled={saving} onClick={save} />
           {/* A lot is split as saved: the pieces copy the stored record, so
               an edit still waiting here would not reach them. Neither a
               split lot nor a piece of one can be split again. */}

@@ -302,6 +302,51 @@ describe('Auctions', () => {
     expect(screen.getByLabelText(/lot number for/i)).toBeDisabled()
   })
 
+  it("saves a lot with the auction's version, and the next save with the new one", async () => {
+    // A lot row has no version of its own; the auction's stands for it, and
+    // each lot save moves it. The saved auction replaces the row, so a second
+    // save from the same page carries the version the first one produced.
+    const user = userEvent.setup()
+    const row = auction({ status: 'scheduled', version: 3, lots: [auctionLot()] })
+    api.listAuctions.mockResolvedValue({ auctions: [row] })
+    api.updateAuctionLot
+      .mockResolvedValueOnce({
+        ...row,
+        version: 4,
+        lots: [auctionLot({ reserve: '25.00' })],
+      })
+      .mockResolvedValueOnce({
+        ...row,
+        version: 5,
+        lots: [auctionLot({ lot_number: '1A', reserve: '25.00' })],
+      })
+    renderWithProviders(<Auctions />, { strict: true })
+
+    await user.click(await screen.findByRole('button', { name: 'View' }))
+    const reserve = screen.getByLabelText(/reserve for/i)
+    await user.clear(reserve)
+    await user.type(reserve, '25.00')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(api.updateAuctionLot).toHaveBeenLastCalledWith(row.id, 201, {
+      lot_number: '1',
+      reserve: '25.00',
+      version: 3,
+    })
+    expect(await screen.findByText('Lot 1 saved.')).toBeVisible()
+
+    const number = screen.getByLabelText(/lot number for/i)
+    await user.clear(number)
+    await user.type(number, '1A')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(api.updateAuctionLot).toHaveBeenLastCalledWith(row.id, 201, {
+      lot_number: '1A',
+      reserve: '25.00',
+      version: 4,
+    })
+  })
+
   it('requires a return location to remove a lot from a consigned auction', async () => {
     const user = userEvent.setup()
     const row = auction({
@@ -317,13 +362,16 @@ describe('Auctions', () => {
     await user.click(await screen.findByRole('button', { name: /^remove/i }))
     const dialog = screen.getByRole('dialog', { name: /remove lot/i })
     const confirm = within(dialog).getByRole('button', { name: 'Remove lot' })
-    expect(confirm).toBeDisabled()
-    // Held back with its reason beside it, not greyed out in silence.
+    // Live, not greyed out: a press with no location sends nothing and says
+    // what is missing.
+    expect(confirm).toBeEnabled()
     const reason = 'Choose where the items come back to first.'
     expect(within(dialog).getByText(reason)).toBeVisible()
+    await user.click(confirm)
+    expect(api.removeAuctionLot).not.toHaveBeenCalled()
+    expect(within(dialog).getByText(reason)).toHaveClass('error')
 
     await user.selectOptions(within(dialog).getByLabelText(/return items to/i), '9')
-    expect(confirm).toBeEnabled()
     expect(within(dialog).queryByText(reason)).toBeNull()
     await user.click(confirm)
 
@@ -341,7 +389,12 @@ describe('Auctions', () => {
     await user.click(await screen.findByRole('button', { name: 'Cancel...' }))
     const dialog = screen.getByRole('dialog', { name: /cancel september/i })
     const confirm = within(dialog).getByRole('button', { name: 'Cancel auction' })
-    expect(confirm).toBeDisabled()
+    expect(confirm).toBeEnabled()
+    await user.click(confirm)
+    expect(api.cancelAuction).not.toHaveBeenCalled()
+    expect(
+      within(dialog).getByText('Choose where the items come back to first.'),
+    ).toHaveClass('error')
 
     await user.selectOptions(within(dialog).getByLabelText(/return items to/i), '9')
     await user.click(confirm)

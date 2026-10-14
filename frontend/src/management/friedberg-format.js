@@ -22,6 +22,10 @@ const SHADE_LETTERS = /^(lgs|dgs)$/i
 // Em*, the m lower-case so capitalising the district cannot make it a
 // second district letter.
 const MULE_DISTRICT = /^([a-l])(\*?)m(\*?)$/i
+// The optional letter after the digits, kept in lower case: the number is
+// unique as text, so 12A and 12a must be one number, and an m there is a
+// mule's whichever case it was typed in.
+const LETTER = /^(\d+)([A-Z])/
 
 /**
  * `text` with the space on either side of each hyphen taken out: the space
@@ -62,7 +66,10 @@ export function normalizeFr(raw) {
 
 /** The number before any seal shade, cleaned. */
 function normalizeBase(raw) {
-  const number = closeHyphens(raw.trim().replace(PREFIX, ''))
+  const number = closeHyphens(raw.trim().replace(PREFIX, '')).replace(
+    LETTER,
+    (_, digits, letter) => digits + letter.toLowerCase(),
+  )
   const hyphen = number.indexOf('-')
   if (hyphen === -1) return number
   const head = number.slice(0, hyphen + 1)

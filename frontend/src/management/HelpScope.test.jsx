@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { useNavigate } from 'react-router-dom'
 
@@ -131,6 +131,31 @@ describe('HelpScope', () => {
     await userEvent.click(screen.getByLabelText(/series year/i))
     await userEvent.click(screen.getByLabelText(/notes/i))
     expect(screen.getByText(/year the design was adopted/)).toBeInTheDocument()
+  })
+
+  it('says so, and explains nothing, for a field marked with a key that has no text', async () => {
+    // A key built at runtime escapes the source scan below. Left alone, the
+    // band would go on showing the last field's text under this one.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    renderWithProviders(
+      <HelpScope>
+        <label data-help="series_year">
+          Series year
+          <input type="text" />
+        </label>
+        <label data-help="no_such_field">
+          Mystery
+          <input type="text" />
+        </label>
+      </HelpScope>,
+    )
+    await userEvent.click(screen.getByLabelText(/series year/i))
+    await userEvent.click(screen.getByLabelText(/mystery/i))
+
+    expect(screen.queryByText(/year the design was adopted/)).toBeNull()
+    expect(screen.getByText(/click in a field/i)).toBeInTheDocument()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no_such_field'))
+    warn.mockRestore()
   })
 
   it('leaves each label naming its own field', () => {

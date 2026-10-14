@@ -878,9 +878,12 @@ def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
     trusting that invariant to hold forever, the same discipline
     `_item_rows`' `live_item()` follows.
 
-    A split child has only its own opening row, never a transition to
-    `received` (`receipts.received_transitions`), so a child with no receipt
-    of its own falls back to its split parent's.
+    A split child often has only its own opening row and no transition to
+    `received` (`receipts.received_transitions`) -- one split from a lot
+    already in hand -- so a child with no receipt of its own falls back to
+    its split parent's. A piece detached from its lot (`parent_item_id`
+    cleared) has no parent to fall back to, so without a receipt of its own
+    it is counted "Unknown".
     """
     offered_now = exists(
         select(1).where(
@@ -984,7 +987,8 @@ def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
         )
         notes.append(
             f'{subject} bucketed "Unknown": their status history starts with '
-            "the item already received, which is not an arrival."
+            "the item already received, which is not an arrival, or they are "
+            "pieces detached from the lot they were split from."
         )
 
     return ReportResult(

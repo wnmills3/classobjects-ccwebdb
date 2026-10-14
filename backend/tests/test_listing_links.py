@@ -314,6 +314,61 @@ def test_applying_writes_the_order_page_and_leaves_nothing_to_do(
     assert plan(db).order_pages == {}
 
 
+def _lot_page(client: TestClient, headers: dict[str, str], order_id: int) -> object:
+    """The lot page the purchase's detail offers its next item, or None."""
+    res = client.get(f"/api/purchase-orders/{order_id}", headers=headers)
+    assert res.status_code == 200, res.text
+    return res.json()["lot_page"]
+
+
+@pytest.mark.parametrize(
+    ("vendor", "source_url", "lot_page"),
+    [
+        # A lot's page at an auction house is its purchase's.
+        ("hibid.com", LOT, LOT),
+        # The letters inside another site's name make it no marketplace.
+        ("thebaycoins.com", LOT, LOT),
+        # A marketplace's address names an order or a listing, never a lot.
+        ("ebay.com", "https://www.ebay.com/itm/126845170680", None),
+        ("whatnot.com", "https://www.whatnot.com/order/A", None),
+        # A shop's location page carries no lot id: it is no listing.
+        ("silasdeanepawn.com", "https://silasdeanepawn.com/locations/x/", None),
+        ("hibid.com", None, None),
+    ],
+)
+def test_a_purchase_offers_its_lot_page_only_by_the_passs_rules(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    vendor: str,
+    source_url: str | None,
+    lot_page: str | None,
+) -> None:
+    order = build_purchase_order(db, vendor_name=vendor, source_url=source_url)
+    db.commit()
+
+    assert _lot_page(client, admin_headers, order.id) == lot_page
+
+
+def test_a_purchase_whose_items_name_another_lot_offers_no_lot_page(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    same = build_purchase_order(db, vendor_name="hibid.com", source_url=LOT)
+    _item(db, make_item, same, listing_url=LOT)
+    several = build_purchase_order(
+        db, vendor_name="goldstandardauctions.hibid.com", source_url=LOT
+    )
+    _item(db, make_item, several, listing_url="https://hibid.com/lot/1/other")
+    db.commit()
+
+    # Its own lot, already on an item, is still the next item's.
+    assert _lot_page(client, admin_headers, same.id) == LOT
+    assert _lot_page(client, admin_headers, several.id) is None
+
+
 def test_entering_an_item_gives_a_bare_lot_purchase_its_address(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

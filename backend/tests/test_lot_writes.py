@@ -336,8 +336,8 @@ def test_the_lot_lock_re_reads_the_row_it_locked(
     purpose: without it SQLAlchemy would helpfully update the identity map,
     and the test would pass whether or not anything re-read the row. There is
     no second connection here, so this measures the re-read, not the wait;
-    the wait is Postgres's to keep, and nothing in this suite may open a
-    second session against the shared test database.
+    the wait is Postgres's to keep, and measuring it takes the committing,
+    threaded sessions of `test_offer_races.py`.
 
     The item is built *before* the UPDATE, and that ordering is the test.
     `make_item` commits, and this session expires on commit, so building it

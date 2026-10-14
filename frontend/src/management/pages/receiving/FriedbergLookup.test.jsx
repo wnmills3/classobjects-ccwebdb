@@ -558,7 +558,13 @@ describe('FriedbergLookup', () => {
     expect(window.open).toHaveBeenCalledTimes(1)
     // The field is for a number not in the catalog; a match fills nothing.
     expect(screen.getByLabelText(/fr\. number/i)).toHaveValue('')
-    expect(screen.getByRole('button', { name: /save as proposed/i })).toBeDisabled()
+    // Live with nothing typed: a press says what is missing and sends nothing.
+    const save = screen.getByRole('button', { name: /save as proposed/i })
+    expect(save).toBeEnabled()
+    await userEvent.click(save)
+    expect(screen.getByText(/type or paste the fr\. number first/i)).toBeInTheDocument()
+    expect(api.createFriedbergNumber).not.toHaveBeenCalled()
+    expect(api.attachFriedberg).not.toHaveBeenCalled()
   })
 
   it('does not read a missing Web Press attribute as sheet-fed', async () => {
@@ -688,8 +694,13 @@ describe('FriedbergLookup: the form of a number typed in', () => {
     await userEvent.type(await screen.findByLabelText(/fr\. number/i), '9928-')
 
     expect(screen.getByText(/ends with a hyphen/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /save as proposed/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /save as confirmed/i })).toBeDisabled()
+    for (const name of [/save as proposed/i, /save as confirmed/i]) {
+      const save = screen.getByRole('button', { name })
+      expect(save).toBeEnabled()
+      await userEvent.click(save)
+    }
+    expect(api.createFriedbergNumber).not.toHaveBeenCalled()
+    expect(api.attachFriedberg).not.toHaveBeenCalled()
   })
 
   it('saves the number as it is kept: trimmed, unprefixed, district in capitals', async () => {

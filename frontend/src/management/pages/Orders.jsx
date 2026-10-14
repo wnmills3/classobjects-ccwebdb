@@ -35,13 +35,54 @@ const STATUSES = [
 const NO_STOCK_RETURN_STATUSES = new Set(['packed', 'shipped', 'delivered', 'refunded'])
 
 /**
+ * Why the server would refuse moving `order` to `status`, or null when it
+ * would not. Every option stays live; choosing a refused one sends nothing
+ * and shows this instead, the reason the server's 409 would give.
+ *
+ * A cancelled order's stock is back on sale, so it cannot be moved on.
+ * Cancelling or refunding an unshipped order returns its stock, which has
+ * nowhere to go when a listing has ended: a sale recorded from another
+ * platform ended its listing, and a lot bought in the shop ends its listing
+ * at checkout (each line says so, `listing_ended`). Once shipped, either
+ * returns no stock -- cancelling is how a refund is recorded, and an
+ * `auction_house` sale is created `delivered` -- so it is not refused.
+ * "Unshipped" is read here from the current status; the server reads the
+ * order's history as well, so an order set back from `shipped` is refused
+ * here though the server would take it.
+ */
+function refusal(order, status) {
+  if (order.status === 'cancelled' && status !== 'cancelled') {
+    return (
+      `Order #${order.id} is cancelled and its stock has been returned. ` +
+      'Place a new order instead.'
+    )
+  }
+  const returnsStock = status === 'cancelled' || status === 'refunded'
+  if (!returnsStock || NO_STOCK_RETURN_STATUSES.has(order.status)) return null
+  if (order.sales_venue_code !== 'store') {
+    return (
+      `Sold on ${order.sales_venue_name}, whose listing ended with the sale ` +
+      `-- there is no stock to return, so order #${order.id} cannot be ${status} ` +
+      'before it ships.'
+    )
+  }
+  if (order.items.some((line) => line.listing_ended)) {
+    return (
+      'Its listing has ended (a lot ends when it is bought) -- there is no ' +
+      `stock to return, so order #${order.id} cannot be ${status} before it ships.`
+    )
+  }
+  return null
+}
+
+/**
  * The Sales page: every order in a table, filtered by status, each with a
  * status picker, its history, and an editor while it is pending or paid.
  *
  * A status is saved as it is chosen. A change that would put stock back on
  * sale -- a cancellation, or a refund before shipping -- is asked about
- * first, and is not offered where there is no listing to return it to. The
- * list is read again after every write.
+ * first, and is refused with its reason where there is no listing to return
+ * it to. The list is read again after every write.
  */
 export default function Orders() {
   // Read again after every write; this is the only place the list is set.
@@ -57,6 +98,11 @@ export default function Orders() {
   const [historyOf, setHistoryOf] = useState(null)
 
   async function changeStatus(order, status) {
+    const refused = refusal(order, status)
+    if (refused) {
+      setActionError(refused)
+      return
+    }
     // Cancelling an unshipped order puts its stock back on sale, and the
     // server then refuses to move the order on again -- so it is asked about.
     // Refunding one before it ships does the same.
@@ -80,7 +126,9 @@ export default function Orders() {
       return
     }
     try {
-      await api.setOrderStatus(order.id, status)
+      // The version the list was read at, so a status chosen from a page
+      // someone else has since moved on is refused rather than applied.
+      await api.setOrderStatus(order.id, status, order.version)
       setActionError('')
     } catch (err) {
       setActionError(err.message)
@@ -167,71 +215,15 @@ export default function Orders() {
                   <select
                     aria-label={`Status of order ${order.id}`}
                     value={order.status}
-                    disabled={order.status === 'cancelled'}
-                    title={
-                      order.status === 'cancelled'
-                        ? 'Cancelled: its stock was returned, so it cannot be reopened'
-                        : undefined
-                    }
                     onChange={(e) => changeStatus(order, e.target.value)}
                   >
-                    {STATUSES.map((s) => {
-                      // A sale recorded from another platform ended its
-                      // listing already; the server refuses "cancelled" for
-                      // it with a 409, so the option is grayed out here
-                      // instead of offered and then refused.
-                      //
-                      // **Unless it has shipped.** The server only refuses a
-                      // cancellation that would really return stock, and a
-                      // shipped order returns none -- cancelling one is how a
-                      // refund is recorded. An `auction_house` sale is
-                      // created `delivered`, so every one of them arrives
-                      // here already past that line. Greying it out there
-                      // would make the refund workflow the server
-                      // deliberately allows unreachable from the console.
-                      //
-                      // And a *store* order whose listing has ended -- a lot
-                      // bought in the shop ends its listing at checkout --
-                      // is refused for the same reason: there is no listing
-                      // left to put the stock back on. Each line says so
-                      // (`listing_ended`). The one difference from the
-                      // server: "unshipped" is read here from the current
-                      // status, and there from the order's history as well,
-                      // so an order set back from `shipped` is disabled here
-                      // though the server would take it.
-                      //
-                      // A refund before shipping returns the stock too, so
-                      // it is refused in the same cases.
-                      const unshipped = !NO_STOCK_RETURN_STATUSES.has(order.status)
-                      const returnsStock = s === 'cancelled' || s === 'refunded'
-                      const outsideSale =
-                        returnsStock && order.sales_venue_code !== 'store' && unshipped
-                      const endedListing =
-                        returnsStock &&
-                        !outsideSale &&
-                        unshipped &&
-                        order.items.some((line) => line.listing_ended)
-                      let why
-                      if (outsideSale) {
-                        why =
-                          `Sold on ${order.sales_venue_name}, whose listing ` +
-                          'ended with the sale -- there is no stock to return'
-                      } else if (endedListing) {
-                        why =
-                          'Its listing has ended (a lot ends when it is ' +
-                          'bought) -- there is no stock to return'
-                      }
-                      return (
-                        <option
-                          key={s}
-                          value={s}
-                          disabled={outsideSale || endedListing}
-                          title={why}
-                        >
-                          {s}
-                        </option>
-                      )
-                    })}
+                    {/* Every status stays live: one the server would refuse
+                        is answered with its reason when chosen (`refusal`). */}
+                    {STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
                   </select>
                 </td>
                 <td>

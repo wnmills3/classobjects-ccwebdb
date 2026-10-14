@@ -265,6 +265,64 @@ describe('send', () => {
     stop()
   })
 
+  it('keeps the session when the refresh fails for a reason of its own', async () => {
+    // A refresh answered 502 by a restarting server says nothing about the
+    // refresh token: the session is kept and the failure is reported.
+    saveTokens({ access_token: 'old', refresh_token: 'r' })
+    const heard = vi.fn()
+    const stop = onSignedOut(heard)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path) =>
+        Promise.resolve(
+          path === '/api/auth/refresh'
+            ? {
+                status: 502,
+                ok: false,
+                statusText: 'Bad Gateway',
+                text: () => Promise.resolve('<html>proxy error</html>'),
+              }
+            : {
+                status: 401,
+                ok: false,
+                text: () => Promise.resolve('{"detail":"expired"}'),
+              },
+        ),
+      ),
+    )
+
+    const err = await send('/api/orders?mine=true').catch((caught) => caught)
+
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.status).toBe(502)
+    expect(loadTokens()).toEqual({ access_token: 'old', refresh_token: 'r' })
+    expect(heard).not.toHaveBeenCalled()
+    stop()
+  })
+
+  it('ends the session when the refresh token itself is refused', async () => {
+    saveTokens({ access_token: 'old', refresh_token: 'r' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((path) =>
+        Promise.resolve(
+          path === '/api/auth/refresh'
+            ? { status: 403, ok: false, text: () => Promise.resolve('{}') }
+            : {
+                status: 401,
+                ok: false,
+                text: () => Promise.resolve('{"detail":"expired"}'),
+              },
+        ),
+      ),
+    )
+
+    const err = await send('/api/orders?mine=true').catch((caught) => caught)
+
+    expect(err.status).toBe(401)
+    expect(loadTokens()).toBeNull()
+  })
+
   it('refreshes once for requests that are refused together', async () => {
     // A page that loads three things at once on an expired access token gets
     // three 401s. Each refreshing on its own is three exchanges for one

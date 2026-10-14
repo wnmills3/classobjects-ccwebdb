@@ -263,6 +263,27 @@ def test_the_disposition_invariant_is_wired_into_the_autouse_fixture(
     assert "check_disposition_invariant(db)" in src
 
 
+def test_the_history_check_runs_ahead_of_the_waiver_branch() -> None:
+    """The fixture, not just the function, must run the listing history check.
+
+    `test_listing_status_history.py` proves `check_listing_history_invariant`
+    catches a status written around the writer, by calling it directly; that
+    cannot tell whether the autouse fixture calls it too. Read from source
+    for the reason `test_the_lot_check_runs_ahead_of_the_waiver_branch`
+    gives, and ahead of `if waiver is None` so a claim waiver cannot absorb
+    a history violation.
+
+    Commenting out `check_listing_history_invariant(db)` inside
+    `_claim_invariant` (conftest.py), or moving it below that line, makes
+    this fail with a genuine `AssertionError`.
+    """
+    src = inspect.getsource(conftest._claim_invariant)
+    assert "check_listing_history_invariant(db)" in src
+    assert src.index("check_listing_history_invariant(db)") < src.index(
+        "if waiver is None"
+    )
+
+
 @pytest.fixture
 def scheduled_auction_lot(
     db: Session, heritage_venue: SalesVenue, make_item: Callable[..., InventoryItem]

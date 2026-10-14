@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from app.classifier_defaults import classify, district_letter, run
+from app.composition import Run, _original
 from app.field_sources import derived_fields, record_derived
 from app.models import (
     Composition,
@@ -1068,6 +1069,29 @@ def _of_series(
         ),
         **facts,
     )
+
+
+@pytest.mark.parametrize(
+    ("runs", "kept"),
+    [
+        # The restrike after a gap is not the design's own issue.
+        (
+            [(None, 1878, 1904), (None, 1921, 1921), (None, 2021, None)],
+            [(None, 1878, 1904), (None, 1921, 1921)],
+        ),
+        # The gap is measured from the latest end so far, not the last run read.
+        (
+            [(None, 1878, 1904), (None, 1880, 1885), (None, 1940, 1950)],
+            [(None, 1878, 1904), (None, 1880, 1885), (None, 1940, 1950)],
+        ),
+        # Runs still struck at several face values are all the design's own.
+        ([(5, 1986, None), (10, 1986, None)], [(5, 1986, None), (10, 1986, None)]),
+    ],
+)
+def test_a_designs_own_runs_end_at_the_first_restrike_gap(
+    runs: list[Run], kept: list[Run]
+) -> None:
+    assert list(_original(runs)) == kept
 
 
 def test_a_coin_with_no_year_gets_the_composition_of_its_design(

@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from app.schemas import (
+    AddressIn,
     CustomerUpdate,
     FriedbergAttachIn,
     FriedbergNumberCreate,
@@ -21,6 +22,7 @@ from app.schemas import (
     ItemCreate,
     ItemErrorIn,
     ItemErrorsRequest,
+    OfferIn,
     OrderStatusUpdate,
     PurchaseOrderCreate,
     ReceiveRequest,
@@ -32,6 +34,7 @@ from app.schemas import (
     SalesVenueUpdate,
     SplitPieceIn,
     SplitRequest,
+    UserUpdate,
     VendorCreate,
     VendorUpdate,
 )
@@ -39,7 +42,7 @@ from pydantic import BaseModel, ValidationError
 
 #: A body each schema accepts, to which one unknown key is then added.
 _ACCEPTED: list[tuple[type[BaseModel], dict[str, Any]]] = [
-    (OrderStatusUpdate, {"status": "paid"}),
+    (OrderStatusUpdate, {"status": "paid", "version": 1}),
     (ReferenceValueCreate, {"label": "Test"}),
     (ReferenceValueRename, {"label": "Test"}),
     (ReferenceMergeIn, {"into": "DCAM"}),
@@ -144,9 +147,15 @@ def test_a_weight_its_column_can_hold_is_taken() -> None:
 def test_a_platform_fee_its_column_would_round_or_refuse_is_refused(
     field: str, value: str
 ) -> None:
-    """Rates are NUMERIC(6,4) fractions; fixed fees are NUMERIC(12,2)."""
+    """Rates are NUMERIC(6,4) fractions; fixed fees are NUMERIC(12,2).
+
+    Each body is otherwise valid -- the update carries its `version` -- so
+    the one error raised is the field's own. A body missing a required key
+    fails on that key, and its message quotes the whole body, field name
+    included, so `match` would pass whatever the field's bounds were.
+    """
     with pytest.raises(ValidationError, match=field):
-        SalesVenueUpdate.model_validate({field: value})
+        SalesVenueUpdate.model_validate({field: value, "version": 1})
     with pytest.raises(ValidationError, match=field):
         SalesVenueCreate.model_validate(
             {"code": "test", "name": "Test", "kind": "marketplace", field: value}
@@ -165,6 +174,67 @@ def test_a_platform_fee_its_column_holds_is_taken() -> None:
     )
     assert str(venue.commission_rate) == "0.1325"
     assert str(venue.processing_fixed) == "0.30"
+
+
+#: The largest value an INTEGER column holds.
+_INT4_MAX = 2**31 - 1
+
+#: A body each schema accepts, the integer field it stores in an INTEGER
+#: column, and nothing else wrong with it.
+_INTEGER_FIELDS: list[tuple[type[BaseModel], dict[str, Any], str]] = [
+    (
+        ItemCreate,
+        {"purchase_order_id": 1, "item_kind": "bullion", "source_title": "A bar"},
+        "piece_count",
+    ),
+    (InventoryItemUpdate, {}, "piece_count"),
+    (SplitPieceIn, {"source_title": "A piece"}, "piece_count"),
+    (
+        OfferIn,
+        {"venue": "ebay", "items": [{"item_id": 1, "price": "1.00"}]},
+        "quantity",
+    ),
+    (ImageLinkIn, {"inventory_item_id": 1}, "sort_order"),
+]
+
+
+@pytest.mark.parametrize(
+    ("schema", "body", "field"),
+    _INTEGER_FIELDS,
+    ids=[f"{schema.__name__}.{field}" for schema, _, field in _INTEGER_FIELDS],
+)
+def test_an_integer_its_column_cannot_hold_is_refused(
+    schema: type[BaseModel], body: dict[str, Any], field: str
+) -> None:
+    """Past the INTEGER range is a 422 here, not a `DataError` (a 500) on write."""
+    schema.model_validate({**body, field: _INT4_MAX})
+    with pytest.raises(ValidationError, match=field):
+        schema.model_validate({**body, field: _INT4_MAX + 1})
+
+
+#: A body each schema accepts, a text field it stores in a VARCHAR column,
+#: and that column's length.
+_TEXT_FIELDS: list[tuple[type[BaseModel], dict[str, Any], str, int]] = [
+    (UserUpdate, {}, "full_name", 255),
+    (CustomerUpdate, {}, "display_name", 255),
+    (AddressIn, {"line1": "1 Main St", "city": "Springfield"}, "line2", 255),
+    (AddressIn, {"line1": "1 Main St", "city": "Springfield"}, "region", 128),
+    (AddressIn, {"line1": "1 Main St", "city": "Springfield"}, "postal_code", 32),
+]
+
+
+@pytest.mark.parametrize(
+    ("schema", "body", "field", "length"),
+    _TEXT_FIELDS,
+    ids=[f"{schema.__name__}.{field}" for schema, _, field, _ in _TEXT_FIELDS],
+)
+def test_text_longer_than_its_column_is_refused(
+    schema: type[BaseModel], body: dict[str, Any], field: str, length: int
+) -> None:
+    """Past the column's length is a 422 here, not a `DataError` (a 500) on write."""
+    schema.model_validate({**body, field: "x" * length})
+    with pytest.raises(ValidationError, match=field):
+        schema.model_validate({**body, field: "x" * (length + 1)})
 
 
 # ---------------------------------------------------------------------------

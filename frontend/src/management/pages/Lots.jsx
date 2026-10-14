@@ -419,13 +419,20 @@ export default function Lots() {
           <div className="row">
             {/* An empty lot cannot be offered: `offering_writes._lot_members`
                 raises `EmptyLot` and the API answers 422. Said beside the
-                button rather than by a refusal after the dialog was filled
-                in. */}
+                button, and again on a press, which opens no dialog -- rather
+                than by a refusal after the dialog was filled in. */}
             <button
-              disabled={busy || lot.members.length === 0}
+              disabled={busy}
               onClick={() => {
-                setRefusal('')
                 setNotice('')
+                if (lot.members.length === 0) {
+                  setRefusal(
+                    `${lot.title} has no coins in it yet: group some into it ` +
+                      'from the Coins or Currency page, then offer it.',
+                  )
+                  return
+                }
+                setRefusal('')
                 setOffering(lot)
               }}
             >

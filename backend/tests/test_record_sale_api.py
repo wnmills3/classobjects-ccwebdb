@@ -141,7 +141,7 @@ def test_an_outside_offer_of_more_than_one_unit_is_refused(
     make_item: Callable[..., InventoryItem],
     admin_headers: dict[str, str],
 ) -> None:
-    """Off the store, a listing is one unit: a recorded sale takes all of it.
+    """An outside listing is one unit: a recorded sale takes all of it.
 
     Record sale writes a line of one and ends the listing. Against a listing
     of three that leaves two units on an ended offer and the item still
@@ -169,13 +169,20 @@ def test_an_outside_offer_of_more_than_one_unit_is_refused(
     assert db.get_one(InventoryItem, item.id).disposition.code == "held"
 
 
-def test_a_store_offer_may_still_be_of_several_units(
+def test_a_store_offer_of_more_than_one_unit_is_refused_too(
     client: TestClient,
     db: Session,
     make_item: Callable[..., InventoryItem],
     admin_headers: dict[str, str],
 ) -> None:
-    """The other side of the refusal above: the shop sells a unit at a time."""
+    """An item is one record with one cost, however it is offered.
+
+    Every order line writes a share against the item it sold, and gain
+    reporting counts that item's whole cost against each share -- so a
+    listing of three units sold to three buyers would report the one cost
+    three times over. The web store is refused the same as any other
+    platform.
+    """
     item = make_item()
     response = client.post(
         "/api/offers",
@@ -187,16 +194,14 @@ def test_a_store_offer_may_still_be_of_several_units(
             "items": [{"item_id": item.id, "price": "10.00"}],
         },
     )
-    assert response.status_code == 201, response.text
+    assert response.status_code == 422, response.text
+    assert "quantity" in response.json()["detail"]
     db.expire_all()
     assert (
-        db.scalar(
-            select(Listing.quantity_available).where(
-                Listing.inventory_item_id == item.id
-            )
-        )
-        == 3
+        db.scalar(select(Listing.id).where(Listing.inventory_item_id == item.id))
+        is None
     )
+    assert db.get_one(InventoryItem, item.id).disposition.code == "held"
 
 
 def test_an_anonymous_request_is_refused(
@@ -479,10 +484,13 @@ def test_a_recorded_outside_sale_cannot_be_cancelled(
     recorded = _post(client, ebay_listing_id, admin_headers)
     assert recorded.status_code == 201, recorded.text
     order_id = recorded.json()["id"]
+    version = client.get(f"/api/orders/{order_id}", headers=admin_headers).json()[
+        "version"
+    ]
 
     response = client.patch(
         f"/api/orders/{order_id}",
-        json={"status": "cancelled"},
+        json={"status": "cancelled", "version": version},
         headers=admin_headers,
     )
     assert response.status_code == 409, response.text
@@ -541,7 +549,7 @@ def test_an_auction_house_sale_can_be_cancelled_as_a_refund(
 
     response = client.patch(
         f"/api/orders/{order_id}",
-        json={"status": "cancelled"},
+        json={"status": "cancelled", "version": started.json()["version"]},
         headers=admin_headers,
     )
 

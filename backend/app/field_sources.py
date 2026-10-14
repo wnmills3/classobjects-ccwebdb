@@ -43,8 +43,10 @@ WEIGHT_TEXT = "weight_text"
 #: A weight or fineness taken from what most items of its form and metal hold.
 WEIGHT_PEERS = "weight_peers"
 
-#: The rules that guess a weight. A composition's own facts replace what they
-#: wrote, but losing the composition does not take their values back.
+#: The rules that fill a weight or fineness without a composition: worked out
+#: from gross weight and fineness, or guessed by `app.bullion_weights`. A
+#: composition's own facts replace what they wrote, but losing the
+#: composition does not take their values back.
 WEIGHT_RULES: frozenset[str] = frozenset({WEIGHT, WEIGHT_TEXT, WEIGHT_PEERS})
 
 #: Not a rule: a person emptied the field, and it is to stay empty.

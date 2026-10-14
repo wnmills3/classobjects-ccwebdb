@@ -132,6 +132,8 @@ def test_an_admin_places_an_order_for_a_customer_without_an_account(
     assert body["notes"] == "phone order"
     db.refresh(listing)
     assert listing.quantity_available == 3
+    # Placed by the manager, and the history says so, as it does for checkout.
+    assert _changes(db, body["id"]) == [("placed", None, "admin@example.com")]
 
 
 def test_a_line_without_a_price_takes_the_listing_price(
@@ -757,10 +759,7 @@ def test_only_pending_or_paid_orders_can_be_revised(
     admin_headers: dict[str, str],
 ) -> None:
     order = _place(client, customer_headers, listing.id, 1)
-    client.patch(
-        f"/api/orders/{order['id']}", json={"status": "packed"}, headers=admin_headers
-    )
-    fresh = client.get(f"/api/orders/{order['id']}", headers=admin_headers).json()
+    fresh = _set_status(client, admin_headers, order, "packed")
 
     response = _revise(
         client,
@@ -771,6 +770,63 @@ def test_only_pending_or_paid_orders_can_be_revised(
 
     assert response.status_code == 409
     assert "packed" in response.json()["detail"]
+
+
+def _set_status(
+    client: TestClient, headers: dict[str, str], order: dict[str, Any], status: str
+) -> dict[str, Any]:
+    """Move an order to `status` from the version given; the order afterwards."""
+    response = client.patch(
+        f"/api/orders/{order['id']}",
+        json={"status": status, "version": order["version"]},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    return dict(response.json())
+
+
+@pytest.mark.parametrize("packed_or_later", ["packed", "shipped", "delivered"])
+def test_an_order_that_ever_left_cannot_give_its_stock_back_by_revision(
+    packed_or_later: str,
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """Set back to `paid`, an order that went out is still one whose coins left.
+
+    Shrinking or removing its line would put coins already posted back on
+    sale -- the same thing a cancellation of it is refused for. Both shapes
+    are asked: a smaller quantity, and the line swapped for another listing.
+    """
+    sent = make_listing(title="Sent", quantity_available=5)
+    other = make_listing(title="Other", quantity_available=5)
+    order = _place(client, customer_headers, sent.id, 2)
+    order = _set_status(client, admin_headers, order, packed_or_later)
+    order = _set_status(client, admin_headers, order, "paid")
+
+    shrunk = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": sent.id, "quantity": 1, "unit_price": "189.00"}],
+    )
+    swapped = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": other.id, "quantity": 1, "unit_price": "189.00"}],
+    )
+
+    assert shrunk.status_code == 409, shrunk.text
+    assert swapped.status_code == 409, swapped.text
+    db.refresh(sent)
+    db.refresh(other)
+    assert (sent.quantity_available, other.quantity_available) == (3, 5)
+    kinds = [c[0] for c in _changes(db, order["id"])]
+    assert "quantity" not in kinds
+    assert "line_removed" not in kinds
 
 
 def test_a_stale_version_is_refused(
@@ -987,9 +1043,7 @@ def test_a_status_change_is_recorded_and_bumps_the_version(
     db: Session,
 ) -> None:
     order = _place(client, customer_headers, listing.id, 1)
-    body = client.patch(
-        f"/api/orders/{order['id']}", json={"status": "paid"}, headers=admin_headers
-    ).json()
+    body = _set_status(client, admin_headers, order, "paid")
     assert body["version"] == order["version"] + 1
     assert _changes(db, order["id"])[1:] == [("status", "pending", "paid")]
 
@@ -1009,9 +1063,7 @@ def test_payment_adjustment_is_due_only_after_a_paid_total_changes(
     order = _revise(client, admin_headers, order, line(2)).json()
     assert order["payment_adjustment_due"] is False  # still pending
 
-    order = client.patch(
-        f"/api/orders/{order['id']}", json={"status": "paid"}, headers=admin_headers
-    ).json()
+    order = _set_status(client, admin_headers, order, "paid")
     assert order["payment_adjustment_due"] is False
 
     order = _revise(client, admin_headers, order, line(3)).json()
@@ -1073,7 +1125,7 @@ def test_cancelling_relists_an_item_that_had_sold_out(
 
     response = client.patch(
         f"/api/orders/{order['id']}",
-        json={"status": "cancelled"},
+        json={"status": "cancelled", "version": order["version"]},
         headers=admin_headers,
     )
 

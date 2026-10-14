@@ -149,6 +149,7 @@ from ._resolve import (
     unprocessable,
 )
 from ._tx import committing
+from .friedberg import refuse_seal_against_number
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -185,6 +186,20 @@ PIECE_CLASSIFIERS: dict[str, type] = {
 def _get_item(db: Session, item_id: int) -> InventoryItem:
     """The inventory item with this id, or a 404."""
     return get_or_404(db, InventoryItem, item_id, "Inventory item not found")
+
+
+def _hold_item(db: Session, item_id: int) -> None:
+    """Take the item's row FOR UPDATE before a record under it is written.
+
+    `reference_merge.merge` holds items before it rewrites their records, so
+    a writer that wrote a record first could each hold what the other waits
+    for. Only the id is selected: the instance in the session keeps the
+    version it was read at, so the version column still refuses a save that
+    landed in between.
+    """
+    db.execute(
+        select(InventoryItem.id).where(InventoryItem.id == item_id).with_for_update()
+    )
 
 
 def _to_piece(db: Session, spec: SplitPieceIn) -> SplitPiece:
@@ -660,9 +675,11 @@ def _end_offers_holding(
       `inventory_item_id`: a piece of a lot is offered by the *lot's* listing
       and has no listing of its own. This read, not the caller's unlocked one
       above the locks, is what is acted on: every listing row it can return is
-      already held, so it costs a SELECT and guarantees nothing here ends an
-      offer another transaction has already ended (for a lot listing that
-      would rewrite `sales_lot.status` from `sold` to `dissolved`).
+      already held, so it costs a SELECT and also finds an offer made between
+      the caller's read and its locks. An offer another transaction ended
+      meanwhile is left as it is by `offering_writes._end`, which returns
+      early on an `ended` listing -- that guard, not this read, is what keeps
+      a `sold` lot from being rewritten to `dissolved`.
     - **Refused as a set before the first `end_offer`.** `refuse_if_lot_unheld`
       (a lot listing whose lot row this pass does not hold -- see
       `offering_writes.refuse_if_lot_unheld`) and `_refuse_auction_lots` (an
@@ -881,11 +898,11 @@ def receive_items(
     # split is the same read-lock-re-read discipline `lock_for_sale` applies
     # to a listing's member set, and it is needed here for the same reason:
     # this read is unlocked, so between it and the locks a concurrent
-    # checkout can end one of these offers, or a
-    # concurrent `offer` can create a new one. Acting on this list would then
-    # end a listing somebody else had already ended -- which for a lot
-    # listing rewrites `sales_lot.status` from `sold` to `dissolved`, two
-    # histories the spec says never collapse into one.
+    # `offer` can create a new one, which acting on this list would leave
+    # offering a coin that cannot be delivered. (An offer a concurrent
+    # checkout ended meanwhile is safe either way: `offering_writes._end`
+    # returns early on an `ended` listing, so a `sold` lot is never rewritten
+    # to `dissolved`.)
     #
     # Re-reading is enough rather than a loop **for the listing rows**:
     # `_lock_listing_rows` takes every live offer holding one of these items
@@ -2215,6 +2232,17 @@ def _set_notes_and_detail(
             if item.item_kind_id == currency_id:
                 _match_detail(db, item)
     _apply_note_changes(items, changes)
+    if "seal_color_id" in changes:
+        # A seal must agree with the shade of the number the note holds;
+        # refused, the seal already set is rolled back, as `_match_detail`'s
+        # refusal is.
+        try:
+            for item in items:
+                if item.currency_detail is not None:
+                    refuse_seal_against_number(db, item.currency_detail)
+        except HTTPException:
+            db.rollback()
+            raise
     if kind_changed:
         for item in items:
             _match_detail(db, item)
@@ -2335,25 +2363,34 @@ def _refuse_coin_detail_on_a_note(
 def _set_coin_detail(
     db: Session, item: InventoryItem, changes: dict[str, object]
 ) -> None:
-    """Write a coin's mint and variety, creating its detail row if it has none."""
+    """Write a coin's mint and variety, creating its detail row if it has none.
+
+    A banknote holds its own detail row and never a coin's: a blank sent
+    for one changes nothing (`_refuse_coin_detail_on_a_note` refuses a
+    value). Values sent as they are stored change nothing either.
+    """
+    if item.currency_detail is not None:
+        return
     detail = db.get(CoinDetail, item.id)
+    mint_id = detail.mint_id if detail is not None else None
+    variety = detail.variety if detail is not None else None
+    if "mint" in changes:
+        code = changes["mint"]
+        mint_id = code_to_id(
+            db, Mint, code if isinstance(code, str) else None, "mint", keep=mint_id
+        )
+    if "variety" in changes:
+        sent = changes["variety"]
+        variety = (sent.strip() or None) if isinstance(sent, str) else None
+    if detail is not None and (detail.mint_id, detail.variety) == (mint_id, variety):
+        return
     if detail is None:
         # Through the relationship, not only the session: the change log's
         # "after" reads `item.coin_detail`, which would otherwise stay None.
         detail = CoinDetail(inventory_item_id=item.id)
         item.coin_detail = detail
-    if "mint" in changes:
-        code = changes["mint"]
-        detail.mint_id = code_to_id(
-            db,
-            Mint,
-            code if isinstance(code, str) else None,
-            "mint",
-            keep=detail.mint_id,
-        )
-    if "variety" in changes:
-        variety = changes["variety"]
-        detail.variety = (variety.strip() or None) if isinstance(variety, str) else None
+    detail.mint_id = mint_id
+    detail.variety = variety
     # Another table: touching the item moves its version, as with attributes.
     item.updated_at = datetime.now(UTC)
 
@@ -2413,6 +2450,44 @@ def _refuse_mismatched_designation(
             status_code=422,
             detail=(
                 "designation of the other kind: "
+                f"{', '.join(sorted(set(wrong)))}. Nothing was changed."
+            ),
+        )
+
+
+def _refuse_mismatched_series(
+    data: dict[str, object], items: Sequence[InventoryItem], db: Session
+) -> None:
+    """Raise a 422 if the edit leaves an item with the other kind's design series.
+
+    A design belongs to one side (`series.applies_to`: `coin` or
+    `currency`). Checked against the item's state after the edit, like the
+    designation guard: sending one, or changing the kind of an item that
+    holds one, is refused alike. An unknown code is `code_to_id`'s 422.
+    """
+    if "item_kind" not in data and "series" not in data:
+        return
+    currency_id = item_kinds.currency_kind_id(db)
+    rows = db.execute(select(Series.id, Series.code, Series.applies_to)).tuples()
+    sides: dict[str, str] = {}
+    codes: dict[int, str] = {}
+    for series_id, series_code, applies_to in rows:
+        sides[series_code] = applies_to
+        codes[series_id] = series_code
+    wrong: list[str] = []
+    for item in items:
+        sent = data.get("series", codes.get(item.series_id or 0))
+        side = sides.get(sent) if isinstance(sent, str) and sent else None
+        if side is None:
+            continue
+        if (side == "currency") != _effective_is_currency(data, item, currency_id):
+            owner = "banknotes" if side == "currency" else "coins"
+            wrong.append(f"{item.item_code} ({sent} belongs to {owner})")
+    if wrong:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "series of the other kind: "
                 f"{', '.join(sorted(set(wrong)))}. Nothing was changed."
             ),
         )
@@ -2833,10 +2908,21 @@ def bulk_edit(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"No such item(s): {missing}. Nothing was changed.",
         )
+
+    # As in `update_item`: a new status or disposition on an offered item
+    # ends its offer, the sale guard below having had the caller acknowledge
+    # the sale. Locked before the first write, in the canonical order, and
+    # before anything is worked out from the items: the lock re-reads them,
+    # so their years and weights are judged as they stand under it.
+    standing = {item.id: code for item in items if (code := _standing_code(item, data))}
+    changing = sorted(standing)
+    locked = _lock_offers_holding(db, changing)
+
     before = {item.id: _sent_values(db, item, sent) for item in items}
     _refuse_coin_only_fields(data, list(items), db)
     _refuse_mismatched_denomination(data, list(items), db)
     _refuse_mismatched_designation(data, list(items), db)
+    _refuse_mismatched_series(data, list(items), db)
     worked_out = _refuse_fine_above_gross(db, items, data)
     if data and not acknowledged:
         sale_state.guard(db, list(items), acknowledged=False)
@@ -2851,13 +2937,6 @@ def bulk_edit(
     # any is changed, the same all-or-nothing as the codes above.
     _refuse_note_year(items, data)
     years = _years_for_bulk(items, data)
-
-    # As in `update_item`: a new status or disposition on an offered item
-    # ends its offer, the guard above having had the caller acknowledge the
-    # sale. Locked before the first write, in the canonical order.
-    standing = {item.id: code for item in items if (code := _standing_code(item, data))}
-    changing = sorted(standing)
-    locked = _lock_offers_holding(db, changing)
 
     # No version is sent for a set of rows, so one that moves between this
     # request's read and its UPDATE is found only by the database: that is
@@ -3012,14 +3091,14 @@ def _recheck_under_the_lock(
     For `update_item` when the item's version moved between its read and
     `lock_for_sale`. That pass re-reads the rows it locks, so the session
     now holds the other save's version, and the version column's check at
-    the UPDATE can no longer see it. Asked again of what the caller sent:
-    a `version` is refused, as the commit would have been; a `base` is
-    merged against the item as it now stands, so a change to another field
-    -- a checkout's disposition, say -- is kept rather than refused; and a
-    caller that sent neither asked for no check. Returns the item's fields
-    as they now stand, the change log's `before`.
+    the UPDATE can no longer see it. Asked again of what the caller sent,
+    as `_refuse_lost_update` asks it: a `base` is merged against the item as
+    it now stands, so a change to another field -- a checkout's disposition,
+    say -- is kept rather than refused; a `version` sent without one is
+    refused, as the commit would have been. Returns the item's fields as
+    they now stand, the change log's `before`.
     """
-    if expected is not None:
+    if base is None and expected is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{item.item_code} was changed while saving. Reload and retry.",
@@ -3151,6 +3230,20 @@ def update_item(
     # The item as it stands, in those same terms: the merge compares against
     # it, and the change log records it as each changed field's old value.
     before = field_values(db, item)
+
+    # A new status or disposition on an item that is offered takes it off
+    # sale (the sale guard below has the caller acknowledge that it is for
+    # sale). Left alone, an offered coin marked missing would stay on sale in
+    # the shop. The rows are locked here, before the first write, in the
+    # canonical order -- the same discipline and for the same reasons as
+    # `receive_items` -- and before anything below is worked out from the
+    # item: the lock re-reads it, so its years, `no_date`, weights and kind
+    # are judged as they stand under the lock, not as first read.
+    standing = _sale_standing_change(db, item, data)
+    locked = None
+    if standing is not None:
+        locked, before = _lock_to_end_offers(db, item, before, sent, base, expected)
+
     # Where it is kept moves through `set_location`, which keeps the move in
     # its location history; it is not a field the generic writes below set.
     moves = "storage_location_id" in data
@@ -3164,6 +3257,7 @@ def update_item(
     _refuse_coin_only_fields(data, [item], db)
     _refuse_mismatched_denomination(data, [item], db)
     _refuse_mismatched_designation(data, [item], db)
+    _refuse_mismatched_series(data, [item], db)
     worked_out = _refuse_fine_above_gross(db, [item], data)
     _split_grade(data)
 
@@ -3182,16 +3276,11 @@ def update_item(
     no_date = _no_date_after(item, data)
     years = _years_after(item, data, no_date=no_date)
 
-    # A new status or disposition on an item that is offered takes it off
-    # sale: the guard above has already had the caller acknowledge that it is
-    # for sale. Left alone, an offered coin marked missing would stay on
-    # sale in the shop. The
-    # rows are locked here, before the first write, in the canonical order --
-    # the same discipline and for the same reasons as `receive_items`.
-    standing = _sale_standing_change(db, item, data)
-    locked = None
-    if standing is not None:
-        locked, before = _lock_to_end_offers(db, item, before, sent, base, expected)
+    # The attribute links are written, and flushed, before the item row when
+    # nothing else on the item changes; a merge of attributes holds the items
+    # first and then their links, so the item is held before any link is.
+    if attributes is not None and locked is None:
+        _hold_item(db, item.id)
 
     note_changes = _note_changes(db, data, item.currency_detail)
 
@@ -3272,9 +3361,41 @@ def update_item(
     return item
 
 
+def _refuse_pieces_that_do_not_fit(
+    db: Session, parent: InventoryItem, specs: Sequence[SplitPieceIn]
+) -> None:
+    """Raise a 422 naming what a piece is given that its kind cannot hold.
+
+    A piece is of its lot's kind, so a banknote lot's pieces are notes: no
+    year of their own (a note's year is its series year), no metal, and no
+    coin's denomination -- the same rules an edit of one keeps. Nothing is
+    split when one is refused.
+    """
+    is_currency = parent.item_kind_id == item_kinds.currency_kind_id(db)
+    wrong: set[str] = set()
+    for spec in specs:
+        if is_currency and spec.year_start is not None:
+            wrong.add("year_start: a note's year is its series year")
+        if is_currency and spec.metal is not None:
+            wrong.add("metal belongs to coins, not banknotes")
+        if spec.denomination:
+            kind = db.scalar(
+                select(Denomination.kind).where(Denomination.code == spec.denomination)
+            )
+            if kind is not None and (kind == DenominationKind.note) != is_currency:
+                side = "banknotes" if kind == DenominationKind.note else "coins"
+                wrong.add(f"denomination {spec.denomination} belongs to {side}")
+    if wrong:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{parent.item_code}: {'; '.join(sorted(wrong))}. "
+            "Nothing was split.",
+        )
+
+
 @router.post("/{item_id}/split")
 def split(
-    item_id: int, payload: SplitRequest, db: DbSession, _admin: AdminUser
+    item_id: int, payload: SplitRequest, db: DbSession, admin: AdminUser
 ) -> SplitResultOut:
     """Break a lot into its pieces, dividing the cost between them.
 
@@ -3307,11 +3428,12 @@ def split(
         acknowledged=payload.acknowledge_for_sale,
         kinds={"listing"},
     )
+    _refuse_pieces_that_do_not_fit(db, parent, payload.pieces)
     pieces = [_to_piece(db, spec) for spec in payload.pieces]
 
     with committing(db, _STALE_ITEMS):
         try:
-            children = split_item(db, parent, pieces, payload.mode)
+            children = split_item(db, parent, pieces, payload.mode, user_id=admin.id)
         except SplitError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail=str(exc)
@@ -3401,6 +3523,34 @@ def get_serial_pairs(
     ]
 
 
+def _refuse_errors_of_the_other_kind(
+    db: Session, item: InventoryItem, codes: Sequence[str]
+) -> None:
+    """Raise a 422 naming each error type that belongs to the other kind.
+
+    `error_type.applies_to` says which side an error is struck or printed
+    on, as it does for attributes and designations. An unknown code is
+    `require_code`'s 422 to raise, not a mismatch.
+    """
+    if not codes:
+        return
+    is_currency = item.item_kind_id == item_kinds.currency_kind_id(db)
+    sides = db.execute(
+        select(ErrorType.code, ErrorType.applies_to).where(ErrorType.code.in_(codes))
+    ).tuples()
+    wrong = sorted(
+        f"{code} belongs to {'banknotes' if side == AppliesTo.currency else 'coins'}"
+        for code, side in sides
+        if side != AppliesTo.any and (side == AppliesTo.currency) != is_currency
+    )
+    if wrong:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"error of the other kind on {item.item_code}: "
+            f"{', '.join(wrong)}. Nothing was changed.",
+        )
+
+
 @router.put("/{item_id}/errors")
 def set_item_errors(
     item_id: int, payload: ItemErrorsRequest, db: DbSession, admin: AdminUser
@@ -3414,6 +3564,11 @@ def set_item_errors(
     """
     item = _get_item(db, item_id)
     sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
+    _refuse_errors_of_the_other_kind(
+        db, item, [entry.error_type for entry in payload.errors]
+    )
+    # Held before its errors are read or rewritten (`_hold_item`).
+    _hold_item(db, item.id)
 
     # The set before and after, in the change log like any field an edit
     # changes, so the item's History shows errors recorded and removed.

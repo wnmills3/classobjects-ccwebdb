@@ -33,7 +33,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, select, update
 from sqlalchemy.orm import Session
 
-from tests.builders import code_id
+from tests.builders import code_id, patch_current
 from tests.conftest import build_item
 
 
@@ -60,8 +60,14 @@ def _offered_item(db: Session) -> tuple[InventoryItem, Listing]:
 def _a_save_lands_while_locking(
     monkeypatch: pytest.MonkeyPatch, moved: Collection[int], **values: object
 ) -> None:
-    """Have another save write `values` to these items just as the lock is taken."""
+    """Have another save write `values` to these items just as the lock is taken.
+
+    Once, at the request's first lock: the later passes `end_offer` takes
+    re-lock rows already held, and landing there too would write the values
+    back over whatever the request did with them.
+    """
     real = offering_writes.lock_for_sale
+    landed: list[bool] = []
 
     def landing(
         db: Session,
@@ -71,13 +77,15 @@ def _a_save_lands_while_locking(
         including_paused: bool = False,
     ) -> offering_writes.LockedForSale:
         """Write and move the versions, as a commit elsewhere would, then lock."""
-        db.execute(
-            update(InventoryItem)
-            .where(InventoryItem.id.in_(moved))
-            .values(version=InventoryItem.version + 1, **values)
-            # Another session's commit: the instances here do not see it.
-            .execution_options(synchronize_session=False)
-        )
+        if not landed:
+            landed.append(True)
+            db.execute(
+                update(InventoryItem)
+                .where(InventoryItem.id.in_(moved))
+                .values(version=InventoryItem.version + 1, **values)
+                # Another session's commit: the instances here do not see it.
+                .execution_options(synchronize_session=False)
+            )
         return real(
             db,
             listing_ids=listing_ids,
@@ -163,6 +171,160 @@ def test_an_edit_sent_with_a_base_keeps_a_landed_save_to_another_field(
     assert kept is not None
     assert kept.description == "Recorded at the other desk"
     assert kept.status.code == "missing"
+
+
+def test_the_console_s_edit_keeps_a_landed_save_to_another_field(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The item editor sends its version and a base together: the base decides."""
+    item, made = _offered_item(db)
+    version = item.version
+    _a_save_lands_while_locking(
+        monkeypatch, [item.id], description="Recorded at the other desk"
+    )
+
+    saved = _mark_missing(
+        client, admin_headers, item, version=version, base={"status": "received"}
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert _listing_status(db, made.id) is ListingStatus.ended
+    kept = db.get(InventoryItem, item.id)
+    assert kept is not None
+    assert kept.description == "Recorded at the other desk"
+    assert kept.status.code == "missing"
+
+
+def test_an_edit_keeps_the_no_date_a_landed_save_set(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """What the edit works out from the item is worked out from it as it now is.
+
+    The edit sends neither `no_date` nor a year, so it must leave both as
+    the save that landed while it locked left them.
+    """
+    item, _ = _offered_item(db)
+    assert item.no_date is False
+    _a_save_lands_while_locking(
+        monkeypatch, [item.id], no_date=True, year_start=None, year_end=None
+    )
+
+    saved = _mark_missing(client, admin_headers, item, base={"status": "received"})
+
+    assert saved.status_code == 200, saved.text
+    db.expire_all()
+    kept = db.get_one(InventoryItem, item.id)
+    assert (kept.no_date, kept.year_start, kept.year_end) == (True, None, None)
+
+
+def test_a_bulk_edit_works_out_the_years_from_the_item_as_locked(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A year sent alone keeps a range's end: the range the landed save made."""
+    item, made = _offered_item(db)
+    assert (item.year_start, item.year_end) == (1881, None)  # a single year
+    _a_save_lands_while_locking(monkeypatch, [item.id], year_end=1890)
+
+    edited = client.post(
+        "/api/inventory/bulk",
+        json={
+            "ids": [item.id],
+            "changes": {
+                "status": "missing",
+                "year_start": 1885,
+                "acknowledge_for_sale": True,
+            },
+        },
+        headers=admin_headers,
+    )
+
+    assert edited.status_code == 200, edited.text
+    assert _listing_status(db, made.id) is ListingStatus.ended
+    db.expire_all()
+    kept = db.get_one(InventoryItem, item.id)
+    assert (kept.year_start, kept.year_end) == (1885, 1890)
+
+
+def _statements_while(db: Session, act: Callable[[], object]) -> list[str]:
+    """Every statement `act` sends on the session's connection, in order."""
+    seen: list[str] = []
+
+    def record(_conn: object, _cursor: object, statement: str, *_: object) -> None:
+        """Keep each statement."""
+        seen.append(statement)
+
+    connection = db.connection()
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        act()
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+    return seen
+
+
+def _holds_item(statement: str) -> bool:
+    """Whether a statement locks or writes an `inventory_item` row."""
+    return statement.startswith("UPDATE inventory_item ") or (
+        "FOR UPDATE" in statement and "FROM inventory_item" in statement
+    )
+
+
+def test_replacing_an_item_s_errors_holds_the_item_before_its_errors(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """A merge of error types holds the items, then their errors: the same order.
+
+    Taken the other way round, the replacement and the merge could each hold
+    what the other waits for.
+    """
+    item = build_item(db)
+    url = f"/api/inventory/{item.id}/errors"
+    body = {"errors": [{"error_type": "doubled_die"}]}
+
+    seen = _statements_while(
+        db, lambda: client.put(url, json=body, headers=admin_headers)
+    )
+
+    held = [n for n, s in enumerate(seen) if _holds_item(s)]
+    errors = [
+        n
+        for n, s in enumerate(seen)
+        if s.startswith(("DELETE FROM item_error ", "INSERT INTO item_error "))
+    ]
+    assert held and errors, seen
+    assert held[0] < errors[0], seen
+
+
+def test_setting_only_an_item_s_attributes_holds_the_item_before_its_links(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """An attributes-only edit has no item column to write before its links."""
+    item = build_item(db)
+
+    seen = _statements_while(
+        db,
+        lambda: patch_current(
+            client,
+            f"/api/inventory/{item.id}",
+            json={"attributes": ["first_strike"]},
+            headers=admin_headers,
+        ),
+    )
+
+    held = [n for n, s in enumerate(seen) if _holds_item(s)]
+    writes_link = ("INSERT INTO item_attribute_link ", "UPDATE item_attribute_link ")
+    links = [n for n, s in enumerate(seen) if s.startswith(writes_link)]
+    assert held and links, seen
+    assert held[0] < links[0], seen
 
 
 def test_a_receipt_is_not_refused_for_a_save_it_was_never_shown(

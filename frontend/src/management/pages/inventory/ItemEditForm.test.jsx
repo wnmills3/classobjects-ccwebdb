@@ -74,6 +74,39 @@ beforeEach(() => {
   api.previewItem.mockReturnValue(new Promise(() => {}))
 })
 
+//: What Save says when pressed with something in its way.
+const NOTHING_TO_SAVE = /^Nothing to save/
+const TICK_FIRST = /is for sale: tick .* above, then Save/
+const CHOOSE_FIRST = /Choose Keep mine or Use theirs/
+const ROLES_FIRST = /Say what each new photograph shows/
+
+/** Every call a save could make. */
+const writes = () =>
+  [
+    api.updateInventoryItem,
+    api.setItemErrors,
+    api.addImageFromUrl,
+    api.uploadImage,
+    api.updateImageLink,
+    api.detachImage,
+    api.moveImageLink,
+    api.attachFriedberg,
+    api.clearFriedberg,
+  ].reduce((sum, call) => sum + call.mock.calls.length, 0)
+
+/**
+ * Save, live, pressed with `reason` in its way: it says so and writes
+ * nothing. The button is never greyed out: the press is what explains.
+ */
+async function expectSaveRefused(reason) {
+  const save = screen.getByRole('button', { name: 'Save' })
+  expect(save).toBeEnabled()
+  const before = writes()
+  fireEvent.click(save)
+  expect(await screen.findByText(reason)).toBeInTheDocument()
+  expect(writes()).toBe(before)
+}
+
 describe('ItemEditForm', () => {
   it('loads the item it was given', async () => {
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
@@ -266,7 +299,7 @@ describe('Changes made elsewhere while the form is open', () => {
     expect(alert).toHaveTextContent(
       'Description: now Mercury dime, cleaned; yours Winged Liberty dime',
     )
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await expectSaveRefused(CHOOSE_FIRST)
 
     await user.click(screen.getByRole('button', { name: 'Keep mine' }))
     expect(screen.queryByText(/changed elsewhere while you were editing/i)).toBeNull()
@@ -305,7 +338,7 @@ describe('Changes made elsewhere while the form is open', () => {
     await user.click(await screen.findByRole('button', { name: 'Use theirs' }))
     expect(screen.getByDisplayValue('Mercury dime, cleaned')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled() // nothing left to save
+    await expectSaveRefused(NOTHING_TO_SAVE) // nothing left to save
   })
 
   it('shows the conflict when the server finds it at save time', async () => {
@@ -393,7 +426,7 @@ describe('No sales tax charged', () => {
 
     // Back to the rate it was bought at, not today's setting -- so nothing
     // changed and there is nothing to save.
-    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled()
+    await expectSaveRefused(NOTHING_TO_SAVE)
   })
 
   it('restores the configured rate when unticked, not a rate of its own', async () => {
@@ -518,6 +551,12 @@ describe('Grading: designation, service and certificate', () => {
       'currency',
     )
     expect(screen.getByRole('status')).toHaveTextContent('Grade designation (DCAM)')
+
+    // Said, and sent: the save empties it.
+    api.updateInventoryItem.mockResolvedValue({})
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+    expect(api.updateInventoryItem.mock.calls[0][1].grade_designation).toBeNull()
   })
 })
 
@@ -762,7 +801,7 @@ describe('Weight', () => {
       'g',
     )
     expect(gross).toHaveValue('10')
-    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled()
+    await expectSaveRefused(NOTHING_TO_SAVE)
   })
 
   it('clears a weight when its box is emptied', async () => {
@@ -1117,7 +1156,7 @@ describe('Changing the kind', () => {
     expect(screen.getByRole('combobox', { name: 'metal' })).toHaveValue('silver')
     expect(screen.queryByRole('status')).toBeNull()
     // Nothing left to save: the round trip is no change at all.
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await expectSaveRefused(NOTHING_TO_SAVE)
   })
 
   it("clears a note's serial number when it stops being a note, and says so", async () => {
@@ -1311,7 +1350,7 @@ describe('ItemEditForm years', () => {
     const user = await open({ year_start: 1878, year_end: 1878 })
     await user.click(rangeBox())
     await user.click(rangeBox())
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await expectSaveRefused(NOTHING_TO_SAVE)
   })
 })
 
@@ -1592,8 +1631,9 @@ describe('a banknote in the editor', () => {
     await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledTimes(2))
     // The draft is spent: nothing left to save until something changes.
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled(),
+      expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled(),
     )
+    await expectSaveRefused(NOTHING_TO_SAVE)
 
     await user.clear(screen.getByDisplayValue('A12345678B'))
     await user.type(screen.getByRole('textbox', { name: /serial number/i }), 'B1')
@@ -1734,9 +1774,10 @@ describe('Attributes', () => {
       '__add__',
     )
     await user.type(screen.getByPlaceholderText('label'), 'Gold Toned')
-    // The owner chose to ask for the group rather than have one picked
-    // silently: Add stays disabled until it is.
-    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled()
+    // Add pressed before a group is chosen says so and sends nothing.
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    expect(sharedApi.addReferenceValue).not.toHaveBeenCalled()
+    expect(screen.getByText('Choose a group first.')).toBeInTheDocument()
     await user.selectOptions(
       screen.getByRole('combobox', { name: 'group' }),
       'verification',
@@ -1957,7 +1998,7 @@ describe('ItemEditForm: changes to filed photographs wait for Save', () => {
       sale_state: [{ kind: 'listing', id: 3, text: 'listing #3 at 189.00' }],
     })
     await user.click(screen.getByRole('button', { name: 'Remove (photo 10)' }))
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await expectSaveRefused(TICK_FIRST)
 
     await user.click(screen.getByRole('checkbox', { name: 'Change it anyway' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
@@ -2008,7 +2049,7 @@ describe('ItemEditForm: errors wait for Save', () => {
     api.setItemErrors.mockResolvedValue({})
     const onSaved = await open()
     const save = screen.getByRole('button', { name: 'Save' })
-    expect(save).toBeDisabled()
+    await expectSaveRefused(NOTHING_TO_SAVE)
 
     await user.selectOptions(
       screen.getByRole('combobox', { name: 'error_type' }),
@@ -2070,7 +2111,7 @@ describe('ItemEditForm: errors wait for Save', () => {
     )
   })
 
-  it('leaves Save disabled when an edit puts the set back as it was', async () => {
+  it('has nothing to save when an edit puts the set back as it was', async () => {
     const user = userEvent.setup()
     api.getInventoryItem.mockResolvedValue(COIN)
     await open()
@@ -2080,7 +2121,7 @@ describe('ItemEditForm: errors wait for Save', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Add error' }))
     await user.click(screen.getByRole('button', { name: 'Remove Die Crack' }))
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await expectSaveRefused(NOTHING_TO_SAVE)
   })
 
   it('keeps errors that could not be recorded, with the reason', async () => {
@@ -2104,6 +2145,47 @@ describe('ItemEditForm: errors wait for Save', () => {
     expect(onSaved).not.toHaveBeenCalled()
   })
 
+  it('reads the errors again when someone else changed them, so the next save can be made', async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue(COIN)
+    api.getItemErrors
+      .mockResolvedValueOnce({ inventory_item_id: 12, errors: [] })
+      .mockResolvedValue({
+        inventory_item_id: 12,
+        errors: [{ error_type: 'die_crack', details: 'rim' }],
+      })
+    api.setItemErrors
+      .mockRejectedValueOnce(
+        Object.assign(new Error('The errors on C-012 were changed by someone else.'), {
+          status: 409,
+        }),
+      )
+      .mockResolvedValue({})
+    await open()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'error_type' }),
+      'off_center_coin',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add error' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/changed by someone else/)).toBeInTheDocument()
+    // The set as it now stands, to work from.
+    expect(await screen.findByDisplayValue('rim')).toBeInTheDocument()
+    expect(api.getItemErrors).toHaveBeenCalledTimes(2)
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'error_type' }),
+      'off_center_coin',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add error' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(api.setItemErrors).toHaveBeenCalledTimes(2))
+    expect(api.setItemErrors.mock.calls[1][2].base).toEqual([
+      { error_type: 'die_crack', details: 'rim' },
+    ])
+  })
+
   it("records errors for an item for sale under the form's own acknowledgement", async () => {
     const user = userEvent.setup()
     api.getInventoryItem.mockResolvedValue({
@@ -2121,7 +2203,7 @@ describe('ItemEditForm: errors wait for Save', () => {
       'die_crack',
     )
     await user.click(screen.getByRole('button', { name: 'Add error' }))
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await expectSaveRefused(TICK_FIRST)
 
     await user.click(screen.getByRole('checkbox', { name: 'Change it anyway' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
@@ -2181,7 +2263,9 @@ describe('An item for sale', () => {
     await user.clear(description)
     await user.type(description, 'Winged Liberty dime')
     const save = screen.getByRole('button', { name: /save/i })
-    expect(save).toBeDisabled()
+    // Live, and pressed without the tick it says what is needed.
+    await expectSaveRefused(TICK_FIRST)
+    expect(screen.getByText(TICK_FIRST)).toHaveTextContent('"Change it anyway"')
 
     await user.click(screen.getByRole('checkbox', { name: 'Change it anyway' }))
     await user.click(save)
@@ -2526,7 +2610,7 @@ describe('ItemEditForm: photographs wait for Save', () => {
     render(<ItemEditForm itemId={12} onSaved={onSaved} onClose={vi.fn()} />)
     await screen.findByDisplayValue('Mercury Dime')
     const save = screen.getByRole('button', { name: 'Save' })
-    expect(save).toBeDisabled()
+    await expectSaveRefused(NOTHING_TO_SAVE)
 
     await holdAPhoto(user)
 
@@ -2676,12 +2760,13 @@ describe('ItemEditForm: photographs wait for Save', () => {
     const file = new File(['c'], 'close-up.jpg', { type: 'image/jpeg' })
     await user.upload(screen.getByLabelText('Photo'), file)
 
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await expectSaveRefused(ROLES_FIRST)
     await user.selectOptions(
       screen.getByRole('combobox', { name: 'What close-up.jpg shows' }),
       'detail',
     )
-    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(api.uploadImage).toHaveBeenCalled())
   })
 
   it('discards a held photograph without filing it', async () => {
@@ -2693,7 +2778,7 @@ describe('ItemEditForm: photographs wait for Save', () => {
     await user.click(screen.getByRole('button', { name: /discard/i }))
 
     expect(screen.queryByText(/not saved yet/i)).toBeNull()
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await expectSaveRefused(NOTHING_TO_SAVE)
   })
 })
 
@@ -2714,7 +2799,7 @@ describe('ItemEditForm: a Friedberg number waits for Save', () => {
     render(<ItemEditForm itemId={12} onSaved={onSaved} onClose={vi.fn()} />)
     await screen.findByDisplayValue('Mercury Dime')
     const save = screen.getByRole('button', { name: 'Save' })
-    expect(save).toBeDisabled()
+    await expectSaveRefused(NOTHING_TO_SAVE)
 
     await user.click(screen.getByRole('button', { name: /^confirm$/i }))
 

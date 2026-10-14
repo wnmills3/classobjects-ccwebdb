@@ -6,8 +6,8 @@ formatter. The wire values follow the
 whole application's own convention: a `Decimal` is sent as the string it
 prints (`"12.50"`), never a float; a `date` is its ISO text; everything
 else -- `int`, `str`, `None` -- crosses unchanged, so an `int` column stays
-a JSON number and a total is exact string arithmetic on the client, not a
-float that could drift.
+a JSON number and a total is sent exactly as the server computed it, as
+text, never as a float that could drift.
 """
 
 from __future__ import annotations

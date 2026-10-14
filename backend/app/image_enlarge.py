@@ -63,7 +63,7 @@ from .models import Image, InventoryItem, ItemImage
 
 __all__ = ["Report", "candidates", "main", "run"]
 
-#: Photographs replaced between commits.
+#: Photographs fetched between commits, whatever became of each.
 BATCH = 25
 
 REPLACED = "replaced"

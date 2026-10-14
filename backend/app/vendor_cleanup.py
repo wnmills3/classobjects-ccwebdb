@@ -29,6 +29,7 @@ import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -200,7 +201,23 @@ def _follow_rename(vendor: Vendor, old_name: str, new_name: str) -> None:
     new_host = old_host[: -len(old_key)] + new_name.lower()
     vendor.host = new_host
     if vendor.url:
-        vendor.url = vendor.url.replace(old_host, new_host, 1)
+        vendor.url = _with_host(vendor.url, old_host, new_host)
+
+
+def _with_host(url: str, old_host: str, new_host: str) -> str:
+    """`url` naming `new_host` where its host is `old_host`, case aside.
+
+    The link keeps the case it was typed in while `host` is lower case, so
+    the host is found by position, not by matching its text.
+    """
+    parts = urlsplit(url)
+    if (parts.hostname or "") != old_host:
+        return url
+    netloc = parts.netloc
+    at = netloc.rfind("@") + 1
+    start = netloc.lower().index(old_host, at)
+    netloc = netloc[:start] + new_host + netloc[start + len(old_host) :]
+    return urlunsplit(parts._replace(netloc=netloc))
 
 
 def run(
@@ -229,6 +246,11 @@ def run(
             _merge(db, source_id, target_id, report)
         for vendor_id in deletes:
             _delete(db, vendor_id, report)
+        # The removed rows leave the database before any name is looked up
+        # or written: the session does not autoflush, and a rename to a
+        # removed row's name would otherwise find it still there, or reach
+        # `uq_vendor_name` before its DELETE.
+        db.flush()
         for vendor_id, code in kinds:
             _set_kind(db, vendor_id, code, report)
         for vendor_id, typed_name in renames:

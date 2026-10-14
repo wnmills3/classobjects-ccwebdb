@@ -41,8 +41,8 @@ __all__ = [
 #: has one, the first year, and the last (None is still struck).
 Run = tuple[int | None, int, int | None]
 
-#: A run starting more than this many years after the one before it ended is
-#: a restrike of an old design, not the design's own issue.
+#: A run starting more than this many years after every run before it ended
+#: is a restrike of an old design, not the design's own issue.
 RESTRIKE_GAP = 50
 
 
@@ -54,13 +54,18 @@ def load_compositions(db: Session) -> list[Composition]:
 
 
 def _original(runs: list[Run]) -> tuple[Run, ...]:
-    """The runs of a design's own issue: those before the first restrike gap."""
+    """The runs of a design's own issue: those before the first restrike gap.
+
+    The gap is measured from the latest year any run before it ended; a run
+    still struck leaves no gap after it.
+    """
     kept: list[Run] = []
+    latest: int | None = None
     for run in sorted(runs, key=lambda r: r[1]):
-        if kept:
-            ended = kept[-1][2]
-            if ended is None or run[1] - ended > RESTRIKE_GAP:
-                break
+        if kept and latest is not None and run[1] - latest > RESTRIKE_GAP:
+            break
+        if not kept or (latest is not None and (run[2] is None or run[2] > latest)):
+            latest = run[2]
         kept.append(run)
     return tuple(kept)
 

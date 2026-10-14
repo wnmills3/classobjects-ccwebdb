@@ -307,7 +307,10 @@ def _carry(survivor: PurchaseOrder, gone: PurchaseOrder) -> None:
     if survivor.seller_id is None:
         survivor.seller_id = gone.seller_id
     notes = (gone.notes or "").strip()
-    if notes and notes not in (survivor.notes or ""):
+    # Compared line by line, never as text inside other text: a note whose
+    # words happen to appear within one of the survivor's is still its own.
+    held = {line.strip() for line in (survivor.notes or "").split("\n")}
+    if notes and not all(line.strip() in held for line in notes.split("\n")):
         survivor.notes = f"{survivor.notes}\n{notes}" if survivor.notes else notes
 
 

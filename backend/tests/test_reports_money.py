@@ -92,8 +92,9 @@ def test_basis_excludes_a_split_parent_counts_its_live_children(db: Session) -> 
     parent = _basis_item(db, "received", "held", Decimal("10.00"))
     parent.split_at = datetime(2026, 1, 1, tzinfo=UTC)
     db.commit()
-    _basis_item(db, "received", "held", Decimal("5.00"))
-    _basis_item(db, "received", "held", Decimal("5.00"))
+    for _ in range(2):
+        child = _basis_item(db, "received", "held", Decimal("5.00"))
+        child.parent_item_id = parent.id
     db.commit()
 
     result = MN_BASIS.run(db, BasisParams())
@@ -553,8 +554,9 @@ def test_value_excludes_a_split_parent_counts_its_live_children(db: Session) -> 
     parent = _value_item(db, cost=Decimal("10.00"), value=Decimal("10.00"))
     parent.split_at = datetime(2026, 1, 1, tzinfo=UTC)
     db.commit()
-    _value_item(db, cost=Decimal("5.00"), value=Decimal("6.00"))
-    _value_item(db, cost=Decimal("5.00"), value=Decimal("6.00"))
+    for _ in range(2):
+        child = _value_item(db, cost=Decimal("5.00"), value=Decimal("6.00"))
+        child.parent_item_id = parent.id
     db.commit()
 
     result = MN_VALUE.run(db, ValueParams())

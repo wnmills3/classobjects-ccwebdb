@@ -31,6 +31,12 @@ from app.fr_format import (
         ("Fr. \uff19\uff19", "Fr. \uff19\uff19"),
         ("9907 - l", "9907-L"),
         ("9a", "9a"),
+        # The optional letter is kept in lower case, so one number is one text.
+        ("9912A", "9912a"),
+        ("9912A-b", "9912a-B"),
+        ("Fr. 9912A*", "9912a*"),
+        ("9901M", "9901m"),
+        ("9912A lgs", "9912a LGS"),
         ("9907-lm", "9907-Lm"),
         ("9907-EM", "9907-Em"),
         ("Fr. 9907-e*m", "9907-Em*"),
@@ -123,6 +129,9 @@ def test_a_well_formed_number_passes(number: str) -> None:
         # them: full-width or other scripts' digits are not a number's.
         ("\uff19\uff19\uff10\uff17-L", "form"),
         ("٩٩٠٧", "form"),
+        # Nothing may follow the number, a line break included: the console's
+        # copy of the rule and the search's pattern both refuse it.
+        ("9907-L\n", "form"),
     ],
 )
 def test_a_slip_is_named(number: str, says: str) -> None:

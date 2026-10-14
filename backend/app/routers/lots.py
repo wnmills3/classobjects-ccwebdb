@@ -206,10 +206,12 @@ def update_sales_lot(
     comparison is redundant. The first, against the lot as loaded, catches
     the ordinary case and answers before any row is locked. The second runs
     after `lot_writes.edit_lot` has taken the lot's row `FOR UPDATE` and
-    re-read it: a request that loaded the lot while another save still held
-    that row read the version both forms carry, and the re-read then hands it
-    the *new* version, so its own UPDATE would match and only a comparison
-    against the locked row can tell it the lot has changed. The row is held
+    re-read it, and before any wording is written, since writing it moves
+    the version and would read as another person's save: a request that
+    loaded the lot while another save still held that row read the version
+    both forms carry, and the re-read then hands it the *new* version, so
+    its own UPDATE would match and only a comparison against the locked row
+    can tell it the lot has changed. The row is held
     from there to the commit, so nothing can move the version after that.
 
     Removals run before additions, so a request that swaps one coin for
@@ -241,17 +243,19 @@ def update_sales_lot(
 
     try:
         with committing(db, _STALE):
-            # Unconditional, and first: `edit_lot` refuses a frozen lot
-            # whether or not there is wording to change, so a
-            # membership-only request on an offered lot is refused by the
-            # same line and with the same words as a rename of one.
+            # Unconditional, and first, with no wording: `edit_lot` locks and
+            # re-reads the lot and refuses a frozen one, so a membership-only
+            # request on an offered lot is refused by the same line and with
+            # the same words as a rename of one.
+            lot_writes.edit_lot(db, lot)
+            # Against the row `edit_lot` has just locked and re-read, and
+            # before the wording is written: the comparison above saw the lot
+            # as loaded, which a save still in flight may since have moved,
+            # and writing the wording moves the version itself.
+            refuse_stale_version(payload.version, lot.version, _STALE)
             lot_writes.edit_lot(
                 db, lot, title=payload.title, description=payload.description
             )
-            # Against the row `edit_lot` has just locked and re-read: the
-            # comparison above saw the lot as loaded, which a save still in
-            # flight may since have moved.
-            refuse_stale_version(payload.version, lot.version, _STALE)
             for item_id in removed:
                 lot_writes.remove_member(db, lot, item_by_id(db, item_id))
             for item_id in added:

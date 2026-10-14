@@ -138,8 +138,8 @@ supplies it for an item recorded with none.
 struck in, where that was one: every run of the design's years
 (`series_year_range`, or the series' own span) resolves to the same row. A
 Morgan or Franklin half does; a Roosevelt dime, silver and then clad, does
-not, and waits for its year. A run starting more than fifty years after the
-one before it ended (`RESTRIKE_GAP`) is a commemorative restrike -- the
+not, and waits for its year. A run starting more than fifty years after
+every run before it ended (`RESTRIKE_GAP`) is a commemorative restrike -- the
 Morgan of 2021, the gold Winged Liberty Head dime of 2016 -- and is not
 read: an undated coin is not taken for one.
 

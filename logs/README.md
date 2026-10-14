@@ -52,7 +52,8 @@ those grows past 1 GB.**
   files it leaves behind.
 - A current file that another program still has open cannot be moved up --
   Windows refuses -- so no new file is started: the lines are added to that
-  file, under one line beginning `[logpipe]` that says so.
+  file, under one line beginning `[logpipe]` that says so, and the older
+  files stay as they were.
 - `pg_stop.log` holds a few lines from each stop. Shutdown rotates it before
   each stop and never measures it.
 - `backup.log` is one file that every backup run adds to, each under a line

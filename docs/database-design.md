@@ -533,8 +533,10 @@ History is a table so "when did this arrive" survives a later correction.
 That holds only because **`app.lifecycle_writes` is the only writer of
 `status_id` and `storage_location_id`**, writing the history row with every
 change, and every path that creates an item records its opening row.
-Disposition changes caused by offering and selling belong to
-`app.offering_writes` (§9).
+Disposition changes caused by offering belong to `app.offering_writes`
+(§9); the move to `sold` when a sale takes a listing's last unit, and back
+to `listed` when stock returns, is `app.order_writes`'s, which moves the
+stock.
 
 ### Physical location
 

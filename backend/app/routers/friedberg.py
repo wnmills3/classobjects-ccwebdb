@@ -27,6 +27,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
+from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.sql.elements import ColumnElement
 
 from ..deps import AdminUser, DbSession
@@ -78,6 +79,8 @@ FRIEDBERG_STATUSES = frozenset({"unknown", "proposed", "confirmed", "conflicting
 #: The statuses a number is attached with. `unknown` is a note with no
 #: number -- what clearing one leaves -- so it is not among them.
 ATTACHABLE_STATUSES = FRIEDBERG_STATUSES - {"unknown"}
+#: PostgreSQL's SQLSTATE for a foreign key naming a row that is not there.
+_FK_VIOLATION = "23503"
 
 
 class CombinationRecorded(Exception):
@@ -224,6 +227,48 @@ def _refuse_shade_mismatch(
     )
 
 
+def _refuse_shade_mismatch_on_holders(
+    db: Session, fr_number: str, friedberg_id: int
+) -> None:
+    """422 when a number's seal shade contradicts a note that holds the row.
+
+    The notes hold the row, not its text, so a corrected number is what each
+    of them shows: it must agree with each one's seal, as attaching it did.
+    """
+    if seal_shade(fr_number) is None:
+        return
+    holders = db.execute(
+        select(InventoryItem.item_code, CurrencyDetail.seal_color_id)
+        .join(CurrencyDetail, CurrencyDetail.inventory_item_id == InventoryItem.id)
+        .where(
+            CurrencyDetail.friedberg_id == friedberg_id,
+            CurrencyDetail.seal_color_id.is_not(None),
+        )
+        .order_by(InventoryItem.item_code)
+    ).tuples()
+    for item_code, seal_color_id in holders:
+        _refuse_shade_mismatch(db, fr_number, seal_color_id, f"{item_code}'s")
+
+
+def refuse_seal_against_number(db: Session, detail: CurrencyDetail) -> None:
+    """422 when a note's seal contradicts the seal shade of the number it holds.
+
+    The other half of attaching: a seal changed after the number is checked
+    against it as the number was checked against the seal.
+    """
+    if detail.friedberg_id is None or detail.seal_color_id is None:
+        return
+    row = db.get_one(FriedbergNumber, detail.friedberg_id)
+    _refuse_shade_mismatch(db, row.fr_number, detail.seal_color_id, "the note's")
+
+
+def _row_gone(friedberg_id: int, code: int) -> HTTPException:
+    """The answer for a catalog row deleted while a request was writing to it."""
+    return HTTPException(
+        status_code=code, detail=f"No Friedberg catalog row with id {friedberg_id}"
+    )
+
+
 def _items_using(db: Session, friedberg_id: int) -> int:
     """How many notes hold this catalog row."""
     return (
@@ -305,7 +350,10 @@ def search_friedberg(
     """
     # Resolved in this order, so an unknown code is refused the same way
     # whichever others were sent too. Washington or Fort Worth: the two
-    # facilities' printings of one series carry different numbers.
+    # facilities' printings of one series carry different numbers. The
+    # letters are kept in capitals, so they are asked in capitals.
+    series_letter = series_letter.upper() if series_letter else series_letter
+    district_letter = district_letter.upper() if district_letter else district_letter
     filters: list[tuple[InstrumentedAttribute[Any] | ColumnElement[Any], object]] = [
         (
             FriedbergNumber.note_type_id,
@@ -396,7 +444,7 @@ def signature_choices(
         if row_id is not None:
             facts = facts.where(column == row_id)
     if series_letter:
-        facts = facts.where(NoteIssue.series_letter == series_letter)
+        facts = facts.where(NoteIssue.series_letter == series_letter.upper())
 
     known = db.scalars(
         active.where(SignatureCombination.id.in_(facts)).order_by(*ordered)
@@ -556,6 +604,7 @@ def update_catalog_row(
             )
         # A corrected number must still agree with the seal the row records.
         _refuse_shade_mismatch(db, payload.fr_number, row.seal_color_id, "this row's")
+        _refuse_shade_mismatch_on_holders(db, payload.fr_number, row.id)
         # Adding or dropping a mule's `m` or a star changes which type the
         # row is, and the type may already be on file under another number.
         held = _same_combination(db, row, fr_number=payload.fr_number)
@@ -575,6 +624,10 @@ def update_catalog_row(
             row.verified_at = None
     try:
         db.commit()
+    except StaleDataError as exc:
+        db.rollback()
+        # Deleted since it was read: the row named in the path is gone.
+        raise _row_gone(friedberg_id, status.HTTP_404_NOT_FOUND) from exc
     except IntegrityError as exc:
         db.rollback()
         # Two corrections, or a correction and a recording, racing past the
@@ -685,7 +738,18 @@ def attach_friedberg(
         friedberg.verified_by_id = admin.id
         friedberg.verified_at = utcnow()
 
-    db.commit()
+    try:
+        db.commit()
+    except (IntegrityError, StaleDataError) as exc:
+        db.rollback()
+        # Deleted since it was read: the foreign key refuses the note's
+        # reference to it, and the id in the body names nothing now.
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        if isinstance(exc, IntegrityError) and sqlstate != _FK_VIOLATION:
+            raise
+        raise _row_gone(
+            payload.friedberg_id, status.HTTP_422_UNPROCESSABLE_CONTENT
+        ) from exc
     db.refresh(detail)
     db.refresh(friedberg)
 

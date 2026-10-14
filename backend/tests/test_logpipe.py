@@ -138,6 +138,27 @@ def test_a_log_held_open_elsewhere_does_not_stop_the_writer(tmp_path: Path) -> N
     assert b"second\n" in kept
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="only Windows refuses to move an open file"
+)
+def test_a_log_held_open_elsewhere_leaves_the_older_files_as_they_were(
+    tmp_path: Path,
+) -> None:
+    """No new file is started, so nothing older is moved up or dropped."""
+    log = tmp_path / "backend.log"
+    numbered(log, 2).write_bytes(b"two starts ago\n")
+    numbered(log, 1).write_bytes(b"one start ago\n")
+    log.write_bytes(b"this start\n")
+
+    with log.open("ab"):
+        pipe([b"while held\n"], RollingWriter(log, keep=3, max_bytes=1024))
+
+    assert numbered(log, 2).read_bytes() == b"two starts ago\n"
+    assert numbered(log, 1).read_bytes() == b"one start ago\n"
+    assert log.read_bytes().startswith(b"this start\n")
+    assert b"while held\n" in log.read_bytes()
+
+
 def test_only_rotating_reports_a_log_it_could_not_move(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

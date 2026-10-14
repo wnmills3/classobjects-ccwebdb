@@ -25,9 +25,11 @@ therefore guarded by the for-sale rule.
   the hash of the cleansed bytes), with derivatives (`thumb`, `web`) in
   `image_derivative`. The same photograph stored twice is one row: `ingest`
   returns the existing image, keeping its name. The files are named by the
-  hash too, so a delete removes them only when no row names that hash once
-  its commit is done (`image_store.remove_unheld`, under the hash's advisory
-  lock, `hold_content`). Derivatives are served at
+  hash too, so a delete holds the hash's advisory lock (`hold_content`) from
+  before it deletes the row, and removes the files only when no row names
+  that hash once its commit is done (`image_store.remove_unheld`, under the
+  same lock): an upload of the same picture meanwhile waits for the delete
+  and stores it again. Derivatives are served at
   `/api/images/{sha256}/{kind}`, public so a plain `<img>` works in the shop,
   and addressed by hash rather than id so the unlisted collection cannot be
   enumerated. `imaging.cleanse` strips all
@@ -184,8 +186,9 @@ items are checked by the for-sale guard, under one acknowledgement.
 
 **Named for its place.** A photograph moved, or filed from
 `/management/photos`, is renamed for its new place (`CC-008079_02.jpg`) when
-its name was another item's place -- a real item's code and a position -- and
-it is filed on no other item (`image_links.name_for_place`). A camera's
+its name was another item's place -- a real item's code and a position,
+whatever folder of the library it was imported from -- and it is filed on
+no other item (`image_links.name_for_place`). A camera's
 `DSC00417.JPG` keeps its name, and so does a group photograph shared by
 several items.
 
@@ -213,6 +216,11 @@ change is guarded by `sale_state.guard` (`for-sale-guards-design.md`).
 | `DELETE /api/image-links/{link_id}` | **detach**; the photograph survives |
 | `DELETE /api/images/{image_id}` | destroy the photograph, its derivatives and its stored bytes |
 
+A deleted or split item is refused as the item of an upload, a fetch, an
+attach or a move (422), as the import pass declines it. A request is
+refused with 409 when what it read changed before it held the item: a
+photograph moved or unfiled meanwhile, or destroyed before it was filed.
+
 `GET /api/images` requires a filter because an unfiltered list of every
 photograph is a page nobody wants and a query that grows without bound.
 
@@ -238,8 +246,9 @@ once and the request sent to the address checked -- the name carried in the
 `Host` header and as the TLS server name, so the certificate is still
 verified against it -- so a host cannot answer public to the check and
 private to the connection (DNS rebinding). A refused fetch, or bytes
-`imaging` will not take, is a 422 naming why, and stores nothing; 422 for an
-unknown item; 409 when the item already has that photograph; the for-sale
+`imaging` will not take, is a 422 naming why, and stores nothing, as is an
+address whose full-size form is too long to keep; 422 for an unknown,
+deleted or split item; 409 when the item already has that photograph; the for-sale
 acknowledgement as for an upload. Bytes already stored (the same hash) are
 filed under the existing image, which keeps its own name.
 

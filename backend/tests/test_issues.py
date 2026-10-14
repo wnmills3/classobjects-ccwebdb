@@ -14,8 +14,16 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.inventory_search import VIEWS
-from app.models import CurrencyDetail, InventoryItem, ItemCertification, ItemKind
+from app.models import (
+    CurrencyDetail,
+    InventoryItem,
+    ItemAttribute,
+    ItemAttributeLink,
+    ItemCertification,
+    ItemKind,
+)
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, build_purchase_order, code_id
@@ -191,6 +199,24 @@ def test_a_near_duplicate_of_a_deleted_note_is_not_flagged(
     _note(db, "B0808451A", purchase_order_id=order.id, deleted_at=_GONE)
 
     assert _currency_issue(client, admin_headers, "near_duplicate_serial") == []
+
+
+def test_a_star_anywhere_in_the_serial_agrees_with_the_star_attribute(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The serial pass reads a star anywhere in the serial; so does the check.
+
+    Read only at the ends, a star the pass derived from the middle of a serial
+    would be listed as disagreeing with the serial it came from.
+    """
+    star = db.scalars(select(ItemAttribute).where(ItemAttribute.code == "star")).one()
+    middle = _note(db, "A1234*5678B")
+    plain = _note(db, "A12345678B")
+    for note in (middle, plain):
+        db.add(ItemAttributeLink(inventory_item_id=note.id, item_attribute_id=star.id))
+    db.commit()
+
+    assert _currency_issue(client, admin_headers, "star_mismatch") == [plain.id]
 
 
 def test_a_malformed_serial_is_a_letter_between_two_digits(

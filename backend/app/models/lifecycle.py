@@ -183,9 +183,9 @@ class LocationHistory(Base):
 class ItemFieldChange(Base):
     """One field of one item changed under a person's name: who, when, from what.
 
-    Written by `PATCH /inventory/{id}`, the bulk edit, the errors endpoint
-    and the passes run under a named person (`--by`), in the same
-    transaction as the change, one row per field whose value actually moved
+    Written by `PATCH /inventory/{id}`, the bulk edit, the errors endpoint,
+    a vocabulary merge and the passes run under a named person (`--by`), in
+    the same transaction as the change, one row per field whose value moved
     (`app.field_changes.record`). It is what lets the item editor say *who*
     changed a field it is warning about, and it is an edit history besides.
     Values are stored as the item editor sees them -- codes for classifiers,

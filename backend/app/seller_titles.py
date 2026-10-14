@@ -27,7 +27,9 @@ Both fields change together or not at all: the seller's text is never
 dropped, and a description is never emptied. An item whose title is already
 the seller's text is left alone, so the pass can be run again.
 
-Every change is logged to the item's History under the person named.
+The title and description changes are logged to the item's History under
+the person named. What the save's defaults fill is recorded as derived
+(`item_field_source`), as a Save records it, and is not logged.
 
     python -m app.seller_titles                      report, touching nothing
     python -m app.seller_titles --commit --by EMAIL  write the changes
@@ -139,20 +141,29 @@ def plan(db: Session) -> Plan:
 def apply(db: Session, todo: Plan, user_id: int) -> int:
     """Make the planned changes and log each; the caller commits."""
     now = datetime.now(UTC)
+    before: dict[int, dict[str, str]] = {}
     for change in todo.changes:
         item = db.get_one(InventoryItem, change.item_id)
-        before = {"source_title": item.source_title, "description": item.description}
+        before[item.id] = {
+            "source_title": item.source_title,
+            "description": item.description,
+        }
         item.source_title = change.description
         item.description = change.new_description
-        # As the editor's Save does: what the facts decide is filled, so the
-        # record holds everything its new description says.
-        db.flush()
-        refresh_items(db, [item.id])
+    # Every piece is moved before any is decided: a lot's listing is lot
+    # text only once its siblings carry it too, and a piece decided while
+    # they still held their face values would read the listing as its own.
+    # Then, as the editor's Save does, what the facts decide is filled, so
+    # the record holds everything its new description says.
+    db.flush()
+    refresh_items(db, list(before))
+    for item_id, old in before.items():
+        item = db.get_one(InventoryItem, item_id)
         after = {"source_title": item.source_title, "description": item.description}
         field_changes.record(
             db,
-            item.id,
-            before,
+            item_id,
+            old,
             after,
             ["source_title", "description"],
             user_id=user_id,

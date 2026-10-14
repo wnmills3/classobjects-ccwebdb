@@ -39,6 +39,7 @@ from .models import (
     NoteType,
     Series,
 )
+from .years import is_single
 
 #: The grading service code meaning the owner graded it: not a service a
 #: buyer would recognize, so it is left out of a public title.
@@ -135,8 +136,7 @@ def _coin_date(db: Session, item: InventoryItem) -> str | None:
     )
     # A mint mark belongs to one year's coin; on a span it would claim every
     # year came from that mint.
-    single_year = item.year_end in (None, item.year_start)
-    if mint is not None and mint.mark and single_year:
+    if mint is not None and mint.mark and is_single((item.year_start, item.year_end)):
         return f"{years}-{mint.mark}"
     return years
 

@@ -265,6 +265,24 @@ describe('NewPurchase: creating a vendor inline', () => {
     expect(name).toHaveValue('drh9989')
   })
 
+  it('keeps Add live with no name, and says what is missing on a press', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '__add__',
+    )
+    const add = screen.getByRole('button', { name: 'Add' })
+    expect(add).toBeEnabled()
+
+    await user.click(add)
+
+    expect(screen.getByText("Type the vendor's name first.")).toBeInTheDocument()
+    expect(api.createVendor).not.toHaveBeenCalled()
+    await user.type(screen.getByPlaceholderText('Vendor name'), 'New Vendor')
+    expect(screen.queryByText("Type the vendor's name first.")).toBeNull()
+  })
+
   it('does not submit the outer purchase form when Enter is pressed in the vendor name field', async () => {
     const user = userEvent.setup()
     api.createVendor.mockResolvedValue({
@@ -321,6 +339,21 @@ describe('NewPurchase: creating a purchase', () => {
     )
     expect(await screen.findByText(/PO-2/)).toBeInTheDocument()
     expect(screen.getByText(/no items entered yet/i)).toBeInTheDocument()
+  })
+
+  it('keeps Create purchase live with no vendor, and says why on a press', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+    await screen.findByRole('combobox', { name: 'Vendor' })
+    const create = screen.getByRole('button', { name: /create purchase/i })
+    expect(create).toBeEnabled()
+
+    await user.click(create)
+
+    expect(screen.getByText(/pick a vendor first/i)).toBeInTheDocument()
+    expect(api.createPurchaseOrder).not.toHaveBeenCalled()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Vendor' }), '3')
+    expect(screen.queryByText(/pick a vendor first/i)).toBeNull()
   })
 
   it('explains each purchase and item field when it has focus', async () => {
@@ -767,12 +800,15 @@ describe('NewPurchase: items on the purchase', () => {
     )
   })
 
-  it('disables saving items, with a visible reason, while the tax rate is invalid', async () => {
+  it('says why items cannot be saved, and saves none, while the tax rate is invalid', async () => {
     const user = await openPurchase()
 
     await user.type(screen.getByLabelText(/^tax rate/i), 'abc')
 
-    expect(screen.getByRole('button', { name: 'Add item' })).toBeDisabled()
+    const add = screen.getByRole('button', { name: 'Add item' })
+    expect(add).toBeEnabled()
+    await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
+    await user.click(add)
     expect(
       screen.getByText(/fix the tax rate above before saving items/i),
     ).toBeInTheDocument()
@@ -1334,7 +1370,12 @@ describe('NewPurchase: the seller', () => {
 
     await user.type(store, 'coins@example.com')
     expect(name).toHaveValue('')
-    expect(screen.getByRole('button', { name: 'Add seller' })).toBeDisabled()
+    // Live with no name yet: a press says what is missing and sends nothing.
+    const add = screen.getByRole('button', { name: 'Add seller' })
+    expect(add).toBeEnabled()
+    await user.click(add)
+    expect(screen.getByText("Type the seller's name first.")).toBeInTheDocument()
+    expect(api.createSeller).not.toHaveBeenCalled()
 
     await user.type(name, 'By Mail Coins')
     await user.clear(store)
@@ -1506,12 +1547,13 @@ describe('NewPurchase: the seller', () => {
 describe("NewPurchase: a lot's page as the item's listing", () => {
   const LOT = 'https://hibid.com/lot/280623476/1986-2024-american-eagle'
 
-  it("offers an auction purchase's address to the new item", async () => {
+  it('offers the lot page the server names to the new item', async () => {
     api.getPurchaseOrder.mockResolvedValue({
       ...FRESH_PURCHASE,
       id: 40,
       vendor: 'hibid.com',
       source_url: LOT,
+      lot_page: LOT,
     })
     api.createInventoryItem.mockResolvedValue({ id: 60, item_code: 'CC-000060' })
     const user = userEvent.setup()
@@ -1524,6 +1566,25 @@ describe("NewPurchase: a lot's page as the item's listing", () => {
         expect.objectContaining({ purchase_order_id: 40, listing_url: LOT }),
       ),
     )
+  })
+
+  it('offers no address the server does not name as a lot page', async () => {
+    // A shop's location page is the purchase's address, but no listing.
+    api.getPurchaseOrder.mockResolvedValue({
+      ...FRESH_PURCHASE,
+      id: 42,
+      vendor: 'silasdeanepawn.com',
+      source_url: 'https://silasdeanepawn.com/locations/manchester/',
+      lot_page: null,
+    })
+    api.createInventoryItem.mockResolvedValue({ id: 62, item_code: 'CC-000062' })
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />, { route: '/?order=42' })
+    await user.type(await screen.findByRole('textbox', { name: /title/i }), 'A ring')
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
+
+    await waitFor(() => expect(api.createInventoryItem).toHaveBeenCalledTimes(1))
+    expect(api.createInventoryItem.mock.calls[0][0]).not.toHaveProperty('listing_url')
   })
 
   it("does not offer an eBay order's page, which is no listing", async () => {

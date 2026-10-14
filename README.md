@@ -193,7 +193,7 @@ In a browser, with pgAdmin:
 ```
 
 It opens pgAdmin on http://127.0.0.1:5050 with the `ccwebdb` connection
-already registered (password `devpassword`). pgAdmin is not a project
+already registered; it asks once for the password in `DATABASE_URL`. pgAdmin is not a project
 dependency; install it once into its own uv tool environment, pinned to
 Python 3.13 (the script header says why):
 

@@ -33,8 +33,12 @@ import { SaveButton } from '../SaveButton'
  * disabled outside that window rather than left live for a refusal to
  * explain; and cancelling or removing a lot from an auction whose items are
  * at an auction house (`auction.consigned_on is not None`) requires a return
- * location, so `ReturnLocationConfirm` below holds its confirm button
- * disabled until one is chosen, exactly as the API would refuse without it.
+ * location, so `ReturnLocationConfirm` below sends nothing until one is
+ * chosen and says so on press, where the API would only refuse without it.
+ *
+ * A lot's number and reserve are saved with the auction's own `version`:
+ * a lot row has none, so the auction's is the token, and each lot save
+ * moves it.
  *
  * Money is shown and sent exactly as the API carries it: a decimal string,
  * never parsed into a JavaScript number. The settlement grid itself is
@@ -403,12 +407,12 @@ function ConsignDialog({ auction, onSaved, onClose }) {
  *
  * `returned_to_location_id` is required whenever `auction.consigned_on` is
  * set -- the items physically left the premises and something has to say
- * where they came back to -- so the picker appears then, and the confirm
- * button stays disabled until a location is chosen, with the reason said
- * beside it, the same way this page
- * never lets the owner submit a request the API would only refuse for a
- * missing field. `onConfirm` is called with the location id, or null when
- * none was needed.
+ * where they came back to -- so the picker appears then, with the reason
+ * beside it until a location is chosen. The confirm button stays live: a
+ * press with no location sends nothing and marks the reason as the thing
+ * to fix, so the owner never submits a request the API would only refuse
+ * for a missing field. `onConfirm` is called with the location id, or null
+ * when none was needed.
  */
 function ReturnLocationConfirm({
   auction,
@@ -422,7 +426,19 @@ function ReturnLocationConfirm({
   children,
 }) {
   const [locationId, setLocationId] = useState('')
+  // Set by a press made before a location was chosen.
+  const [pressedWithout, setPressedWithout] = useState(false)
   const needsLocation = auction.consigned_on != null
+
+  /** Confirm with the chosen location, or say it is missing and send nothing. */
+  function confirm() {
+    if (needsLocation && locationId === '') {
+      setPressedWithout(true)
+      return
+    }
+    onConfirm(needsLocation ? Number(locationId) : null)
+  }
+
   return (
     <ConfirmDialog
       question={question}
@@ -430,8 +446,7 @@ function ReturnLocationConfirm({
       busyLabel={busyLabel}
       cancelLabel="Keep it"
       busy={busy}
-      disabled={needsLocation && locationId === ''}
-      onConfirm={() => onConfirm(needsLocation ? Number(locationId) : null)}
+      onConfirm={confirm}
       onCancel={onCancel}
     >
       {children}
@@ -453,7 +468,9 @@ function ReturnLocationConfirm({
         </label>
       )}
       {needsLocation && locationId === '' && (
-        <p className="muted">Choose where the items come back to first.</p>
+        <p className={pressedWithout ? 'error' : 'muted'}>
+          Choose where the items come back to first.
+        </p>
       )}
     </ConfirmDialog>
   )
@@ -535,6 +552,9 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
         api.updateAuctionLot(auction.id, lot.id, {
           lot_number: number,
           reserve: orNull(draft.reserve),
+          // A lot has no version of its own: the auction's stands for it,
+          // and the saved auction that replaces this row carries the next.
+          version: auction.version,
         }),
       `Lot ${number} saved.`,
       {

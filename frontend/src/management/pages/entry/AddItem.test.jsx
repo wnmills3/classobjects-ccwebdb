@@ -73,8 +73,12 @@ describe('AddItem', () => {
   it('makes the item from its kind and title and opens it in the editor', async () => {
     const user = userEvent.setup()
     renderRow({ orderUrl: 'https://hibid.com/lot/12' })
-    // Nothing to add until it has a title.
-    expect(screen.getByRole('button', { name: 'Add item' })).toBeDisabled()
+    // Nothing to add until it has a title: the button says so, and sends nothing.
+    const add = screen.getByRole('button', { name: 'Add item' })
+    expect(add).toBeEnabled()
+    await user.click(add)
+    expect(screen.getByText(/Give the item a title/)).toBeVisible()
+    expect(api.createInventoryItem).not.toHaveBeenCalled()
 
     await addNote(user, '  $20 Bill  ')
 
@@ -385,13 +389,23 @@ describe('AddItem', () => {
 
   it('adds nothing while the purchase has a reason not to', async () => {
     const user = userEvent.setup()
-    renderRow({ disabledReason: 'Fix the tax rate above before saving items.' })
+    renderRow({
+      items: ENTERED,
+      disabledReason: 'Fix the tax rate above before saving items.',
+    })
     await user.type(screen.getByRole('textbox', { name: 'Title' }), 'A note{Enter}')
+    // Live, with the reason beside it: pressed, it sends nothing.
+    const add = screen.getByRole('button', { name: 'Add item' })
+    const another = screen.getByRole('button', { name: 'Add another like CC-000030' })
+    expect(add).toBeEnabled()
+    expect(another).toBeEnabled()
+    await user.click(add)
+    await user.click(another)
 
     expect(
       screen.getByText('Fix the tax rate above before saving items.'),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Add item' })).toBeDisabled()
     expect(api.createInventoryItem).not.toHaveBeenCalled()
+    expect(api.getInventoryItem).not.toHaveBeenCalled()
   })
 })

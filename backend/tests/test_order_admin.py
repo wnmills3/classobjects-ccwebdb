@@ -19,9 +19,12 @@ from tests.conftest import item_of
 def _set(
     client: TestClient, headers: dict[str, str], order_id: int, status: str
 ) -> Response:
-    """The response to moving an order to this status."""
+    """The response to moving an order to this status, from its current version."""
+    version = client.get(f"/api/orders/{order_id}", headers=headers).json()["version"]
     return client.patch(
-        f"/api/orders/{order_id}", json={"status": status}, headers=headers
+        f"/api/orders/{order_id}",
+        json={"status": status, "version": version},
+        headers=headers,
     )
 
 
@@ -31,7 +34,7 @@ def test_an_ordinary_shop_order_s_listing_has_not_ended(
     """The negative half: a coin bought with stock left keeps its listing live.
 
     Without this, a regression that always answered `listing_ended: true`
-    would gray out Cancel on every shop order and pass the suite.
+    would refuse Cancel in the console on every shop order and pass the suite.
     """
     placed = post_order(client, customer_headers, listing.id, 1)
     assert placed.status_code == 201, placed.text
@@ -62,7 +65,7 @@ def test_cancelling_a_shop_order_that_bought_a_lot_is_refused(
     placed = post_order(client, customer_headers, listing_id, 1)
     assert placed.status_code == 201, placed.text
     order_id = placed.json()["id"]
-    # What the console reads to gray Cancel out rather than offer it.
+    # What the console reads to refuse Cancel with its reason, unsent.
     assert placed.json()["items"][0]["listing_ended"] is True
 
     refused = _set(client, admin_headers, order_id, "cancelled")

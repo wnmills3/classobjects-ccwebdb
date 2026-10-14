@@ -289,15 +289,24 @@ describe('Lots', () => {
     expect(api.createLot).not.toHaveBeenCalled()
   })
 
-  it('does not offer an empty lot', async () => {
+  it('does not offer an empty lot, and says why when Offer is pressed', async () => {
     // `offering_writes._lot_members` raises `EmptyLot` and the API answers
-    // 422, so an Offer button that was live here would only ever produce a
-    // refusal after the price had been typed.
+    // 422, so opening the offer dialog here would only ever produce a
+    // refusal after the price had been typed. The button stays live -- a
+    // greyed-out one reads as a dead page -- and answers a press instead.
+    const user = userEvent.setup()
     api.listLots.mockResolvedValue({ lots: [{ ...assembling, members: [] }] })
     renderWithProviders(<Lots />, { strict: true })
-    expect(await screen.findByRole('button', { name: /^offer/i })).toBeDisabled()
-    // Held back with its reason beside it, not greyed out in silence.
+    const offer = await screen.findByRole('button', { name: /^offer/i })
+    expect(offer).toBeEnabled()
+    // The reason is beside it before anything is pressed.
     expect(screen.getByText('Add coins to this lot before offering it.')).toBeVisible()
+
+    await user.click(offer)
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const said = screen.getByText(/Three Morgans has no coins in it yet/)
+    expect(said).toHaveClass('error')
   })
 
   it('gives no reason beside the Offer button of a lot that has coins', async () => {

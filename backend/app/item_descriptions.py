@@ -52,6 +52,7 @@ from .models import (
     SealColor,
 )
 from .offer_titles import name_of
+from .serial_patterns import DIGIT_PATTERNS
 
 __all__ = [
     "FANCY_SERIAL",
@@ -63,20 +64,6 @@ __all__ = [
 
 #: The attribute that says only "some digit pattern": left out beside one.
 FANCY_SERIAL = "fancy_serial"
-
-#: The digit patterns `fancy_serial` sums up (`app.serial_patterns`).
-DIGIT_PATTERNS: frozenset[str] = frozenset(
-    {
-        "solid_serial",
-        "binary",
-        "trinary",
-        "radar",
-        "repeater",
-        "double_quad",
-        "ladder",
-        "birthday",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -94,7 +81,8 @@ class Features:
 #: Words a note grade is written shorter in: "Superb Gem Unc 67".
 _SHORT_GRADE_WORDS = ((re.compile(r"\bUncirculated\b"), "Unc"),)
 
-#: The noun every serial feature's label ends in.
+#: The noun a digit pattern's label ends in ("Radar Serial"). A label ending
+#: otherwise ("Solid Serial Number", "Star Note") is written whole.
 _SERIAL_NOUN = "Serial"
 
 

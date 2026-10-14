@@ -6,10 +6,14 @@ old place (`CC-008078_01.jpg`) is rewritten for the new one.
 
 from __future__ import annotations
 
+from collections.abc import Collection
+from datetime import UTC, datetime
+
 import pytest
-from app import image_links
+from app import image_links, sale_state
 from app.models import Image, ImageRole, InventoryItem, ItemImage, Listing
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from tests.conftest import build_item
@@ -105,6 +109,24 @@ def test_a_name_that_is_not_an_items_place_is_left_alone(db: Session) -> None:
 
     assert db.get(Image, camera.image_id).source_ref == "DSC00417.JPG"  # type: ignore[union-attr]
     assert db.get(Image, lookalike.image_id).source_ref == "NOPE-1_02.jpg"  # type: ignore[union-attr]
+
+
+def test_a_name_from_a_folder_of_the_library_is_named_for_its_new_place(
+    db: Session,
+) -> None:
+    """The import keeps the folder a file was in; the name itself is a place."""
+    source = build_item(db)
+    target = build_item(db)
+    moving = _filed(
+        db, source, "c" * 64, primary=True, name=f"box3/{source.item_code}_01.jpg"
+    )
+
+    image_links.move(db, moving, target)
+    db.flush()
+
+    image = db.get(Image, moving.image_id)
+    assert image is not None
+    assert image.source_ref == f"{target.item_code}_01.jpg"
 
 
 def test_a_photograph_shared_with_another_item_keeps_its_name(db: Session) -> None:
@@ -278,3 +300,72 @@ def test_filing_a_loose_photograph_names_it_for_its_new_place(
     assert made.status_code == 201, made.text
     db.refresh(loose)
     assert loose.source_ref == f"{target.item_code}_02.jpg"
+
+
+def test_moving_onto_a_deleted_item_is_a_422(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """A deleted item should never have existed: nothing is filed on it."""
+    source = build_item(db)
+    gone = build_item(db, deleted_at=datetime(2026, 1, 1, tzinfo=UTC))
+    link = _filed(db, source, "a6" * 32, primary=True)
+    db.commit()
+
+    refused = client.post(
+        f"/api/image-links/{link.id}/move",
+        json={"inventory_item_id": gone.id},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert "deleted" in refused.json()["detail"]
+    db.expire_all()
+    assert db.get_one(ItemImage, link.id).inventory_item_id == source.id
+
+
+def test_moving_a_photograph_moved_meanwhile_is_refused(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read on one item and moved to another before it is held: a conflict."""
+    source = build_item(db)
+    elsewhere = build_item(db)
+    target = build_item(db)
+    link = _filed(db, source, "a7" * 32, primary=True)
+    db.commit()
+    real = sale_state.guard
+    landed: list[bool] = []
+
+    def guard(
+        session: Session,
+        items: Collection[InventoryItem],
+        *,
+        acknowledged: bool,
+        kinds: Collection[str] | None = None,
+    ) -> None:
+        """Ask the real guard, then land another request's move of the link."""
+        real(session, items, acknowledged=acknowledged, kinds=kinds)
+        if landed:
+            return
+        landed.append(True)
+        session.execute(
+            update(ItemImage)
+            .where(ItemImage.id == link.id)
+            .values(inventory_item_id=elsewhere.id, sort_order=1)
+            # Another session's commit: the link loaded here does not see it.
+            .execution_options(synchronize_session=False)
+        )
+
+    monkeypatch.setattr(sale_state, "guard", guard)
+
+    refused = client.post(
+        f"/api/image-links/{link.id}/move",
+        json={"inventory_item_id": target.id},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 409, refused.text
+    db.expire_all()
+    assert db.get_one(ItemImage, link.id).inventory_item_id != target.id

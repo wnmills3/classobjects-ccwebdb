@@ -1,6 +1,7 @@
 """Auction transitions: adding and removing lots, and the auction's own life.
 
-`app.auctions` is the sole writer of `auction` and `auction_lot`. Adding or
+`app.auctions` is the sole writer of auction transitions and of which
+`auction_lot` rows exist. Adding or
 removing a lot **is** an offer or an ending, so most of what these tests
 prove is that `app.auctions` hands off to `offering_writes` correctly rather
 than reimplementing its rules -- the same reason `test_lot_writes.py` builds

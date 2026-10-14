@@ -106,8 +106,8 @@ def _cleanup_race_rows(cleanup: Session) -> None:
     below it would then fail on `offer_claim.listing_id`'s
     `ondelete="RESTRICT"` -- inside this same `finally`, replacing whatever
     `ClaimInvariantViolation` the `try` raised with a foreign-key error
-    instead. This is the one file in the suite that commits claims for
-    real, so it is the one place it would surface.
+    instead. This file and `test_settlement_race.py` are the two that commit
+    claims for real, so they are where it would surface.
 
     A **lot** listing's `inventory_item_id` is NULL, so matching listings on
     that column alone leaves every lot listing this file commits behind --
@@ -1170,16 +1170,15 @@ def test_buying_a_lot_races_marking_one_of_its_coins_missing(
     *checkout* gets in first. `"deadlock"` is asserted against separately for
     the reason this file already asserts `"stale"` separately.
 
-    The state assertions below are as specific as they are because of what
-    the receipt reads. Its read of `offers_holding` before the locks only
-    *chooses what to lock*; the authoritative read is the second one, under
-    them. Ending the listings from the first would let a checkout that
-    committed in between leave the receipt ending a listing already ended
-    -- and `_end` with `sold=False` would rewrite `sales_lot.status` from
-    `sold` to `dissolved`, two histories the spec says never collapse into
-    one, on a lot somebody had just bought.
+    The state assertions below are as specific as they are because the
+    receipt can arrive after the checkout has ended the lot's listing. A
+    second ending must leave the lot `sold`, not rewrite it to `dissolved`
+    -- two histories the spec says never collapse into one, on a lot
+    somebody had just bought. `offering_writes._end`'s early return on an
+    already-ended listing is what keeps that true, whichever `offers_holding`
+    read the receipt ends listings from.
 
-    Survives, two separate mutations:
+    Survives this mutation:
 
     - Removing the `lock_for_sale` pass from
       `routers.inventory.receive_items` -- either moving it below the
@@ -1194,9 +1193,6 @@ def test_buying_a_lot_races_marking_one_of_its_coins_missing(
       it locks and re-reads the member row before writing it, which is the
       same false conflict `offering_writes._lock_items`' docstring
       describes.
-    - Ending the listings from the *first* `offers_holding` read instead of
-      the second makes it fail on `lot.status`: `AssertionError: dissolved`,
-      after a completed sale.
 
     The checkout reaches the lot row first on this machine, so the outcome
     is `['bought', 'marked']` and **the `else` branch below is not expected

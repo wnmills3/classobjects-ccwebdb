@@ -181,6 +181,16 @@ def test_a_seller_is_renamed_and_its_store_changed(
     )
     assert clash.status_code == 409
 
+    renamed = client.patch(
+        f"/api/sellers/{seller.id}",
+        json={"name": "  coind0g_coins  "},
+        headers=admin_headers,
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["name"] == "coind0g_coins"
+    db.expire_all()
+    assert db.get_one(Seller, seller.id).name == "coind0g_coins"
+
     cleared = client.patch(
         f"/api/sellers/{seller.id}", json={"store_url": ""}, headers=admin_headers
     )

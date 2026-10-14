@@ -288,6 +288,22 @@ describe('sales lots', () => {
   })
 })
 
+describe('setOrderStatus', () => {
+  it('moves an order on with the version the page read', async () => {
+    // Without the version, a status set over someone else's change since
+    // would overwrite it unseen; the endpoint refuses a PATCH that has none.
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.setOrderStatus(21, 'shipped', 4)
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/orders/21')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body)).toEqual({ status: 'shipped', version: 4 })
+  })
+})
+
 describe('renameReferenceValue', () => {
   it('writes the code into the address encoded, as the alias and merge calls do', async () => {
     saveTokens({ access_token: 'a', refresh_token: 'r' })

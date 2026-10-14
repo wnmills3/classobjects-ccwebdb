@@ -175,8 +175,15 @@ describe('SettlementGrid', () => {
     const dialog = screen.getByRole('dialog', { name: /settle/i })
     await user.click(within(dialog).getByRole('button', { name: 'Settle' }))
 
-    expect(await screen.findByText('lot 1 has no result')).toBeVisible()
-    expect(screen.getByText('lot 2 has no result')).toBeVisible()
+    // On each lot's own row, not in the list of problems that name no lot:
+    // the same words would be visible there too, so the row is what proves it.
+    await screen.findByText('lot 1 has no result')
+    for (const number of ['1', '2']) {
+      const row = screen.getByLabelText(`Result for lot ${number}`).closest('tr')
+      expect(row).toHaveClass('error')
+      expect(within(row).getByText(`lot ${number} has no result`)).toBeVisible()
+    }
+    expect(screen.queryByRole('list')).toBeNull()
   })
 
   it('does not ask for a return location off an auction house', () => {
@@ -207,12 +214,12 @@ describe('SettlementGrid', () => {
     expect(screen.getByLabelText(/return unsold/i)).toBeVisible()
   })
 
-  it('disables both Settle buttons until a required return location is chosen', async () => {
+  it('sends nothing until a required return location is chosen, and says why', async () => {
     // `app.auctions.settle` refuses when the house still holds something
     // and a non-sold lot has nowhere to come back to -- the same
-    // `auction.consigned_on` predicate `ReturnLocationConfirm` already
-    // gates on in `Auctions.jsx`. Both the "Settle..." button and
-    // the confirm dialog's own "Settle" button are covered.
+    // `auction.consigned_on` predicate `ReturnLocationConfirm` asks about
+    // in `Auctions.jsx`. "Settle..." stays live, as every console button
+    // does: a press without the location opens nothing and names it.
     const user = userEvent.setup()
     const auction = closedAuction({ consigned_on: '2026-10-01' })
     renderWithProviders(
@@ -230,17 +237,23 @@ describe('SettlementGrid', () => {
     expect(settleButton).toBeEnabled()
 
     await user.selectOptions(screen.getByLabelText('Result for lot 1'), 'unsold')
-    expect(settleButton).toBeDisabled()
+    expect(settleButton).toBeEnabled()
+    await user.click(settleButton)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(
+      screen.getByText(/choose where unsold and withdrawn items come back to/i, {
+        selector: 'p',
+      }),
+    ).toHaveClass('error')
 
     await user.selectOptions(
       screen.getByLabelText('Return unsold and withdrawn items to'),
       '9',
     )
-    expect(settleButton).toBeEnabled()
-
     await user.click(settleButton)
     const dialog = screen.getByRole('dialog', { name: /settle/i })
     expect(within(dialog).getByRole('button', { name: 'Settle' })).toBeEnabled()
+    expect(api.settleAuction).not.toHaveBeenCalled()
   })
 
   it('groups the settlement grid buyers case-insensitively, keeping the first spelling', async () => {

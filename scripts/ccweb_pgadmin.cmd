@@ -92,7 +92,7 @@ echo pgAdmin is up. Opening the browser.
 start "" "%URL%"
 echo.
 echo   Connection:  ccwebdb ^(local^)  -  localhost:5432, user ccwebdb
-echo   Password:    devpassword       -  tick "Save Password" to be asked once
+echo   Password:    the one in DATABASE_URL ^(.env^) - tick "Save Password" to be asked once
 echo.
 echo   The friendly rows are in the VIEWS, not the tables:
 echo     Databases ^> ccwebdb ^> Schemas ^> public ^> Views

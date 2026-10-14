@@ -15,6 +15,7 @@ from app.models import (
 from app.sales_venues import store_venue_id
 from app.sales_writes import record_sale
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -258,14 +259,23 @@ def test_unit_price_is_frozen_at_purchase_time(
     listing: Listing,
     customer_headers: dict[str, str],
     admin_headers: dict[str, str],
+    db: Session,
 ) -> None:
     """Editing the catalog must not rewrite order history."""
     order = post_order(client, customer_headers, listing.id, 1).json()
     assert order["items"][0]["unit_price"] == "189.00"
 
-    client.patch(
-        f"/api/listings/{listing.id}", json={"price": "999.00"}, headers=admin_headers
+    # The sale moved the listing's version; the price change is sent at the
+    # current one and must land, or the assertions below hold whatever an
+    # order line reads its price from.
+    db.refresh(listing)
+    repriced = client.patch(
+        f"/api/listings/{listing.id}",
+        json={"price": "999.00", "version": listing.version},
+        headers=admin_headers,
     )
+    assert repriced.status_code == 200, repriced.text
+    assert repriced.json()["price"] == "999.00"
 
     after = client.get("/api/orders", headers=customer_headers).json()
     assert after[0]["items"][0]["unit_price"] == "189.00"
@@ -365,7 +375,7 @@ def test_an_order_says_which_platform_it_was_sold_on(
     Its status dropdown offers `cancelled` behind a confirmation promising
     the stock goes back on sale -- which `routers/orders.py` then refuses
     with a 409. A confusing prompt, not a broken action, and the platform is
-    what lets the page gray the option out instead.
+    what lets the page give the reason itself instead.
     """
     order = record_sale(
         db,
@@ -387,13 +397,23 @@ def test_an_order_says_which_platform_it_was_sold_on(
 # --------------------------------------------------------------------------
 
 
+def _set_status(
+    client: TestClient, headers: dict[str, str], order_id: int, status: str
+) -> Response:
+    """Move an order to `status`, from the version it holds this moment."""
+    version = client.get(f"/api/orders/{order_id}", headers=headers).json()["version"]
+    return client.patch(
+        f"/api/orders/{order_id}",
+        json={"status": status, "version": version},
+        headers=headers,
+    )
+
+
 def test_customer_cannot_change_status(
     client: TestClient, listing: Listing, customer_headers: dict[str, str]
 ) -> None:
     order = post_order(client, customer_headers, listing.id, 1).json()
-    response = client.patch(
-        f"/api/orders/{order['id']}", json={"status": "paid"}, headers=customer_headers
-    )
+    response = _set_status(client, customer_headers, order["id"], "paid")
     assert response.status_code == 403
 
 
@@ -402,7 +422,10 @@ def test_changing_status_requires_signing_in(
 ) -> None:
     order = post_order(client, customer_headers, listing.id, 1).json()
 
-    response = client.patch(f"/api/orders/{order['id']}", json={"status": "cancelled"})
+    response = client.patch(
+        f"/api/orders/{order['id']}",
+        json={"status": "cancelled", "version": order["version"]},
+    )
 
     assert response.status_code == 401
     current = client.get(f"/api/orders/{order['id']}", headers=customer_headers).json()
@@ -416,9 +439,7 @@ def test_admin_can_advance_status(
     admin_headers: dict[str, str],
 ) -> None:
     order = post_order(client, customer_headers, listing.id, 1).json()
-    response = client.patch(
-        f"/api/orders/{order['id']}", json={"status": "paid"}, headers=admin_headers
-    )
+    response = _set_status(client, admin_headers, order["id"], "paid")
     assert response.status_code == 200
     assert response.json()["status"] == "paid"
 
@@ -430,12 +451,64 @@ def test_invalid_status_rejected(
     admin_headers: dict[str, str],
 ) -> None:
     order = post_order(client, customer_headers, listing.id, 1).json()
+    response = _set_status(client, admin_headers, order["id"], "not-a-real-status")
+    assert response.status_code == 422
+    assert "not-a-real-status" in response.json()["detail"]
+
+
+def test_a_status_change_without_a_version_is_refused(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """A status is chosen from a page read earlier, and must say which one."""
+    order = post_order(client, customer_headers, listing.id, 1).json()
+
     response = client.patch(
+        f"/api/orders/{order['id']}", json={"status": "paid"}, headers=admin_headers
+    )
+
+    assert response.status_code == 422, response.text
+    current = client.get(f"/api/orders/{order['id']}", headers=admin_headers).json()
+    assert current["status"] == "pending"
+    assert current["version"] == order["version"]
+
+
+def test_a_status_chosen_from_a_stale_page_is_refused(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """A cancellation picked before someone else shipped the order is a 409.
+
+    Taken at face value it would record a refund nobody made, on an order
+    whose cancelled status can never be moved again -- and the confirmation
+    the page showed promised stock back that a shipped order does not return.
+    """
+    order = post_order(client, customer_headers, listing.id, 2).json()
+    shipped = client.patch(
         f"/api/orders/{order['id']}",
-        json={"status": "not-a-real-status"},
+        json={"status": "shipped", "version": order["version"]},
         headers=admin_headers,
     )
-    assert response.status_code == 422
+    assert shipped.status_code == 200, shipped.text
+
+    stale = client.patch(
+        f"/api/orders/{order['id']}",
+        json={"status": "cancelled", "version": order["version"]},
+        headers=admin_headers,
+    )
+
+    assert stale.status_code == 409, stale.text
+    assert "reload" in stale.json()["detail"].lower()
+    current = client.get(f"/api/orders/{order['id']}", headers=admin_headers).json()
+    assert current["status"] == "shipped"
+    assert current["version"] == shipped.json()["version"]
+    db.refresh(listing)
+    assert listing.quantity_available == 3
 
 
 def test_cancelling_restores_stock(
@@ -449,11 +522,8 @@ def test_cancelling_restores_stock(
     db.refresh(listing)
     assert listing.quantity_available == 3
 
-    client.patch(
-        f"/api/orders/{order['id']}",
-        json={"status": "cancelled"},
-        headers=admin_headers,
-    )
+    cancelled = _set_status(client, admin_headers, order["id"], "cancelled")
+    assert cancelled.status_code == 200, cancelled.text
     db.refresh(listing)
     assert listing.quantity_available == 5
 
@@ -489,11 +559,7 @@ def test_cancelling_with_no_store_platform_is_a_500_naming_the_fix(
     )
     db.commit()
 
-    response = client.patch(
-        f"/api/orders/{order['id']}",
-        json={"status": "cancelled"},
-        headers=admin_headers,
-    )
+    response = _set_status(client, admin_headers, order["id"], "cancelled")
     assert response.status_code == 500, response.text
     assert "alembic upgrade head" in response.json()["detail"]
 
@@ -508,11 +574,8 @@ def test_cancelling_twice_does_not_double_restore(
     """Re-sending 'cancelled' must be idempotent for stock."""
     order = post_order(client, customer_headers, listing.id, 2).json()
     for _ in range(2):
-        client.patch(
-            f"/api/orders/{order['id']}",
-            json={"status": "cancelled"},
-            headers=admin_headers,
-        )
+        resent = _set_status(client, admin_headers, order["id"], "cancelled")
+        assert resent.status_code == 200, resent.text
     db.refresh(listing)
     assert listing.quantity_available == 5, "stock restored once, not twice"
 
@@ -541,11 +604,7 @@ def test_cancelling_restores_stock_for_every_line(
     db.refresh(second)
     assert (first.quantity_available, second.quantity_available) == (3, 2)
 
-    response = client.patch(
-        f"/api/orders/{order['id']}",
-        json={"status": "cancelled"},
-        headers=admin_headers,
-    )
+    response = _set_status(client, admin_headers, order["id"], "cancelled")
     assert response.status_code == 200, response.text
 
     db.refresh(first)
@@ -566,10 +625,7 @@ def test_cancelling_after_shipping_does_not_return_stock(
     catalog would oversell the next buyer.
     """
     order = post_order(client, customer_headers, listing.id, 2).json()
-    for state in ("paid", "shipped", "cancelled"):
-        client.patch(
-            f"/api/orders/{order['id']}", json={"status": state}, headers=admin_headers
-        )
+    _walk(client, admin_headers, order["id"], "paid", "shipped", "cancelled")
     db.refresh(listing)
     assert listing.quantity_available == 3
 
@@ -579,9 +635,7 @@ def _walk(
 ) -> None:
     """Move an order through `states`, each of which must be accepted."""
     for state in states:
-        response = client.patch(
-            f"/api/orders/{order_id}", json={"status": state}, headers=headers
-        )
+        response = _set_status(client, headers, order_id, state)
         assert response.status_code == 200, response.text
 
 
@@ -651,9 +705,7 @@ def test_an_order_refunded_before_shipping_cannot_be_moved_on(
     order = post_order(client, customer_headers, listing.id, 2).json()
     _walk(client, admin_headers, order["id"], "refunded")
 
-    refused = client.patch(
-        f"/api/orders/{order['id']}", json={"status": "shipped"}, headers=admin_headers
-    )
+    refused = _set_status(client, admin_headers, order["id"], "shipped")
 
     assert refused.status_code == 409, refused.text
     assert "refunded before it shipped" in refused.json()["detail"]

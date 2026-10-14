@@ -27,8 +27,10 @@ from ..models import (
     UserRole,
 )
 from ..order_writes import (
+    SHIPPED_STATUSES,
     Line,
     customer_for_user,
+    ever_shipped,
     payment_adjustment_due,
     place_order,
     record_status_change,
@@ -48,10 +50,6 @@ from ._resolve import found_or_404, get_or_404, get_or_422
 from ._tx import commit, committing
 
 router = APIRouter(prefix="/orders", tags=["orders"])
-
-#: Statuses after which stock has left the building. Cancelling one of these
-#: must not silently return stock that has already been posted.
-SHIPPED_STATUSES = frozenset({"packed", "shipped", "delivered"})
 
 #: Statuses a cancellation must not return stock from: the stock has left
 #: (`SHIPPED_STATUSES`), was already returned (`cancelled`), or the money went
@@ -306,24 +304,6 @@ def list_order_changes(
     ]
 
 
-def _ever_shipped(db: Session, order_id: int, *, before: int | None = None) -> bool:
-    """Whether this order has ever been packed, shipped or delivered.
-
-    Read from its history, not its status: whether the coins left is a fact
-    about the order's past, and a status set back to `pending` or `paid`
-    afterwards does not bring the parcel home. `before` is a history row's
-    id, and asks the question as of that row.
-    """
-    shipped = select(SalesOrderChange.id).where(
-        SalesOrderChange.sales_order_id == order_id,
-        SalesOrderChange.change == SalesOrderChangeKind.status,
-        SalesOrderChange.to_value.in_(sorted(SHIPPED_STATUSES)),
-    )
-    if before is not None:
-        shipped = shipped.where(SalesOrderChange.id < before)
-    return db.scalar(shipped.limit(1)) is not None
-
-
 def _refund_returned_stock(db: Session, order_id: int) -> bool:
     """Whether this order's refund put its stock back, read from its history.
 
@@ -346,7 +326,7 @@ def _refund_returned_stock(db: Session, order_id: int) -> bool:
     return (
         refund is not None
         and refund.from_value not in NO_STOCK_RETURN_STATUSES
-        and not _ever_shipped(db, order_id, before=refund.id)
+        and not ever_shipped(db, order_id, before=refund.id)
     )
 
 
@@ -419,13 +399,14 @@ def update_order_status(
     lot bought in the shop -- because there is nothing to return the stock to
     (`_no_stock_to_return`). Once it has shipped, either returns no stock and
     so strands nothing -- and "has shipped" is read from its history
-    (`_ever_shipped`), so setting the status back does not change the
+    (`order_writes.ever_shipped`), so setting the status back does not change the
     answer. An order refunded before it shipped, like a cancelled
     one, cannot be moved on: its stock is back on sale.
 
     Locks and re-reads the `sales_order` row -- order first, listings second
     (inside `return_stock`), the same sequence `revise_order` uses -- so the
-    two routes can never deadlock waiting on each other's locks.
+    two routes can never deadlock waiting on each other's locks. The
+    `version` sent must be the locked row's, or the change is a 409.
     """
     order = db.execute(
         select(SalesOrder)
@@ -435,6 +416,16 @@ def update_order_status(
         .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     order = found_or_404(order, _ORDER_NOT_FOUND)
+    # Compared on the freshly locked row: a status chosen from a page read
+    # before someone else moved the order on would otherwise be applied over
+    # a change its chooser never saw -- a shipped order cancelled for good.
+    if payload.version != order.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Order #{order_id} was changed by someone else (you have "
+            f"version {payload.version}, current is {order.version}). Reload and "
+            "choose again.",
+        )
 
     previous = _status_code(db, order)
     # Cancelling or refunding an order that has not shipped returns its stock
@@ -446,7 +437,7 @@ def update_order_status(
     returns_stock = (
         payload.status in STOCK_RETURNING_STATUSES
         and previous not in NO_STOCK_RETURN_STATUSES
-        and not _ever_shipped(db, order_id)
+        and not ever_shipped(db, order_id)
     )
     # An order whose stock cannot be put back cannot be cancelled here --
     # `_no_stock_to_return` says which shape it is and why, and is where the

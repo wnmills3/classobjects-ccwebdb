@@ -55,6 +55,10 @@ _SHADE_LETTERS = re.compile(r"lgs|dgs", re.IGNORECASE)
 #: `Em*`, the `m` lower-case so capitalising the district cannot turn it into
 #: a second district letter.
 _MULE_DISTRICT = re.compile(r"(?P<district>[a-l])(?P<a>\*?)m(?P<b>\*?)", re.IGNORECASE)
+#: The optional letter after the digits, kept in lower case: the number is
+#: unique as text, so `12A` and `12a` must be one number, and an `m` there is
+#: a mule's whichever case it was typed in.
+_LETTER = re.compile(r"^(\d+)([A-Z])", re.ASCII)
 
 
 def _close_hyphens(text: str) -> str:
@@ -106,6 +110,7 @@ def normalize_fr(raw: str) -> str:
 def _normalize_base(raw: str) -> str:
     """The number before any seal shade, cleaned."""
     number = _close_hyphens(_PREFIX.sub("", raw.strip()))
+    number = _LETTER.sub(lambda m: m[1] + m[2].lower(), number)
     head, hyphen, district = number.partition("-")
     if not hyphen:
         return number
@@ -144,7 +149,7 @@ def fr_district(number: str) -> str | None:
     a number without a district, and for text not in a number's form.
     `DISTRICT_SQL_PATTERN` is the same rule for a query.
     """
-    match = _FORM.match(number)
+    match = _FORM.fullmatch(number)
     return match["district"] if match else None
 
 
@@ -154,7 +159,8 @@ def fr_problem(number: str) -> str | None:
         return "A Friedberg number is needed."
     if number.endswith("-"):
         return f"{number} ends with a hyphen: its district letter is missing."
-    match = _FORM.match(number)
+    # `fullmatch`: `$` alone would let a trailing line break through.
+    match = _FORM.fullmatch(number)
     if match is None:
         return (
             f"{number} is not in the form of a Friedberg number: digits, then an "

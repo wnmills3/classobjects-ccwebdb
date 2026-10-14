@@ -757,8 +757,9 @@ Callers that send no `base` (scripts) keep the whole-item version check.
 
 An item is *for sale* while an active listing with stock offers it, or an
 order that has not shipped (pending, paid or packed) holds it. The item editor
-says so at the top, naming the listing or order, and Save stays disabled until
-**Change it anyway** is ticked. The API refuses such a save with 409 unless it
+says so at the top, naming the listing or order, and Save, pressed before
+**Change it anyway** is ticked, says the box must be ticked and saves nothing.
+The API refuses such a save with 409 unless it
 carries `acknowledge_for_sale`; bulk edit refuses the whole selection, naming
 the items, and then offers **Change the items for sale too**. Saving nothing
 needs no confirmation. Once an order ships, the item is ordinary again.
@@ -1296,9 +1297,10 @@ reorders them.
   `item_status`, `disposition`, `sales_order_status`, `shipment_status`,
   `strike_type`, `item_kind`, `grade_scale`, `valuation_basis`,
   `authenticity`, `sales_venue_kind` and `sales_fee_kind`, plus vendor kind
-  `unknown`, storage form `single`, currency `USD`, country `US`, note type
-  `frn`, and image roles `obverse`, `reverse` and `unassigned`
-  (`app/references.py`, `retirable`).
+  `unknown`, storage form `single`, storage location kind `consigned`,
+  currency `USD`, country `US`, note type `frn`, and image roles `obverse`,
+  `reverse` and `unassigned` (`app/references.py`, `retirable`). Pressing
+  Retire or Merge into... on one says so in its row.
 - **Merge into...** replaces a value with another for good. The page previews
   the effect: every item holding the old value moves to the kept one, the old
   label, code and aliases become aliases of the kept value (so ratings and
@@ -1590,7 +1592,9 @@ python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@lo
 
 `compare` reads both databases' tables from the databases themselves, not the
 models, so it works whatever code is checked out. It checks the migration
-revision and every row of every table through a digest, prints `identical`
+revision, every row of every table through a digest, and the item-code
+sequence (a restore whose next item would take a code already held is not a
+restore), prints `identical`
 and exits 0, or prints `DIFFERS <table>: <n> rows vs <m>` for each table that
 differs (`missing` for a side that has no such table) and exits 1. For a backup taken moments ago, any difference is a
 failed backup.
@@ -1606,8 +1610,12 @@ python -m app.backup --verify <name>      row counts of a local copy against liv
 ```
 
 Every table is copied, `alembic_version` too (it has no model, so it is read
-from the database itself). The copy is portable: another engine is a
-different `--to` URL. `--verify` compares each table's row count -- the
+from the database itself), and the item-code sequence is set past the highest
+code copied. What the models do not hold -- the four views, the
+`grade_display()` function the inventory search uses and the `fuzzystrmatch`
+extension -- is built in a PostgreSQL copy from the migrations' own
+definitions, so the copy can run the application. The copy is portable:
+another engine is a different `--to` URL, and there those three are left out. `--verify` compares each table's row count -- the
 counts only, not what the rows hold; `app.workbook_backup compare` does that
 -- and prints `<name>: row counts match the source on every table`, or
 `MISMATCH` with the tables that differ and exits 1. A copy that predates a migration reports
@@ -1701,7 +1709,8 @@ python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@lo
 The import refuses a database at a different migration revision than the
 workbook's, the live database (recognised by the server, not by how the URL
 is spelled), and any database that already holds inventory items; it clears
-any other rows the migrations put there, and loads everything in one transaction: a refused row (a value that
+any other rows the migrations put there, loads everything in one transaction,
+and sets the item-code sequence past the highest code loaded: a refused row (a value that
 does not fit its column, a duplicate) names its table and reason and loads
 nothing. `compare` then says `identical`, or names each table that differs --
 after edits, exactly the tables edited.

@@ -9,6 +9,7 @@ shape carries what the console needs.
 
 from __future__ import annotations
 
+from collections.abc import Collection, Sequence
 from decimal import Decimal
 
 import httpx
@@ -23,8 +24,10 @@ from app.models import (
     SalesLotStatus,
     SalesVenue,
     SalesVenueKind,
+    User,
 )
-from app.schemas import OfferRefusedOut
+from app.routers.offers import create_offers
+from app.schemas import OfferIn, OfferItemIn, OfferRefusedOut
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -239,6 +242,53 @@ def test_an_unknown_platform_code_is_unprocessable(
         [{"item_id": item.id, "price": "1.00"}],
     )
     assert response.status_code == 422, response.text
+
+
+def test_an_unknown_lot_id_is_unprocessable(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+) -> None:
+    """An id in the body that names no lot is a bad field, not a missing page."""
+    venue = _venue(db, "ebay-unknown-lot")
+    response = client.post(
+        "/api/offers",
+        headers=admin_headers,
+        json={"venue": venue.code, "lot_id": 999999, "price": "1.00"},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Unknown lot_id: 999999"
+
+
+def test_an_auction_in_the_web_store_is_unprocessable(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    """The shop sells at a fixed price through checkout and nothing else.
+
+    An auction listing there would hold the coin while the shop could not
+    show it, checkout could not sell it and Record sale refuses a store
+    listing -- a coin off sale with no way to sell it.
+    """
+    item = make_item()
+    response = client.post(
+        "/api/offers",
+        headers=admin_headers,
+        json={
+            "venue": "store",
+            "format": "auction",
+            "items": [{"item_id": item.id, "price": "10.00"}],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "fixed price" in response.json()["detail"]
+    db.expire_all()
+    assert (
+        db.scalar(select(Listing.id).where(Listing.inventory_item_id == item.id))
+        is None
+    )
 
 
 def _rejected_fields(response: httpx.Response) -> set[str]:
@@ -549,10 +599,10 @@ def test_an_edit_that_loses_a_race_at_commit_is_a_409(
 ) -> None:
     """The commit-time half of the version check, not the pre-check.
 
-    No `version` is sent, so the pre-check has nothing to compare: the
-    conflict is found only when the UPDATE's `WHERE version = :v` matches no
-    row, because another writer bumped it after this request loaded it. That
-    `StaleDataError` must be a 409, not a 500.
+    The version sent is the one the handler loads, so the pre-check passes:
+    the conflict is found only when the UPDATE's `WHERE version = :v`
+    matches no row, because another writer bumped it after this request
+    loaded it. That `StaleDataError` must be a 409, not a 500.
     """
     from app.routers import offers as offers_router
 
@@ -662,6 +712,83 @@ def test_an_ended_offer_s_terms_cannot_be_rewritten(
     )
     assert numbered.status_code == 200, numbered.text
     assert numbered.json()["external_id"] == "126655443322"
+
+
+def test_a_web_store_lot_s_title_cannot_be_blanked(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    store_lot_listing: Listing,
+    listing: Listing,
+) -> None:
+    """A lot in the shop is named to buyers by its listing's title alone.
+
+    The rule the offer endpoint keeps when the lot is offered holds for an
+    edit too. An item listing is the other side of it: left untitled, the
+    shop names it by its item, so blanking its title is still allowed.
+    """
+    db.commit()
+    refused = patch_current(
+        client,
+        f"/api/listings/{store_lot_listing.id}",
+        headers=admin_headers,
+        json={"title": "  "},
+    )
+    assert refused.status_code == 422, refused.text
+    assert "title" in refused.json()["detail"]
+    db.expire_all()
+    assert db.get_one(Listing, store_lot_listing.id).title == "Three Morgan Dollars"
+
+    allowed = patch_current(
+        client, f"/api/listings/{listing.id}", headers=admin_headers, json={"title": ""}
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["title"] == ""
+
+
+def test_a_batch_offer_never_takes_a_lot_row_after_its_items(
+    db: Session,
+    offered_lot_listing: Listing,
+    whatnot_venue: SalesVenue,
+    admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lot rows come first, so a lot the batch's lock pass missed is refused.
+
+    The batch takes one `lock_for_sale` pass over every item, and each
+    `offer` then takes its own. Both choose their lot rows from an unlocked
+    `offers_holding` read. A lot offered between the batch's read and its
+    item lock is reached by the derived half with no lot row held, and the
+    per-item pass would then take that lot row while the batch already holds
+    items -- the inversion a checkout of that lot deadlocks against.
+
+    The window is opened here by making the batch's own read miss the lot:
+    the request must refuse with `LockSetChanged` before any per-item pass,
+    not go on to lock the lot row late and answer an ordinary 409.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    member_id = lot.members[0].inventory_item_id
+    db.commit()
+
+    real = offering_writes.offers_holding
+    reads: list[object] = []
+
+    def first_read_misses_the_lot(
+        session: Session, item_ids: Collection[int]
+    ) -> Sequence[Listing]:
+        """Answer the batch's first read as if the lot were not yet offered."""
+        reads.append(item_ids)
+        return [] if len(reads) == 1 else real(session, item_ids)
+
+    monkeypatch.setattr(offering_writes, "offers_holding", first_read_misses_the_lot)
+    payload = OfferIn(
+        venue=whatnot_venue.code,
+        items=[OfferItemIn(item_id=member_id, price=Decimal("10.00"))],
+    )
+    with pytest.raises(offering_writes.LockSetChanged):
+        create_offers(payload, db, admin_user)
+    db.rollback()
 
 
 def test_ending_an_offer(

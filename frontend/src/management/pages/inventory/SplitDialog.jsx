@@ -4,6 +4,7 @@ import { api } from '../../api'
 import HelpScope from '../../HelpScope'
 import ModalDialog from '../../ModalDialog'
 import { fromCents, isMoney, toCents } from '../../../shared/cents'
+import { isCurrencyKind } from '../../../shared/kinds'
 import ForSaleNotice from '../ForSaleNotice'
 import { useMounted } from '../../useMounted'
 
@@ -31,6 +32,18 @@ const VALUE = /^(\d+(\.\d*)?|\.\d+)$/
 let nextKey = 0
 
 /**
+ * The year a piece's box starts at: the lot's, when the lot is one year.
+ * A lot dated as a range starts blank, since a year sent for a piece is that
+ * piece's one year and blank keeps the lot's range.
+ */
+function startingYear(item) {
+  const { year_start: start, year_end: end } = item
+  if (start == null) return ''
+  if (end != null && Number(end) !== Number(start)) return ''
+  return String(start)
+}
+
+/**
  * One piece's row before anything is typed: the lot's description and year,
  * one item, no value. `key` is the row's own, so removing a row above it
  * does not move what was typed into another.
@@ -40,7 +53,7 @@ const blankRow = (item) => {
   return {
     key: nextKey,
     description: item.description ?? '',
-    year: item.year_start == null ? '' : String(item.year_start),
+    year: startingYear(item),
     count: '1',
     value: '',
   }
@@ -114,6 +127,8 @@ export default function SplitDialog({ item, onSplit, onClose }) {
   // Only a listing can be acknowledged; an order refuses the split outright,
   // and the server says so.
   const listed = (item.sale_state ?? []).filter((use) => use.kind === 'listing')
+  // A note's year is its series year: its pieces are asked for none.
+  const dated = !isCurrencyKind(item.item_kind)
   const estimate = shares(rows, mode, item.item_cost)
 
   /** Make the rows as many as the Pieces box says, if it holds a number. */
@@ -153,7 +168,7 @@ export default function SplitDialog({ item, onSplit, onClose }) {
         source_title: title,
         piece_count: Number(row.count),
         ...(row.description.trim() !== '' && { description: row.description.trim() }),
-        ...(row.year.trim() !== '' && { year_start: Number(row.year) }),
+        ...(dated && row.year.trim() !== '' && { year_start: Number(row.year) }),
         ...(mode === 'relative' && { relative_value: row.value.trim() }),
       })),
       ...(acknowledged && { acknowledge_for_sale: true }),
@@ -214,7 +229,7 @@ export default function SplitDialog({ item, onSplit, onClose }) {
             <tr>
               <th>#</th>
               <th>Description</th>
-              <th>Year</th>
+              {dated && <th>Year</th>}
               <th>Items</th>
               {mode === 'relative' && <th>Value of one</th>}
               <th>Cost, about</th>
@@ -231,15 +246,17 @@ export default function SplitDialog({ item, onSplit, onClose }) {
                     onChange={setCell(index, 'description')}
                   />
                 </td>
-                <td data-help="split_year">
-                  <input
-                    aria-label={`Year of piece ${index + 1}`}
-                    inputMode="numeric"
-                    size={6}
-                    value={row.year}
-                    onChange={setCell(index, 'year')}
-                  />
-                </td>
+                {dated && (
+                  <td data-help="split_year">
+                    <input
+                      aria-label={`Year of piece ${index + 1}`}
+                      inputMode="numeric"
+                      size={6}
+                      value={row.year}
+                      onChange={setCell(index, 'year')}
+                    />
+                  </td>
+                )}
                 <td data-help="split_items">
                   <input
                     aria-label={`Items in piece ${index + 1}`}

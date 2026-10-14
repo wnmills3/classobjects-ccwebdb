@@ -536,6 +536,29 @@ def place_order(
 
 EDITABLE_STATUSES = frozenset({"pending", "paid"})
 
+#: Statuses after which stock has left the building. An order that ever
+#: reached one must not hand its stock back -- by cancellation or refund
+#: (`routers.orders`) or by a revision here -- since those coins are posted.
+SHIPPED_STATUSES = frozenset({"packed", "shipped", "delivered"})
+
+
+def ever_shipped(db: Session, order_id: int, *, before: int | None = None) -> bool:
+    """Whether this order has ever been packed, shipped or delivered.
+
+    Read from its history, not its status: whether the coins left is a fact
+    about the order's past, and a status set back to `pending` or `paid`
+    afterwards does not bring the parcel home. `before` is a history row's
+    id, and asks the question as of that row.
+    """
+    shipped = select(SalesOrderChange.id).where(
+        SalesOrderChange.sales_order_id == order_id,
+        SalesOrderChange.change == SalesOrderChangeKind.status,
+        SalesOrderChange.to_value.in_(sorted(SHIPPED_STATUSES)),
+    )
+    if before is not None:
+        shipped = shipped.where(SalesOrderChange.id < before)
+    return db.scalar(shipped.limit(1)) is not None
+
 
 def _order_status_code(db: Session, order: SalesOrder) -> str:
     """The order's status code, read fresh from its (possibly just-locked) row.
@@ -752,6 +775,9 @@ def revise_order(
     checkout or another revision may have changed the order or the stock a
     caller read before this call. The status actually checked is read from
     that freshly locked row, never from what a caller may have read earlier.
+    An order whose history ever reached packed, shipped or delivered
+    (`ever_shipped`) is refused, 409, whatever its status now: its coins
+    have left, and a line given back would put them on sale again.
 
     Every check runs before anything changes, so a refused save changes no
     line and no stock. Returns whether anything changed.
@@ -787,6 +813,16 @@ def revise_order(
             status.HTTP_409_CONFLICT,
             f"Order #{order_id} is {locked_status}; only pending or paid orders "
             "can be changed.",
+        )
+    # Asked of the history, not the status: an order set back to `pending`
+    # or `paid` after it went out still has its coins in the post, and a
+    # shrunk or removed line would put them back on sale.
+    if ever_shipped(db, order_id):
+        _refuse(
+            db,
+            status.HTTP_409_CONFLICT,
+            f"Order #{order_id} has been packed or sent, so it can no longer be "
+            "revised: its coins have left.",
         )
     if version != order.version:
         _refuse(

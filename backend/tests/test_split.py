@@ -12,6 +12,7 @@ from app.models import (
     InventoryItem,
     ItemKind,
     ItemStatus,
+    ItemStatusHistory,
     Listing,
     ListingFormat,
     LocationHistory,
@@ -20,6 +21,7 @@ from app.models import (
     StorageForm,
     StorageLocation,
     StorageLocationKind,
+    User,
 )
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text, update
@@ -589,6 +591,72 @@ def test_a_piece_detail_row_starts_empty(
         select(CoinDetail.variety).where(CoinDetail.inventory_item_id.in_(ids))
     ).all()
     assert set(varieties) == {None}
+
+
+@pytest.mark.parametrize(
+    ("override", "named"),
+    [
+        ({"year_start": 1957}, "year_start"),
+        ({"metal": "silver"}, "metal"),
+        ({"denomination": "usd_coin_0_25"}, "denomination"),
+    ],
+)
+def test_a_banknote_piece_is_refused_what_a_banknote_cannot_hold(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    override: dict[str, object],
+    named: str,
+) -> None:
+    """A piece of a note lot is a note: refused as an edit of one would be.
+
+    A note's year is its series year, paper has no metal, and a coin's
+    denomination is not a note's. Nothing is split.
+    """
+    parent = build_split_lot(
+        db, item_kind_id=code_id(db, ItemKind, "currency"), year_start=None
+    )
+    payload = {
+        "mode": "equal",
+        "pieces": [{"source_title": "A", **override}, {"source_title": "B"}],
+    }
+
+    refused = do_split(client, admin_headers, parent.id, payload)
+
+    assert refused.status_code == 422, refused.text
+    assert named in refused.json()["detail"]
+    db.expire_all()
+    assert db.get_one(InventoryItem, parent.id).split_at is None
+
+
+def test_the_split_names_who_made_each_piece_s_history(
+    client: TestClient, admin_headers: dict[str, str], db: Session, admin_user: User
+) -> None:
+    """A piece's opening status and its first move say who split the lot."""
+    box = StorageLocation(
+        storage_location_kind_id=code_id(db, StorageLocationKind, "safe_deposit_box"),
+        institution="First National",
+        identifier="805",
+    )
+    db.add(box)
+    db.commit()
+    parent = build_split_lot(db, storage_location_id=box.id)
+
+    body = do_split(client, admin_headers, parent.id, TUBE).json()
+    ids = [p["id"] for p in body["pieces"]]
+
+    opened = db.scalars(
+        select(ItemStatusHistory.changed_by_id).where(
+            ItemStatusHistory.inventory_item_id.in_(ids)
+        )
+    ).all()
+    moved = db.scalars(
+        select(LocationHistory.moved_by_id).where(
+            LocationHistory.inventory_item_id.in_(ids)
+        )
+    ).all()
+    assert opened == [admin_user.id] * len(ids)
+    assert moved == [admin_user.id] * len(ids)
 
 
 def test_a_missing_currency_kind_fails_the_split_loudly(

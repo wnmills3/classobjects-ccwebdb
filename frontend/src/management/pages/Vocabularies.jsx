@@ -268,13 +268,19 @@ function ValueRow({
                   className="link"
                   aria-label={`Retire ${value.label}`}
                   data-help="vocabulary_retire"
-                  disabled={saving || value.retirable === false}
-                  title={
-                    value.retirable === false
-                      ? 'The application looks this value up by its code'
-                      : 'Stop offering it; records that use it keep it'
-                  }
-                  onClick={() => update({ is_active: false })}
+                  disabled={saving}
+                  title="Stop offering it; records that use it keep it"
+                  onClick={() => {
+                    // Kept live: pressing it says why, as the server would.
+                    if (value.retirable === false) {
+                      setError(
+                        `${value.label} cannot be retired: the application looks ` +
+                          'it up by its code. It can still be renamed.',
+                      )
+                      return
+                    }
+                    update({ is_active: false })
+                  }}
                 >
                   Retire
                 </button>
@@ -295,13 +301,18 @@ function ValueRow({
                 className="link"
                 aria-label={`Merge ${value.label} into another value`}
                 data-help="vocabulary_merge"
-                disabled={saving || value.retirable === false}
-                title={
-                  value.retirable === false
-                    ? 'The application looks this value up by its code'
-                    : 'Move its items to another value, then remove it'
-                }
-                onClick={() => setMerging(true)}
+                disabled={saving}
+                title="Move its items to another value, then remove it"
+                onClick={() => {
+                  if (value.retirable === false) {
+                    setError(
+                      `${value.label} cannot be merged away: the application ` +
+                        'looks it up by its code.',
+                    )
+                    return
+                  }
+                  setMerging(true)
+                }}
               >
                 Merge into...
               </button>

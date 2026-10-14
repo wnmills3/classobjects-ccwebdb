@@ -348,7 +348,7 @@ def seed_all(
     if not only or "series_alias" in only:
         stats["series_alias"] = _seed_series_aliases(session, data, code_index)
     if not only or "series_year_range" in only:
-        stats["series_year_range"] = _seed_series_year_ranges(session, data)
+        stats["series_year_range"] = _seed_series_year_ranges(session, data, code_index)
     if not only or "reference_alias" in only:
         stats["reference_alias"] = _seed_reference_aliases(session, data, code_index)
     if not only or "note_issue" in only:
@@ -442,7 +442,9 @@ def _seed_series_aliases(
 
 
 def _seed_series_year_ranges(
-    session: Session, data: dict[str, list[dict[str, Any]]]
+    session: Session,
+    data: dict[str, list[dict[str, Any]]],
+    code_index: dict[str, dict[str, int]] | None = None,
 ) -> Counter:
     """Load each design's year ranges, which the generic loader cannot carry.
 
@@ -452,28 +454,22 @@ def _seed_series_year_ranges(
     in the file gets exactly the file's ranges -- missing ones added, changed
     ones updated, and ones no longer listed removed. A design the file does
     not mention keeps whatever it has, and a design someone has edited by
-    hand (`source` manual) is left alone entirely.
+    hand (`source` manual) is left alone entirely. A row naming a merged
+    design or denomination names the value it became, as every loader reads.
     """
     counter: Counter = Counter()
     rows = data.get("series_year_range") or []
     if not rows:
         return counter
 
-    designs = {
-        code: (series_id, source)
-        for code, series_id, source in session.execute(
-            select(Series.code, Series.id, Series.source)
-        ).all()
-    }
-    denominations: dict[str, int] = dict(
-        session.execute(select(Denomination.code, Denomination.id)).tuples().all()
-    )
-
+    sources = dict(session.execute(select(Series.id, Series.source)).tuples().all())
     wanted = _wanted_year_ranges(
-        rows, {code: design[0] for code, design in designs.items()}, denominations
+        rows,
+        _codes(session, Series, code_index),
+        _codes(session, Denomination, code_index),
     )
 
-    for series_id, source in designs.values():
+    for series_id, source in sources.items():
         if series_id not in wanted:
             continue
         if source == ProvenanceSource.manual:

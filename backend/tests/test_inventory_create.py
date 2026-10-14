@@ -193,9 +193,10 @@ def test_status_received_is_accepted_and_recorded(
     assert len(rows) == 1
 
 
-def test_an_unknown_status_is_a_422(
+def test_a_status_other_than_ordered_or_received_is_a_422(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
+    """`canceled` is a real status, but a new item cannot start in it."""
     order = _purchase_order(db)
     res = client.post(
         "/api/inventory",
@@ -203,6 +204,25 @@ def test_an_unknown_status_is_a_422(
         headers=admin_headers,
     )
     assert res.status_code == 422
+    assert "status" in res.text
+
+
+def test_a_status_code_that_does_not_exist_is_a_422_naming_it(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    before = db.scalar(select(func.count()).select_from(InventoryItem))
+
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(order.id, status="no_such_status"),
+        headers=admin_headers,
+    )
+
+    assert res.status_code == 422
+    assert "no_such_status" in res.text
+    db.expire_all()
+    assert db.scalar(select(func.count()).select_from(InventoryItem)) == before
 
 
 def test_tax_defaults_to_the_configured_rate_when_omitted(

@@ -258,6 +258,52 @@ def test_the_migration_carries_the_listed_check_constraints(migrated_url: str) -
     )
 
 
+#: Every partial index, by name, as PostgreSQL renders it. `compare_metadata`
+#: compares an index's columns, expressions and NULLS NOT DISTINCT but never
+#: its `postgresql_where`, so a migration that writes a predicate other than
+#: the model's is caught only by reading both.
+_PARTIAL_INDEXES = (
+    "SELECT indexname, indexdef FROM pg_indexes "
+    "WHERE schemaname = 'public' AND indexdef LIKE '% WHERE %'"
+)
+
+
+def _partial_indexes(url: str) -> dict[str, str]:
+    """Each partial index's definition in the database at `url`."""
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            return {
+                str(name): str(definition)
+                for name, definition in connection.execute(text(_PARTIAL_INDEXES)).all()
+            }
+    finally:
+        engine.dispose()
+
+
+def test_the_migrations_carry_every_partial_index_predicate(
+    migrated_url: str, engine: Engine
+) -> None:
+    """Each partial index the migrations build has the model's predicate.
+
+    `engine` is the session's test database, built from the models by
+    `create_all`; the other is built by the migrations alone.
+    """
+    built = _partial_indexes(migrated_url)
+    expected = _partial_indexes(engine.url.render_as_string(hide_password=False))
+
+    assert "uq_friedberg_number_identity" in expected
+    differing = sorted(
+        name
+        for name in built.keys() | expected.keys()
+        if built.get(name) != expected.get(name)
+    )
+    assert differing == [], (
+        "the migrations and the models give these partial indexes differently: "
+        f"{differing}"
+    )
+
+
 #: The database objects outside `Base.metadata` whose definitions matter:
 #: the four views, and `grade_display()`, which two of them call.
 _DEFINITIONS = (

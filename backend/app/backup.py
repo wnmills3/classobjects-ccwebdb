@@ -26,6 +26,14 @@ unchanged:
 
 None of that loses data. It changes how the target enforces it.
 
+**What the models do not hold.** The inventory views, the `grade_display()`
+function the search composes grades with, and the `fuzzystrmatch` extension
+behind `levenshtein()` are built by the migrations, not the models. On
+PostgreSQL the copy is given them too, from the same definitions, so it can
+serve the application; on another engine they are left out. Neither is the
+item-code sequence an id sequence: it is set past the highest code copied,
+so the copy's next item does not take a code already held.
+
 **Every table, not only the modeled ones.** `alembic_version` is
 Alembic's own, with no model; a copy driven by the models alone would leave
 it out, and could not be migrated. Such tables are read from the
@@ -59,10 +67,15 @@ from sqlalchemy.engine import Connection, Dialect, Engine, make_url
 from sqlalchemy.orm import Session
 
 from .config import settings
+from .grades import GRADE_DISPLAY_SQL
 from .models import Base
+from .models.core import item_code_sequence
+from .models.views import CREATE_VIEWS
 
 __all__ = [
     "CHUNK",
+    "HIGHEST_ITEM_CODE",
+    "ITEM_CODE_SEQUENCE",
     "MISSING",
     "admin_engine",
     "all_tables",
@@ -71,6 +84,7 @@ __all__ = [
     "create_database",
     "generated_columns",
     "main",
+    "resync_item_codes",
     "resync_sequence",
     "run",
     "stored_columns",
@@ -81,6 +95,15 @@ __all__ = [
 #: Rows copied per round trip. Large enough to be quick, small enough that a
 #: failure does not sit on one enormous uncommitted transaction.
 CHUNK = 1000
+
+#: The sequence item codes are drawn from. No column owns it, so neither an
+#: id sequence's resync nor `TRUNCATE ... RESTART IDENTITY` moves it.
+ITEM_CODE_SEQUENCE = item_code_sequence.name
+
+#: The highest item code a table holds, as a number: the digits that end it.
+HIGHEST_ITEM_CODE = (
+    "SELECT max(substring(item_code from '[0-9]+$')::bigint) FROM inventory_item"
+)
 
 #: Prefix of the parameter a JSON column's value is written through: a name
 #: of its own, so that the parameter can carry a type that keeps SQL NULL
@@ -267,9 +290,13 @@ def _resync_sequences(session: Session, table: Table) -> None:
     """Point the table's id sequence past the ids just copied, and commit.
 
     Commits only when a sequence was set: a dialect without sequences, or a
-    table whose id is not backed by one, has nothing to commit.
+    table whose id is not backed by one, has nothing to commit. The item
+    codes' sequence is set with the item table's own.
     """
-    if resync_sequence(session, session.get_bind().dialect, table):
+    dialect = session.get_bind().dialect
+    ids = resync_sequence(session, dialect, table)
+    codes = resync_item_codes(session, dialect, table)
+    if ids or codes:
         session.commit()
 
 
@@ -318,6 +345,35 @@ def resync_sequence(
     return True
 
 
+def resync_item_codes(
+    executor: Connection | Session, dialect: Dialect, table: Table
+) -> bool:
+    """Point the item-code sequence past the highest code loaded; whether it was set.
+
+    Without this a restored database issues its next item a code one of its
+    items already holds, and the unique constraint refuses every new item
+    until the sequence has crept past them all. Only the item table, on a
+    database that has the sequence; like `resync_sequence`, a failure is
+    raised.
+    """
+    names = {c.name for c in table.columns}
+    if getattr(table, "name", None) != "inventory_item" or "item_code" not in names:
+        return False
+    if dialect.name != "postgresql":
+        return False
+    found = executor.execute(text("SELECT to_regclass(:s)"), {"s": ITEM_CODE_SEQUENCE})
+    if found.scalar() is None:
+        return False
+    executor.execute(
+        text(
+            "SELECT setval(:s, coalesce(highest, 1), highest IS NOT NULL) "
+            f"FROM ({HIGHEST_ITEM_CODE}) AS codes (highest)"
+        ),
+        {"s": ITEM_CODE_SEQUENCE},
+    )
+    return True
+
+
 #: Reported as the copy's row count for a table the copy does not have. A
 #: real count is never negative, so it cannot be mistaken for one, and it
 #: sorts below every genuine shortfall.
@@ -356,6 +412,8 @@ def run(target_url: str | None, *, name: str | None = None) -> tuple[str, int]:
     source = create_engine(source_url)
     target = create_engine(target_url)
     Base.metadata.create_all(target)
+    if target.dialect.name == "postgresql":
+        _build_beside_the_models(target)
     extra = unmodelled_tables(source)
     if extra:
         # Their own reflected definitions; the modeled tables they point at
@@ -370,6 +428,21 @@ def run(target_url: str | None, *, name: str | None = None) -> tuple[str, int]:
             print(f"  {table_name:<28}{count:>8,}")
         written += count
     return target_url, written
+
+
+def _build_beside_the_models(target: Engine) -> None:
+    """Give a PostgreSQL copy what the migrations build and the models do not.
+
+    The inventory search composes grades with `grade_display()`, the
+    near-duplicate serial check calls `levenshtein()` (`fuzzystrmatch`), and
+    the views are the place to query by hand. From the same definitions the
+    migrations and the test database use.
+    """
+    with target.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS fuzzystrmatch"))
+        conn.execute(text(GRADE_DISPLAY_SQL))
+        for statement in CREATE_VIEWS:
+            conn.execute(text(statement))
 
 
 def main(argv: list[str] | None = None) -> int:

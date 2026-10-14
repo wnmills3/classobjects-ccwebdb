@@ -6,10 +6,31 @@
  * made elsewhere then matters only if it touched a field being edited here;
  * every other field simply takes the new value. The server applies the same
  * rule to a save that sends its base (`PATCH /api/inventory/{id}`, `base`),
- * and these comparisons mirror `app.field_changes.same_value`.
+ * and these comparisons mirror `same_value` in
+ * `backend/app/field_changes.py`: were the form to judge two values the same
+ * where the server does not, the server would refuse the save over a
+ * conflict the form never shows.
  */
 
 import { FIELD_HELP } from '../../fieldHelp'
+
+//: The fields whose values are numbers, and so compare as numbers. Every
+//: other field is text: an identifier `0123` is not `123`. Kept equal to
+//: `NUMERIC_FIELDS` in `backend/app/field_changes.py`.
+export const NUMERIC_FIELDS = new Set([
+  'item_cost',
+  'shipping_cost',
+  'tax_rate',
+  'numismatic_value',
+  'fineness',
+  'gross_weight_ozt',
+  'fine_weight_ozt',
+  'year_start',
+  'year_end',
+  'series_year',
+  'piece_count',
+  'storage_location_id',
+])
 
 /** A field's name as a person reads it: its help title, else its key. */
 export const fieldName = (key) => FIELD_HELP[key]?.title ?? key.replaceAll('_', ' ')
@@ -30,10 +51,11 @@ export function fieldValue(item, key) {
 }
 
 /**
- * Whether two values say the same thing: blank and null alike, numbers as
- * numbers ("84" and "84.00"), lists as sets.
+ * Whether two values say the same thing: blank and null alike, lists as
+ * sets, and with `numeric` -- a field in `NUMERIC_FIELDS` -- numbers as
+ * numbers ("84" and "84.00"). Anything else compares as text.
  */
-export function sameValue(a, b) {
+export function sameValue(a, b, { numeric = false } = {}) {
   const blank = (v) => v === null || v === undefined || v === ''
   if (blank(a) && blank(b)) return true
   if (Array.isArray(a) && Array.isArray(b)) {
@@ -47,11 +69,15 @@ export function sameValue(a, b) {
     return norm(a) === norm(b)
   }
   if (typeof a === 'boolean' || typeof b === 'boolean') return a === b
-  const numeric = (v) =>
+  const isNumber = (v) =>
     typeof v === 'number' || (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()))
-  if (numeric(a) && numeric(b)) return Number(a) === Number(b)
-  return a === b
+  if (numeric && isNumber(a) && isNumber(b)) return Number(a) === Number(b)
+  if (blank(a) || blank(b)) return false
+  return String(a) === String(b)
 }
+
+/** Whether two values of the field `key` say the same thing (`sameValue`). */
+const sameIn = (key, a, b) => sameValue(a, b, { numeric: NUMERIC_FIELDS.has(key) })
 
 /** The base a save sends: each edited field's value where the edit began. */
 export function baseFor(baseItem, draft) {
@@ -67,8 +93,8 @@ export function baseFor(baseItem, draft) {
 export function conflictsOf(item, baseItem, draft) {
   return Object.keys(draft).filter(
     (key) =>
-      !sameValue(fieldValue(item, key), fieldValue(baseItem, key)) &&
-      !sameValue(fieldValue(item, key), draft[key]),
+      !sameIn(key, fieldValue(item, key), fieldValue(baseItem, key)) &&
+      !sameIn(key, fieldValue(item, key), draft[key]),
   )
 }
 

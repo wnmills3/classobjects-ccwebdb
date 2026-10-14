@@ -294,6 +294,47 @@ def test_a_guess_is_not_evidence_for_the_next_guess(
     assert _guesses(db, plain) == {}
 
 
+def test_a_fine_weight_worked_out_from_typed_values_is_evidence(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A save works out the fine weight of what a person typed: not a guess."""
+    for _ in range(6):
+        typed = _bullion(
+            db,
+            make_item,
+            gross_weight_ozt=Decimal("1"),
+            fineness=Decimal("0.9990"),
+            fine_weight_ozt=Decimal("0.999"),
+        )
+        record_derived(db, typed.id, ["fine_weight_ozt"], "weight")
+    plain = _bullion(db, make_item)
+    db.commit()
+
+    assert _guesses(db, plain) == {
+        "gross_weight_ozt": (Decimal("1"), "weight_peers"),
+        "fineness": (Decimal("0.9990"), "weight_peers"),
+    }
+
+
+def test_a_fine_weight_worked_out_from_a_guess_is_not_evidence(
+    db: Session, make_item: ItemFactory
+) -> None:
+    for _ in range(8):
+        guessed = _bullion(
+            db,
+            make_item,
+            gross_weight_ozt=Decimal("1"),
+            fineness=Decimal("0.9990"),
+            fine_weight_ozt=Decimal("0.999"),
+        )
+        record_derived(db, guessed.id, ["gross_weight_ozt"], "weight_text")
+        record_derived(db, guessed.id, ["fine_weight_ozt"], "weight")
+    plain = _bullion(db, make_item)
+    db.commit()
+
+    assert _guesses(db, plain) == {}
+
+
 def test_a_field_a_person_emptied_is_not_guessed(
     db: Session, make_item: ItemFactory
 ) -> None:

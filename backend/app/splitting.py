@@ -149,8 +149,13 @@ def split_item(
     parent: InventoryItem,
     pieces: list[SplitPiece],
     mode: str = EQUAL,
+    *,
+    user_id: int | None = None,
 ) -> list[InventoryItem]:
     """Break `parent` into `pieces`, dividing its cost between them.
+
+    `user_id` is who split it: each piece's opening status and first move
+    name them.
 
     Raises `SplitError` for an unknown mode, fewer than two pieces, a lot
     already split, a lot that is itself a piece, a piece holding less than
@@ -326,7 +331,9 @@ def split_item(
         # transition -- `from_status_id=None` is how the schema says so.
         # `lifecycle_writes.set_status` is for changes to a status that
         # already exists; a status change from here on must go through it.
-        record_initial_status(db, child, note=f"split from {parent.item_code}")
+        record_initial_status(
+            db, child, user_id=user_id, note=f"split from {parent.item_code}"
+        )
         # A piece starts where its lot was kept. Through `set_location`, not
         # as an inherited column, so the piece's location history opens with
         # the row that says so; a lot kept nowhere moves nothing.
@@ -334,6 +341,7 @@ def split_item(
             db,
             child,
             parent.storage_location_id,
+            user_id=user_id,
             note=f"split from {parent.item_code}",
         )
         children.append(child)

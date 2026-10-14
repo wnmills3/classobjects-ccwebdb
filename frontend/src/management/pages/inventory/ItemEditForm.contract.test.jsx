@@ -227,7 +227,9 @@ describe('ItemEditForm: no date', () => {
     await user.click(box)
     await user.click(box)
     expect(screen.getByRole('spinbutton', { name: 'Year' })).toHaveValue(1965)
-    expect(saveButton()).toBeDisabled()
+    await user.click(saveButton())
+    expect(await screen.findByText(/^Nothing to save/)).toBeInTheDocument()
+    expect(api.updateInventoryItem).not.toHaveBeenCalled()
   })
 
   it('is not sent for a piece that is then made a note', async () => {

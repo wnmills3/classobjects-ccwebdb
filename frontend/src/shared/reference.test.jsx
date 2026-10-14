@@ -318,16 +318,29 @@ describe('ReferenceSelect adding a value by its label alone', () => {
     })
   })
 
-  it('disables Add for a label that derives to an empty code', async () => {
+  it('says why a label that derives to an empty code is not added', async () => {
     const user = userEvent.setup()
     renderAttributePicker()
     await openAddForm(user)
     await user.type(screen.getByPlaceholderText('label'), '!!!')
 
     expect(document.querySelector('.derived-code')).toHaveTextContent('')
-    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled()
+    // Live, not greyed out: pressing it says what is missing.
+    expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled()
     await user.click(screen.getByRole('button', { name: 'Add' }))
     expect(api.addReferenceValue).not.toHaveBeenCalled()
+    expect(
+      screen.getByText('The label needs a letter or a digit to make a code from.'),
+    ).toBeInTheDocument()
+  })
+
+  it('says a label is needed when Add is pressed with none', async () => {
+    const user = userEvent.setup()
+    renderAttributePicker()
+    await openAddForm(user)
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    expect(api.addReferenceValue).not.toHaveBeenCalled()
+    expect(screen.getByText('A label is needed first.')).toBeInTheDocument()
   })
 
   it('renders no group picker, and requires none, when groupField is not given', async () => {
@@ -350,7 +363,7 @@ describe('ReferenceSelect adding a value by its label alone', () => {
       { code: 'variety', label: 'Variety' },
     ]
 
-    it('keeps Add disabled until a group is chosen, then sends it under extra', async () => {
+    it('holds Add until a group is chosen, saying so, then sends it under extra', async () => {
       const user = userEvent.setup()
       api.addReferenceValue.mockResolvedValue({})
       const onChange = renderAttributePicker({
@@ -360,7 +373,9 @@ describe('ReferenceSelect adding a value by its label alone', () => {
       await openAddForm(user)
       await user.type(screen.getByPlaceholderText('label'), 'Mismatched Serial')
 
-      expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled()
+      await user.click(screen.getByRole('button', { name: 'Add' }))
+      expect(api.addReferenceValue).not.toHaveBeenCalled()
+      expect(screen.getByText('Choose a group first.')).toBeInTheDocument()
 
       await user.selectOptions(
         screen.getByRole('combobox', { name: 'group' }),

@@ -22,6 +22,9 @@ export default function SellerField({ value, onChange }) {
   const loaded = useRequest('sellers', () => api.listSellers())
   const [added, setAdded] = useState([])
   const addOption = useAddOption()
+  // Add stays live: a press with no name says so, rather than a dimmed
+  // button that says nothing.
+  const [askedEmpty, setAskedEmpty] = useState(false)
   const sellers = [...(loaded.data ?? []), ...added].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
   )
@@ -68,12 +71,21 @@ export default function SellerField({ value, onChange }) {
           value={draft.name}
           onChange={(e) => setDraft({ ...draft, name: e.target.value })}
         />
-        <button type="button" onClick={add} disabled={!ready}>
+        <button
+          type="button"
+          onClick={() => {
+            setAskedEmpty(!ready)
+            if (ready) add()
+          }}
+        >
           Add seller
         </button>
         <button type="button" className="link" onClick={() => setAdding(false)}>
           Cancel
         </button>
+        {askedEmpty && !ready && (
+          <span className="error">Type the seller&apos;s name first.</span>
+        )}
         {error && <span className="error">{error}</span>}
       </div>
     )

@@ -77,9 +77,10 @@ server)*).
 - `sonar.sources=backend/app,frontend/src` (Alembic's generated migrations,
   under `backend/alembic`, lie outside it)
 - `sonar.tests=backend/tests,frontend/src`, with `sonar.test.inclusions`
-  naming `*.test.js`, `*.test.jsx` and `src/test/**` -- frontend tests sit
-  beside their components, and without the inclusion they count as uncovered
-  source
+  naming `backend/tests/**`, `*.test.js`, `*.test.jsx` and `src/test/**` --
+  frontend tests sit beside their components, and without the inclusion they
+  count as uncovered source; the inclusion narrows every test root, so the
+  backend's tests are named in it too
 - `sonar.python.version=3.13`, `sonar.python.coverage.reportPaths=coverage.xml`
 - `sonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info`
 - `sonar.exclusions=frontend/dist/**,frontend/node_modules/**`

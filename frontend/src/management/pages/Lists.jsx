@@ -166,7 +166,8 @@ function lists(vendorKinds, locationKinds) {
       remove: api.deleteStorageLocation,
       name: (row) => row.label,
       uses: (row) => row.item_count,
-      usesLabel: 'Items',
+      // Items kept there now and moves recorded to it: one item can be both.
+      usesLabel: 'Item records',
       editable: (row) => !MADE_ELSEWHERE.has(row.kind),
       searchText: (row) =>
         [row.label, row.institution, row.identifier, row.notes]

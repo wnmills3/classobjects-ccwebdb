@@ -528,6 +528,16 @@ def test_designs_year_span_is_empty_when_no_year_is_recorded(db: Session) -> Non
     assert _designs_row(result, "Lincoln Cent")["year_span"] == ""
 
 
+def test_designs_year_span_reaches_the_end_of_a_ranged_date(db: Session) -> None:
+    """A piece dated 1999-2009 carries the span to 2009, past a later single year."""
+    series = code_id(db, Series, "lincoln_cent")
+    _coin(db, _CENT, Decimal("1.00"), series_id=series, year_start=1999, year_end=2009)
+    _coin(db, _CENT, Decimal("1.00"), series_id=series, year_start=2001, year_end=2001)
+
+    result = CB_DESIGNS.run(db, DesignsParams())
+    assert _designs_row(result, "Lincoln Cent")["year_span"] == "1999-2009"
+
+
 def test_designs_no_series_sorts_last_and_currency_is_excluded(db: Session) -> None:
     lincoln = code_id(db, Series, "lincoln_cent")
     _coin(db, _CENT, Decimal("1.00"), series_id=lincoln, year_start=1950)
@@ -751,9 +761,20 @@ def test_notes_counts_star_notes_and_fancy_serials(db: Session) -> None:
     _add_attribute(db, fancy, "fancy_serial")
     assert plain.id  # the plain note carries neither
 
+    # A star a person removed: the link row stays, and counts for nothing.
+    removed = _currency_note(db, _NOTE_1, Decimal("40.00"), series_year=1935)
+    db.add(
+        ItemAttributeLink(
+            inventory_item_id=removed.id,
+            item_attribute_id=code_id(db, ItemAttribute, "star"),
+            removed_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
+    db.commit()
+
     result = CB_NOTES.run(db, NotesParams())
     row = _notes_row(result, "Federal Reserve Note", "1935")
-    assert row["items"] == 3
+    assert row["items"] == 4
     assert row["star_notes"] == 1
     assert row["fancy_serials"] == 1
 
@@ -961,6 +982,24 @@ def test_grades_drill_matches_the_search_count_with_strike_and_service(
         and r["band"] == "65-70"
         and r["strike_type"] == "Business Strike"
         and r["grading_service"] == "PCGS"
+    )
+    assert result.rows[idx]["items"] == 2
+    path, query = _parsed(cast(str, result.drills[idx]))
+    assert path == "/inventory/coins"
+    _, total = inventory_search(db, COIN_VIEW, params=dict(query))
+    assert total == 2
+
+
+def test_grades_drill_keeps_a_plus_grade_at_the_top_of_its_band(db: Session) -> None:
+    """A 64+ (rank 64.5) counts in 60-64, and the band's drill still finds it."""
+    _graded_coin(db, "60", Decimal("1.00"))
+    _graded_coin(db, "64+", Decimal("2.00"))
+
+    result = CB_GRADES.run(db, GradesParams())
+    idx = next(
+        i
+        for i, r in enumerate(result.rows)
+        if r["view"] == "Coins" and r["band"] == "60-64"
     )
     assert result.rows[idx]["items"] == 2
     path, query = _parsed(cast(str, result.drills[idx]))

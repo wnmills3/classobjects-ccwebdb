@@ -280,15 +280,21 @@ describe('Vocabularies', () => {
     expect(await screen.findByRole('button', { name: 'Retire Old Type' })).toBeVisible()
   })
 
-  it('does not offer to retire a value the application looks up', async () => {
+  it('says why a value the application looks up is not retired', async () => {
     const user = userEvent.setup()
     await openNoteTypes(user)
     const retire = screen.getByRole('button', { name: 'Retire Federal Reserve Note' })
-    expect(retire).toBeDisabled()
-    expect(retire).toHaveAttribute(
-      'title',
-      'The application looks this value up by its code',
-    )
+    // Live, not greyed out: pressing it says why nothing happens.
+    expect(retire).toBeEnabled()
+    await user.click(retire)
+
+    expect(api.renameReferenceValue).not.toHaveBeenCalled()
+    expect(
+      within(row('Federal Reserve Note')).getByText(
+        'Federal Reserve Note cannot be retired: the application looks it up ' +
+          'by its code. It can still be renamed.',
+      ),
+    ).toBeVisible()
     expect(
       screen.getByRole('button', { name: 'Rename Federal Reserve Note' }),
     ).toBeEnabled()
@@ -430,14 +436,22 @@ describe('Vocabularies', () => {
     expect(api.mergeReferenceValue).toHaveBeenCalledTimes(1)
   })
 
-  it('does not offer to merge away a value the application looks up', async () => {
+  it('says why a value the application looks up is not merged away', async () => {
     const user = userEvent.setup()
     await openNoteTypes(user)
+    const merge = screen.getByRole('button', {
+      name: 'Merge Federal Reserve Note into another value',
+    })
+    expect(merge).toBeEnabled()
+    await user.click(merge)
+
+    expect(screen.queryByLabelText('Merge Federal Reserve Note into')).toBeNull()
     expect(
-      screen.getByRole('button', {
-        name: 'Merge Federal Reserve Note into another value',
-      }),
-    ).toBeDisabled()
+      within(row('Federal Reserve Note')).getByText(
+        'Federal Reserve Note cannot be merged away: the application looks it ' +
+          'up by its code.',
+      ),
+    ).toBeVisible()
   })
 
   it('names the for-sale items in the preview and acknowledges on merge', async () => {

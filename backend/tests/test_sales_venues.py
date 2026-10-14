@@ -11,10 +11,14 @@ from app.models import (
     ListingStatus,
     SalesVenue,
     SalesVenueKind,
+    User,
     Vendor,
 )
 from app.references import retirable
+from app.routers import sales_venues as sales_venues_router
 from app.sales_venues import STORE_CODE, ensure_store_venue, store_venue_id
+from app.schemas import SalesVenueUpdate
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
@@ -312,6 +316,36 @@ def test_unlink_a_vendor_with_null(
     )
     assert response.status_code == 200
     assert response.json()["vendor_id"] is None
+
+
+def test_a_purchase_source_gone_before_the_commit_is_not_called_linked(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a duplicate link reads as "already linked".
+
+    The purchase source is checked before the write, and another request can
+    delete it in between: the foreign key then refuses the commit. That is
+    not a second platform holding the link, and saying so would send the
+    owner looking for one that does not exist. The check is stood down here
+    to open that window. It is the same bad field the check itself answers:
+    a 422 naming the id.
+    """
+    created = _create(client, admin_headers)
+    monkeypatch.setattr(sales_venues_router, "_check_vendor", lambda *_args: None)
+
+    with pytest.raises(HTTPException) as refused:
+        sales_venues_router.update_sales_venue(
+            "ebay",
+            SalesVenueUpdate(vendor_id=999999, version=created["version"]),
+            db,
+            admin_user,
+        )
+    assert refused.value.status_code == 422
+    assert refused.value.detail == "No purchase source with id 999999"
 
 
 def test_a_stale_version_is_a_conflict(

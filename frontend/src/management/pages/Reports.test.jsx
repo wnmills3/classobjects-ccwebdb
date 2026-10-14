@@ -32,6 +32,7 @@ import { date, dateTime, money } from '../../shared/format'
 import { FIELD_HELP } from '../fieldHelp'
 import { adminAuth, renderWithProviders } from '../../test/helpers'
 import Reports from './Reports'
+import { paramHelp } from './reports/values'
 
 const CATALOG = [
   {
@@ -669,6 +670,27 @@ describe('Reports page', () => {
         .map((control) => control.textContent || control.outerHTML)
       expect(uncovered).toEqual([])
       unmount()
+    }
+  })
+
+  it('explains every report parameter in its own words, not the general entry', () => {
+    // Every parameter a registered report takes (`GET /api/reports`). The
+    // help band falls back to `report_param` for a name with no entry, so
+    // only asking for each name's own entry shows one missing.
+    for (const name of [
+      'status',
+      'disposition',
+      'denomination',
+      'letters',
+      'stars',
+      'overdue_days',
+      'date_from',
+      'date_to',
+      'period',
+      'vendor',
+      'show',
+    ]) {
+      expect(paramHelp(name), name).toBe(`report_${name}`)
     }
   })
 

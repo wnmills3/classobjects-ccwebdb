@@ -5,11 +5,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Collection
+from datetime import UTC, datetime
+
 import pytest
-from app import image_links
+from app import image_links, sale_state
 from app.models import Image, ImageRole, InventoryItem, ItemImage, Listing
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import Executable, delete, event, select, update
 from sqlalchemy.orm import Session
 
 from tests.conftest import build_item
@@ -477,6 +480,26 @@ def test_detaching_from_a_listed_item_is_refused_until_acknowledged(
     assert gone.status_code == 204, gone.text
 
 
+def test_filing_on_a_split_item_is_a_422(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """A split item is retired into its parts: nothing is filed on it any more."""
+    item = build_item(db, split_at=datetime(2026, 1, 1, tzinfo=UTC))
+    image = _image(db, "5a" * 32)
+    db.commit()
+
+    refused = client.post(
+        f"/api/images/{image.id}/links",
+        json={"inventory_item_id": item.id},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert "split" in refused.json()["detail"]
+    db.expire_all()
+    assert db.scalar(select(ItemImage).where(ItemImage.image_id == image.id)) is None
+
+
 def test_re_roling_a_listed_items_photograph_is_refused_until_acknowledged(
     client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
 ) -> None:
@@ -502,3 +525,233 @@ def test_re_roling_a_listed_items_photograph_is_refused_until_acknowledged(
     )
     assert changed.status_code == 200, changed.text
     assert changed.json()["image_role"] == "reverse"
+
+
+# --------------------------------------------------------------------------
+# Concurrent requests: the rows held, and what lands between read and hold
+# --------------------------------------------------------------------------
+
+
+def _statements_while(db: Session, act: Callable[[], object]) -> list[str]:
+    """Every statement `act` sends, in order."""
+    sent: list[str] = []
+
+    def record(_conn: object, _cursor: object, statement: str, *_: object) -> None:
+        """Keep each statement, in order."""
+        sent.append(statement)
+
+    connection = db.connection()
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        act()
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+    return sent
+
+
+def _first(sent: list[str], *fragments: str) -> int:
+    """The place of the first statement holding every fragment; -1 for none."""
+    for place, statement in enumerate(sent):
+        if all(fragment in statement for fragment in fragments):
+            return place
+    return -1
+
+
+def _holds_items(sent: Collection[str]) -> bool:
+    """Whether any of these statements takes item rows FOR UPDATE."""
+    return any("FOR UPDATE" in s and "FROM inventory_item" in s for s in sent)
+
+
+def _after_the_guard(monkeypatch: pytest.MonkeyPatch, *statements: Executable) -> None:
+    """Run `statements` once, just after the request's for-sale guard.
+
+    As another request's commit would land: after this one read its rows and
+    before it holds them. The instances this request loaded do not see it.
+    """
+    real = sale_state.guard
+    landed: list[bool] = []
+
+    def guard(
+        db: Session,
+        items: Collection[InventoryItem],
+        *,
+        acknowledged: bool,
+        kinds: Collection[str] | None = None,
+    ) -> None:
+        """Ask the real guard, then land the other request's writes."""
+        real(db, items, acknowledged=acknowledged, kinds=kinds)
+        if landed:
+            return
+        landed.append(True)
+        for statement in statements:
+            db.execute(statement.execution_options(synchronize_session=False))
+
+    monkeypatch.setattr(sale_state, "guard", guard)
+
+
+def _moved_meanwhile(
+    monkeypatch: pytest.MonkeyPatch, link: ItemImage, target: InventoryItem, heir: int
+) -> None:
+    """Another request moves `link` to `target`; `heir` takes the primary it left."""
+    _after_the_guard(
+        monkeypatch,
+        update(ItemImage).where(ItemImage.id == link.id).values(is_primary=False),
+        update(ItemImage).where(ItemImage.id == heir).values(is_primary=True),
+        update(ItemImage)
+        .where(ItemImage.id == link.id)
+        .values(inventory_item_id=target.id, sort_order=1, is_primary=True),
+    )
+
+
+def _primaries(db: Session, item: InventoryItem) -> list[int]:
+    """The item's primary links, as the database now holds them."""
+    db.expire_all()
+    return list(
+        db.scalars(
+            select(ItemImage.id).where(
+                ItemImage.inventory_item_id == item.id, ItemImage.is_primary
+            )
+        )
+    )
+
+
+def _filed_pair(db: Session, sha: str) -> tuple[InventoryItem, ItemImage, ItemImage]:
+    """An item with a primary photograph and a second one, committed."""
+    item = build_item(db)
+    primary = image_links.attach(
+        db,
+        image=_image(db, sha * 32),
+        item=item,
+        role=None,
+        is_primary=True,
+        sort_order=1,
+    )
+    second = image_links.attach(
+        db,
+        image=_image(db, sha[::-1] * 32),
+        item=item,
+        role=None,
+        is_primary=False,
+        sort_order=2,
+    )
+    db.commit()
+    return item, primary, second
+
+
+def test_destroying_a_photograph_holds_its_items_before_it_deletes(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """A photograph filed on the item meanwhile waits, and is given the primary.
+
+    Unheld, the filing sees the doomed photograph as the incumbent and is not
+    made primary, the delete cannot see the filing to promote it, and the
+    item is left with a photograph and no primary.
+    """
+    item = build_item(db)
+    doomed = _image(db, "c4" * 32)
+    image_links.attach(db, image=doomed, item=item, role=None, is_primary=True)
+    db.commit()
+
+    sent = _statements_while(
+        db,
+        lambda: client.delete(f"/api/images/{doomed.id}", headers=admin_headers),
+    )
+
+    held = _first(sent, "FROM inventory_item", "FOR UPDATE")
+    deleted = _first(sent, "DELETE FROM")
+    assert held != -1, sent
+    assert deleted != -1, sent
+    assert held < deleted
+
+
+def test_unfiling_moving_and_promoting_each_hold_the_item(db: Session) -> None:
+    """The one primary is read and written by one request at a time."""
+    _item, primary, second = _filed_pair(db, "d1")
+    other = build_item(db)
+
+    promoting = _statements_while(db, lambda: image_links.make_primary(db, second))
+    moving = _statements_while(db, lambda: image_links.move(db, primary, other))
+    unfiling = _statements_while(db, lambda: image_links.detach(db, second))
+
+    assert _holds_items(promoting)
+    assert _holds_items(moving)
+    assert _holds_items(unfiling)
+
+
+def test_making_primary_a_photograph_moved_meanwhile_is_refused(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Promoted against the item it left, it would demote that item's new primary."""
+    source, moving, staying = _filed_pair(db, "d2")
+    target = build_item(db)
+    _moved_meanwhile(monkeypatch, moving, target, staying.id)
+
+    refused = client.patch(
+        f"/api/image-links/{moving.id}",
+        json={"is_primary": True},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 409, refused.text
+    assert len(_primaries(db, source)) == 1
+
+
+def test_unfiling_a_photograph_moved_meanwhile_is_refused(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It is on another item now, which this request never asked about."""
+    _source, moving, staying = _filed_pair(db, "d3")
+    target = build_item(db)
+    _moved_meanwhile(monkeypatch, moving, target, staying.id)
+
+    refused = client.delete(f"/api/image-links/{moving.id}", headers=admin_headers)
+
+    assert refused.status_code == 409, refused.text
+    db.expire_all()
+    assert db.get(ItemImage, moving.id) is not None
+
+
+def test_re_roling_a_photograph_unfiled_meanwhile_is_a_409(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The link went between this request's read and its write: a conflict."""
+    _item, _primary, second = _filed_pair(db, "d4")
+    _after_the_guard(monkeypatch, delete(ItemImage).where(ItemImage.id == second.id))
+
+    refused = client.patch(
+        f"/api/image-links/{second.id}",
+        json={"image_role": "reverse"},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 409, refused.text
+
+
+def test_filing_a_photograph_destroyed_meanwhile_is_a_409(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The photograph went between this request's read and its write: a conflict."""
+    item = build_item(db)
+    image = _image(db, "d5" * 32)
+    db.commit()
+    _after_the_guard(monkeypatch, delete(Image).where(Image.id == image.id))
+
+    refused = client.post(
+        f"/api/images/{image.id}/links",
+        json={"inventory_item_id": item.id},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 409, refused.text

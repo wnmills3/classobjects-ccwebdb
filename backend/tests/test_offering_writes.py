@@ -1146,10 +1146,11 @@ def test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order(
     Asserted on the *first* lock of each kind, because later passes re-lock
     rows this transaction already holds -- `_locked_offers` per member,
     `end_offer` inside `_settle_sold_lots` -- and those neither block nor
-    reorder anything. Swapping two lines in `_acquire` makes this fail;
+    reorder anything. Swapping two lines in `_acquire` makes this fail.
     `tests/test_offer_races.py::test_buying_a_lot_races_offering_one_of_its_coins`
-    is the same guarantee measured as a real collision between two
-    connections.
+    is its pair, not a second measure of the same thing: it collides two
+    connections and fails on a caller that bypasses `_acquire`, which this
+    test cannot see, while an inverted `_acquire` passes it.
     """
     customer = order_writes.customer_for_user(db, customer_user)
     with _locked_tables(db) as taken:

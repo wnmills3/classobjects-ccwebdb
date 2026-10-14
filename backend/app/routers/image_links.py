@@ -20,10 +20,20 @@ from .. import image_links, sale_state
 from ..deps import AdminUser, DbSession
 from ..models import InventoryItem, ItemImage
 from ..schemas import ImageLinkMove, ImageLinkOut, ImageLinkUpdate
-from ._resolve import get_or_404, get_or_422
-from .images import link_out
+from ._resolve import get_or_404
+from ._tx import committing
+from .images import fileable_item, link_out
 
 router = APIRouter(prefix="/image-links", tags=["images"])
+
+#: The link went between this request's read and its write: a write that
+#: found no row to change, said as `image_links` says it.
+_CHANGED_MEANWHILE = image_links.CHANGED_MEANWHILE
+
+
+def _conflict(exc: image_links.LinkRefused) -> HTTPException:
+    """The 409 a refusal from `app.image_links` is answered with."""
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
 def _guarded_link(db: Session, link_id: int, *, acknowledged: bool) -> ItemImage:
@@ -44,16 +54,19 @@ def update_link(
 ) -> ImageLinkOut:
     """Say what this photograph shows, or make it the one the shop uses."""
     link = _guarded_link(db, link_id, acknowledged=payload.acknowledge_for_sale)
-    # model_fields_set, not `is not None`: an omitted field is left alone, an
-    # explicit null clears the role -- the same convention `routers.offers`,
-    # `routers.sales_venues` and `routers.inventory` follow. Testing for None
-    # cannot tell the two apart, which would make the console's blank option
-    # a no-op.
-    if "image_role" in payload.model_fields_set:
-        image_links.set_role(db, link, payload.image_role)
-    if payload.is_primary:
-        image_links.make_primary(db, link)
-    db.commit()
+    with committing(db, _CHANGED_MEANWHILE):
+        # model_fields_set, not `is not None`: an omitted field is left
+        # alone, an explicit null clears the role -- the same convention
+        # `routers.offers`, `routers.sales_venues` and `routers.inventory`
+        # follow. Testing for None cannot tell the two apart, which would
+        # make the console's blank option a no-op.
+        if "image_role" in payload.model_fields_set:
+            image_links.set_role(db, link, payload.image_role)
+        if payload.is_primary:
+            try:
+                image_links.make_primary(db, link)
+            except image_links.LinkRefused as exc:
+                raise _conflict(exc) from exc
     db.refresh(link)
     return link_out(db, link)
 
@@ -68,20 +81,15 @@ def move_link(
     the item it leaves and the item it joins both change what a buyer sees.
     """
     link = _guarded_link(db, link_id, acknowledged=payload.acknowledge_for_sale)
-    target = get_or_422(
-        db,
-        InventoryItem,
-        payload.inventory_item_id,
-        f"No such item: {payload.inventory_item_id}",
+    target = fileable_item(
+        db, payload.inventory_item_id, f"No such item: {payload.inventory_item_id}"
     )
     sale_state.guard(db, [target], acknowledged=payload.acknowledge_for_sale)
-    try:
-        image_links.move(db, link, target)
-    except image_links.LinkRefused as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
-    db.commit()
+    with committing(db, _CHANGED_MEANWHILE):
+        try:
+            image_links.move(db, link, target)
+        except image_links.LinkRefused as exc:
+            raise _conflict(exc) from exc
     db.refresh(link)
     return link_out(db, link)
 
@@ -95,6 +103,9 @@ def detach_link(
 ) -> Response:
     """Unfile the photograph. The image itself remains, unattached."""
     link = _guarded_link(db, link_id, acknowledged=acknowledge_for_sale)
-    image_links.detach(db, link)
-    db.commit()
+    with committing(db, _CHANGED_MEANWHILE):
+        try:
+            image_links.detach(db, link)
+        except image_links.LinkRefused as exc:
+            raise _conflict(exc) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -3,15 +3,23 @@
 The database is the system of record, so a backup that looks fine and is not
 faithful is worse than none. These check the two things that make it faithful
 and the one that makes it portable. The copy itself, `copy_rows`, is run
-between two scratch databases in `tests/test_workbook_backup.py`.
+between two scratch databases in `tests/test_workbook_backup.py`; a whole
+copy, `run`, is made here from the test database.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
+from app import backup
 from app.backup import generated_columns, timestamped_name
 from app.models import Base
-from sqlalchemy.engine import make_url
+from app.models.views import ALL_VIEWS
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine, make_url
+
+from tests.conftest import TEST_URL, drop_database
 
 
 def test_tables_copy_in_foreign_key_order() -> None:
@@ -191,3 +199,61 @@ def test_a_successful_resync_commits_the_setval() -> None:
     assert any("setval" in sql for sql in session.executed)
     assert session.committed == 1
     assert session.rolled_back == 0
+
+
+@pytest.fixture
+def copy_url(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """An empty database to copy into, with the test database as the source.
+
+    `app.backup.run` copies whatever `settings.database_url` names; here that
+    is the test session's own database, never the application's.
+    """
+    monkeypatch.setattr(
+        backup.settings,
+        "database_url",
+        engine.url.render_as_string(hide_password=False),
+    )
+    name = "ccwebdb_test_bak_copy"
+    admin = create_engine(
+        TEST_URL.set(database="postgres"), isolation_level="AUTOCOMMIT"
+    )
+    with admin.connect() as conn:
+        drop_database(conn, name)
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    try:
+        yield TEST_URL.set(database=name).render_as_string(hide_password=False)
+    finally:
+        with admin.connect() as conn:
+            drop_database(conn, name)
+        admin.dispose()
+
+
+def test_a_copy_holds_what_the_application_reads_beside_the_tables(
+    copy_url: str,
+) -> None:
+    """The views, `grade_display()` and `levenshtein()` are not in the models.
+
+    The inventory search composes grades with `grade_display()` and the
+    near-duplicate serial check calls `levenshtein()`: a copy without them
+    holds every row and still cannot serve the console.
+    """
+    backup.run(copy_url)
+
+    copy = create_engine(copy_url)
+    try:
+        with copy.connect() as conn:
+            views = set(
+                conn.execute(
+                    text("SELECT viewname FROM pg_views WHERE schemaname = 'public'")
+                ).scalars()
+            )
+            functions = conn.execute(
+                text("SELECT count(*) FROM pg_proc WHERE proname = 'grade_display'")
+            ).scalar_one()
+            distance = conn.execute(text("SELECT levenshtein('abc', 'abd')")).scalar()
+    finally:
+        copy.dispose()
+
+    assert views >= set(ALL_VIEWS)
+    assert functions == 1
+    assert distance == 1

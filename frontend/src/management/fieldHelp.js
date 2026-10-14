@@ -462,7 +462,7 @@ export const FIELD_HELP = {
       'later printing of the same series, usually because a new Treasurer or ' +
       'Secretary signed it. Leave it blank when the series has no letter, as SERIES ' +
       '1995 does. It is not the letter in the seal: that is the Reserve Bank. ' +
-      'If no note of that value was issued in that series, the form says so and ' +
+      'If no note of that value was issued in that series, Receiving says so and ' +
       'lists the series that were.',
   },
   signature_combination: {
@@ -636,13 +636,14 @@ export const FIELD_HELP = {
     title: 'Select all shown',
     text:
       'Ticks every item on this page -- this page only, not every match -- to act ' +
-      'on them together: review them, edit them in bulk, or offer them for sale.',
+      'on them together: edit them in bulk, offer them for sale or group them into ' +
+      'a lot.',
   },
   select_row: {
     title: 'Select',
     text:
-      'Tick items to act on them together: review them one after another, edit ' +
-      'them in bulk, or offer them for sale.',
+      'Tick items to act on them together: edit them in bulk, offer them for ' +
+      'sale or group them into a lot.',
   },
   // -- acting on a selection: one field, a lot, an offer ----------------------
   bulk_field: {
@@ -777,6 +778,12 @@ export const FIELD_HELP = {
   report_date_to: {
     title: 'To',
     text: 'Counts up to this date. Left empty, there is no end -- everything from From on.',
+  },
+  report_period: {
+    title: 'Period',
+    text:
+      'How the dates are grouped into rows: by month, quarter or year, with a ' +
+      'subtotal after each. Sales tax paid offers month or year only.',
   },
   report_run: {
     title: 'Run',

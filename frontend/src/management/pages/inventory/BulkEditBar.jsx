@@ -245,6 +245,15 @@ export default function BulkEditBar({
   const topic = HELP_FOR[field] ?? field
 
   async function apply() {
+    // Live with nothing chosen, and says what it wants rather than greying.
+    if (value === '') {
+      setError(
+        type === 'location'
+          ? 'Choose the location first.'
+          : 'Type the new value first.',
+      )
+      return
+    }
     setBusy(true)
     try {
       // A year and a location's id go as numbers; a code goes as typed.
@@ -299,10 +308,22 @@ export default function BulkEditBar({
         />
       )}
 
-      <button disabled={busy || value === ''} onClick={apply}>
+      <button disabled={busy} onClick={apply}>
         {busy ? 'Applying...' : `Apply to ${ids.length}`}
       </button>
-      <button disabled={chosen.length === 0} onClick={() => setOffering(true)}>
+      <button
+        onClick={() => {
+          // Pricing needs the row, and only this page's rows are loaded.
+          if (chosen.length === 0) {
+            setError(
+              'None of the selected items is on this page: go to their page to ' +
+                'offer them.',
+            )
+            return
+          }
+          setOffering(true)
+        }}
+      >
         Offer for sale...
       </button>
       <button
