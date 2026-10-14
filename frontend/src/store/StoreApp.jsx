@@ -2,6 +2,7 @@ import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-route
 
 import { useAuth } from '../shared/auth-context'
 import { useCart } from './cart-context'
+import DigiCertSeal from './DigiCertSeal'
 import Cart from './pages/Cart'
 import Catalog from './pages/Catalog'
 import CoinDetail from './pages/CoinDetail'
@@ -87,6 +88,7 @@ export default function StoreApp() {
 
       <footer className="footer muted">
         ccwebdb - development build. Prices and inventory are sample data.
+        <DigiCertSeal />
       </footer>
     </div>
   )

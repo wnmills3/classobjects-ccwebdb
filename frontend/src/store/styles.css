@@ -184,3 +184,7 @@
   border-color: var(--danger);
   color: var(--danger);
 }
+
+.seal {
+  margin-top: 12px;
+}
