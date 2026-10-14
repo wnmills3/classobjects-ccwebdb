@@ -39,8 +39,13 @@ GIFT = "gift"
 #: `item_attribute_link.derived_by` for the links this rule adds.
 RULE = "no_cost"
 
-#: The word in a title, with the white space and punctuation that set it apart.
-_WORD = re.compile(r"[\s\-:,]*\bgift\b[\s\-:,]*", re.IGNORECASE)
+#: The word in a title. The white space and punctuation that set it apart
+#: are trimmed by hand (`_SEPARATORS`): a pattern that took them too would
+#: try every run of them as a start, which is slow on a long run.
+_WORD = re.compile(r"\bgift\b", re.IGNORECASE)
+
+#: What sets the word apart, besides white space.
+_SEPARATORS = "-:,"
 
 
 def earns(item: InventoryItem) -> bool:
@@ -72,9 +77,33 @@ def would_add(db: Session, item: InventoryItem) -> bool:
     return attribute is not None and earns(item) and _link(db, item, attribute) is None
 
 
+def _separator(char: str) -> bool:
+    """Whether `char` sets a word apart: white space, a dash, colon or comma."""
+    return char.isspace() or char in _SEPARATORS
+
+
+def _trimmed(text: str, *, left: bool, right: bool) -> str:
+    """`text` less the separators at the ends named."""
+    start, end = 0, len(text)
+    while left and start < end and _separator(text[start]):
+        start += 1
+    while right and end > start and _separator(text[end - 1]):
+        end -= 1
+    return text[start:end]
+
+
 def without_the_word(title: str) -> str:
-    """A title less the word Gift; unchanged where nothing else would be left."""
-    kept = _WORD.sub(" ", title).strip()
+    """A title less the word Gift; unchanged where nothing else would be left.
+
+    Each Gift goes with the separators either side of it, and a space stands
+    in its place.
+    """
+    pieces = _WORD.split(title)
+    last = len(pieces) - 1
+    kept = " ".join(
+        _trimmed(piece, left=index > 0, right=index < last)
+        for index, piece in enumerate(pieces)
+    ).strip()
     return kept or title
 
 
@@ -117,9 +146,17 @@ def apply(db: Session, item: InventoryItem) -> list[str]:
         if (item.description or "").strip() in ("", generated):
             item.description = suggested_description(db, item)
             moved.append("description")
-    if free and held and item.source_title:
-        title = without_the_word(item.source_title)
-        if title != item.source_title:
-            item.source_title = title
-            moved.append("source_title")
+    if free and held and _drop_the_word(item):
+        moved.append("source_title")
     return moved
+
+
+def _drop_the_word(item: InventoryItem) -> bool:
+    """Take Gift out of the item's title; whether that changed it."""
+    if not item.source_title:
+        return False
+    title = without_the_word(item.source_title)
+    if title == item.source_title:
+        return False
+    item.source_title = title
+    return True

@@ -107,37 +107,48 @@ def _coin_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
     # Through the relationship, not a query by id: a caller describing an
     # edit not yet committed holds the detail the item now points at.
     detail = item.coin_detail
+    parts: list[str] = []
+    if (dated := _coin_date(db, item)) is not None:
+        parts.append(dated)
+    if (country := _foreign_country(item)) is not None:
+        parts.append(country)
+    named = False
+    if (name := _coin_name(db, item)) is not None:
+        parts.append(name)
+        named = True
+    if detail is not None and detail.variety:
+        parts.append(detail.variety)
+        named = True
+    return parts, named
+
+
+def _coin_date(db: Session, item: InventoryItem) -> str | None:
+    """The coin's year or years, with its mint mark on a single year."""
+    years = _years(item)
+    if years is None:
+        return None
+    detail = item.coin_detail
     mint = (
         db.get(Mint, detail.mint_id)
         if detail is not None and detail.mint_id is not None
         else None
     )
-    parts: list[str] = []
-    years = _years(item)
-    if years is not None:
-        # A mint mark belongs to one year's coin; on a span it would claim
-        # every year came from that mint.
-        single_year = item.year_end in (None, item.year_start)
-        if mint is not None and mint.mark and single_year:
-            years = f"{years}-{mint.mark}"
-        parts.append(years)
-    if (country := _foreign_country(item)) is not None:
-        parts.append(country)
-    named = False
+    # A mint mark belongs to one year's coin; on a span it would claim every
+    # year came from that mint.
+    single_year = item.year_end in (None, item.year_start)
+    if mint is not None and mint.mark and single_year:
+        return f"{years}-{mint.mark}"
+    return years
+
+
+def _coin_name(db: Session, item: InventoryItem) -> str | None:
+    """What says which coin it is: its set form, else series, else face value."""
     if item.set_form is not None:
-        parts.append(item.set_form.label)
-        named = True
-    else:
-        name = _series_label(db, item)
-        if name is None and item.denomination is not None:
-            name = item.denomination.label
-        if name is not None:
-            parts.append(name)
-            named = True
-    if detail is not None and detail.variety:
-        parts.append(detail.variety)
-        named = True
-    return parts, named
+        return item.set_form.label
+    name = _series_label(db, item)
+    if name is None and item.denomination is not None:
+        name = item.denomination.label
+    return name
 
 
 def _note_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:

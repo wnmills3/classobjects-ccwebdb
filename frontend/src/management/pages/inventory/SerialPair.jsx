@@ -12,7 +12,8 @@ function describe(pair) {
   const what = [pair.denomination, pair.series ? `Series ${pair.series}` : '']
     .filter(Boolean)
     .join(', ')
-  return `${pair.item_code} ${pair.serial_number}${what ? ` (${what})` : ''}`
+  const said = what ? ` (${what})` : ''
+  return `${pair.item_code} ${pair.serial_number}${said}`
 }
 
 /**
