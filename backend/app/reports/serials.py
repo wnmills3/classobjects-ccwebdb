@@ -127,7 +127,8 @@ def _key(serial: _Serial, denomination: int | None, p: SerialsParams) -> Hashabl
     """What two notes must share to match on these settings."""
     if p.letters == "ignore":
         star = serial.star != "" if p.stars == "only_other_stars" else None
-        return (denomination, serial.digits, star)
+        # The letters' places held empty: one shape of key in either mode.
+        return (denomination, None, serial.digits, None, star)
     return (denomination, serial.prefix, serial.digits, serial.suffix, serial.star)
 
 
