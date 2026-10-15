@@ -101,6 +101,29 @@ def test_a_change_to_the_same_field_is_refused_naming_both_values(
     assert stored.description == "cleaned"
 
 
+def test_a_conflict_over_a_weight_is_refused_not_a_server_error(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A weight is a decimal: the refusal still names both values, as text."""
+    item = build_bare_item(db)
+    mine = _open(client, admin_headers, item)
+    theirs = _open(client, admin_headers, item)
+    assert (
+        _save(
+            client, admin_headers, theirs, {"gross_weight_ozt": "0.859380"}
+        ).status_code
+        == 200
+    )
+
+    response = _save(client, admin_headers, mine, {"gross_weight_ozt": "1.0"})
+
+    assert response.status_code == 409, response.text
+    [conflict] = response.json()["conflicts"]
+    assert conflict["field"] == "gross_weight_ozt"
+    assert conflict["theirs"] == "0.859380"
+    assert conflict["yours"] == "1.0"
+
+
 def test_the_same_change_made_twice_is_no_conflict(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
