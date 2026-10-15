@@ -600,7 +600,9 @@ def coin_outcome(
     out = Outcome()
     current = {column: getattr(item, column) for column in COMPOSITION_COLUMNS}
     retractable = derived if retractable is None else retractable
-    found = _composition(facts, item, coin=coin)
+    # A metal the facts filled is their own guess, not a person's word.
+    recorded_metal = None if "metal_id" in derived else item.metal_id
+    found = _composition(facts, item, coin=coin, recorded_metal=recorded_metal)
     if found is None:
         _retract(out, current, retractable, COMPOSITION_COLUMNS)
         return out
@@ -636,7 +638,11 @@ def coin_outcome(
 
 
 def _composition(
-    facts: Facts, item: InventoryItem, *, coin: bool
+    facts: Facts,
+    item: InventoryItem,
+    *,
+    coin: bool,
+    recorded_metal: int | None = None,
 ) -> Composition | None:
     """The composition the item's recorded facts decide, or None.
 
@@ -646,8 +652,9 @@ def _composition(
     value of its own, which is a bullion design: the Silver Eagle.
 
     A coin recorded in a set is read with the set's own rows (a Silver
-    Proof Set's dime is silver), and a proof with no set recorded, where
-    such rows reach its years, with none: it could be clad or silver.
+    Proof Set's dime is silver). A proof with no set recorded, where such
+    rows reach its years, could be clad or silver: `recorded_metal`, the
+    metal a person recorded on it, chooses, and with none it has none.
     """
     if item.country_id is None:
         return None
@@ -672,6 +679,7 @@ def _composition(
             last=item.year_end if item.year_end is not None else item.year_start,
             set_form_id=item.set_form_id,
             set_unknown=set_unknown,
+            metal_id=recorded_metal,
         )
     if item.series_id is None:
         return None
@@ -683,6 +691,7 @@ def _composition(
         country_id=item.country_id,
         set_form_id=item.set_form_id,
         set_unknown=set_unknown,
+        metal_id=recorded_metal,
     )
 
 

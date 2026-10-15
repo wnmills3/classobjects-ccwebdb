@@ -32,7 +32,8 @@
     "silver though every other coin of their face value and year is clad,",
     "and so are the 1976 silver set's quarter, half and dollar. A coin is",
     "read by them only when it is recorded in that set; a proof with no set",
-    "recorded, in those years, could be either, so it has no composition.",
+    "recorded, in those years, could be either, so the metal recorded on it",
+    "chooses, and with none it has no composition.",
     "",
     "This is exactly the kind of table a new installation should inherit rather",
     "than rebuild: nothing here is specific to one collection."
@@ -111,7 +112,7 @@
     {"denomination": "usd_coin_0_25", "set_form": "silver_proof_set", "country": "US",
      "year_from": 1976, "year_to": 1976,
      "metal": "silver", "fineness": "0.4000",
-     "gross_weight_ozt": "0.184867", "fine_weight_ozt": "0.073947",
+     "gross_weight_ozt": "0.184867", "fine_weight_ozt": "0.073900",
      "note": "Bicentennial silver set quarter, 40% silver clad, 5.75 g."},
 
     {"denomination": "usd_coin_0_25", "set_form": "silver_proof_set", "country": "US",
@@ -227,7 +228,7 @@
     {"denomination": "usd_coin_1_00", "set_form": "silver_proof_set", "country": "US",
      "year_from": 1976, "year_to": 1976,
      "metal": "silver", "fineness": "0.4000",
-     "gross_weight_ozt": "0.790585", "fine_weight_ozt": "0.316234",
+     "gross_weight_ozt": "0.790585", "fine_weight_ozt": "0.316200",
      "note": "Bicentennial silver set dollar, 40% silver clad, 24.59 g."},
 
     {"denomination": "usd_coin_1_00", "series": "anthony_dollar", "country": "US",
