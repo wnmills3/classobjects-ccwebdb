@@ -457,7 +457,10 @@ def note_outcome(
     known = facts.issues.get((note.denomination_id, note.series_year, letter), [])
     if not known:
         out.count = "note: series not in the facts"
-        if note.series_year >= facts.first_issue_year:
+        # Only a face value the facts cover has a series they could be
+        # missing: a Goldback has no issue to look up at all.
+        covered = any(key[0] == note.denomination_id for key in facts.issues)
+        if covered and note.series_year >= facts.first_issue_year:
             out.cases.append(("unknown issue", series))
         _retract(out, current, derived, NOTE_FILLED)
         return out
