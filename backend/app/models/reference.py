@@ -26,6 +26,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Computed,
     DateTime,
     ForeignKey,
@@ -684,6 +685,20 @@ class Metal(ReferenceMixin, Base):
 
     symbol: Mapped[str] = mapped_column(String(4), default="", nullable=False)
     is_precious: Mapped[bool] = mapped_column(default=True, nullable=False)
+    #: The metal a plated or layered one is read as for a coin's composition:
+    #: gold-plated silver is silver, and has a silver coin's weights. Empty for
+    #: a metal that is itself (`app.classifier_defaults`).
+    base_metal_id: Mapped[int | None] = mapped_column(
+        ForeignKey("metal.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_metal_code"),
+        CheckConstraint(
+            "base_metal_id IS NULL OR base_metal_id <> id",
+            name="ck_metal_base_is_another",
+        ),
+    )
 
 
 class ValuationBasis(ReferenceMixin, Base):

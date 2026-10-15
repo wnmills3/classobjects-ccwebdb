@@ -832,6 +832,27 @@ def test_a_weight_off_by_more_than_rounding_disagrees(
     )
 
 
+def test_a_plated_metal_is_read_as_its_base(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """Gold-plated silver is a silver coin: its weights, and no disagreement."""
+    plated = Metal(
+        code="gold_plated_silver",
+        label="Gold Plated Silver",
+        base_metal_id=code_id(db, Metal, "silver"),
+    )
+    db.add(plated)
+    db.flush()
+    dime = _dime(db, make_item, 1964, metal_id=plated.id)
+
+    assert not [c for c in review_cases(db, dime) if c[0] == "disagrees"]
+    run(db, commit=True)
+
+    db.refresh(dime)
+    assert dime.metal_id == plated.id
+    assert dime.fine_weight_ozt == Decimal("0.072340")
+
+
 def test_a_recorded_metal_the_composition_rules_out_fills_nothing(
     db: Session, make_item: ItemFactory
 ) -> None:

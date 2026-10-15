@@ -73,6 +73,7 @@ from .models import (
     ItemAttribute,
     ItemAttributeLink,
     ItemKind,
+    Metal,
     NoteIssue,
     NoteType,
     ProvenanceSource,
@@ -330,6 +331,8 @@ class Facts:
     #: The business strike's id: any other strike recorded on a coin with no
     #: set is a proof or the like, which a set's own composition may cover.
     business_strike_id: int | None = None
+    #: A plated or layered metal's base, by id: what a composition reads it as.
+    base_metals: dict[int, int] = field(default_factory=dict)
     note_type_labels: dict[int, str] = field(default_factory=dict)
     note_type_codes: dict[int, str] = field(default_factory=dict)
     #: The attributes the rules name, by code.
@@ -384,6 +387,13 @@ def load_facts(db: Session, *, notes: bool = True, coins: bool = True) -> Facts:
         facts.business_strike_id = db.execute(
             select(StrikeType.id).where(StrikeType.code == "business")
         ).scalar_one_or_none()
+        facts.base_metals = {
+            metal_id: base_id
+            for metal_id, base_id in db.execute(
+                select(Metal.id, Metal.base_metal_id)
+            ).tuples()
+            if base_id is not None
+        }
     if not notes:
         return facts
     facts.issues = load_issues(db)
@@ -600,8 +610,12 @@ def coin_outcome(
     out = Outcome()
     current = {column: getattr(item, column) for column in COMPOSITION_COLUMNS}
     retractable = derived if retractable is None else retractable
-    # A metal the facts filled is their own guess, not a person's word.
+    # A metal the facts filled is their own guess, not a person's word. A
+    # plated metal is read as its base: gold-plated silver is a silver coin.
     recorded_metal = None if "metal_id" in derived else item.metal_id
+    if recorded_metal is not None:
+        recorded_metal = facts.base_metals.get(recorded_metal, recorded_metal)
+    compared = {**current, "metal_id": recorded_metal or current["metal_id"]}
     found = _composition(facts, item, coin=coin, recorded_metal=recorded_metal)
     if found is None:
         _retract(out, current, retractable, COMPOSITION_COLUMNS)
@@ -614,10 +628,10 @@ def coin_outcome(
         column.removesuffix("_id")
         for column, allowed in options.items()
         if column not in derived
-        and current[column] is not None
+        and compared[column] is not None
         and None not in allowed
-        and current[column] not in allowed
-        and not _agrees_to_four_places(column, current[column], allowed)
+        and compared[column] not in allowed
+        and not _agrees_to_four_places(column, compared[column], allowed)
     ]
     if differs:
         out.cases.append(

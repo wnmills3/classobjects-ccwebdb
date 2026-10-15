@@ -275,7 +275,7 @@ RESTRICT`, so a classifier in use cannot vanish.
 | `seal_color` | blue, red, brown, green, gold, … | |
 | `fed_district` | A Boston … L San Francisco | `letter`, `city`, `number` |
 | `signature_combination` | Treasurer and Secretary | `treasurer`, `secretary`, `term_from`, `term_to` |
-| `metal` | silver, gold, platinum, palladium, copper, nickel, zinc, clad | `symbol`, `is_precious` |
+| `metal` | silver, gold, platinum, palladium, copper, nickel, zinc, clad | `symbol`, `is_precious`, `base_metal_id` (what a plated metal is read as for a composition) |
 | `valuation_basis` | melt, numismatic, manual | |
 | `error_type` | mint or printing error | `applies_to` (`coin` \| `currency` \| `any`) |
 | `item_status` | acquisition axis (§7) | |
