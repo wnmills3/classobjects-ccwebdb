@@ -21,8 +21,9 @@
     "",
     "A span has a row only where every coin of it shares one composition. A",
     "dollar of 1971-1976 was struck in copper-nickel clad for circulation and in",
-    "40% silver for collectors, and a five-cent piece of 1942 in both alloys, so",
-    "neither has a row: the weight of such a coin is entered by hand. For the",
+    "40% silver for collectors, and a five-cent piece of 1942 and a cent of",
+    "1982 in two alloys each, so none of them has a row: the weight of such a",
+    "coin is entered by hand. For the",
     "same reason the years a standard changed in -- 1837, 1853, 1873 -- are",
     "left out where both standards were struck, and a commemorative dollar",
     "has a row only through 2018, after which one was struck at five ounces.",
@@ -337,9 +338,9 @@
      "metal": "copper", "fineness": "0.9500", "fine_weight_ozt": "0.000000",
      "note": "Bronze cent, 3.11 g. Copper is not quoted per troy ounce for melt."},
 
-    {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1944, "year_to": 1982,
+    {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1944, "year_to": 1981,
      "metal": "copper", "fineness": "0.9500", "fine_weight_ozt": "0.000000",
-     "note": "Bronze cent, 3.11 g."},
+     "note": "Bronze cent, 3.11 g. 1982 was struck in this alloy and in copper-plated zinc, so it has no row."},
 
     {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1983,
      "metal": "zinc", "fineness": "0.9750", "fine_weight_ozt": "0.000000",

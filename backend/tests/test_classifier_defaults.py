@@ -973,6 +973,8 @@ def test_an_emptied_class_is_not_reported_as_undecided(
         ("usd_coin_1_00", 1976),
         # The ordinary alloy for most of the year, the wartime one after.
         ("usd_coin_0_05", 1942),
+        # Bronze, then copper-plated zinc from partway through the year.
+        ("usd_coin_0_01", 1982),
     ],
 )
 def test_a_year_struck_in_two_compositions_gets_no_default(
@@ -990,6 +992,22 @@ def test_a_year_struck_in_two_compositions_gets_no_default(
     assert coin.composition_id is None
     assert coin.fine_weight_ozt is None
     assert "composition" not in derived_fields(db, coin.id).values()
+
+
+@pytest.mark.parametrize(("year", "metal"), [(1981, "copper"), (1983, "zinc")])
+def test_the_cents_either_side_of_1982_keep_their_alloy(
+    db: Session, make_item: ItemFactory, year: int, metal: str
+) -> None:
+    cent = make_item(
+        title="Plain coin",
+        denomination_id=code_id(db, Denomination, "usd_coin_0_01"),
+        year_start=year,
+    )
+
+    run(db, commit=True)
+
+    db.refresh(cent)
+    assert _code(db, Metal, cent.metal_id) == metal
 
 
 def test_a_wartime_five_cent_piece_of_a_single_alloy_year_is_silver(
