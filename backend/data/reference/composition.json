@@ -257,17 +257,17 @@
 
     {"denomination": "usd_coin_1_00", "series": "sacagawea_dollar", "country": "US",
      "year_from": 2000,
-     "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
+     "metal": "manganese_brass", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
      "note": "Manganese-brass clad copper."},
 
     {"denomination": "usd_coin_1_00", "series": "presidential_dollar", "country": "US",
      "year_from": 2007, "year_to": 2020,
-     "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
+     "metal": "manganese_brass", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
      "note": "Manganese-brass clad copper."},
 
     {"denomination": "usd_coin_1_00", "series": "american_innovation_dollar", "country": "US",
      "year_from": 2018,
-     "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
+     "metal": "manganese_brass", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
      "note": "Manganese-brass clad copper."},
 
     {"denomination": "usd_coin_0_05", "country": "US", "year_from": 1943, "year_to": 1945,

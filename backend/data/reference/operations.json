@@ -14,7 +14,8 @@
     {"code": "copper", "label": "Copper", "symbol": "Cu", "is_precious": false, "sort_order": 50},
     {"code": "nickel", "label": "Nickel", "symbol": "Ni", "is_precious": false, "sort_order": 60},
     {"code": "zinc", "label": "Zinc", "symbol": "Zn", "is_precious": false, "sort_order": 70},
-    {"code": "clad", "label": "Copper-Nickel Clad", "symbol": "", "is_precious": false, "sort_order": 80}
+    {"code": "clad", "label": "Copper-Nickel Clad", "symbol": "", "is_precious": false, "sort_order": 80},
+    {"code": "manganese_brass", "label": "Manganese Brass", "symbol": "", "is_precious": false, "sort_order": 90}
   ],
   "valuation_basis": [
     {"code": "melt", "label": "Melt value", "sort_order": 10},
