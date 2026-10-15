@@ -119,6 +119,37 @@ def test_no_motto_follows_the_series(
 
 
 @pytest.mark.parametrize(
+    ("serial", "expected"),
+    [
+        ("B92086507J", ALWAYS),
+        ("C93713722J", ALWAYS),
+        ("d05176945j", ALWAYS),
+        ("D48960000J", ALWAYS),
+        ("D48960001J", NEVER),  # the first with the motto
+        ("D 489 60001 J", NEVER),
+        ("D74898004J", NEVER),
+        ("*12345678J", EVIDENCE),  # a star note is not read
+        ("A12345678K", EVIDENCE),  # another block series says nothing
+        ("D4896J", EVIDENCE),
+        (None, EVIDENCE),
+    ],
+)
+def test_a_1935g_serial_decides_the_motto(serial: str | None, expected: str) -> None:
+    assert (
+        verdict(NO_MOTTO, "silver_certificate", Decimal("1"), 1935, "G", serial)
+        == expected
+    )
+
+
+def test_the_serial_decides_nothing_outside_1935g() -> None:
+    """Series 1935F is No Motto whatever its serial."""
+    assert (
+        verdict(NO_MOTTO, "silver_certificate", Decimal("1"), 1935, "F", "D90000000J")
+        == ALWAYS
+    )
+
+
+@pytest.mark.parametrize(
     ("note_type", "face", "year"),
     [
         # The $1 run only, and Silver Certificates only.
@@ -170,6 +201,20 @@ def test_a_1935g_note_is_left_for_evidence(db: Session, make_item: ItemFactory) 
     assert review_cases(db, note) == [("needs evidence", "1935G: No Motto?")]
     run(db, commit=True)
     assert _link(db, note) is None
+
+
+def test_a_1935g_note_takes_its_motto_from_its_serial(
+    db: Session, make_item: ItemFactory
+) -> None:
+    before = _note(db, make_item, 1935, "G", serial_number="C60197844J")
+    after = _note(db, make_item, 1935, "G", serial_number="D74898004J")
+
+    assert review_cases(db, before) == []
+    assert review_cases(db, after) == []
+    run(db, commit=True)
+
+    assert _link(db, before) is not None
+    assert _link(db, after) is None
 
 
 def test_a_1935g_note_rated_no_motto_needs_nothing_more(

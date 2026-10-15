@@ -130,12 +130,14 @@ Silver Certificates (BEP FAQ). So for a $1 Silver Certificate:
 | Series | No Motto |
 |---|---|
 | 1928 through 1935F | always -- derived, no evidence needed |
-| 1935G | printed both ways: needs evidence (text, or a person) |
+| 1935G | by serial: before D 48960001 J, always; from it on, never; a star note or unreadable serial needs evidence |
 | every other series (before 1928, 1935H, 1957 on) | never |
 
 `app/attribute_rules.py` holds the rule as data (attribute, class, face value,
 the series that always have it, the series that need evidence; every other
-series of that class never does). `app.classifier_defaults` applies it
+series of that class never does), and the serial from which a series that
+needs evidence no longer has it: 1935G was printed without the motto through
+the B-J and C-J blocks and D-J below D 48960001 J, and with it from there. `app.classifier_defaults` applies it
 alongside the note's class, using the class it has just decided, so an edit
 that changes a note's series or class updates No Motto at once, and a class
 taken back takes the rule's link with it. The rule adds a derived link

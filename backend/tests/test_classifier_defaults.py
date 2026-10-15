@@ -190,6 +190,29 @@ def test_a_recorded_seal_decides_the_class_and_is_kept(
     assert set(derived_fields(db, red.id)) == {"note_type_id"}
 
 
+def test_a_seal_shade_is_matched_as_its_color_and_kept(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A light green seal is a green one: the class follows, the shade stays."""
+    add_note_issue(db, "usd_note_10", 1934, "frn", "green", letter="C")
+    add_note_issue(db, "usd_note_10", 1934, "silver_certificate", "blue", letter="C")
+    light = SealColor(
+        code="light_green",
+        label="Light Green Seal",
+        base_seal_color_id=code_id(db, SealColor, "green"),
+    )
+    db.add(light)
+    db.flush()
+    note = _note(db, make_item, "usd_note_10", 1934, letter="C", seal_color_id=light.id)
+
+    assert not [c for c in review_cases(db, note) if c[0] == "disagrees"]
+    run(db, commit=True)
+
+    detail = _detail(db, note)
+    assert detail.seal_color_id == light.id
+    assert _code(db, NoteType, detail.note_type_id) == "frn"
+
+
 def test_a_persons_value_is_never_replaced_and_a_contradiction_is_reported(
     db: Session, make_item: ItemFactory
 ) -> None:

@@ -651,6 +651,21 @@ class SealColor(ReferenceMixin, Base):
 
     __tablename__ = "seal_color"
 
+    #: The color a shade of another is read as against the issue facts: a
+    #: light green seal is a green one. Empty for a color that is itself
+    #: (`app.classifier_defaults`).
+    base_seal_color_id: Mapped[int | None] = mapped_column(
+        ForeignKey("seal_color.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_seal_color_code"),
+        CheckConstraint(
+            "base_seal_color_id IS NULL OR base_seal_color_id <> id",
+            name="ck_seal_color_base_is_another",
+        ),
+    )
+
 
 class FedDistrict(ReferenceMixin, Base):
     """Federal Reserve district, A Boston through L San Francisco."""

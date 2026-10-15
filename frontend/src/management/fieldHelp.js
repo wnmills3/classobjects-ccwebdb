@@ -954,6 +954,10 @@ export const FIELD_HELP = {
     title: 'Read as',
     text: "For a plated or layered metal, the metal a coin's composition reads it as: Silver for gold-plated silver, so such a coin gets a silver coin's weights. Leave it empty for a metal that is itself.",
   },
+  vocabulary_field_base_seal_color: {
+    title: 'Read as',
+    text: 'For a shade of a seal color, the color the series facts read it as: Green for a light green seal, so such a note is not reported as disagreeing with its series. Leave it empty for a color that is itself.',
+  },
   vocabulary_field_default_quantity: {
     title: 'Usual count',
     text: 'How many pieces a holder of this kind usually contains: 20 for a tube of silver rounds.',
