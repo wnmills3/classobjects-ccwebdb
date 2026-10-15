@@ -101,6 +101,46 @@ def test_a_note_reads_as_the_owner_writes_it(db: Session) -> None:
     )
 
 
+def test_a_notes_design_series_follows_its_face_value(db: Session) -> None:
+    item = _note(db, series_id=code_id(db, Series, "barr_note"))
+    barr = _label(db, Series, "barr_note")
+    assert f"1999 $1 {barr} S/N F06566560R." in suggested_description(db, item)
+
+
+def test_a_design_series_an_attribute_has_named_is_not_said_twice(
+    db: Session,
+) -> None:
+    star = _label(db, ItemAttribute, "star")
+    series = Series(code="star_series_test", label=star, applies_to="currency")
+    db.add(series)
+    db.flush()
+    item = _note(db, series_id=series.id)
+    _link(db, item, "star")
+    assert suggested_description(db, item).count(star) == 1
+
+
+@pytest.mark.parametrize(
+    ("code", "label"),
+    [
+        # Its series year and class are written already.
+        ("series_1929_nbn_test", "Series 1999 Federal Reserve Note"),
+        # Only the series again.
+        ("only_the_year_test", "1999"),
+    ],
+)
+def test_a_design_series_that_only_repeats_the_note_is_left_out(
+    db: Session, code: str, label: str
+) -> None:
+    series = Series(code=code, label=label, applies_to="currency")
+    db.add(series)
+    db.flush()
+    item = _note(db, series_id=series.id)
+    assert suggested_description(db, item) == (
+        f"{_short(_label(db, Grade, 'N67'))} EPQ 1999 $1 S/N F06566560R. "
+        f"{_label(db, NoteType, 'frn')} {_label(db, SealColor, 'green')}."
+    )
+
+
 def test_fancy_serial_is_left_out_beside_the_pattern_it_sums_up(db: Session) -> None:
     item = _note(db)
     radar = _link(db, item, "radar").removesuffix(" Serial")
