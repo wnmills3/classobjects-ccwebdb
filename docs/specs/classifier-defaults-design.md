@@ -246,7 +246,7 @@ Reported and never written:
 
 | Case | Finds |
 |---|---|
-| unknown issue | a small-size series and denomination with no issue in the facts |
+| unknown issue | a small-size series and denomination with no issue in the facts, for a face value the facts cover (a Goldback is not one) |
 | ambiguous | several classes remain and nothing decides between them |
 | disagrees | a recorded class, seal, signatures, Bank or composition the facts rule out; a note carrying an attribute its series never has |
 | needs evidence | a note whose series may or may not carry a rule's attribute (a 1935G star note without No Motto) |

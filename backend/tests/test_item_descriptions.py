@@ -14,8 +14,10 @@ from app.item_descriptions import _without_serial, suggested_description
 from app.models import (
     CoinDetail,
     Country,
+    Currency,
     CurrencyDetail,
     Denomination,
+    DenominationKind,
     ErrorType,
     FedDistrict,
     GradeDesignation,
@@ -105,6 +107,32 @@ def test_a_note_from_abroad_names_its_country(db: Session) -> None:
     item = _note(db, country_id=code_id(db, Country, "CA"))
     canada = _label(db, Country, "CA")
     assert f"1999 {canada} $1 S/N" in suggested_description(db, item)
+
+
+@pytest.mark.parametrize(
+    ("series_label", "expected"),
+    [("Florida Goldback", "½ Florida Goldback"), ("Goldback", "½ Goldback")],
+)
+def test_a_series_named_for_the_face_values_unit_takes_its_place(
+    db: Session, series_label: str, expected: str
+) -> None:
+    currency = Currency(code="gb_test", label="Goldback")
+    db.add(currency)
+    db.flush()
+    half = Denomination(
+        code="gb_test_0_5",
+        label="½ Goldback",
+        currency_id=currency.id,
+        face_value=Decimal("0.5"),
+        kind=DenominationKind.note,
+    )
+    series = Series(code="gb_series_test", label=series_label, applies_to="currency")
+    db.add_all([half, series])
+    db.flush()
+    item = _note(db, denomination_id=half.id, series_id=series.id)
+    text = suggested_description(db, item)
+    assert f"1999 {expected} S/N" in text
+    assert text.count("Goldback") == 1
 
 
 def test_a_notes_design_series_follows_its_face_value(db: Session) -> None:

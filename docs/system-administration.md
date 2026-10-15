@@ -604,7 +604,8 @@ is -- "Superb Gem Unc 67 EPQ Radar 1999 $1 S/N F06566560R. Federal Reserve
 Note Green Seal." for a note, "MS64 First Strike 1921-S Morgan Dollar.
 Silver, 0.7734 ozt fine." for a coin -- with recorded errors beside the attributes, right after the grade ("Error Note, Misaligned Print (Reverse) 1963A $1 ..."). No field
 labels, district, signatures or grading service. A note's design series
-follows its face value ("1963B $1 Barr Note S/N ..."), unless it only
+follows its face value ("1963B $1 Barr Note S/N ..."), or takes the place of
+the face value's unit when named for it ("½ Florida Goldback"), unless it only
 repeats the series year, the class or an attribute already said
 ("Series 1929 National Bank Note" on a 1929 National Bank Note). A coin or note of
 another country names it after the year ("1882 Spain Peseta", "1970 Spain 100

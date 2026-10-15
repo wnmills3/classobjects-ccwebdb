@@ -190,14 +190,25 @@ def _note(db: Session, item: InventoryItem, given: Features | None) -> list[str]
     # A note from abroad names its country, as a coin does: 1970 Spain.
     if (country := foreign_country(item)) is not None:
         first.append(country)
-    if item.denomination is not None:
-        first.append(item.denomination.label.removesuffix(" Bill"))
+    face = (
+        item.denomination.label.removesuffix(" Bill")
+        if item.denomination is not None
+        else None
+    )
     note_type = (
         db.get(NoteType, detail.note_type_id)
         if detail.note_type_id is not None
         else None
     )
     design = _design(db, item, designation, note_type)
+    # A series named for the face value's own unit takes the unit's place:
+    # "1/2 Goldback" of the Florida Goldback is a "1/2 Florida Goldback".
+    amount, unit = _amount_and_unit(face)
+    if design and unit and _plain(design).endswith(_plain(unit)):
+        first.append(f"{amount} {design}" if amount else design)
+        design = None
+    elif face:
+        first.append(face)
     # An attribute of the same name has said it already: a Limey.
     if design and _plain(design) not in {_plain(part) for part in first}:
         first.append(design)
@@ -240,6 +251,19 @@ def _design(
     if note_type is not None:
         repeats.add(_plain(note_type.label))
     return name if name and _plain(name) not in repeats else None
+
+
+def _amount_and_unit(face: str | None) -> tuple[str, str]:
+    """A face value's amount and the unit word after it: ("1/2", "Goldback").
+
+    A face written as a symbol and a number, "$1", has no unit word.
+    """
+    if not face:
+        return "", ""
+    amount, _, unit = face.partition(" ")
+    if not re.search(r"[A-Za-z]", unit):
+        return "", ""
+    return amount, unit
 
 
 def _plain(text: str) -> str:

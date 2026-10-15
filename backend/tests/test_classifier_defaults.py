@@ -17,8 +17,10 @@ from app.composition import Run, _original
 from app.field_sources import derived_fields, record_derived
 from app.models import (
     Composition,
+    Currency,
     CurrencyDetail,
     Denomination,
+    DenominationKind,
     FedDistrict,
     InventoryItem,
     Metal,
@@ -156,6 +158,30 @@ def test_the_letter_is_part_of_the_series(db: Session, make_item: ItemFactory) -
 
     assert _detail(db, plain).note_type_id is None
     assert ("unknown issue", "1957") in review_cases(db, plain)
+
+
+def test_a_face_value_the_facts_do_not_cover_has_no_unknown_issue(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A Goldback's series is no US issue the facts could be missing."""
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    currency = Currency(code="gb_test", label="Goldback")
+    db.add(currency)
+    db.flush()
+    quarter = Denomination(
+        code="gb_test_0_25",
+        label="¼ Goldback",
+        currency_id=currency.id,
+        face_value=Decimal("0.25"),
+        kind=DenominationKind.note,
+    )
+    db.add(quarter)
+    db.commit()
+    goldback = _note(db, make_item, "gb_test_0_25", 2026)
+    dollar = _note(db, make_item, "usd_note_1", 2026)
+
+    assert review_cases(db, goldback) == []
+    assert ("unknown issue", "2026") in review_cases(db, dollar)
 
 
 def test_two_classes_in_one_series_are_left_for_a_person(
