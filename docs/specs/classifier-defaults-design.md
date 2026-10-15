@@ -173,6 +173,12 @@ nothing is filled from the row, and what an earlier run filled from it is
 taken back. A recorded fineness or weight that differs is listed too, and
 the other fields are still filled.
 
+**A plated or layered metal is read as its base** (`metal.base_metal_id`,
+set on the Vocabularies page as *Read as*): a gold-plated silver half dollar
+is a silver half, given a silver half's fineness and weights, and its
+recorded metal is kept. Gold-plated silver and silver-copper clad read as
+silver, 24K gold-plated clad as clad.
+
 ### Serial numbers (BEP)
 
 - Through Series 1995, and for $1 and $2 notes still, a serial is one letter,

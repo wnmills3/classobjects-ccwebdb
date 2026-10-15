@@ -950,6 +950,10 @@ export const FIELD_HELP = {
     title: 'Precious',
     text: 'Tick for a metal whose weight gives a piece its value -- gold, silver, platinum, palladium.',
   },
+  vocabulary_field_base_metal: {
+    title: 'Read as',
+    text: "For a plated or layered metal, the metal a coin's composition reads it as: Silver for gold-plated silver, so such a coin gets a silver coin's weights. Leave it empty for a metal that is itself.",
+  },
   vocabulary_field_default_quantity: {
     title: 'Usual count',
     text: 'How many pieces a holder of this kind usually contains: 20 for a tube of silver rounds.',
