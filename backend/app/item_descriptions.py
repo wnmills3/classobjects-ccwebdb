@@ -50,6 +50,7 @@ from .models import (
     ItemError,
     NoteType,
     SealColor,
+    Series,
 )
 from .offer_titles import name_of
 from .serial_patterns import DIGIT_PATTERNS
@@ -188,19 +189,59 @@ def _note(db: Session, item: InventoryItem, given: Features | None) -> list[str]
         first.append(year)
     if item.denomination is not None:
         first.append(item.denomination.label.removesuffix(" Bill"))
+    note_type = (
+        db.get(NoteType, detail.note_type_id)
+        if detail.note_type_id is not None
+        else None
+    )
+    design = _design(db, item, designation, note_type)
+    # An attribute of the same name has said it already: a Limey.
+    if design and _plain(design) not in {_plain(part) for part in first}:
+        first.append(design)
     if detail.serial_number:
         first.append(f"S/N {detail.serial_number}")
 
     second: list[str] = []
-    if detail.note_type_id is not None:
-        note_type = db.get(NoteType, detail.note_type_id)
-        if note_type is not None:
-            second.append(note_type.label)
+    if note_type is not None:
+        second.append(note_type.label)
     if detail.seal_color_id is not None:
         seal = db.get(SealColor, detail.seal_color_id)
         if seal is not None:
             second.append(seal.label)
     return [" ".join(part) for part in (first, second) if part]
+
+
+def _design(
+    db: Session,
+    item: InventoryItem,
+    designation: str | None,
+    note_type: NoteType | None,
+) -> str | None:
+    """A note's design series by name -- Funnyback, Hawaii -- or None.
+
+    Its series year is written already, and its class after it, so a name
+    that only repeats them says nothing: "Series 1929 National Bank Note" on
+    a 1929 National Bank Note, or "2017-A" on a 2017A note.
+    """
+    if item.series_id is None:
+        return None
+    series = db.get(Series, item.series_id)
+    if series is None:
+        return None
+    name = series.label
+    if designation:
+        name = re.sub(
+            rf"^Series\s+{re.escape(designation)}\b\s*", "", name, flags=re.IGNORECASE
+        )
+    repeats = {_plain(designation or "")}
+    if note_type is not None:
+        repeats.add(_plain(note_type.label))
+    return name if name and _plain(name) not in repeats else None
+
+
+def _plain(text: str) -> str:
+    """Text as compared for repetition: letters and digits, one case."""
+    return re.sub(r"[^0-9a-z]", "", text.lower())
 
 
 def _coin(db: Session, item: InventoryItem, given: Features | None) -> list[str]:
