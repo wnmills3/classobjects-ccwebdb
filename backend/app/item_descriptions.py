@@ -52,7 +52,7 @@ from .models import (
     SealColor,
     Series,
 )
-from .offer_titles import name_of
+from .offer_titles import foreign_country, name_of
 from .serial_patterns import DIGIT_PATTERNS
 
 __all__ = [
@@ -187,6 +187,9 @@ def _note(db: Session, item: InventoryItem, given: Features | None) -> list[str]
     )
     if year:
         first.append(year)
+    # A note from abroad names its country, as a coin does: 1970 Spain.
+    if (country := foreign_country(item)) is not None:
+        first.append(country)
     if item.denomination is not None:
         first.append(item.denomination.label.removesuffix(" Bill"))
     note_type = (

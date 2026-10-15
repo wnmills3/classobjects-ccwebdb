@@ -606,8 +606,9 @@ Silver, 0.7734 ozt fine." for a coin -- with recorded errors beside the attribut
 labels, district, signatures or grading service. A note's design series
 follows its face value ("1963B $1 Barr Note S/N ..."), unless it only
 repeats the series year, the class or an attribute already said
-("Series 1929 National Bank Note" on a 1929 National Bank Note). A coin of another country
-names it after the year ("1882 Spain Peseta"); with no series or face value
+("Series 1929 National Bank Note" on a 1929 National Bank Note). A coin or note of
+another country names it after the year ("1882 Spain Peseta", "1970 Spain 100
+Pesetas S/N ..."); with no series or face value
 recorded, the year and country are what it is ("MS62 1913 Denmark. Gold,
 0.1296 ozt fine."). The United States and Unknown are not named. It writes nothing; Save
 keeps it. It is never disabled: unsaved edits, photographs and errors

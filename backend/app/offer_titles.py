@@ -53,7 +53,7 @@ _CURRENCY_KIND = "currency"
 _UNNAMED_COUNTRIES = frozenset({"US", "XX"})
 
 
-def _foreign_country(item: InventoryItem) -> str | None:
+def foreign_country(item: InventoryItem) -> str | None:
     """``Canada``: the country of a piece from abroad, or None."""
     country = item.country
     if country is None or country.code in _UNNAMED_COUNTRIES:
@@ -111,7 +111,7 @@ def _coin_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
     parts: list[str] = []
     if (dated := _coin_date(db, item)) is not None:
         parts.append(dated)
-    if (country := _foreign_country(item)) is not None:
+    if (country := foreign_country(item)) is not None:
         parts.append(country)
     named = False
     if (name := _coin_name(db, item)) is not None:
@@ -201,7 +201,7 @@ def name_of(
         described, named = _note_title(db, item)
     else:
         described, named = _coin_title(db, item)
-        named = named or (country_names and _foreign_country(item) is not None)
+        named = named or (country_names and foreign_country(item) is not None)
     return " ".join(described) if named else None
 
 
