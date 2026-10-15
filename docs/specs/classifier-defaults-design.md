@@ -249,9 +249,12 @@ Reported and never written:
 | unknown issue | a small-size series and denomination with no issue in the facts |
 | ambiguous | several classes remain and nothing decides between them |
 | disagrees | a recorded class, seal, signatures, Bank or composition the facts rule out; a note carrying an attribute its series never has |
-| needs evidence | a note whose series may or may not carry a rule's attribute (a 1935G without No Motto) |
+| needs evidence | a note whose series may or may not carry a rule's attribute (a 1935G star note without No Motto) |
 | serial prefix | a $5-or-higher Federal Reserve Note of Series 1996 on whose first serial letter is not its series' letter, or whose Bank letter is not a Bank |
 | retracted | a derived value cleared because the facts no longer support it |
+
+A deleted item keeps its defaults current but is reported in none of these:
+it cannot be found in the console to be put right.
 
 ## When defaults are applied
 
