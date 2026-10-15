@@ -586,7 +586,9 @@ def _refuse_field_conflicts(
             "field": field,
             "was": base[field],
             "theirs": current.get(field),
-            "yours": sent[field],
+            # As sent, a weight or a cost is a Decimal, which JSON cannot
+            # carry: the stored side (`field_values`) is already text.
+            "yours": plain(sent[field]),
             "changed_by": who[field].by if field in who else None,
             "changed_at": who[field].at.isoformat() if field in who else None,
         }
