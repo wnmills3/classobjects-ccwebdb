@@ -7,6 +7,7 @@ so the rules are tested on their own and not on the state of the data.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -170,6 +171,21 @@ def test_two_classes_in_one_series_are_left_for_a_person(
     reason, detail = review_cases(db, unknown)[0]
     assert reason == "ambiguous"
     assert "Silver Certificate" in detail and "United States Note" in detail
+
+
+def test_a_deleted_note_is_not_left_for_a_person(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """It cannot be found in the console, so it is no one's to put right."""
+    add_note_issue(db, "usd_note_1", 1928, "us_note", "red")
+    add_note_issue(db, "usd_note_1", 1928, "silver_certificate", "blue")
+    kept = _note(db, make_item, "usd_note_1", 1928)
+    gone = _note(db, make_item, "usd_note_1", 1928)
+    gone.deleted_at = datetime.now(UTC)
+    db.commit()
+
+    assert review_cases(db, kept)
+    assert review_cases(db, gone) == []
 
 
 def test_a_recorded_seal_decides_the_class_and_is_kept(

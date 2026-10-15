@@ -981,6 +981,10 @@ def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
         report.review += [
             Case(item.item_code, reason, detail) for reason, detail in outcome.cases
         ]
+    # A deleted item keeps its defaults current, but is no one's to review:
+    # it cannot be found in the console to be put right.
+    deleted = {item.item_code for item, _, _, _ in rows if item.deleted_at is not None}
+    report.review = [case for case in report.review if case.item_code not in deleted]
     return report
 
 
