@@ -1322,9 +1322,9 @@ def _set_coin(
         ("usd_coin_0_50", 1999, "0.9000", "0.361690"),
         ("usd_coin_0_50", 2020, "0.9990", "0.407424"),
         # The Bicentennial silver set: 40% silver clad.
-        ("usd_coin_0_25", 1976, "0.4000", "0.073947"),
+        ("usd_coin_0_25", 1976, "0.4000", "0.073900"),
         ("usd_coin_0_50", 1976, "0.4000", "0.147900"),
-        ("usd_coin_1_00", 1976, "0.4000", "0.316234"),
+        ("usd_coin_1_00", 1976, "0.4000", "0.316200"),
     ],
 )
 def test_a_silver_proof_sets_coin_is_silver(
@@ -1385,6 +1385,59 @@ def test_a_proof_with_no_set_recorded_gets_no_composition(
     assert coin.composition_id is None
     assert coin.metal_id is None
     assert coin.fine_weight_ozt is None
+
+
+@pytest.mark.parametrize(
+    ("metal", "fineness"),
+    [("clad", Decimal("0.0001")), ("silver", Decimal("0.9000"))],
+)
+def test_a_loose_proofs_recorded_metal_chooses_its_composition(
+    db: Session, make_item: ItemFactory, metal: str, fineness: Decimal
+) -> None:
+    """A person's clad or silver says which set the proof came from."""
+    coin = _set_coin(db, make_item, "usd_coin_0_10", 1999, set_form=None)
+    coin.metal_id = code_id(db, Metal, metal)
+    db.commit()
+
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert coin.composition_id is not None
+    assert _code(db, Metal, coin.metal_id) == metal
+    assert coin.fineness == fineness
+    assert derived_fields(db, coin.id)["fineness"] == "composition"
+
+
+def test_a_loose_proofs_recorded_metal_neither_row_has_chooses_nothing(
+    db: Session, make_item: ItemFactory
+) -> None:
+    coin = _set_coin(db, make_item, "usd_coin_0_10", 1999, set_form=None)
+    coin.metal_id = code_id(db, Metal, "gold")
+    db.commit()
+
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert coin.composition_id is None
+    assert _code(db, Metal, coin.metal_id) == "gold"
+
+
+def test_a_metal_the_facts_filled_does_not_choose_for_a_loose_proof(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """Clad filled while the strike was unknown is a guess, not evidence."""
+    coin = _set_coin(db, make_item, "usd_coin_0_10", 1999, set_form=None, strike=None)
+    run(db, commit=True)
+    db.refresh(coin)
+    assert derived_fields(db, coin.id)["metal_id"] == "composition"
+
+    coin.strike_type_id = code_id(db, StrikeType, "proof")
+    db.commit()
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert coin.composition_id is None
+    assert coin.metal_id is None
 
 
 def test_a_proof_from_before_the_silver_sets_keeps_its_composition(

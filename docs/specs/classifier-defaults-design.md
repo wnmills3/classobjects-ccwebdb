@@ -141,9 +141,12 @@ are 40% silver, though every other coin of those years is clad. A range
 two of them cover in part (Silver Proof Set dimes 2010-2020) gets none. A
 coin in any other set -- a Proof Set's clad dime -- is read as every coin
 is. **A proof with no set recorded** (any strike but business) where a
-set's rows reach its years could be from either set, so it gets no
-composition and waits for its set or a person. A coin whose strike is not
-recorded is read as a business strike.
+set's rows reach its years could be from either set: the metal a person
+recorded on it chooses -- clad takes every coin's row, silver the set's --
+and with none recorded, or one neither row has, it gets no composition
+and waits for its set or a person. A metal the facts filled is not a
+person's and chooses nothing. A coin whose strike is not recorded is read
+as a business strike.
 
 **A coin with a series and no year** has the composition its design was
 struck in, where that was one: every run of the design's years

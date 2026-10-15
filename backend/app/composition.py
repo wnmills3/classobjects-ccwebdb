@@ -98,7 +98,7 @@ def series_runs(db: Session) -> dict[int, tuple[Run, ...]]:
     return runs
 
 
-def _set_rows_decide(
+def _set_rows(
     compositions: Sequence[Composition],
     *,
     denomination_id: int | None,
@@ -107,16 +107,10 @@ def _set_rows_decide(
     first: int,
     last: int | None,
     set_form_id: int | None,
-    set_unknown: bool,
-) -> tuple[bool, Composition | None]:
-    """Whether a set's own rows decide the coin, and the row they decide on.
+) -> tuple[list[Composition], list[Composition]]:
+    """A set's own rows for the coin: those reaching its years, and those covering them.
 
-    A coin recorded in a set with rows of its own takes the one covering its
-    span; a span only partly covered -- a 2010-2020 run of Silver Proof Set
-    dimes, silver through either standard -- has none. A proof whose set is
-    not recorded (`set_unknown`) where a set's rows reach its years could
-    be from that set or not, so it has none either. Otherwise the rows
-    without a set decide (`(False, None)`).
+    `set_form_id` None is a set not recorded, which any set's rows reach.
     """
     end = last if last is not None else 10**6
     reaching = [
@@ -124,7 +118,7 @@ def _set_rows_decide(
         for c in compositions
         if c.set_form_id is not None
         and c.country_id == country_id
-        and (set_unknown or c.set_form_id == set_form_id)
+        and (set_form_id is None or c.set_form_id == set_form_id)
         and (
             (denomination_id is not None and c.denomination_id == denomination_id)
             or (series_id is not None and c.series_id == series_id)
@@ -132,17 +126,13 @@ def _set_rows_decide(
         and c.year_from <= end
         and (c.year_to is None or c.year_to >= first)
     ]
-    if not reaching:
-        return False, None
-    if set_unknown:
-        return True, None
     covering = [
         c
         for c in reaching
         if c.year_from <= first
         and (c.year_to is None or (last is not None and c.year_to >= last))
     ]
-    return True, covering[0] if len(covering) == 1 else None
+    return reaching, covering
 
 
 def composition_of(
@@ -155,32 +145,53 @@ def composition_of(
     last: int | None,
     set_form_id: int | None = None,
     set_unknown: bool = False,
+    metal_id: int | None = None,
 ) -> Composition | None:
     """The composition covering every year from `first` to `last`, or None.
 
     `last` None is a span still open, which only a row still current covers.
     A coin recorded in a set (`set_form_id`) that has rows of its own is
-    decided by them alone, and a proof whose set is not recorded
-    (`set_unknown`) has none where such rows reach its years
-    (`_set_rows_decide`). Then a row naming the item's series is looked for;
+    decided by them alone: the one covering its span, and none where a span
+    is only partly covered -- a 2010-2020 run of Silver Proof Set dimes,
+    silver through either standard. A proof whose set is not recorded
+    (`set_unknown`), where a set's rows reach its years, could be from that
+    set or not: the metal a person recorded on it (`metal_id`) chooses
+    between the set's row and every coin's, and with none recorded it has
+    no composition. Otherwise a row naming the item's series is looked for;
     where several cover the span -- a Gold Eagle with no denomination could
     be any of four sizes -- none is chosen, and the denomination's row is
     not fallen back on. With no such row, the latest row for the
     denomination alone decides.
     """
     if set_form_id is not None or set_unknown:
-        decided, found = _set_rows_decide(
+        reaching, covering = _set_rows(
             compositions,
             denomination_id=denomination_id,
             series_id=series_id,
             country_id=country_id,
             first=first,
             last=last,
-            set_form_id=set_form_id,
-            set_unknown=set_unknown,
+            set_form_id=None if set_unknown else set_form_id,
         )
-        if decided:
-            return found
+        if reaching and not set_unknown:
+            return covering[0] if len(covering) == 1 else None
+        if reaching:
+            if metal_id is None:
+                return None
+            every_coins = composition_of(
+                compositions,
+                denomination_id=denomination_id,
+                series_id=series_id,
+                country_id=country_id,
+                first=first,
+                last=last,
+            )
+            agreeing = {
+                c.id: c
+                for c in (*covering, every_coins)
+                if c is not None and c.metal_id == metal_id
+            }
+            return next(iter(agreeing.values())) if len(agreeing) == 1 else None
     covering = [
         c
         for c in compositions
@@ -223,13 +234,14 @@ def composition_of_series(
     country_id: int,
     set_form_id: int | None = None,
     set_unknown: bool = False,
+    metal_id: int | None = None,
 ) -> Composition | None:
     """The one composition a design was struck in, for a coin with no year.
 
     None unless every run of the design resolves, and to the same row: a
     Roosevelt dime with no year could be silver or clad. A run at another
-    denomination than the item's is not the item's. The set and a proof's
-    unknown set are read as `composition_of` reads them.
+    denomination than the item's is not the item's. The set, a proof's
+    unknown set and its recorded metal are read as `composition_of` reads them.
     """
     found: dict[int, Composition] = {}
     for run_denomination, first, last in runs:
@@ -248,6 +260,7 @@ def composition_of_series(
             last=last,
             set_form_id=set_form_id,
             set_unknown=set_unknown,
+            metal_id=metal_id,
         )
         if composition is None:
             return None
