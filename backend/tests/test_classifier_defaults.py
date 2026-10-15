@@ -1255,7 +1255,7 @@ def test_a_row_for_the_design_outranks_the_denominations(
     for coin in (restrike, brass, gold, plain):
         db.refresh(coin)
     assert restrike.fineness == Decimal("0.9990")
-    assert _code(db, Metal, brass.metal_id) == "clad"
+    assert _code(db, Metal, brass.metal_id) == "manganese_brass"
     assert _code(db, Metal, gold.metal_id) == "gold"
     assert gold.fine_weight_ozt == Decimal("0.048375")
     assert plain.fine_weight_ozt == Decimal("0.773440")
