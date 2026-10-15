@@ -74,11 +74,13 @@ SeedableModel = type[ReferenceMixin] | type[Composition]
 SEEDABLE: tuple[SeedableModel, ...] = (*REFERENCE_MODELS, Composition)
 
 #: Composition has no `code`, so its identity is the span it describes: the
-#: denomination or the design series, either of which a row may leave out.
+#: denomination or the design series, either of which a row may leave out,
+#: and the set form a row may name.
 NATURAL_KEYS: dict[str, tuple[str, ...]] = {
     "composition": (
         "denomination_id",
         "series_id",
+        "set_form_id",
         "country_id",
         "year_from",
         "metal_id",

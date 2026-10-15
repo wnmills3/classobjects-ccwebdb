@@ -27,6 +27,13 @@
     "left out where both standards were struck, and a commemorative dollar",
     "has a row only through 2018, after which one was struck at five ounces.",
     "",
+    "A row naming a set form describes only the coins issued in that set:",
+    "the dime, quarter and half dollar of a Silver Proof Set from 1992 are",
+    "silver though every other coin of their face value and year is clad,",
+    "and so are the 1976 silver set's quarter, half and dollar. A coin is",
+    "read by them only when it is recorded in that set; a proof with no set",
+    "recorded, in those years, could be either, so it has no composition.",
+    "",
     "This is exactly the kind of table a new installation should inherit rather",
     "than rebuild: nothing here is specific to one collection."
   ],
@@ -54,6 +61,18 @@
     {"denomination": "usd_coin_0_10", "country": "US", "year_from": 1965,
      "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
      "note": "Copper-nickel clad. No precious metal content; valued numismatically."},
+
+    {"denomination": "usd_coin_0_10", "set_form": "silver_proof_set", "country": "US",
+     "year_from": 1992, "year_to": 2018,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.080376", "fine_weight_ozt": "0.072340",
+     "note": "Silver Proof Set dime, 90% silver, 2.5 g. The same coin outside the set is clad."},
+
+    {"denomination": "usd_coin_0_10", "set_form": "silver_proof_set", "country": "US",
+     "year_from": 2019,
+     "metal": "silver", "fineness": "0.9990",
+     "gross_weight_ozt": "0.081566", "fine_weight_ozt": "0.081485",
+     "note": "Silver Proof Set dime, .999 silver, 2.537 g."},
 
     {"denomination": "usd_coin_0_20", "country": "US", "year_from": 1875, "year_to": 1878,
      "metal": "silver", "fineness": "0.9000",
@@ -89,6 +108,24 @@
      "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
      "note": "Copper-nickel clad."},
 
+    {"denomination": "usd_coin_0_25", "set_form": "silver_proof_set", "country": "US",
+     "year_from": 1976, "year_to": 1976,
+     "metal": "silver", "fineness": "0.4000",
+     "gross_weight_ozt": "0.184867", "fine_weight_ozt": "0.073947",
+     "note": "Bicentennial silver set quarter, 40% silver clad, 5.75 g."},
+
+    {"denomination": "usd_coin_0_25", "set_form": "silver_proof_set", "country": "US",
+     "year_from": 1992, "year_to": 2018,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.200939", "fine_weight_ozt": "0.180840",
+     "note": "Silver Proof Set quarter, 90% silver, 6.25 g. The same coin outside the set is clad."},
+
+    {"denomination": "usd_coin_0_25", "set_form": "silver_proof_set", "country": "US",
+     "year_from": 2019,
+     "metal": "silver", "fineness": "0.9990",
+     "gross_weight_ozt": "0.203932", "fine_weight_ozt": "0.203728",
+     "note": "Silver Proof Set quarter, .999 silver, 6.343 g."},
+
     {"denomination": "usd_coin_0_50", "country": "US", "year_from": 1794, "year_to": 1835,
      "metal": "silver", "fineness": "0.8924",
      "gross_weight_ozt": "0.433333", "fine_weight_ozt": "0.386719",
@@ -122,6 +159,24 @@
     {"denomination": "usd_coin_0_50", "country": "US", "year_from": 1971,
      "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
      "note": "Copper-nickel clad."},
+
+    {"denomination": "usd_coin_0_50", "set_form": "silver_proof_set", "country": "US",
+     "year_from": 1976, "year_to": 1976,
+     "metal": "silver", "fineness": "0.4000",
+     "gross_weight_ozt": "0.369727", "fine_weight_ozt": "0.147900",
+     "note": "Bicentennial silver set half dollar, 40% silver clad, 11.5 g."},
+
+    {"denomination": "usd_coin_0_50", "set_form": "silver_proof_set", "country": "US",
+     "year_from": 1992, "year_to": 2018,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.401877", "fine_weight_ozt": "0.361690",
+     "note": "Silver Proof Set half dollar, 90% silver, 12.5 g. The same coin outside the set is clad."},
+
+    {"denomination": "usd_coin_0_50", "set_form": "silver_proof_set", "country": "US",
+     "year_from": 2019,
+     "metal": "silver", "fineness": "0.9990",
+     "gross_weight_ozt": "0.407832", "fine_weight_ozt": "0.407424",
+     "note": "Silver Proof Set half dollar, .999 silver, 12.685 g."},
 
     {"denomination": "usd_coin_1_00", "country": "US", "year_from": 1794, "year_to": 1804,
      "metal": "silver", "fineness": "0.8924",
@@ -168,6 +223,12 @@
      "metal": "silver", "fineness": "0.9990",
      "gross_weight_ozt": "0.859380", "fine_weight_ozt": "0.858521",
      "note": "The restrike: 26.73 g of .999 silver."},
+
+    {"denomination": "usd_coin_1_00", "set_form": "silver_proof_set", "country": "US",
+     "year_from": 1976, "year_to": 1976,
+     "metal": "silver", "fineness": "0.4000",
+     "gross_weight_ozt": "0.790585", "fine_weight_ozt": "0.316234",
+     "note": "Bicentennial silver set dollar, 40% silver clad, 24.59 g."},
 
     {"denomination": "usd_coin_1_00", "series": "anthony_dollar", "country": "US",
      "year_from": 1979, "year_to": 1999,

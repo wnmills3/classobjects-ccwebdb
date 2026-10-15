@@ -134,6 +134,17 @@ of it with no denomination gets none. The denomination's row is every other
 coin's of that face value and year; a design struck at one face value
 supplies it for an item recorded with none.
 
+**A coin recorded in a set** with rows of its own is decided by them alone:
+a dime, quarter or half from a Silver Proof Set of 1992-2018 is 90% silver,
+from 2019 .999 silver, and the 1976 silver set's quarter, half and dollar
+are 40% silver, though every other coin of those years is clad. A range
+two of them cover in part (Silver Proof Set dimes 2010-2020) gets none. A
+coin in any other set -- a Proof Set's clad dime -- is read as every coin
+is. **A proof with no set recorded** (any strike but business) where a
+set's rows reach its years could be from either set, so it gets no
+composition and waits for its set or a person. A coin whose strike is not
+recorded is read as a business strike.
+
 **A coin with a series and no year** has the composition its design was
 struck in, where that was one: every run of the design's years
 (`series_year_range`, or the series' own span) resolves to the same row. A
@@ -188,7 +199,7 @@ mule is found.
 | seal color | the issue | the issue has one seal |
 | signature combination | the issue | one pair signed it |
 | Federal Reserve district | serial number | the class is Federal Reserve Note and the serial is well formed |
-| composition, metal, fineness, gross and fine weight | denomination or design series, country, year | one composition covers every year of the item's range, or, with no year, every run of its design |
+| composition, metal, fineness, gross and fine weight | denomination or design series, country, year, and the set and strike where a set has rows of its own | one composition covers every year of the item's range, or, with no year, every run of its design |
 | fine weight | gross weight times fineness | the item is not a note, has both, and no composition decides its fine weight |
 
 Note type is decided first, because seal, signatures and Bank depend on it.
