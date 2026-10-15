@@ -101,6 +101,12 @@ def test_a_note_reads_as_the_owner_writes_it(db: Session) -> None:
     )
 
 
+def test_a_note_from_abroad_names_its_country(db: Session) -> None:
+    item = _note(db, country_id=code_id(db, Country, "CA"))
+    canada = _label(db, Country, "CA")
+    assert f"1999 {canada} $1 S/N" in suggested_description(db, item)
+
+
 def test_a_notes_design_series_follows_its_face_value(db: Session) -> None:
     item = _note(db, series_id=code_id(db, Series, "barr_note"))
     barr = _label(db, Series, "barr_note")
