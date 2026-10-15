@@ -129,6 +129,14 @@ EXTRA: dict[str, list[str]] = {
     "shield_nickel": [r"shield\s+nickel"],
     "anthony_dollar": [r"susan\s+b", r"anthony\s+dollar"],
     "presidential_dollar": [r"presidential\s+dollar"],
+    # "1853 Type 1 $1 Liberty Gold": the type with a dollar's face.
+    "liberty_head_gold_dollar": [r"\btype\s*(?:1|i)\s+(?:gold\s+)?\$1(?![\d.])"],
+    "small_head_princess_gold_dollar": [
+        r"\btype\s*(?:2|ii)\s+(?:gold\s+)?\$1(?![\d.])"
+    ],
+    "large_head_princess_gold_dollar": [
+        r"\btype\s*(?:3|iii)\s+(?:gold\s+)?\$1(?![\d.])"
+    ],
 }
 
 #: `AMBIGUOUS`'s terms, compiled once rather than on every description.
@@ -199,23 +207,40 @@ def match(
     """Every series code this description could mean, for that inventory.
 
     `denomination` is the item's denomination code, or None when it has none.
-    """
-    found = {
-        rule.series_code
-        for rule in rules
-        if rule.applies_to == inventory and rule.pattern.search(text)
-    }
-    if inventory != "coin":
-        return found  # the ambiguous families are all coin designs
 
-    # The ambiguous families, resolved by denomination or else abandoned.
-    for pattern, by_denomination in _AMBIGUOUS_PATTERNS:
-        if not pattern.search(text):
-            continue
-        series_code = by_denomination.get(denomination or "")
-        if series_code is not None:
-            found.add(series_code)
-    return found
+    A name read only inside a longer one is the longer one's: "Liberty Head
+    Gold Dollar" names that design, not also Liberty Head Gold and the Gold
+    Dollar. Two names over the same words both stand.
+    """
+    spans: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for rule in rules:
+        if rule.applies_to == inventory:
+            spans[rule.series_code] += [m.span() for m in rule.pattern.finditer(text)]
+    # The ambiguous families are all coin designs, resolved by denomination
+    # or else abandoned.
+    if inventory == "coin":
+        for pattern, by_denomination in _AMBIGUOUS_PATTERNS:
+            series_code = by_denomination.get(denomination or "")
+            if series_code is not None:
+                spans[series_code] += [m.span() for m in pattern.finditer(text)]
+    longer = {
+        code: [s for c, others in spans.items() if c != code for s in others]
+        for code in spans
+    }
+    return {
+        code
+        for code, own in spans.items()
+        if own and not all(any(_inside(s, o) for o in longer[code]) for s in own)
+    }
+
+
+def _inside(span: tuple[int, int], other: tuple[int, int]) -> bool:
+    """Whether `span` lies within `other` and is shorter than it."""
+    return (
+        other[0] <= span[0]
+        and span[1] <= other[1]
+        and other[1] - other[0] > span[1] - span[0]
+    )
 
 
 #: The years each design was struck, as `(first, last)` spans by series

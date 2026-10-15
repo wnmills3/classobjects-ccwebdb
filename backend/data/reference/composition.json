@@ -208,6 +208,24 @@
      "gross_weight_ozt": "0.053750", "fine_weight_ozt": "0.048375",
      "note": "25.8 grains of 90% gold."},
 
+    {"denomination": "usd_coin_1_00", "series": "liberty_head_gold_dollar", "country": "US",
+     "year_from": 1849, "year_to": 1854,
+     "metal": "gold", "fineness": "0.9000",
+     "gross_weight_ozt": "0.053750", "fine_weight_ozt": "0.048375",
+     "note": "Type 1: the gold dollar's 25.8 grains of 90% gold."},
+
+    {"denomination": "usd_coin_1_00", "series": "small_head_princess_gold_dollar", "country": "US",
+     "year_from": 1854, "year_to": 1856,
+     "metal": "gold", "fineness": "0.9000",
+     "gross_weight_ozt": "0.053750", "fine_weight_ozt": "0.048375",
+     "note": "Type 2: the gold dollar's 25.8 grains of 90% gold."},
+
+    {"denomination": "usd_coin_1_00", "series": "large_head_princess_gold_dollar", "country": "US",
+     "year_from": 1856, "year_to": 1889,
+     "metal": "gold", "fineness": "0.9000",
+     "gross_weight_ozt": "0.053750", "fine_weight_ozt": "0.048375",
+     "note": "Type 3: the gold dollar's 25.8 grains of 90% gold."},
+
     {"denomination": "usd_coin_1_00", "series": "commemorative_dollar", "country": "US",
      "year_from": 1983, "year_to": 2018,
      "metal": "silver", "fineness": "0.9000",

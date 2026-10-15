@@ -1240,6 +1240,30 @@ def test_a_row_for_the_design_outranks_the_denominations(
     assert plain.fine_weight_ozt == Decimal("0.773440")
 
 
+@pytest.mark.parametrize(
+    ("series", "year"),
+    [
+        ("liberty_head_gold_dollar", 1853),
+        ("small_head_princess_gold_dollar", 1855),
+        ("large_head_princess_gold_dollar", 1856),
+    ],
+)
+def test_each_gold_dollar_type_is_gold(
+    db: Session, make_item: ItemFactory, series: str, year: int
+) -> None:
+    """A gold dollar of a known type, in years the Seated dollar shares, is gold."""
+    coin = _of_series(
+        db, make_item, series, denomination="usd_coin_1_00", year_start=year
+    )
+
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert _code(db, Metal, coin.metal_id) == "gold"
+    assert coin.gross_weight_ozt == Decimal("0.053750")
+    assert coin.fine_weight_ozt == Decimal("0.048375")
+
+
 def test_a_bullion_design_with_one_size_needs_no_denomination(
     db: Session, make_item: ItemFactory
 ) -> None:

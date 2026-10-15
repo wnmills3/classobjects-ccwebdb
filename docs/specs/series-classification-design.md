@@ -32,7 +32,10 @@ design they decide:
   name is counted *contradicted* and stays unclassified, for
   `series_classify` to list as a conflict. A range of years rules nothing
   out. "Franklin" followed by "Mint" names the private mint, not the half
-  dollar. A bar, round, medal or token (kinds `bullion`, `medal`, `token`)
+  dollar. **A name read only inside a longer one is the longer one's**:
+  "Liberty Head Gold Dollar" names that design, not also Liberty Head Gold
+  and the Gold Dollar, and "Indian Head penny" names the cent, not the
+  nickel; two names over the same words ("Commemorative") both stand. A bar, round, medal or token (kinds `bullion`, `medal`, `token`)
   with no denomination recorded is not assigned a design that has one: a
   "Buffalo" round is not an Indian Head nickel, while a Silver Eagle, whose
   design records no denomination, is still matched. It reads every title and description as the item's own: the
@@ -175,7 +178,12 @@ boundary case.
 **One face value is one denomination, and the design tells its coins apart.**
 The half dimes (Flowing Hair, Draped Bust, Capped Bust, Seated Liberty) are
 five-cent designs beside the nickels; Three Cent Silver and Three Cent Nickel
-share three cents; the Gold Dollar shares the dollar.
+share three cents; the gold dollars share the dollar. The gold dollar's
+three types are designs of their own -- Liberty Head (Type 1), Indian
+Princess Small Head (Type 2) and Indian Princess Large Head (Type 3) -- and
+**Gold Dollar** is one whose type is not known. All four have the same
+composition row, 25.8 grains of 90% gold, so a gold dollar of any of them
+is gold, though the Seated Liberty dollar shares its years.
 
 The designs before the Seated Liberty coinage, by denomination:
 
@@ -216,6 +224,9 @@ and an item that says nothing is taken for the common design:
 | Commemorative Half Dollar | 50c: 1892-1954, 1982- | Commemorative(s), Commem, Comem |
 | Commemorative Dollar | $1: 1900-1922, 1983- | the same |
 | Gold Dollar | $1: 1849-1889 | (its label) |
+| Liberty Head Gold Dollar | $1: 1849-1854 | Type 1 Gold Dollar; "Type 1 $1" |
+| Indian Princess Small Head Gold Dollar | $1: 1854-1856 | Type 2 Gold Dollar, Small Head Princess; "Type 2 $1" |
+| Indian Princess Large Head Gold Dollar | $1: 1856-1889 | Type 3 Gold Dollar, Large Head Princess; "Type 3 $1" |
 | Trade Dollar | $1: 1873-1885 | (its label) |
 | American Innovation Dollar | $1: 2018-2032 | American Innovation, Innovation Dollar |
 | American Women Quarters | 25c: 2022-2025 | American Women, American Women Quarter |
