@@ -76,6 +76,7 @@ from .models import (
     NoteIssue,
     NoteType,
     ProvenanceSource,
+    StrikeType,
 )
 from .serial_patterns import WELL_FORMED
 from .series_classify import refresh_series
@@ -326,6 +327,9 @@ class Facts:
     compositions: list[Composition] = field(default_factory=list)
     #: Each coin design's own runs of years, by series id.
     series_runs: dict[int, tuple[Run, ...]] = field(default_factory=dict)
+    #: The business strike's id: any other strike recorded on a coin with no
+    #: set is a proof or the like, which a set's own composition may cover.
+    business_strike_id: int | None = None
     note_type_labels: dict[int, str] = field(default_factory=dict)
     note_type_codes: dict[int, str] = field(default_factory=dict)
     #: The attributes the rules name, by code.
@@ -377,6 +381,9 @@ def load_facts(db: Session, *, notes: bool = True, coins: bool = True) -> Facts:
     if coins:
         facts.compositions = load_compositions(db)
         facts.series_runs = series_runs(db)
+        facts.business_strike_id = db.execute(
+            select(StrikeType.id).where(StrikeType.code == "business")
+        ).scalar_one_or_none()
     if not notes:
         return facts
     facts.issues = load_issues(db)
@@ -637,9 +644,18 @@ def _composition(
     Walking Liberty round -- and is not that coin. So an item that is not a
     coin and has no denomination is decided only by a design with no face
     value of its own, which is a bullion design: the Silver Eagle.
+
+    A coin recorded in a set is read with the set's own rows (a Silver
+    Proof Set's dime is silver), and a proof with no set recorded, where
+    such rows reach its years, with none: it could be clad or silver.
     """
     if item.country_id is None:
         return None
+    set_unknown = (
+        item.set_form_id is None
+        and item.strike_type_id is not None
+        and item.strike_type_id != facts.business_strike_id
+    )
     runs = facts.series_runs.get(item.series_id, ()) if item.series_id else ()
     faces = {face for face, _, _ in runs if face is not None}
     if item.denomination_id is None and not coin and (not runs or faces):
@@ -654,6 +670,8 @@ def _composition(
             country_id=item.country_id,
             first=item.year_start,
             last=item.year_end if item.year_end is not None else item.year_start,
+            set_form_id=item.set_form_id,
+            set_unknown=set_unknown,
         )
     if item.series_id is None:
         return None
@@ -663,6 +681,8 @@ def _composition(
         denomination_id=item.denomination_id,
         series_id=item.series_id,
         country_id=item.country_id,
+        set_form_id=item.set_form_id,
+        set_unknown=set_unknown,
     )
 
 

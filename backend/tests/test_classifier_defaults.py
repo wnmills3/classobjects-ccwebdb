@@ -27,7 +27,9 @@ from app.models import (
     ReferenceMixin,
     SealColor,
     Series,
+    SetForm,
     SignatureCombination,
+    StrikeType,
 )
 from app.seeding import SeedError, seed_all
 from fastapi.testclient import TestClient
@@ -1283,3 +1285,151 @@ def test_a_series_assigned_on_save_gives_the_composition_in_the_same_save(
     assert body["metal"] == "silver"
     assert body["fine_weight_ozt"] == "0.036000"
     assert body["derived"]["fine_weight_ozt"] == "composition"
+
+
+# -- coins: a set's own composition --------------------------------------------
+
+
+def _set_coin(
+    db: Session,
+    make_item: ItemFactory,
+    denomination: str,
+    year: int,
+    *,
+    set_form: str | None,
+    strike: str | None = "proof",
+    year_end: int | None = None,
+) -> InventoryItem:
+    """A coin of this face value and year, in the set named, struck as named."""
+    return make_item(
+        title="Plain coin",
+        denomination_id=code_id(db, Denomination, denomination),
+        year_start=year,
+        year_end=year_end,
+        set_form_id=code_id(db, SetForm, set_form) if set_form else None,
+        strike_type_id=code_id(db, StrikeType, strike) if strike else None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("denomination", "year", "fineness", "fine_weight"),
+    [
+        ("usd_coin_0_10", 1992, "0.9000", "0.072340"),
+        ("usd_coin_0_10", 2018, "0.9000", "0.072340"),
+        ("usd_coin_0_10", 2019, "0.9990", "0.081485"),
+        ("usd_coin_0_25", 2005, "0.9000", "0.180840"),
+        ("usd_coin_0_25", 2024, "0.9990", "0.203728"),
+        ("usd_coin_0_50", 1999, "0.9000", "0.361690"),
+        ("usd_coin_0_50", 2020, "0.9990", "0.407424"),
+        # The Bicentennial silver set: 40% silver clad.
+        ("usd_coin_0_25", 1976, "0.4000", "0.073947"),
+        ("usd_coin_0_50", 1976, "0.4000", "0.147900"),
+        ("usd_coin_1_00", 1976, "0.4000", "0.316234"),
+    ],
+)
+def test_a_silver_proof_sets_coin_is_silver(
+    db: Session,
+    make_item: ItemFactory,
+    denomination: str,
+    year: int,
+    fineness: str,
+    fine_weight: str,
+) -> None:
+    coin = _set_coin(db, make_item, denomination, year, set_form="silver_proof_set")
+
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert _code(db, Metal, coin.metal_id) == "silver"
+    assert coin.fineness == Decimal(fineness)
+    assert coin.fine_weight_ozt == Decimal(fine_weight)
+    assert derived_fields(db, coin.id)["fine_weight_ozt"] == "composition"
+
+
+def test_a_proof_sets_coin_is_clad(db: Session, make_item: ItemFactory) -> None:
+    """Only the Silver Proof Set's own coins are silver: the ordinary set's are clad."""
+    coin = _set_coin(db, make_item, "usd_coin_0_10", 1999, set_form="proof_set")
+
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert _code(db, Metal, coin.metal_id) == "clad"
+
+
+@pytest.mark.parametrize("strike", ["business", None])
+def test_a_coin_struck_for_circulation_is_clad(
+    db: Session, make_item: ItemFactory, strike: str | None
+) -> None:
+    """A business strike, or a coin whose strike is not recorded, is read as one."""
+    coin = _set_coin(db, make_item, "usd_coin_0_25", 1999, set_form=None, strike=strike)
+
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert _code(db, Metal, coin.metal_id) == "clad"
+
+
+@pytest.mark.parametrize(
+    ("denomination", "year"),
+    [("usd_coin_0_10", 1999), ("usd_coin_0_50", 2021), ("usd_coin_0_25", 1976)],
+)
+def test_a_proof_with_no_set_recorded_gets_no_composition(
+    db: Session, make_item: ItemFactory, denomination: str, year: int
+) -> None:
+    """Struck in clad and in silver for the two sets alike, it could be either."""
+    coin = _set_coin(db, make_item, denomination, year, set_form=None)
+
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert coin.composition_id is None
+    assert coin.metal_id is None
+    assert coin.fine_weight_ozt is None
+
+
+def test_a_proof_from_before_the_silver_sets_keeps_its_composition(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """No set's row reaches 1964 or 1985, so their proofs read as every coin does."""
+    silver = _set_coin(db, make_item, "usd_coin_0_10", 1964, set_form=None)
+    clad = _set_coin(db, make_item, "usd_coin_0_10", 1985, set_form=None)
+
+    run(db, commit=True)
+
+    db.refresh(silver)
+    db.refresh(clad)
+    assert silver.fineness == Decimal("0.9000")
+    assert _code(db, Metal, clad.metal_id) == "clad"
+
+
+def test_a_silver_proof_set_run_across_both_standards_gets_none(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """90% to 2018 and .999 from 2019: no one row covers 2010-2020."""
+    coins = _set_coin(
+        db, make_item, "usd_coin_0_10", 2010, set_form="silver_proof_set", year_end=2020
+    )
+
+    run(db, commit=True)
+
+    db.refresh(coins)
+    assert coins.composition_id is None
+    assert coins.metal_id is None
+
+
+def test_recording_the_set_turns_a_derived_clad_to_silver(
+    db: Session, make_item: ItemFactory
+) -> None:
+    coin = _set_coin(db, make_item, "usd_coin_0_10", 1999, set_form=None, strike=None)
+    run(db, commit=True)
+    db.refresh(coin)
+    assert _code(db, Metal, coin.metal_id) == "clad"
+
+    coin.set_form_id = code_id(db, SetForm, "silver_proof_set")
+    coin.strike_type_id = code_id(db, StrikeType, "proof")
+    db.commit()
+    run(db, commit=True)
+
+    db.refresh(coin)
+    assert _code(db, Metal, coin.metal_id) == "silver"
+    assert coin.fine_weight_ozt == Decimal("0.072340")

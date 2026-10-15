@@ -324,7 +324,7 @@ Note's serial names its Reserve Bank; a 1964 dime is 90% silver
 |---|---|---|
 | note class, seal, signatures | denomination, series year and letter | `note_issue.json` (Series 1928-2021) |
 | Reserve Bank | a Federal Reserve Note's serial | BEP's serial rules |
-| composition, metal, fineness, weights | denomination or design series, country and year -- the series alone where the design was struck in one composition | `composition.json` |
+| composition, metal, fineness, weights | denomination or design series, country and year -- the series alone where the design was struck in one composition; the set for a Silver Proof Set's coins | `composition.json` |
 | the No Motto attribute | a $1 Silver Certificate's series | `app/attribute_rules.py` |
 
 **No Motto** ("Godless"): every $1 Silver Certificate of Series 1928 through

@@ -48,6 +48,11 @@ class Composition(TimestampMixin, Base):
     Morgan dollar of 2021 is .999 silver, a Sacagawea dollar of the same year
     is not silver at all, and a Silver Eagle has no denomination to go by.
 
+    A row naming a set form describes only the coins issued in that set: a
+    dime of 1999 is clad, but one from that year's Silver Proof Set is 90%
+    silver. It outranks the rows without one for a coin recorded in that
+    set, and applies to no other coin.
+
     Overridable per item: `inventory_item` carries its own metal, fineness and
     weights for the cases this table cannot know about.
     """
@@ -65,6 +70,11 @@ class Composition(TimestampMixin, Base):
     )
     country_id: Mapped[int] = mapped_column(
         ForeignKey("country.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    #: The set whose coins alone this row describes -- the Silver Proof Set's
+    #: dimes, quarters and halves -- or None for every coin of its span.
+    set_form_id: Mapped[int | None] = mapped_column(
+        ForeignKey("set_form.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     #: Inclusive year range over which this composition was in force. Null
     #: year_to means "still current".
@@ -112,6 +122,7 @@ class Composition(TimestampMixin, Base):
         UniqueConstraint(
             "denomination_id",
             "series_id",
+            "set_form_id",
             "country_id",
             "year_from",
             "metal_id",

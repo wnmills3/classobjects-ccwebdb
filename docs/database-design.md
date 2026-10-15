@@ -466,13 +466,15 @@ avoirdupois ounces and is unrelated.
 
 A public-fact lookup from legislation and mint specifications: a 1963 US dime
 is 90% silver because the law said so. `denomination_id`, `series_id`,
-`country_id`, `year_from`, `year_to` (null = current), `metal_id`,
-`fineness`, `gross_weight_ozt`, `fine_weight_ozt`, `note`, `source`. A row
-names a denomination, a design series, or both
+`set_form_id`, `country_id`, `year_from`, `year_to` (null = current),
+`metal_id`, `fineness`, `gross_weight_ozt`, `fine_weight_ozt`, `note`,
+`source`. A row names a denomination, a design series, or both
 (`ck_composition_names_a_coin`); one naming a series is that design's own
-and outranks the denomination's (`app.composition`). Unique
-`(denomination_id, series_id, country_id, year_from, metal_id)`, nulls not
-distinct (`uq_composition_span`).
+and outranks the denomination's (`app.composition`). One naming a set form
+describes only the coins of that set -- the Silver Proof Set's silver dime,
+quarter and half of a year whose other coins are clad -- and applies to no
+other coin. Unique `(denomination_id, series_id, set_form_id, country_id,
+year_from, metal_id)`, nulls not distinct (`uq_composition_span`).
 The item's own metal, fineness and weights override it where the table cannot
 know better.
 
