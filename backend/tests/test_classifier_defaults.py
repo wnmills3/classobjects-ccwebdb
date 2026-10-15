@@ -799,6 +799,39 @@ def test_a_stated_value_the_composition_contradicts_is_reported(
     )
 
 
+@pytest.mark.parametrize(
+    ("gross", "fine"),
+    [
+        (Decimal("0.0804"), Decimal("0.0723")),  # rounded
+        (Decimal("0.0803"), Decimal("0.0723")),  # cut short
+    ],
+)
+def test_a_weight_written_to_four_places_agrees(
+    db: Session, make_item: ItemFactory, gross: Decimal, fine: Decimal
+) -> None:
+    """A dime's 0.080376 oz copied to four places is still its weight."""
+    dime = _dime(db, make_item, 1964, gross_weight_ozt=gross, fine_weight_ozt=fine)
+
+    assert not [case for case in review_cases(db, dime) if case[0] == "disagrees"]
+
+
+@pytest.mark.parametrize(
+    ("gross", "differs"),
+    [
+        (Decimal("0.0802"), "gross_weight_ozt"),  # a step past four places
+        (Decimal("0.080370"), "gross_weight_ozt"),  # six places, measured
+    ],
+)
+def test_a_weight_off_by_more_than_rounding_disagrees(
+    db: Session, make_item: ItemFactory, gross: Decimal, differs: str
+) -> None:
+    dime = _dime(db, make_item, 1964, gross_weight_ozt=gross)
+
+    assert ("disagrees", f"composition says otherwise: {differs}") in review_cases(
+        db, dime
+    )
+
+
 def test_a_recorded_metal_the_composition_rules_out_fills_nothing(
     db: Session, make_item: ItemFactory
 ) -> None:

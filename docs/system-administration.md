@@ -349,7 +349,8 @@ lists by item code:
 - **ambiguous** -- the series was issued in more than one class and nothing
   recorded says which;
 - **disagrees** -- a recorded class, seal, signature, Reserve Bank or
-  composition the facts rule out;
+  composition the facts rule out (a weight typed to four places, rounded or
+  cut short, still agrees);
 - **unknown issue** -- a series the facts table has no such note for, usually
   a mistyped series year;
 - **serial prefix** -- a $5-or-higher note from Series 1996 on whose serial
