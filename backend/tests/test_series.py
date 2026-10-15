@@ -130,6 +130,42 @@ def test_two_series_in_one_description_stays_ambiguous(db: Session) -> None:
     assert len(found) > 1, "must be recognized as ambiguous, not silently resolved"
 
 
+def test_a_name_inside_a_longer_one_is_the_longer_ones(db: Session) -> None:
+    """A gold dollar's type is named, not also Liberty Head Gold and Gold Dollar."""
+    rules = build_rules(db)
+    dollar = "usd_coin_1_00"
+    for text, expected in (
+        ("1851 Liberty Head Gold Dollar XF", "liberty_head_gold_dollar"),
+        (
+            "1856 Type 3 Large Head Princess Gold One Dollar $1",
+            "large_head_princess_gold_dollar",
+        ),
+        (
+            "1855 Indian Princess Small Head Gold Dollar",
+            "small_head_princess_gold_dollar",
+        ),
+        (
+            "Certified 1853 Type 1 $1 Liberty Gold Piece NGC MS61",
+            "liberty_head_gold_dollar",
+        ),
+        ("1852 Rare Gold Dollar AU", "gold_dollar"),
+    ):
+        assert match(text, dollar, rules) == {expected}, text
+    # Not a dollar: "Type 1" with another face names no gold dollar.
+    assert "liberty_head_gold_dollar" not in match(
+        "Type 1 $10", "usd_coin_10_00", rules
+    )
+
+
+def test_names_over_the_same_words_both_stand(db: Session) -> None:
+    """A shorter name drops out only inside a longer one, not beside it."""
+    rules = build_rules(db)
+    assert match("Morgan and Peace dollars", "usd_coin_1_00", rules) == {
+        "morgan_dollar",
+        "peace_dollar",
+    }
+
+
 def test_series_facet_counts_by_indexed_key(
     db: Session, make_item: ItemFactory
 ) -> None:
