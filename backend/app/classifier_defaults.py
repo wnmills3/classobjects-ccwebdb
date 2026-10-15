@@ -617,6 +617,7 @@ def coin_outcome(
         and current[column] is not None
         and None not in allowed
         and current[column] not in allowed
+        and not _agrees_to_four_places(column, current[column], allowed)
     ]
     if differs:
         out.cases.append(
@@ -697,6 +698,27 @@ def _composition(
 
 #: Fine weight is stored to six places, as the column is.
 _SIX_PLACES = Decimal("0.000001")
+
+#: The places a weight is commonly published to, and the step at that place.
+_FOUR_PLACES = Decimal("0.0001")
+
+
+def _agrees_to_four_places(column: str, recorded: object, allowed: set[object]) -> bool:
+    """Whether a recorded weight is the composition's, written to four places.
+
+    A coin's weight is published to four places (a 40% silver dollar's
+    0.7906 oz), and a person copies it rounded or cut short (0.7905); either
+    is the composition's 0.790585. A weight written to more places than four
+    is taken as measured, and must match.
+    """
+    if not column.endswith("_ozt") or not isinstance(recorded, Decimal):
+        return False
+    if recorded != recorded.quantize(_FOUR_PLACES):
+        return False
+    return any(
+        isinstance(figure, Decimal) and abs(recorded - figure) < _FOUR_PLACES
+        for figure in allowed
+    )
 
 
 def fine_weight(gross: Decimal, fineness: Decimal) -> Decimal:

@@ -69,6 +69,9 @@ any other rule; nothing in the code writes them.
   now spans two compositions -- is cleared with its record and counted as
   *retracted*. A person's value is never cleared; one the facts contradict is
   reported instead.
+  A weight written to four places agrees with the composition's six-place
+  figure when it is within 0.0001 of it, rounded or cut short (0.7905 for a
+  40% silver dollar's 0.790585); one written to more places must match.
 
 `GET /api/inventory/{id}` returns the item's `derived` map (field to rule,
 `held` excluded), which the editor marks.
