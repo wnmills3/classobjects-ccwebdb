@@ -179,6 +179,10 @@ is a silver half, given a silver half's fineness and weights, and its
 recorded metal is kept. Gold-plated silver and silver-copper clad read as
 silver, 24K gold-plated clad as clad.
 
+**A seal shade is read as its color** (`seal_color.base_seal_color_id`,
+*Read as* on the Vocabularies page): the issue facts know green, and a note
+recorded with a light green seal is matched as green and keeps its shade.
+
 ### Serial numbers (BEP)
 
 - Through Series 1995, and for $1 and $2 notes still, a serial is one letter,

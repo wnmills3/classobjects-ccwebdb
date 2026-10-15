@@ -1,8 +1,8 @@
 """The migration that moves the golden dollars' compositions to manganese brass.
 
-Built on a throwaway database taken to the revision before it and seeded,
-with the three designs' rows put back to clad and the metal removed -- the
-state the live database is in -- then upgraded.
+Built on a throwaway database seeded at the newest revision and taken back
+to the one before it, which puts the three designs' rows back to clad and
+removes the metal -- the state the live database was in -- then upgraded.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from alembic.command import upgrade
+from alembic.command import downgrade, upgrade
 from alembic.config import Config
 from app.seeding import seed_all
 from sqlalchemy import create_engine, text
@@ -25,12 +25,17 @@ AFTER = "e7b3d9a1c5f2"
 GOLDEN = ("sacagawea_dollar", "presidential_dollar", "american_innovation_dollar")
 
 
-def _to(url: str, revision: str) -> None:
-    """Migrate the database at `url`, and no other, up to the revision."""
+def _config(url: str) -> Config:
+    """Alembic, pointed at the database at `url` and no other."""
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     config.set_main_option("sqlalchemy.url", url)
-    upgrade(config, revision)
+    return config
+
+
+def _to(url: str, revision: str) -> None:
+    """Migrate the database at `url` up to the revision."""
+    upgrade(_config(url), revision)
 
 
 @pytest.fixture
@@ -45,21 +50,16 @@ def before_url() -> Iterator[str]:
         conn.execute(text(f'CREATE DATABASE "{name}"'))
     url = TEST_URL.set(database=name).render_as_string(hide_password=False)
     try:
-        _to(url, BEFORE)
+        # Seeded as the models stand, at the newest revision, then taken
+        # back: the seed is written for today's columns.
+        _to(url, "head")
         engine = create_engine(url)
         with Session(engine) as session:
             seed_all(session)
             session.commit()
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    "update composition set metal_id ="
-                    " (select id from metal where code = 'clad')"
-                    " where metal_id = (select id from metal"
-                    " where code = 'manganese_brass')"
-                )
-            )
-            conn.execute(text("delete from metal where code = 'manganese_brass'"))
+        downgrade(_config(url), BEFORE)
+        # The downgrade put the golden dollars' rows back to clad and took
+        # the metal away: the state the live database was in.
         engine.dispose()
         yield url
     finally:

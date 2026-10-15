@@ -77,6 +77,7 @@ from .models import (
     NoteIssue,
     NoteType,
     ProvenanceSource,
+    SealColor,
     StrikeType,
 )
 from .serial_patterns import WELL_FORMED
@@ -333,6 +334,8 @@ class Facts:
     business_strike_id: int | None = None
     #: A plated or layered metal's base, by id: what a composition reads it as.
     base_metals: dict[int, int] = field(default_factory=dict)
+    #: A seal shade's color, by id: what the issue facts read it as.
+    base_seals: dict[int, int] = field(default_factory=dict)
     note_type_labels: dict[int, str] = field(default_factory=dict)
     note_type_codes: dict[int, str] = field(default_factory=dict)
     #: The attributes the rules name, by code.
@@ -397,6 +400,13 @@ def load_facts(db: Session, *, notes: bool = True, coins: bool = True) -> Facts:
     if not notes:
         return facts
     facts.issues = load_issues(db)
+    facts.base_seals = {
+        seal_id: base_id
+        for seal_id, base_id in db.execute(
+            select(SealColor.id, SealColor.base_seal_color_id)
+        ).tuples()
+        if base_id is not None
+    }
     facts.first_issue_year = min((key[1] for key in facts.issues), default=9999)
     for type_id, code, label in db.execute(
         select(NoteType.id, NoteType.code, NoteType.label)
@@ -452,6 +462,10 @@ def note_outcome(
         _retract(out, current, derived, NOTE_FILLED)
         return out
 
+    # A recorded shade is matched as its color: a light green seal is green.
+    seal = current.get("seal_color_id")
+    if seal is not None and "seal_color_id" not in derived:
+        current = {**current, "seal_color_id": facts.base_seals.get(seal, seal)}
     matches, contradicted = _note_options(known, current, derived)
     if contradicted:
         out.count = "note: recorded value the facts rule out"
@@ -838,7 +852,12 @@ def attribute_outcome(
             continue
         attribute_id, label = found
         verdict = attribute_rules.verdict(
-            rule, note_type, note.face, note.series_year, note.series_letter
+            rule,
+            note_type,
+            note.face,
+            note.series_year,
+            note.series_letter,
+            note.serial_number,
         )
         link = links.get((item_id, attribute_id))
         add = _link_change(verdict, link)
