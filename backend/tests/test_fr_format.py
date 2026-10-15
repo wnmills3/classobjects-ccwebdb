@@ -30,13 +30,15 @@ from app.fr_format import (
         # The label comes off only before a digit 0 to 9.
         ("Fr. \uff19\uff19", "Fr. \uff19\uff19"),
         ("9907 - l", "9907-L"),
-        ("9a", "9a"),
-        # The optional letter is kept in lower case, so one number is one text.
-        ("9912A", "9912a"),
-        ("9912A-b", "9912a-B"),
-        ("Fr. 9912A*", "9912a*"),
+        ("9a", "9A"),
+        # The optional letter is kept in capitals, so one number is one
+        # text -- all but a mule's m, which stays lower-case in any case typed.
+        ("9912A", "9912A"),
+        ("9912a-b", "9912A-B"),
+        ("Fr. 9912a*", "9912A*"),
         ("9901M", "9901m"),
-        ("9912A lgs", "9912a LGS"),
+        ("9901m", "9901m"),
+        ("9912a lgs", "9912A LGS"),
         ("9907-lm", "9907-Lm"),
         ("9907-EM", "9907-Em"),
         ("Fr. 9907-e*m", "9907-Em*"),
@@ -94,8 +96,8 @@ def test_the_cleaning_at_its_edges(typed: str, kept: str) -> None:
         "9901",
         "9901-L",
         "9901-A*",
-        "12a",
-        "12a-B",
+        "12A",
+        "12A-B",
         "9907-Em",
         "9907-Em*",
         "9901m",
@@ -148,7 +150,7 @@ def test_a_slip_is_named(number: str, says: str) -> None:
         ("9901-Lm", (False, True)),
         ("9901-Lm*", (True, True)),
         ("9901m", (False, True)),
-        ("12a", (False, False)),
+        ("12A", (False, False)),
         ("9901-L LGS", (False, False)),
         ("9901-L* LGS", (True, False)),
         ("9901-Lm DGS", (False, True)),
@@ -166,14 +168,14 @@ def test_star_and_mule_are_read_from_the_number(
     [
         ("9901-L", "L"),
         ("9901-A*", "A"),
-        ("12a-B", "B"),
+        ("12A-B", "B"),
         ("9907-Em", "E"),
         ("9907-Em*", "E"),
         ("9908-B LGS", "B"),
         ("9908-Em* DGS", "E"),
         # No district in the number: none is read from a letter or a mule's m.
         ("9901", None),
-        ("12a", None),
+        ("12A", None),
         ("9901m", None),
         ("9908 LGS", None),
         # Not in a number's form: nothing is read from it.

@@ -1229,15 +1229,15 @@ def test_a_series_letter_is_kept_in_capitals(
 def test_a_numbers_letter_in_either_case_is_one_number(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """`9958A` and `9958a` are the same number, so the second is a 409."""
+    """`9958a` and `9958A` are the same number, so the second is a 409."""
     first = client.post(
-        "/api/friedberg", json={"fr_number": "9958A"}, headers=admin_headers
+        "/api/friedberg", json={"fr_number": "9958a"}, headers=admin_headers
     )
     assert first.status_code == 201, first.text
-    assert first.json()["fr_number"] == "9958a"
+    assert first.json()["fr_number"] == "9958A"
 
     again = client.post(
-        "/api/friedberg", json={"fr_number": "9958a"}, headers=admin_headers
+        "/api/friedberg", json={"fr_number": "9958A"}, headers=admin_headers
     )
     assert again.status_code == 409, again.text
     assert str(first.json()["id"]) in again.json()["detail"]

@@ -75,12 +75,14 @@ reason shown.
 
 - **Cleaned:** surrounding space and a `Fr.`, `Fr#` or `FR-` label in front
   of the digits are dropped, space around the hyphen is closed up, and the
-  district letter is capitalised -- ` Fr. 9905-d ` is kept as `9905-D`. A
-  mule's `m` after the district stays lower-case, with any star after it:
-  `9907-EM` and `9907-e*m` are kept as `9907-Em` and `9907-Em*`. A seal
-  shade at the end is capitalised after one space: `9908-b  lgs` is kept
-  as `9908-B LGS`.
-- **Checked:** 1 to 4 digits, an optional letter (`1a`), an optional district
+  optional letter and the district letter are capitalised --
+  ` Fr. 9905-d ` is kept as `9905-D`, `9912a-b` as `9912A-B`. A mule's `m`
+  stays lower-case whatever case it was typed in, after the digits or after
+  the district, with any star after it: `9901M` is kept as `9901m`,
+  `9907-EM` and `9907-e*m` as `9907-Em` and `9907-Em*`. A seal shade at the
+  end is capitalised after one space: `9908-b  lgs` is kept as
+  `9908-B LGS`.
+- **Checked:** 1 to 4 digits, an optional letter (`1A`), an optional district
   `-A` to `-L`, an optional `m` after the district for a mule (the answer
   the Friedberg web search is asked for when plates are given), an
   optional `*` for a star note, and an optional ` LGS` or ` DGS` for a
