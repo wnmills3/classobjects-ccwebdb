@@ -22,10 +22,11 @@ const SHADE_LETTERS = /^(lgs|dgs)$/i
 // Em*, the m lower-case so capitalising the district cannot make it a
 // second district letter.
 const MULE_DISTRICT = /^([a-l])(\*?)m(\*?)$/i
-// The optional letter after the digits, kept in lower case: the number is
-// unique as text, so 12A and 12a must be one number, and an m there is a
-// mule's whichever case it was typed in.
-const LETTER = /^(\d+)([A-Z])/
+// The optional letter after the digits, kept in capitals: the number is
+// unique as text, so 12a and 12A must be one number. An m there is a mule's
+// whichever case it was typed in, and stays lower-case, as it does after a
+// district.
+const LETTER = /^(\d+)([A-Za-z])/
 
 /**
  * `text` with the space on either side of each hyphen taken out: the space
@@ -56,7 +57,7 @@ function shadeAtEnd(text) {
   return at < before.length ? { at, letters } : null
 }
 
-/** The number as it is kept: trimmed, unprefixed, its district in capitals. */
+/** The number as it is kept: trimmed, unprefixed, in capitals but a mule's m. */
 export function normalizeFr(raw) {
   const trimmed = raw.trim()
   const shade = shadeAtEnd(trimmed)
@@ -68,7 +69,10 @@ export function normalizeFr(raw) {
 function normalizeBase(raw) {
   const number = closeHyphens(raw.trim().replace(PREFIX, '')).replace(
     LETTER,
-    (_, digits, letter) => digits + letter.toLowerCase(),
+    (_, digits, letter) => {
+      const upper = letter.toUpperCase()
+      return digits + (upper === 'M' ? 'm' : upper)
+    },
   )
   const hyphen = number.indexOf('-')
   if (hyphen === -1) return number

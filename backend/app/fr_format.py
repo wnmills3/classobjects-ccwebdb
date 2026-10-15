@@ -30,7 +30,7 @@ __all__ = [
 #: The digit is `0` to `9` only -- `(?a:...)` holds `\d` to ASCII without
 #: narrowing the space before it, which stays any script's.
 _PREFIX = re.compile(r"^fr[\s.#-]*(?=(?a:\d))", re.IGNORECASE)
-#: 1 to 4 digits, an optional letter (`1a`), a district `-A` to `-L`, `m` for
+#: 1 to 4 digits, an optional letter (`1A`), a district `-A` to `-L`, `m` for
 #: a mule (`9907-Em`; without a district the optional letter already holds
 #: it), and `*` for a star note.
 #: Then, after a space, `LGS` or `DGS` for a light or dark green seal --
@@ -55,10 +55,17 @@ _SHADE_LETTERS = re.compile(r"lgs|dgs", re.IGNORECASE)
 #: `Em*`, the `m` lower-case so capitalising the district cannot turn it into
 #: a second district letter.
 _MULE_DISTRICT = re.compile(r"(?P<district>[a-l])(?P<a>\*?)m(?P<b>\*?)", re.IGNORECASE)
-#: The optional letter after the digits, kept in lower case: the number is
-#: unique as text, so `12A` and `12a` must be one number, and an `m` there is
-#: a mule's whichever case it was typed in.
-_LETTER = re.compile(r"^(\d+)([A-Z])", re.ASCII)
+#: The optional letter after the digits, kept in capitals: the number is
+#: unique as text, so `12a` and `12A` must be one number. An `m` there is a
+#: mule's whichever case it was typed in, and stays lower-case, as it does
+#: after a district.
+_LETTER = re.compile(r"^(\d+)([A-Za-z])", re.ASCII)
+
+
+def _fold_letter(match: re.Match[str]) -> str:
+    """The digits and their optional letter: capitalised, a mule's `m` lower."""
+    letter = match[2].upper()
+    return match[1] + ("m" if letter == "M" else letter)
 
 
 def _close_hyphens(text: str) -> str:
@@ -98,7 +105,7 @@ def _shade_at_end(text: str) -> tuple[str, str] | None:
 
 
 def normalize_fr(raw: str) -> str:
-    """The number as it is kept: trimmed, unprefixed, its district in capitals."""
+    """The number as it is kept: trimmed, unprefixed, in capitals but a mule's `m`."""
     number = raw.strip()
     shade = _shade_at_end(number)
     if shade is None:
@@ -110,7 +117,7 @@ def normalize_fr(raw: str) -> str:
 def _normalize_base(raw: str) -> str:
     """The number before any seal shade, cleaned."""
     number = _close_hyphens(_PREFIX.sub("", raw.strip()))
-    number = _LETTER.sub(lambda m: m[1] + m[2].lower(), number)
+    number = _LETTER.sub(_fold_letter, number)
     head, hyphen, district = number.partition("-")
     if not hyphen:
         return number

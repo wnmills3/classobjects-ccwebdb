@@ -26,13 +26,15 @@ describe('normalizeFr', () => {
     // The label comes off only before a digit 0 to 9.
     [`Fr. ${FULL_WIDTH_9}${FULL_WIDTH_9}`, `Fr. ${FULL_WIDTH_9}${FULL_WIDTH_9}`],
     ['9907 - l', '9907-L'],
-    ['9a', '9a'],
-    // The optional letter is kept in lower case, so one number is one text.
-    ['9912A', '9912a'],
-    ['9912A-b', '9912a-B'],
-    ['Fr. 9912A*', '9912a*'],
+    ['9a', '9A'],
+    // The optional letter is kept in capitals, so one number is one text --
+    // all but a mule's m, which stays lower-case in any case typed.
+    ['9912A', '9912A'],
+    ['9912a-b', '9912A-B'],
+    ['Fr. 9912a*', '9912A*'],
     ['9901M', '9901m'],
-    ['9912A lgs', '9912a LGS'],
+    ['9901m', '9901m'],
+    ['9912a lgs', '9912A LGS'],
     ['9907-lm', '9907-Lm'],
     ['9907-EM', '9907-Em'],
     ['Fr. 9907-e*m', '9907-Em*'],
@@ -86,8 +88,8 @@ describe('frProblem', () => {
     '9901',
     '9901-L',
     '9901-A*',
-    '12a',
-    '12a-B',
+    '12A',
+    '12A-B',
     '9907-Em',
     '9907-Em*',
     '9901m',
