@@ -202,6 +202,63 @@ describe('AddItem', () => {
     )
   })
 
+  it("copies a set's set form, grade, strike and designation to the next set", async () => {
+    const user = userEvent.setup()
+    renderRow({ items: ENTERED })
+    api.getInventoryItem.mockResolvedValue({
+      id: 30,
+      item_kind: 'set',
+      source_title: '1970s Proof Sets',
+      set_form: 'proof_set',
+      mint: 'S',
+      // A run of sets is bought as one grade.
+      grade: '69',
+      strike_type: 'proof',
+      grade_designation: 'DCAM',
+      // Per piece: never copied.
+      year_start: 1975,
+    })
+    await user.click(screen.getByRole('button', { name: 'Add another like CC-000030' }))
+
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenLastCalledWith({
+        purchase_order_id: 22,
+        item_kind: 'set',
+        source_title: '1970s Proof Sets',
+        set_form: 'proof_set',
+        mint: 'S',
+        grade: '69',
+        strike_type: 'proof',
+        grade_designation: 'DCAM',
+        tax_rate: '0.0635',
+        tax_includes_shipping: true,
+      }),
+    )
+  })
+
+  it("leaves a loose coin's grade, strike and designation for the next piece's own", async () => {
+    const user = userEvent.setup()
+    renderRow({ items: ENTERED })
+    api.getInventoryItem.mockResolvedValue({
+      id: 30,
+      item_kind: 'coin',
+      source_title: 'A dollar',
+      grade: '64',
+      strike_type: 'business',
+      grade_designation: 'PL',
+    })
+    await user.click(screen.getByRole('button', { name: 'Add another like CC-000030' }))
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenLastCalledWith({
+        purchase_order_id: 22,
+        item_kind: 'coin',
+        source_title: 'A dollar',
+        tax_rate: '0.0635',
+        tax_includes_shipping: true,
+      }),
+    )
+  })
+
   it("carries the last item's tax, a ticked No sales tax charged included, over the purchase's", async () => {
     const user = userEvent.setup()
     renderRow({ items: ENTERED })

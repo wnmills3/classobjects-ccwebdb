@@ -7,8 +7,8 @@ import ItemEditDialog from '../inventory/ItemEditDialog'
 //: What the next piece of one purchase shares with the last, copied by "Add
 //: another like it". The pieces entered one after another usually came from
 //: one listing, at one price and one shipping charge, and are put away in one
-//: place; what varies piece to piece -- grade, serial, certificate, the
-//: years, the description -- is left for the editor.
+//: place; what varies piece to piece -- grade (but a set's, see `SET_ONLY`),
+//: serial, certificate, the years, the description -- is left for the editor.
 const SHARED_ON_REPEAT = [
   'item_kind',
   'source_title',
@@ -21,6 +21,8 @@ const SHARED_ON_REPEAT = [
   'country',
   'denomination',
   'series',
+  // A run of sets, one Proof Set after another.
+  'set_form',
   'series_year',
   'series_letter',
   'seal_color',
@@ -30,6 +32,9 @@ const SHARED_ON_REPEAT = [
   'grading_service',
   'metal',
   'mint',
+  'grade',
+  'strike_type',
+  'grade_designation',
 ]
 
 //: The country a new item starts with.
@@ -46,6 +51,9 @@ const NOTE_ONLY = new Set([
   'signature_combination',
 ])
 const COIN_ONLY = new Set(['metal', 'mint'])
+//: Copied only from a set: a run of sets is bought as one grade (PR69 DCAM
+//: Proof Sets), where loose pieces are graded one by one.
+const SET_ONLY = new Set(['grade', 'strike_type', 'grade_designation'])
 
 //: The statuses an item may be entered with; the server refuses any other.
 const ENTRY_STATUSES = new Set(['ordered', 'received'])
@@ -62,9 +70,11 @@ const ENTRY_STATUSES = new Set(['ordered', 'received'])
  */
 function sharedWith(item) {
   const note = item.item_kind === 'currency'
+  const set = item.item_kind === 'set'
   const derived = item.derived ?? {}
   return Object.fromEntries(
     SHARED_ON_REPEAT.filter((key) => !(note ? COIN_ONLY : NOTE_ONLY).has(key))
+      .filter((key) => set || !SET_ONLY.has(key))
       .filter((key) => !(key in derived) && !(`${key}_id` in derived))
       .map((key) => [key, item[key]])
       .filter(([, value]) => value !== null && value !== undefined && value !== '')
