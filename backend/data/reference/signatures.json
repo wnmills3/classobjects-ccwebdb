@@ -1,7 +1,9 @@
 {
   "_comment": [
     "Treasurer of the United States and Secretary of the Treasury, as they",
-    "appear on small-size US currency.",
+    "appear on small-size US currency; and before them, on large-size notes,",
+    "the Register of the Treasury and the Treasurer. A large-size pair has a",
+    "`register` and no `secretary`.",
     "",
     "Signatures are the differentiator between Friedberg variants of the same",
     "denomination and series year, so they are the field a lookup service most",
@@ -24,15 +26,125 @@
     "on real notes: Woods/Woodin on the $1 1928 United States Note (printed in",
     "1933) and Granahan/Barr on the $1 1963B.",
     "",
+    "Large-size pairs: only the eleven of the Series 1899 $1 Silver",
+    "Certificate so far, as antiquebanknotes.com's page for it and",
+    "USPaperMoney's serial table for it both list them. Their terms are where",
+    "the two officers' terms overlap, from Wikipedia's Register of the",
+    "Treasury and Treasurer of the United States officeholder tables. They",
+    "sort before every small-size pair, with negative sort_order, in order of",
+    "use. note_issue.json holds one pair per issue, and a large-size issue",
+    "carries several, so none is there: a large-size series is offered every",
+    "pair still in office from its year, these first.",
+    "",
     "A pair added by hand is marked `manual`, and a later reload never",
     "overwrites it. Check it against the note itself before trusting it for a",
     "catalog lookup.",
     "",
     "Naming: `code` is treasurer_secretary in lower case, which is how dealers",
-    "write it (Julian/Morgenthau). `label` is the same pair as displayed."
+    "write it (Julian/Morgenthau), and a large-size pair's register_treasurer",
+    "(Speelman/White). `label` is the same pair as displayed."
   ],
 
   "signature_combination": [
+    {
+      "code": "lyons_roberts",
+      "label": "Lyons / Roberts",
+      "register": "Judson W. Lyons",
+      "treasurer": "Ellis H. Roberts",
+      "term_from": 1898,
+      "term_to": 1905,
+      "sort_order": -110
+    },
+    {
+      "code": "lyons_treat",
+      "label": "Lyons / Treat",
+      "register": "Judson W. Lyons",
+      "treasurer": "Charles H. Treat",
+      "term_from": 1905,
+      "term_to": 1906,
+      "sort_order": -100
+    },
+    {
+      "code": "vernon_treat",
+      "label": "Vernon / Treat",
+      "register": "William T. Vernon",
+      "treasurer": "Charles H. Treat",
+      "term_from": 1906,
+      "term_to": 1909,
+      "sort_order": -90
+    },
+    {
+      "code": "vernon_mcclung",
+      "label": "Vernon / McClung",
+      "register": "William T. Vernon",
+      "treasurer": "Lee McClung",
+      "term_from": 1909,
+      "term_to": 1911,
+      "sort_order": -80
+    },
+    {
+      "code": "napier_mcclung",
+      "label": "Napier / McClung",
+      "register": "James C. Napier",
+      "treasurer": "Lee McClung",
+      "term_from": 1911,
+      "term_to": 1912,
+      "sort_order": -70
+    },
+    {
+      "code": "napier_thompson",
+      "label": "Napier / Thompson",
+      "register": "James C. Napier",
+      "treasurer": "Carmi A. Thompson",
+      "term_from": 1912,
+      "term_to": 1913,
+      "sort_order": -60
+    },
+    {
+      "code": "parker_burke",
+      "label": "Parker / Burke",
+      "register": "Gabe E. Parker",
+      "treasurer": "John Burke",
+      "term_from": 1913,
+      "term_to": 1914,
+      "sort_order": -50
+    },
+    {
+      "code": "teehee_burke",
+      "label": "Teehee / Burke",
+      "register": "Houston B. Teehee",
+      "treasurer": "John Burke",
+      "term_from": 1915,
+      "term_to": 1919,
+      "sort_order": -40
+    },
+    {
+      "code": "elliott_burke",
+      "label": "Elliott / Burke",
+      "register": "William S. Elliott",
+      "treasurer": "John Burke",
+      "term_from": 1919,
+      "term_to": 1921,
+      "sort_order": -30
+    },
+    {
+      "code": "elliott_white",
+      "label": "Elliott / White",
+      "register": "William S. Elliott",
+      "treasurer": "Frank White",
+      "term_from": 1921,
+      "term_to": 1922,
+      "sort_order": -20
+    },
+    {
+      "code": "speelman_white",
+      "label": "Speelman / White",
+      "register": "Harley V. Speelman",
+      "treasurer": "Frank White",
+      "term_from": 1922,
+      "term_to": 1927,
+      "sort_order": -10
+    },
     {
       "code": "tate_mellon",
       "label": "Tate / Mellon",

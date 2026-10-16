@@ -274,7 +274,7 @@ RESTRICT`, so a classifier in use cannot vanish.
 | `note_type` | banknote class | |
 | `seal_color` | blue, red, brown, green, gold, … | `base_seal_color_id` (what a shade is read as) |
 | `fed_district` | A Boston … L San Francisco | `letter`, `city`, `number` |
-| `signature_combination` | Treasurer and Secretary | `treasurer`, `secretary`, `term_from`, `term_to` |
+| `signature_combination` | Treasurer and Secretary; on a large-size note, Register and Treasurer -- a `secretary` or a `register`, never both | `treasurer`, `secretary`, `register`, `term_from`, `term_to` |
 | `metal` | silver, gold, platinum, palladium, copper, nickel, zinc, clad (copper-nickel), manganese brass (the golden dollars) | `symbol`, `is_precious`, `base_metal_id` (what a plated metal is read as for a composition) |
 | `valuation_basis` | melt, numismatic, manual | |
 | `error_type` | mint or printing error | `applies_to` (`coin` \| `currency` \| `any`) |
