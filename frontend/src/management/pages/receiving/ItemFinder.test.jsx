@@ -7,6 +7,7 @@ vi.mock('../../api', () => ({ api: { searchInventory: vi.fn() } }))
 
 import { api } from '../../api'
 import ItemFinder from './ItemFinder'
+import { identity } from './item-identity'
 import { emptyReference, renderWithProviders } from '../../../test/helpers'
 
 //: The two vocabularies the finder picks from, as the reference context
@@ -206,6 +207,44 @@ describe('ItemFinder', () => {
     expect(onPick).toHaveBeenCalledWith(
       expect.objectContaining({ id: 412, item_code: 'CC-000412' }),
     )
+  })
+
+  it("shows a note's serial and a coin's face and series, as titles repeat", async () => {
+    const title = 'Lot of 2 from one listing'
+    api.searchInventory.mockImplementation((view, params) => {
+      if (params.status !== 'ordered') return Promise.resolve({ rows: [], total: 0 })
+      const row =
+        view === 'coins'
+          ? {
+              id: 1,
+              item_code: 'CC-000001',
+              description: title,
+              denomination_label: 'Dollar',
+              series_label: 'Morgan Dollar',
+              serial_number: undefined,
+            }
+          : {
+              id: 2,
+              item_code: 'CC-000002',
+              description: title,
+              serial_number: 'B12345678F',
+            }
+      return Promise.resolve({ rows: [row], total: 1 })
+    })
+    renderWithProviders(<ItemFinder onPick={vi.fn()} />)
+    await find(4)
+    const coin = await screen.findByRole('button', { name: /CC-000001/ })
+    expect(coin).toHaveTextContent('CC-000001 Dollar, Morgan Dollar Lot of 2')
+    const note = screen.getByRole('button', { name: /CC-000002/ })
+    expect(note).toHaveTextContent('CC-000002 S/N B12345678F Lot of 2')
+  })
+
+  it('says a note has no serial, and shows a coin with neither face nor series plainly', () => {
+    expect(identity({ view: 'currency', serial_number: null })).toBe('no serial number')
+    expect(identity({ view: 'coins', series_label: 'Morgan Dollar' })).toBe(
+      'Morgan Dollar',
+    )
+    expect(identity({ view: 'coins' })).toBeNull()
   })
 
   it('drops a response that lands after the kind was switched away', async () => {

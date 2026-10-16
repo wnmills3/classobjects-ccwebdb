@@ -132,9 +132,13 @@ Receiving
   Order number [27-12    ]  Status [Not yet arrived v]  Denomination [Any v]
   (Coins: Year, Mint | Currency: Serial number, Series year)
   [Find]
-  CC-000412 1881-S Morgan $1 · 27-1234 · eBay
-  CC-000414 $2 1976 FRN · 27-1234 · eBay
+  CC-000412 Dollar, Morgan Dollar 1881-S Morgan $1 · 27-1234 · eBay
+  CC-000414 S/N B12345678* $2 1976 FRN · 27-1234 · eBay
 ```
+
+- **Each result says what it is** before its description, which is often the
+  same for every item split from one listing: a note's serial number (or "no
+  serial number"), a coin's face value and series, whichever are recorded.
 
 - **Search for:** -- Any, Coins or Currency. Focus starts on Any when the
   page opens, so the help band explains the choice at once. Any searches both views, since one

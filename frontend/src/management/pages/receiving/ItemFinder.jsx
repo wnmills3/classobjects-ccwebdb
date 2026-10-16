@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import { useReference } from '../../../shared/reference-context'
 import { api } from '../../api'
+import { identity } from './item-identity'
 import HelpScope from '../../HelpScope'
 
 //: kind value paired with its radio label. `any` searches both views -- one
@@ -96,7 +97,14 @@ async function runSearch({ kind, filters, orderId = null }) {
   for (const view of views) {
     for (const status of statuses) {
       const page = { ...params, limit: PAGE }
-      requests.push(api.searchInventory(view, status ? { ...page, status } : page))
+      // Each row keeps the view it came from: a note is told apart from
+      // another by its serial, a coin by its face value and series.
+      requests.push(
+        api.searchInventory(view, status ? { ...page, status } : page).then((body) => ({
+          ...body,
+          rows: body.rows.map((row) => ({ ...row, view })),
+        })),
+      )
     }
   }
   const bodies = await Promise.all(requests)
@@ -422,7 +430,8 @@ export default function ItemFinder({
             {results.map((row) => (
               <li key={row.id}>
                 <button type="button" className="order-row" onClick={() => onPick(row)}>
-                  <span className="mono">{row.item_code}</span> {row.description}
+                  <span className="mono">{row.item_code}</span>
+                  {identity(row) && <strong> {identity(row)}</strong>} {row.description}
                   {row.order_number && (
                     <span className="muted">
                       {' '}
