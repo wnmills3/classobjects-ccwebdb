@@ -101,6 +101,21 @@ class CombinationRecorded(Exception):
         self.existing = {"id": row.id, "fr_number": row.fr_number}
 
 
+class NumberRecorded(Exception):
+    """A number refused because the catalog holds it already. 409.
+
+    Carries that row, so the console can use it -- a number typed that is on
+    file is that row, whether or not a search listed it. Rendered by
+    `main.py` as `{detail, recorded: {id, fr_number}}`.
+    """
+
+    def __init__(self, row: FriedbergNumber) -> None:
+        """Name the row already holding the number."""
+        self.detail = f"fr_number {row.fr_number!r} is already recorded as row {row.id}"
+        super().__init__(self.detail)
+        self.recorded = {"id": row.id, "fr_number": row.fr_number}
+
+
 #: The columns of `uq_friedberg_number_identity`, compared NULLS NOT DISTINCT
 #: as that index does -- less `is_star` and `is_mule`, which
 #: `_same_combination` reads from the number.
@@ -475,20 +490,17 @@ def create_friedberg_number(
     """Record a Friedberg number read off a note or slab in hand.
 
     Three refusals, each naming what is in the way. A number already on file
-    is a 409 naming its row. A number whose seal shade contradicts the seal
-    sent is a 422 (`_refuse_shade_mismatch`). A type already on file under
-    another number is a 409 carrying that row (`CombinationRecorded`), so
-    the console can offer to correct it.
+    is a 409 carrying its row (`NumberRecorded`), so the console can use it.
+    A number whose seal shade contradicts the seal sent is a 422
+    (`_refuse_shade_mismatch`). A type already on file under another number
+    is a 409 carrying that row (`CombinationRecorded`), so the console can
+    offer to correct it.
     """
     existing = db.scalar(
         select(FriedbergNumber).where(FriedbergNumber.fr_number == payload.fr_number)
     )
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"fr_number {payload.fr_number!r} is already recorded as "
-            f"row {existing.id}",
-        )
+        raise NumberRecorded(existing)
 
     row = FriedbergNumber(
         fr_number=payload.fr_number,

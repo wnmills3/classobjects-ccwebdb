@@ -191,7 +191,10 @@ error belongs to that order and clears when the address changes.
   number not in the catalog -- typed, or pasted from the web search that a
   miss opens -- is saved with **Save as proposed** or **Save as confirmed**,
   and only once it is in a Friedberg number's form (`list-maintenance-design.md`).
-  A number whose type is already recorded under another number is refused
+  A number typed that is in the catalog but was not listed -- no search run,
+  or a search narrowed by another field -- is that row: the server refuses to
+  record it again and names the row, and the lookup attaches it as the Save
+  button said. A number whose type is already recorded under another number is refused
   with that row named, and **Correct 9907- to 9907-L** renames the recorded
   row and uses it. In the item editor the choice is held until the editor's
   Save. The search is by the note's district -- the one it records, else,

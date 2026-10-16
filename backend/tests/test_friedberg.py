@@ -202,6 +202,8 @@ def test_duplicate_fr_number_is_409_naming_the_existing_row(
     )
     assert second.status_code == 409, second.text
     assert str(existing_id) in second.json()["detail"]
+    # And carries the row, so the console can attach it rather than stop.
+    assert second.json()["recorded"] == {"id": existing_id, "fr_number": "9906"}
 
 
 # ---------------------------------------------------------------------------

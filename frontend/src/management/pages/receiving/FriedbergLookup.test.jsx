@@ -217,6 +217,35 @@ describe('FriedbergLookup', () => {
     })
   })
 
+  it('attaches a number on file that the search did not list', async () => {
+    api.createFriedbergNumber.mockRejectedValue(
+      Object.assign(new Error("fr_number '3007-B' is already recorded as row 19"), {
+        status: 409,
+        body: { recorded: { id: 19, fr_number: '3007-B' } },
+      }),
+    )
+    api.attachFriedberg.mockResolvedValue({
+      fr_number: '3007-B',
+      friedberg_status: 'proposed',
+    })
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+
+    const frInput = await screen.findByLabelText(/fr\. number/i)
+    await userEvent.type(frInput, '3007-B')
+    await userEvent.click(screen.getByRole('button', { name: /save as proposed/i }))
+
+    await waitFor(() =>
+      expect(api.attachFriedberg).toHaveBeenCalledWith(412, {
+        friedberg_id: 19,
+        status: 'proposed',
+      }),
+    )
+    expect(await screen.findByText(/attached 3007-B/i)).toBeInTheDocument()
+    expect(screen.queryByText(/already recorded/i)).not.toBeInTheDocument()
+    expect(frInput).toHaveValue('')
+  })
+
   it('surfaces a 409 on recording rather than swallowing it', async () => {
     api.createFriedbergNumber.mockRejectedValue(
       Object.assign(new Error("fr_number '9903' is already recorded as row 7"), {
