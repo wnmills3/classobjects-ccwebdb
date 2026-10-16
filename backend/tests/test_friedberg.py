@@ -922,6 +922,39 @@ def test_a_series_with_no_facts_falls_back_to_signers_still_in_office(
     assert "smith_dillon" not in codes  # left office in 1962
 
 
+def test_a_large_size_note_offers_its_register_and_treasurer_pairs(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The 1899 $1 Silver Certificate: its eleven pairs first, in order.
+
+    A Register and a Treasurer signed it, not a Treasurer and a Secretary,
+    so without them Speelman / White could not be chosen. The issue facts
+    hold one pair per issue and this one had eleven, so it falls back to
+    every pair still in office -- the large-size ones sorted first.
+    """
+    codes, source = _signatures(
+        client,
+        admin_headers,
+        denomination="usd_note_1",
+        note_type="silver_certificate",
+        series_year=1899,
+    )
+    assert source == "term"
+    assert codes[:11] == [
+        "lyons_roberts",
+        "lyons_treat",
+        "vernon_treat",
+        "vernon_mcclung",
+        "napier_mcclung",
+        "napier_thompson",
+        "parker_burke",
+        "teehee_burke",
+        "elliott_burke",
+        "elliott_white",
+        "speelman_white",
+    ]
+
+
 def test_with_no_series_year_every_pair_is_offered(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

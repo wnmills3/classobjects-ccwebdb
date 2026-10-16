@@ -1004,7 +1004,16 @@ export const FIELD_HELP = {
   },
   vocabulary_field_secretary: {
     title: 'Secretary',
-    text: 'The Secretary of the Treasury whose signature the pair carries.',
+    text:
+      'The Secretary of the Treasury whose signature the pair carries, on a ' +
+      'small-size note. Leave it empty for a large-size pair, which has a Register.',
+  },
+  vocabulary_field_register: {
+    title: 'Register',
+    text:
+      'The Register of the Treasury whose signature a large-size note carries, ' +
+      'beside the Treasurer: Speelman on a Speelman / White note. Leave it empty ' +
+      'for a small-size pair, which has a Secretary.',
   },
   vocabulary_field_term_from: {
     title: 'From year',

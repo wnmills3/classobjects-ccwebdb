@@ -678,14 +678,28 @@ class FedDistrict(ReferenceMixin, Base):
 
 
 class SignatureCombination(ReferenceMixin, Base):
-    """Treasurer and Secretary of the Treasury, with the term they served."""
+    """The two officers who signed a note, with the term they served together.
+
+    Treasurer and Secretary of the Treasury on a small-size note; on a
+    large-size one, the Register of the Treasury and the Treasurer. A pair
+    has a `secretary` or a `register`, never both.
+    """
 
     __tablename__ = "signature_combination"
 
     treasurer: Mapped[str] = mapped_column(String(128), nullable=False)
-    secretary: Mapped[str] = mapped_column(String(128), nullable=False)
+    secretary: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    register: Mapped[str | None] = mapped_column(String(128), nullable=True)
     term_from: Mapped[int | None] = mapped_column(Integer, nullable=True)
     term_to: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_signature_combination_code"),
+        CheckConstraint(
+            "(secretary IS NULL) <> (register IS NULL)",
+            name="ck_signature_combination_one_cosigner",
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
