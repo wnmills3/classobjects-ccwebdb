@@ -254,9 +254,9 @@ describe('FilterPanel keyboard accelerators', () => {
   //: Its label holds no letter the browser leaves free that another field on
   //: one view or the other does not already use.
   const NO_LETTER = "Seller's item id"
-  //: Nor do these two: every free letter of "Error" and "Attribute" is
-  //: another field's on the currency view.
-  const LETTERLESS = [NO_LETTER, 'Error', 'Attribute']
+  //: Nor do these: every free letter of "Order number", "Error" and
+  //: "Attribute" is another field's on one view or the other.
+  const LETTERLESS = [NO_LETTER, 'Order number', 'Error', 'Attribute']
 
   it('offers an error and an attribute picker on both views, with no letter', () => {
     for (const view of [COIN_VIEW, CURRENCY_VIEW]) {
@@ -303,6 +303,28 @@ describe('FilterPanel keyboard accelerators', () => {
     expect(box).not.toHaveAttribute('accesskey')
     await userEvent.type(box, '900000000003{Enter}')
     expect(props.apply).toHaveBeenCalledWith({ sellers_item_id: '900000000003' })
+  })
+
+  it('offers the order number on both views, with no letter', () => {
+    for (const view of [COIN_VIEW, CURRENCY_VIEW]) {
+      expect(view.textFilters, view.view).toContainEqual([
+        'Order number',
+        'order_number',
+        expect.any(String),
+        null,
+      ])
+    }
+  })
+
+  it('searches by part of an order number typed into its box', async () => {
+    for (const view of [COIN_VIEW, CURRENCY_VIEW]) {
+      const { props, unmount } = setup({ config: { ...config, ...view }, facets: {} })
+      const box = screen.getByRole('textbox', { name: 'Order number' })
+      expect(box.closest('label')).toHaveAttribute('data-help', 'order_number')
+      await userEvent.type(box, '4452{Enter}')
+      expect(props.apply, view.view).toHaveBeenCalledWith({ order_number: '4452' })
+      unmount()
+    }
   })
 
   for (const view of [COIN_VIEW, CURRENCY_VIEW]) {

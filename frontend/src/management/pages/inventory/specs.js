@@ -46,6 +46,11 @@ const SELLERS_ITEM_ID = [
   null,
 ]
 
+//: The number of the purchase an item arrived on, from the seller's receipt
+//: or packing slip, matched in part, on both views. No letter, for the
+//: reason the seller's item id has none.
+const ORDER_NUMBER = ['Order number', 'order_number', '114-4452-X, or 4452', null]
+
 //: What an item carries rather than what it is: a recorded error (off
 //: center, miscut) and an attribute (Star Note, Radar, First Strike). On
 //: both views, each offering only the values some matching item has. No
@@ -105,6 +110,7 @@ export const COIN_VIEW = {
   textFilters: [
     ['Item code', 'item_code', 'CC-000123', 'i'],
     SELLERS_ITEM_ID,
+    ORDER_NUMBER,
     ['Grade', 'grade', 'a grade, or a range like BU%', 'g'],
   ],
   facetFilters: [
@@ -182,6 +188,7 @@ export const CURRENCY_VIEW = {
     ['Serial number', 'serial_number', 'B0808450_  (_ = one char, % = any)', 'b'],
     ['Item code', 'item_code', 'CC-000123', 'i'],
     SELLERS_ITEM_ID,
+    ORDER_NUMBER,
     // Typed, as on the coin view: 64, 64%, UNC, UNC%.
     ['Grade', 'grade', 'a grade, or a range like UNC%', 'g'],
   ],
