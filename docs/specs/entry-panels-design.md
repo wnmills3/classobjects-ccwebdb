@@ -19,7 +19,7 @@ piece is in hand, from Receiving or the item editor
 | Question | Rule |
 |---|---|
 | Can an item exist without a purchase? | **No.** A standalone buy is a purchase holding one item. The order number is optional, so a walk-in or show purchase needs only a vendor; one entered without a number is given the next generated one (`Order-0001` and up), so it can be found. |
-| Where do shipping and tax live? | **On each item** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The page's purchase-wide tax values are sent with every item entered on it. |
+| Where do shipping and tax live? | **On each item** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The page's purchase-wide tax values are sent with every item entered on it, except one made by *Add another like it*, which takes its example's. |
 | A lot? | An item with `piece_count > 1`. Splitting is a later step. |
 | Status on entry | `ordered` (default) or `received` for things already in hand. The opening status-history row is written either way. |
 | Other defaults | disposition `held`, authenticity `unverified` unless given, valuation basis `numismatic`, source `manual`. A new item is made with country United States (`US`), which the person may change or empty in the editor. |
@@ -203,7 +203,9 @@ page:
   address, status, storage location (a parcel is put away in one place),
   country, denomination, series, grading service, and a note's series year
   and letter, seal, district, class and signatures or anything else's metal
-  and mint -- then opens it in the editor.
+  and mint -- and with that item's tax rate and tax-on-shipping setting
+  rather than the purchase-wide ones (`taxOf`), so "No sales tax charged"
+  ticked on it stays ticked on the next; then opens it in the editor.
 - **Suggest description** is the editor's: it posts what the form shows to
   `POST /api/inventory/{id}/suggested-description` -- its unsaved changes as
   Save would send them, and the errors panel's set when that has changed.
