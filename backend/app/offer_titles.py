@@ -72,20 +72,19 @@ def _years(item: InventoryItem) -> str | None:
 
 
 def _graded(item: InventoryItem) -> list[str]:
-    """``["PMG", "64", "EPQ"]``: service, grade, then designation.
+    """``["PMG", "64 EPQ"]``: service, then grade with its designation.
 
-    The designation is printed after the grade -- on a note's holder
-    "64 EPQ" is the grade, and a title without the EPQ undersells it.
+    The designation is printed with the grade -- on a note's holder "64 EPQ"
+    is the grade, and a title without the EPQ undersells it
+    (`grades.display_designated`).
     """
     parts: list[str] = []
     service = item.grading_service
     if service is not None and service.code != _SELF_GRADED:
         parts.append(service.code)
-    grade = grades.display_item(item)
+    grade = grades.display_designated(item)
     if grade:
         parts.append(grade)
-        if item.grade_designation is not None:
-            parts.append(item.grade_designation.code)
     return parts
 
 

@@ -32,6 +32,7 @@ from app.models import (
     SealColor,
     Series,
     SignatureCombination,
+    StrikeType,
 )
 from app.models.reference import Grade
 from app.offer_titles import suggested_title
@@ -245,6 +246,49 @@ def test_a_coin_leads_with_its_name_then_its_metal(db: Session) -> None:
         f"1947 {_label(db, Series, 'morgan_dollar')}. "
         f"{_label(db, Metal, 'silver')}, 0.7734 ozt fine."
     )
+
+
+def _designation(db: Session, code: str, label: str) -> int:
+    """A designation added by hand, whose code is not its abbreviation."""
+    row = GradeDesignation(code=code, label=label, source="manual")
+    db.add(row)
+    db.flush()
+    return row.id
+
+
+def _proof(db: Session, designation_id: int, strike: str = "proof") -> InventoryItem:
+    """A 68 coin of this strike, with this designation."""
+    return build_item(
+        db,
+        year_start=1959,
+        series_id=code_id(db, Series, "washington_quarter"),
+        grade_id=code_id(db, Grade, "68"),
+        strike_type_id=code_id(db, StrikeType, strike),
+        grade_designation_id=designation_id,
+        grading_service_id=None,
+    )
+
+
+def test_a_designation_naming_the_strike_stands_by_the_number(db: Session) -> None:
+    """PF (Proof) on a proof is the holder's prefix: "PF (Proof) 68", once."""
+    item = _proof(db, _designation(db, "pf_test", "PF (Proof)"))
+    text = suggested_description(db, item)
+    assert text.startswith("PF (Proof) 68 1959")
+    assert "pf_test" not in text
+    assert "PR68" not in text
+    assert "PMG" not in suggested_title(db, item)
+    assert "PF (Proof) 68" in suggested_title(db, item)
+
+
+def test_a_designation_is_written_by_its_abbreviation_not_its_code(
+    db: Session,
+) -> None:
+    """A hand-added designation's code is a database key, not what is written."""
+    item = _proof(db, _designation(db, "xd_test", "XD (Extra Deep)"))
+    text = suggested_description(db, item)
+    assert text.startswith("PR68 XD 1959")
+    assert "xd_test" not in text
+    assert "PR68 XD" in suggested_title(db, item)
 
 
 def test_a_coins_variety_follows_its_name(db: Session) -> None:

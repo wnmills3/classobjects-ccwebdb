@@ -106,14 +106,16 @@ def _without_serial(label: str) -> str:
 
 
 def _grade(item: InventoryItem) -> str | None:
-    """``Superb Gem Unc 67 EPQ``, ``MS64 DCAM``: the grade and designation."""
-    grade = grades.display_item(item)
+    """``Superb Gem Unc 67 EPQ``, ``MS64 DCAM``: the grade and designation.
+
+    A designation naming the strike stands by the number in its place:
+    ``PF (Proof) 68`` (`grades.display_designated`).
+    """
+    grade = grades.display_designated(item)
     if grade is None:
         return None
     for pattern, short in _SHORT_GRADE_WORDS:
         grade = pattern.sub(short, grade)
-    if item.grade_designation is not None:
-        grade = f"{grade} {item.grade_designation.code}"
     return grade
 
 

@@ -356,6 +356,46 @@ def display_item(item: InventoryItem) -> str | None:
     )
 
 
+def designation_word(label: str) -> str:
+    """``DCAM`` from ``DCAM (Deep Cameo)``: a designation as written by a grade.
+
+    The label's abbreviation, before its bracketed name; a label with no
+    bracket is written whole. Never the code, which a designation added by
+    hand may have in another form (``pf_proof``).
+    """
+    short, bracket, _ = label.partition(" (")
+    return short if bracket and short else label
+
+
+def display_designated(item: InventoryItem) -> str | None:
+    """The grade with its designation: ``MS64 DCAM``, ``PF (Proof) 68``.
+
+    A designation that names the item's own strike -- PF (Proof) on a proof
+    -- is the prefix its holder prints, so it takes the strike's place by the
+    number, written whole. Any other follows the grade, abbreviated.
+    """
+    text = display_item(item)
+    designation = item.grade_designation
+    if text is None or designation is None:
+        return text
+    grade = item.grade
+    assert grade is not None
+    strike = item.strike_type
+    scale = grade.grade_scale
+    named = designation.label.partition(" (")[2].removesuffix(")")
+    if (
+        strike is not None
+        and named
+        and named.casefold() == strike.label.casefold()
+        and grade.numeric_value is not None
+        and scale is not None
+        and scale.code == "sheldon"
+    ):
+        plus = "+" if grade.is_plus else ""
+        return f"{designation.label} {grade.numeric_value}{plus}"
+    return f"{text} {designation_word(designation.label)}"
+
+
 #: ``grade_display()`` in SQL. The baseline migration creates it on a real
 #: database and the test database is built from this text;
 #: `test_migrations` holds the two equal.
