@@ -42,6 +42,12 @@ describe('normalizeFr', () => {
     ['9908-B   dgs ', '9908-B DGS'],
     ['9908-b* lgs', '9908-B* LGS'],
     ['9908-em lgs', '9908-Em LGS'],
+    // A Military Payment Certificate's M is a capital, the letter after its
+    // digits lower-case, as the catalog writes a replacement.
+    ['m9952m', 'M9952m'],
+    ['M9952M', 'M9952m'],
+    ['Fr. M9901R', 'M9901r'],
+    ['fr m9931', 'M9931'],
   ])('keeps %j as %j', (typed, kept) => {
     expect(normalizeFr(typed)).toBe(kept)
   })
@@ -98,6 +104,9 @@ describe('frProblem', () => {
     '9908-B* LGS',
     '9908-Em* DGS',
     '9908 LGS',
+    'M9901',
+    'M9901r',
+    'M9952m',
   ])('passes %j', (number) => {
     expect(frProblem(number)).toBeNull()
   })
@@ -121,6 +130,11 @@ describe('frProblem', () => {
     [ARABIC_INDIC_9907, 'form'],
     // Nothing may follow the number, a line break included.
     ['9907-L\n', 'form'],
+    // An M is a certificate's only before the digits, and only one.
+    ['MM9901', 'form'],
+    ['M', 'form'],
+    ['9901M2', 'form'],
+    ['M99010', '5 digits'],
   ])('names the slip in %j', (number, says) => {
     expect(frProblem(number)).toContain(says)
   })
