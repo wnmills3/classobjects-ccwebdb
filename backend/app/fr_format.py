@@ -1,7 +1,8 @@
 """The shape of a Friedberg number, checked where one is saved or confirmed.
 
-Only the *form* is known here -- digits, an optional letter, a district, a
-mule's `m`, a star, a seal shade -- never which number belongs to which
+Only the *form* is known here -- a Military Payment Certificate's `M`,
+digits, an optional letter, a district, a mule's `m`, a star, a seal shade --
+never which number belongs to which
 note: that mapping is the publisher's arrangement, which
 `docs/reference-data.md` forbids shipping. The form is what
 catches a slip: `9907-` pasted for `9907-L`, a
@@ -26,10 +27,12 @@ __all__ = [
 ]
 
 #: `Fr.`, `Fr#`, `FR-`, `Fr. #` -- a label for the number, not part of it --
-#: taken off only where digits follow, so a word starting "fr" is left whole.
-#: The digit is `0` to `9` only -- `(?a:...)` holds `\d` to ASCII without
-#: narrowing the space before it, which stays any script's.
-_PREFIX = re.compile(r"^fr[\s.#-]*(?=(?a:\d))", re.IGNORECASE)
+#: taken off only where digits follow, or an MPC's `M` and digits, so a word
+#: starting "fr" is left whole. The digit is `0` to `9` only -- `(?a:...)`
+#: holds `\d` to ASCII without narrowing the space before it, which stays any
+#: script's.
+_PREFIX = re.compile(r"^fr[\s.#-]*(?=m?(?a:\d))", re.IGNORECASE)
+#: `M` for a Military Payment Certificate (`M801`, its replacement `M801r`),
 #: 1 to 4 digits, an optional letter (`1A`), a district `-A` to `-L`, `m` for
 #: a mule (`9907-Em`; without a district the optional letter already holds
 #: it), and `*` for a star note.
@@ -40,13 +43,13 @@ _PREFIX = re.compile(r"^fr[\s.#-]*(?=(?a:\d))", re.IGNORECASE)
 #: `re.ASCII`, `\d` would take any script's, which the console's copy of the
 #: rule refuses.
 _FORM = re.compile(
-    r"^(?P<digits>\d+)[A-Za-z]?(?:-(?P<district>[A-L])m?)?\*?(?: (?:LGS|DGS))?$",
+    r"^M?(?P<digits>\d+)[A-Za-z]?(?:-(?P<district>[A-L])m?)?\*?(?: (?:LGS|DGS))?$",
     re.ASCII,
 )
 #: `_FORM`'s district for PostgreSQL, whose `substring(text, pattern)` gives
 #: what the one capturing group matched: the same answer as `fr_district`,
 #: for a search that has to read it from every row.
-DISTRICT_SQL_PATTERN = r"^[0-9]+[A-Za-z]?-([A-L])m?[*]?(?: (?:LGS|DGS))?$"
+DISTRICT_SQL_PATTERN = r"^M?[0-9]+[A-Za-z]?-([A-L])m?[*]?(?: (?:LGS|DGS))?$"
 #: The letters of a seal shade typed at the end, any case: with space before
 #: them they are taken off before the rest is cleaned, and put back as
 #: ` LGS` / ` DGS`.
@@ -58,14 +61,17 @@ _MULE_DISTRICT = re.compile(r"(?P<district>[a-l])(?P<a>\*?)m(?P<b>\*?)", re.IGNO
 #: The optional letter after the digits, kept in capitals: the number is
 #: unique as text, so `12a` and `12A` must be one number. An `m` there is a
 #: mule's whichever case it was typed in, and stays lower-case, as it does
-#: after a district.
-_LETTER = re.compile(r"^(\d+)([A-Za-z])", re.ASCII)
+#: after a district. An MPC's `M` is a capital, and the letter after its
+#: digits lower-case, as the catalog writes a replacement: `M801r`.
+_LETTER = re.compile(r"^([Mm]?)(\d+)([A-Za-z]?)", re.ASCII)
 
 
 def _fold_letter(match: re.Match[str]) -> str:
     """The digits and their optional letter: capitalised, a mule's `m` lower."""
-    letter = match[2].upper()
-    return match[1] + ("m" if letter == "M" else letter)
+    letter = match[3].upper()
+    if match[1]:
+        return "M" + match[2] + letter.lower()
+    return match[2] + ("m" if letter == "M" else letter)
 
 
 def _close_hyphens(text: str) -> str:
@@ -170,9 +176,10 @@ def fr_problem(number: str) -> str | None:
     match = _FORM.fullmatch(number)
     if match is None:
         return (
-            f"{number} is not in the form of a Friedberg number: digits, then an "
-            "optional letter, then -A to -L for a district, then m for a mule, "
-            "then * for a star note, then LGS or DGS for a seal shade."
+            f"{number} is not in the form of a Friedberg number: M for a Military "
+            "Payment Certificate, then digits, then an optional letter, then -A "
+            "to -L for a district, then m for a mule, then * for a star note, "
+            "then LGS or DGS for a seal shade."
         )
     digits = len(match["digits"])
     if digits > 4:

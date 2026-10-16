@@ -9,12 +9,13 @@
  */
 
 // `Fr.`, `Fr#`, `FR-`, `Fr. #` -- a label, not part of the number -- taken
-// off only where digits follow.
-const PREFIX = /^fr[\s.#-]*(?=\d)/i
-// 1 to 4 digits, an optional letter, a district -A to -L, m for a mule
+// off only where digits follow, or an MPC's M and digits.
+const PREFIX = /^fr[\s.#-]*(?=m?\d)/i
+// M for a Military Payment Certificate (M801, its replacement M801r), 1 to 4
+// digits, an optional letter, a district -A to -L, m for a mule
 // (9907-Em), * for a star note.
 // Then, after a space, LGS or DGS for a light or dark green seal (9908-B LGS).
-const FORM = /^(\d+)[A-Za-z]?(?:-[A-L]m?)?\*?(?: (?:LGS|DGS))?$/
+const FORM = /^M?(\d+)[A-Za-z]?(?:-[A-L]m?)?\*?(?: (?:LGS|DGS))?$/
 // A seal shade typed at the end, any case and spacing: these three letters
 // last, with space before them.
 const SHADE_LETTERS = /^(lgs|dgs)$/i
@@ -25,8 +26,9 @@ const MULE_DISTRICT = /^([a-l])(\*?)m(\*?)$/i
 // The optional letter after the digits, kept in capitals: the number is
 // unique as text, so 12a and 12A must be one number. An m there is a mule's
 // whichever case it was typed in, and stays lower-case, as it does after a
-// district.
-const LETTER = /^(\d+)([A-Za-z])/
+// district. An MPC's M is a capital, and the letter after its digits
+// lower-case, as the catalog writes a replacement: M801r.
+const LETTER = /^([Mm]?)(\d+)([A-Za-z]?)/
 
 /**
  * `text` with the space on either side of each hyphen taken out: the space
@@ -69,7 +71,8 @@ export function normalizeFr(raw) {
 function normalizeBase(raw) {
   const number = closeHyphens(raw.trim().replace(PREFIX, '')).replace(
     LETTER,
-    (_, digits, letter) => {
+    (_, mpc, digits, letter) => {
+      if (mpc) return `M${digits}${letter.toLowerCase()}`
       const upper = letter.toUpperCase()
       return digits + (upper === 'M' ? 'm' : upper)
     },
@@ -92,8 +95,8 @@ export function frProblem(number) {
   const match = FORM.exec(number)
   if (!match) {
     return (
-      `${number} is not in the form of a Friedberg number: digits, then an ` +
-      'optional letter, then -A to -L for a district, then m for a mule, then * ' +
+      `${number} is not in the form of a Friedberg number: M for a Military ` +
+      'Payment Certificate, then digits, then an optional letter, then -A to -L for a district, then m for a mule, then * ' +
       'for a star note, then LGS or DGS for a seal shade.'
     )
   }

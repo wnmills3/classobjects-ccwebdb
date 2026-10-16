@@ -46,6 +46,12 @@ from app.fr_format import (
         ("9908-B   dgs ", "9908-B DGS"),
         ("9908-b* lgs", "9908-B* LGS"),
         ("9908-em lgs", "9908-Em LGS"),
+        # A Military Payment Certificate's M is a capital, the letter after
+        # its digits lower-case, as the catalog writes a replacement.
+        ("m9952m", "M9952m"),
+        ("M9952M", "M9952m"),
+        ("Fr. M9901R", "M9901r"),
+        ("fr m9931", "M9931"),
     ],
 )
 def test_a_number_is_cleaned_before_it_is_kept(typed: str, kept: str) -> None:
@@ -106,6 +112,9 @@ def test_the_cleaning_at_its_edges(typed: str, kept: str) -> None:
         "9908-B* LGS",
         "9908-Em* DGS",
         "9908 LGS",
+        "M9901",
+        "M9901r",
+        "M9952m",
     ],
 )
 def test_a_well_formed_number_passes(number: str) -> None:
@@ -134,6 +143,11 @@ def test_a_well_formed_number_passes(number: str) -> None:
         # Nothing may follow the number, a line break included: the console's
         # copy of the rule and the search's pattern both refuse it.
         ("9907-L\n", "form"),
+        # An M is a certificate's only before the digits, and only one.
+        ("MM9901", "form"),
+        ("M", "form"),
+        ("9901M2", "form"),
+        ("M99010", "5 digits"),
     ],
 )
 def test_a_slip_is_named(number: str, says: str) -> None:
@@ -155,6 +169,8 @@ def test_a_slip_is_named(number: str, says: str) -> None:
         ("9901-L* LGS", (True, False)),
         ("9901-Lm DGS", (False, True)),
         ("9901-Lm* DGS", (True, True)),
+        ("M9901r", (False, False)),
+        ("M9952m", (False, True)),
     ],
 )
 def test_star_and_mule_are_read_from_the_number(

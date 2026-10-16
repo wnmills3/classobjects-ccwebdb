@@ -81,8 +81,11 @@ reason shown.
   the district, with any star after it: `9901M` is kept as `9901m`,
   `9907-EM` and `9907-e*m` as `9907-Em` and `9907-Em*`. A seal shade at the
   end is capitalised after one space: `9908-b  lgs` is kept as
-  `9908-B LGS`.
-- **Checked:** 1 to 4 digits, an optional letter (`1A`), an optional district
+  `9908-B LGS`. A Military Payment Certificate's `M` is a capital and the
+  letter after its digits lower-case, as the catalog writes a replacement:
+  `m9901R` is kept as `M9901r`.
+- **Checked:** an optional `M` for a Military Payment Certificate, 1 to 4
+  digits, an optional letter (`1A`), an optional district
   `-A` to `-L`, an optional `m` after the district for a mule (the answer
   the Friedberg web search is asked for when plates are given), an
   optional `*` for a star note, and an optional ` LGS` or ` DGS` for a
