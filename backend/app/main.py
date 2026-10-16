@@ -231,7 +231,17 @@ def _combination_recorded(_request: Request, exc: Exception) -> JSONResponse:
     )
 
 
+def _number_recorded(_request: Request, exc: Exception) -> JSONResponse:
+    """Render `NumberRecorded` as a 409 carrying the row that holds it."""
+    assert isinstance(exc, friedberg.NumberRecorded)
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={"detail": exc.detail, "recorded": exc.recorded},
+    )
+
+
 app.add_exception_handler(inventory.FieldConflicts, _field_conflicts)
+app.add_exception_handler(friedberg.NumberRecorded, _number_recorded)
 app.add_exception_handler(friedberg.CombinationRecorded, _combination_recorded)
 app.add_exception_handler(sales_writes.SaleInputInvalid, _bad_input)
 app.add_exception_handler(sales_writes.SaleRefused, _refused)

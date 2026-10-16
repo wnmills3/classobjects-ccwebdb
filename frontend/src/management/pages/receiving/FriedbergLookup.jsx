@@ -397,8 +397,9 @@ export default function FriedbergLookup({
    * catalog, typed or pasted from a web search, recorded with what the form
    * describes, then attached with the status its button names.
    *
-   * A number typed that happens to be a match is that catalog row, so it is
-   * attached as it is; recording it again would be a 409.
+   * A number typed that is a match is that catalog row, so it is attached
+   * as it is. So is one on file that the search did not list: recording it
+   * is refused with the row, and the row is attached instead.
    */
   async function save(status) {
     // The Save buttons stay live: a press with no number says so, and one
@@ -440,9 +441,15 @@ export default function FriedbergLookup({
         setResults(null)
       }
     } catch (err) {
-      // A duplicate fr_number is a 409 naming the row already on file -- the
-      // owner will legitimately hit this when the same type arrives twice,
-      // so the message is shown, not swallowed.
+      // The number is on file already, though no search listed it: it is
+      // that row, so it is attached as the matches are.
+      const recorded = err.body?.recorded
+      if (err.status === 409 && recorded) {
+        if (await attach(recorded.id, status, recorded.fr_number)) setRecordFrNumber('')
+        return
+      }
+      // Any other refusal -- this type on file under another number, say --
+      // is shown, not swallowed.
       setRecordError(err.message)
       const existing = err.body?.existing
       if (err.status === 409 && existing) setCorrection({ existing, number, status })
