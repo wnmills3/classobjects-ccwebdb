@@ -356,7 +356,8 @@ export const FIELD_HELP = {
       'kind, title, cost, shipping, listing and its item id, status, where it ' +
       'is kept, country, denomination, series, grading service, and a ' +
       "note's series, seal, district, class and signatures or a coin's metal " +
-      'and mint. Grade, serial, certificate, ' +
+      'and mint, and its sales tax: "No sales tax charged" ticked on it ' +
+      'is ticked on the next. Grade, serial, certificate, ' +
       'years and description are entered for each piece.',
   },
   description: {

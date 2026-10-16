@@ -202,6 +202,30 @@ describe('AddItem', () => {
     )
   })
 
+  it("carries the last item's tax, a ticked No sales tax charged included, over the purchase's", async () => {
+    const user = userEvent.setup()
+    renderRow({ items: ENTERED })
+    api.getInventoryItem.mockResolvedValue({
+      id: 30,
+      item_kind: 'coin',
+      source_title: 'A dollar',
+      // "No sales tax charged" ticked in its editor, and shipping untaxed.
+      tax_rate: '0.0000',
+      tax_includes_shipping: false,
+    })
+    await user.click(screen.getByRole('button', { name: 'Add another like CC-000030' }))
+
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenLastCalledWith({
+        purchase_order_id: 22,
+        item_kind: 'coin',
+        source_title: 'A dollar',
+        tax_rate: '0.0000',
+        tax_includes_shipping: false,
+      }),
+    )
+  })
+
   it('leaves what a rule filled on the last item for the rules to fill on the next', async () => {
     const user = userEvent.setup()
     renderRow({ items: ENTERED })

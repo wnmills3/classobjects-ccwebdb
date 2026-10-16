@@ -73,6 +73,23 @@ function sharedWith(item) {
 }
 
 /**
+ * The tax `item` was recorded with, as a create takes it.
+ *
+ * The next piece came from the same listing and was taxed the same way, so
+ * it takes this one's rate and shipping-tax setting over the purchase's
+ * defaults: "No sales tax charged" ticked in this item's editor (a zero
+ * rate) stays ticked on the next. A value the item does not hold is left
+ * to the purchase's defaults.
+ */
+function taxOf(item) {
+  return Object.fromEntries(
+    ['tax_rate', 'tax_includes_shipping']
+      .map((key) => [key, item[key]])
+      .filter(([, value]) => value !== null && value !== undefined),
+  )
+}
+
+/**
  * Enter an item on a purchase, in the item editor itself.
  *
  * There is one form for an item, the editor: entering one and correcting
@@ -85,7 +102,7 @@ function sharedWith(item) {
  * saved was never entered. "Add another like it" is offered whenever the
  * purchase holds an item, and starts the next piece from what that item
  * shares with it (`SHARED_ON_REPEAT`, less what a rule filled -- see
- * `sharedWith`).
+ * `sharedWith`), and with its tax (`taxOf`).
  *
  * `items` is the purchase's items, oldest first, and `likeId` the one last
  * opened on the page -- from its table, or entered here, which `onEntered`
@@ -128,11 +145,12 @@ export default function AddItem({
       const created = await api.createInventoryItem({
         purchase_order_id: purchaseOrderId,
         ...(orderUrl && { listing_url: orderUrl }),
-        ...fields,
         // The purchase's tax defaults, resolved once for every item entered
-        // on it -- not something asked item by item.
+        // on it -- not something asked item by item. A piece made like
+        // another brings that one's tax in `fields` instead.
         tax_rate: defaults?.tax_rate ?? null,
         tax_includes_shipping: defaults?.tax_includes_shipping ?? null,
+        ...fields,
       })
       setError('')
       setTitle('')
@@ -168,7 +186,7 @@ export default function AddItem({
     try {
       // Read again: the editor may have changed what the next piece shares.
       const saved = await api.getInventoryItem(like.id)
-      await create(sharedWith(saved))
+      await create({ ...sharedWith(saved), ...taxOf(saved) })
     } catch (err) {
       setError(err.message)
       setBusy(false)
