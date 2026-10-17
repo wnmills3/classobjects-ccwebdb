@@ -1,0 +1,111 @@
+"""Attempt limits on sign-in and registration (`app.throttle`).
+
+Through the routes, not the counter alone: what matters is that a guesser
+is stopped and the owner is not, and only the routes can say both.
+"""
+
+from __future__ import annotations
+
+import pytest
+from app import throttle
+from app.models import User
+from fastapi.testclient import TestClient
+from httpx import Response
+
+from tests.conftest import CUSTOMER_PASSWORD
+
+
+def _sign_in(client: TestClient, email: str, password: str) -> Response:
+    """One sign-in attempt."""
+    return client.post(
+        "/api/auth/login", data={"username": email, "password": password}
+    )
+
+
+def _register(client: TestClient, email: str) -> Response:
+    """One registration attempt."""
+    return client.post(
+        "/api/auth/register",
+        json={"email": email, "password": "longenough", "full_name": "Someone"},
+    )
+
+
+def test_a_guesser_is_stopped_even_when_the_guess_is_right(
+    client: TestClient, customer_user: User
+) -> None:
+    """Over the limit the answer is a 429 before the password is looked at.
+
+    Were the right password still let through, the 429s would only slow a
+    guesser, and the one 200 among them would say which guess it was.
+    """
+    limit = throttle.SIGN_IN_FAILURES_BY_ADDRESS.attempts
+    for _ in range(limit):
+        assert _sign_in(client, customer_user.email, "wrongpassword").status_code == 401
+
+    stopped = _sign_in(client, customer_user.email, CUSTOMER_PASSWORD)
+    assert stopped.status_code == 429, stopped.text
+    assert int(stopped.headers["Retry-After"]) > 0
+
+
+def test_a_mistyped_password_does_not_lock_its_owner_out(
+    client: TestClient, customer_user: User
+) -> None:
+    """A sign-in that succeeds clears the failures before it."""
+    limit = throttle.SIGN_IN_FAILURES_BY_ADDRESS.attempts
+    for _ in range(limit - 1):
+        _sign_in(client, customer_user.email, "wrongpassword")
+    assert _sign_in(client, customer_user.email, CUSTOMER_PASSWORD).status_code == 200
+
+    for _ in range(limit - 1):
+        assert _sign_in(client, customer_user.email, "wrongpassword").status_code == 401
+    assert _sign_in(client, customer_user.email, CUSTOMER_PASSWORD).status_code == 200
+
+
+def test_unknown_addresses_count_like_known_ones(client: TestClient) -> None:
+    """Guessing which addresses exist is limited as guessing passwords is."""
+    for n in range(throttle.SIGN_IN_FAILURES_BY_ADDRESS.attempts):
+        assert (
+            _sign_in(client, f"ghost{n}@example.com", "whatever123").status_code == 401
+        )
+    assert _sign_in(client, "ghost@example.com", "whatever123").status_code == 429
+
+
+def test_one_account_is_limited_however_many_addresses_guess_at_it(
+    client: TestClient, customer_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Spreading guesses over many addresses still meets the account's limit.
+
+    The per-address limit is lifted out of the way, which is what a guesser
+    with many addresses has done.
+    """
+    monkeypatch.setattr(throttle.SIGN_IN_FAILURES_BY_ADDRESS, "attempts", 1000)
+    for _ in range(throttle.SIGN_IN_FAILURES_BY_ACCOUNT.attempts):
+        assert _sign_in(client, customer_user.email, "wrongpassword").status_code == 401
+    assert _sign_in(client, customer_user.email, CUSTOMER_PASSWORD).status_code == 429
+
+
+def test_the_limit_lifts_when_its_window_has_passed(
+    client: TestClient, customer_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A limit, not a ban: once the window is over the owner signs in."""
+    now = [1_000.0]
+    monkeypatch.setattr(throttle.time, "monotonic", lambda: now[0])
+    for _ in range(throttle.SIGN_IN_FAILURES_BY_ADDRESS.attempts):
+        _sign_in(client, customer_user.email, "wrongpassword")
+    assert _sign_in(client, customer_user.email, CUSTOMER_PASSWORD).status_code == 429
+
+    now[0] += throttle.SIGN_IN_FAILURES_BY_ADDRESS.window_seconds
+    assert _sign_in(client, customer_user.email, CUSTOMER_PASSWORD).status_code == 200
+
+
+def test_registration_answers_only_a_handful_of_addresses(
+    client: TestClient, customer_user: User
+) -> None:
+    """Each 409 says an address has an account, so every attempt counts."""
+    limit = throttle.REGISTRATIONS_BY_ADDRESS.attempts
+    answers = [_register(client, customer_user.email).status_code for _ in range(limit)]
+    assert answers == [409] * limit
+
+    stopped = _register(client, "brand-new@example.com")
+    assert stopped.status_code == 429, stopped.text
+    assert "Retry-After" in stopped.headers

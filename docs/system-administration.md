@@ -65,6 +65,14 @@ There is no third role and no per-permission grid. The line the system
 enforces is **cost basis and provenance are not customer-visible**, and one
 boolean expresses it.
 
+**Sign-in** (`POST /api/auth/login`) allows ten failed attempts from one
+address and twenty naming one account in any 15 minutes (`app.throttle`).
+Past either, the answer is a 429 with `Retry-After`, before the password is
+looked at, so a right guess is refused too; a successful sign-in clears that
+address's and account's failures. The counts are held in the API's memory
+and a restart clears them. An unknown address takes as long to refuse as a
+wrong password.
+
 Every manager-only endpoint carries `require_admin` (`backend/app/deps.py`).
 That dependency, not the console's separate bundle, is the access control; the
 bundle split removes an information leak, it does not enforce anything.
@@ -72,7 +80,10 @@ bundle split removes an information leak, it does not enforce anything.
 ### How accounts come to exist
 
 - **Self-service registration** (`POST /api/auth/register`, the shop's
-  **Register** page) always creates a `customer`.
+  **Register** page) always creates a `customer`. An address already in
+  use is a 409, which says it has an account, so each caller address gets
+  five attempts an hour, whatever their answer (`app.throttle`); a sixth is
+  a 429 with `Retry-After`.
 - **A manager creates it** (`POST /api/users`, **People → Accounts →
   New account**): email, name, role and an initial password. The role has no
   default in the API, so a manager is never created by omission. An
@@ -133,9 +144,11 @@ Settings decide where the database, images and photographs are, how sessions
 are signed, and how purchases are taxed. Defaults live in
 `backend/app/config.py` and are overridden by environment variables or the
 repo-root `.env` (template: `.env.example`). Names are the field names
-upper-cased (`jwt_secret` -> `JWT_SECRET`). **A misspelt name is silently
-ignored** (`extra="ignore"`), so check the spelling when a change seems to
-have no effect. Settings are read when the API starts; change them, then
+upper-cased (`jwt_secret` -> `JWT_SECRET`). **A name in `.env` that is no
+setting is refused** (`extra="forbid"`): the API does not start, and the
+error names it, so a misspelt `JWT_SECRET` cannot leave the key unset
+unnoticed. The refusal never prints the value. Settings are read when the
+API starts; change them, then
 restart the API (`.\scripts\ccweb_shutdown.cmd /keepdb`, then
 `.\scripts\ccweb_startup.cmd`).
 
@@ -147,8 +160,8 @@ are read by the runtime scripts, not by `config.py`; see
 
 | Setting | Default | Why |
 |---|---|---|
-| `JWT_SECRET` | `dev-only-insecure-secret-change-me` | signs every token; anyone who knows it can mint an admin session. The default is deliberately obvious so an unconfigured deployment is easy to spot |
-| `FIRST_ADMIN_PASSWORD` | `adminpassword` | published in this repository; used only by `python -m app.seed` (`FIRST_ADMIN_EMAIL`, default `admin@example.com`, names the account) |
+| `JWT_SECRET` | none: required | signs every token; anyone who knows it can mint an admin session. Nothing starts without one, nor with one under 32 characters or one this repository has published (`config.PUBLISHED_SECRETS`). Make one with `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `FIRST_ADMIN_PASSWORD` | none | used only by `python -m app.seed` (`FIRST_ADMIN_EMAIL`, default `admin@example.com`, names the account), which refuses one under 12 characters or one published in this repository (`seed.PUBLISHED_PASSWORDS`). It does not check an account that already exists: change the password of any account still on a development one under **People** |
 | `DATABASE_URL` | local `ccwebdb` with `devpassword` | contains the database password |
 
 ### Worth reviewing

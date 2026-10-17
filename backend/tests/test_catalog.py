@@ -63,6 +63,44 @@ def test_detail_404_for_unknown_id(client: TestClient) -> None:
     assert client.get("/api/catalog/999999").status_code == 404
 
 
+def test_a_stranger_is_told_only_that_an_ended_listing_has_ended(
+    client: TestClient, make_listing: Callable[..., Listing]
+) -> None:
+    """Ids are sequential: a full answer would walk every offer ever ended.
+
+    The body is the refusal and nothing else -- no title, price or item code
+    of what was on offer.
+    """
+    listing = make_listing(is_active=False)
+    refused = client.get(f"/api/catalog/{listing.id}")
+    assert refused.status_code == 410, refused.text
+    assert refused.json() == {"detail": "This listing is no longer for sale"}
+
+
+def test_a_customer_is_not_enough_to_see_an_ended_listing(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+) -> None:
+    """Signed in is not the same as being an administrator."""
+    listing = make_listing(is_active=False)
+    refused = client.get(f"/api/catalog/{listing.id}", headers=customer_headers)
+    assert refused.status_code == 410, refused.text
+
+
+def test_an_administrator_still_sees_an_ended_listing_in_full(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    admin_headers: dict[str, str],
+) -> None:
+    """What stops the 410 being a removal: the owner can still read it."""
+    listing = make_listing(is_active=False)
+    allowed = client.get(f"/api/catalog/{listing.id}", headers=admin_headers)
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["is_active"] is False
+    assert allowed.json()["price"] == "189.00"
+
+
 def test_price_is_serialised_with_two_decimals(
     client: TestClient, listing: Listing
 ) -> None:
@@ -796,22 +834,22 @@ def test_a_sold_lots_page_still_says_which_coins_it_held(
     client: TestClient,
     db: Session,
     customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
     store_lot_listing: Listing,
 ) -> None:
     """Selling a lot releases its memberships; the page must still list them.
 
-    The detail endpoint serves an ended listing on purpose, so a page someone
-    bookmarked can say the offer is over. Asked through
-    `offering_writes.offered_items` -- "what does this listing offer now" --
-    that page would be a group with nothing in it, because ending a lot
-    releases every membership in the same transaction. `members_held` is the
-    past-tense reader that answers it.
+    The detail endpoint serves an ended listing to an administrator. Asked
+    through `offering_writes.offered_items` -- "what does this listing offer
+    now" -- that page would be a group with nothing in it, because ending a
+    lot releases every membership in the same transaction. `members_held` is
+    the past-tense reader that answers it.
     """
     db.commit()
     listing_id = store_lot_listing.id
     _buy(client, customer_headers, listing_id)
 
-    response = client.get(f"/api/catalog/{listing_id}")
+    response = client.get(f"/api/catalog/{listing_id}", headers=admin_headers)
 
     assert response.status_code == 200, response.text
     body = response.json()

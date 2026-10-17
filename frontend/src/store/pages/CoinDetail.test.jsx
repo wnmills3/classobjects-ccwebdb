@@ -72,9 +72,9 @@ describe('CoinDetail', () => {
   })
 
   it('says a withdrawn listing is no longer for sale, and offers no way to add it', async () => {
-    // The detail endpoint serves a listing that was ended or paused with
-    // stock left, so a bookmarked page can say so. Its stock is not for
-    // sale: checkout refuses it.
+    // The detail endpoint serves an administrator a listing that was ended
+    // or paused with stock left. Its stock is not for sale: checkout
+    // refuses it.
     api.getCatalogItem.mockResolvedValue({ ...COIN, is_active: false })
     const cart = emptyCart()
     show({ cart })
@@ -241,11 +241,11 @@ describe('a lot in the shop', () => {
   })
 
   it('still lists the coins a sold lot held', async () => {
-    // The detail endpoint serves an ended listing on purpose, so a page
-    // someone bookmarked can say the offer is over. `_lot_entry` reads
+    // The detail endpoint serves an ended listing to an administrator.
+    // `_lot_entry` reads
     // `members_held`, the past-tense question, so the list is FULL after a
-    // sale -- `offered_items` would answer "none" for exactly the page a
-    // buyer is most likely to be looking at. A page that hid the members
+    // sale -- `offered_items` would answer "none" for exactly the page the
+    // owner looks back at. A page that hid the members
     // once the lot was sold would throw that away.
     api.getCatalogItem.mockResolvedValue({
       ...LOT,

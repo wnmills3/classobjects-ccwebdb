@@ -196,13 +196,40 @@ def _build(db: Session, row: dict) -> None:
     )
 
 
+#: The shortest first-administrator password `seed` accepts.
+MIN_ADMIN_PASSWORD_LENGTH = 12
+
+#: Passwords this repository has published, as a default or in its examples
+#: and tests. Any of them would let a reader of the repository sign in as the
+#: manager.
+PUBLISHED_PASSWORDS = frozenset({"adminpassword", "customerpassword"})
+
+
+def _refuse_a_weak_admin_password(password: str) -> None:
+    """Exit unless the first administrator's password is long and unpublished.
+
+    The account is a manager's: whoever knows its password holds every cost,
+    customer and console write.
+    """
+    if password in PUBLISHED_PASSWORDS:
+        problem = "is published in this repository"
+    elif len(password) < MIN_ADMIN_PASSWORD_LENGTH:
+        problem = f"is shorter than {MIN_ADMIN_PASSWORD_LENGTH} characters"
+    else:
+        return
+    raise SystemExit(
+        f"FIRST_ADMIN_PASSWORD {problem}, so nothing was written. Set a "
+        "password of your own in .env and run the seed again."
+    )
+
+
 def _refuse_a_collection(db: Session) -> None:
     """Exit unless the database holds nothing but this module's own demo items.
 
     The demo items are offered in the shop, where a buyer could order a coin
-    nobody has, and the account made here takes its password from a setting
-    whose default is published. A purchase, or an item that is not one of the
-    demo catalog's, means the database is somebody's record.
+    nobody has, and the account made here is a manager's. A purchase, or an
+    item that is not one of the demo catalog's, means the database is
+    somebody's record.
     """
     titles = [row["title"] for row in SAMPLE_CATALOG]
     purchases = db.scalar(select(func.count()).select_from(PurchaseOrder)) or 0
@@ -244,6 +271,7 @@ def seed(db: Session | None = None, *, into_existing: bool = False) -> None:
 
     admin = db.scalar(select(User).where(User.email == settings.first_admin_email))
     if admin is None:
+        _refuse_a_weak_admin_password(settings.first_admin_password)
         admin = User(
             email=settings.first_admin_email,
             full_name="Site Administrator",

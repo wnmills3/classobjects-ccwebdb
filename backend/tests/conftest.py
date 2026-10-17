@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from app import lot_writes, offering_writes, security
+from app import lot_writes, offering_writes, security, throttle
 from app.config import settings
 from app.database import Base, get_db
 from app.grades import GRADE_DISPLAY_SQL, split_fields
@@ -808,8 +808,14 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
 
 @pytest.fixture
 def client(db: Session) -> Iterator[TestClient]:
-    """A TestClient whose requests all share the rolled-back test session."""
+    """A TestClient whose requests all share the rolled-back test session.
+
+    Every request comes from one address, so the attempt limits are cleared
+    for each test: what one test spends is not another's to inherit.
+    """
     app.dependency_overrides[get_db] = lambda: db
+    for limit in throttle.ALL_LIMITS:
+        limit.clear()
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

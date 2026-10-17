@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import Annotated
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 
+from .. import throttle
 from ..deps import CurrentUser, DbSession
 from ..models import User, UserRole
 from ..schemas import RefreshRequest, TokenPair, UserCreate, UserOut
@@ -32,9 +33,23 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _INVALID_REFRESH_TOKEN = "Invalid or expired refresh token"
 
 
+def _caller_address(request: Request) -> str:
+    """The address an attempt came from, as the attempt limits count it."""
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def register(payload: UserCreate, db: DbSession) -> User:
-    """Self-service registration. Always creates a customer, never an admin."""
+def register(payload: UserCreate, request: Request, db: DbSession) -> User:
+    """Self-service registration. Always creates a customer, never an admin.
+
+    A taken address is a 409, which says that address has an account; every
+    attempt, whatever its answer, counts against the caller's address
+    (`throttle.REGISTRATIONS_BY_ADDRESS`), so the answer can be had for a
+    handful of addresses and not for a list.
+    """
+    address = _caller_address(request)
+    throttle.REGISTRATIONS_BY_ADDRESS.refuse_if_spent(address)
+    throttle.REGISTRATIONS_BY_ADDRESS.record(address)
     email = normalize_email(payload.email)
     existing = db.scalar(select(User).where(User.email == email))
     if existing is not None:
@@ -61,9 +76,15 @@ def register(payload: UserCreate, db: DbSession) -> User:
 @router.post("/login")
 def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
+    request: Request,
     db: DbSession,
 ) -> TokenPair:
-    """Exchange email and password for a token pair."""
+    """Exchange email and password for a token pair.
+
+    Failed attempts are limited per caller address and per account named
+    (`app.throttle`); over either limit the answer is a 429, given before
+    the password is checked.
+    """
     # OAuth2PasswordRequestForm calls the field "username"; we use the email,
     # in the form an account stores it. Text the validator refuses is looked
     # up as typed: an account made outside registration -- the first
@@ -73,6 +94,9 @@ def login(
         email = normalize_email(form.username)
     except ValueError:
         email = form.username
+    address = _caller_address(request)
+    throttle.SIGN_IN_FAILURES_BY_ADDRESS.refuse_if_spent(address)
+    throttle.SIGN_IN_FAILURES_BY_ACCOUNT.refuse_if_spent(email)
     user = db.scalar(select(User).where(User.email == email))
 
     # One verification whether or not the address has an account -- against
@@ -84,6 +108,8 @@ def login(
         UNKNOWN_ACCOUNT_HASH if user is None else user.hashed_password,
     )
     if user is None or not verified:
+        throttle.SIGN_IN_FAILURES_BY_ADDRESS.record(address)
+        throttle.SIGN_IN_FAILURES_BY_ACCOUNT.record(email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -93,6 +119,9 @@ def login(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled"
         )
+
+    throttle.SIGN_IN_FAILURES_BY_ADDRESS.forget(address)
+    throttle.SIGN_IN_FAILURES_BY_ACCOUNT.forget(email)
 
     # Transparently upgrade the stored hash if argon2 parameters changed.
     if needs_rehash(user.hashed_password):

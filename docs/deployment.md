@@ -137,7 +137,7 @@ The server's `.env` (template: `.env.example`; every setting is in
 
 | Setting | On the server |
 |---|---|
-| `JWT_SECRET` | a new value (`python -c "import secrets; print(secrets.token_hex(32))"`), never the development one |
+| `JWT_SECRET` | a new value (`python -c "import secrets; print(secrets.token_hex(32))"`), never the development one. The API will not start without one |
 | `DATABASE_URL` | the server's database, with a password that is not `devpassword`: change it first with `ALTER ROLE ccwebdb PASSWORD '...'` in `psql` |
 | `MEDIA_ROOT` | the folder the photographs were copied to |
 | `SALES_TAX_RATE`, `SALES_TAX_INCLUDES_SHIPPING` | as on the development machine |
@@ -296,10 +296,6 @@ footer (it shows only on the domain the certificate names), and
 
 ## Not yet done before the public can reach it
 
-These are known and open; each is worth settling before the shop is
-announced:
+This is known and open, and worth settling before the shop is announced:
 
-- no limit on repeated sign-in attempts;
-- registration says whether an address already has an account;
-- `GET /api/catalog/{id}` shows an ended listing to anyone who has its id;
 - the shop footer says "Prices and inventory are sample data".

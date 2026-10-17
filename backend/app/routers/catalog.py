@@ -395,20 +395,29 @@ def _get_listing(db: Session, listing_id: int) -> Listing:
 
 
 @router.get("/{listing_id}")
-def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
+def get_catalog_item(
+    listing_id: int, db: DbSession, caller: OptionalUser
+) -> CatalogItemOut:
     """One catalog entry. Public: it carries no cost basis or location.
 
     A listing on another platform or sold at auction is not this shop's to
     show -- treated as unknown, the same 404 an unknown id gets, so a caller
     cannot tell "wrong platform" from "does not exist".
 
-    `active_only=False`: a withdrawn listing of the shop's own is still this
-    shop's, and is served so a page someone bookmarked can say it has ended
-    rather than that it never existed.
+    A withdrawn, paused or sold listing of the shop's own is served in full
+    to an administrator only, as `list_catalog`'s `include_inactive` is.
+    Anyone else gets a 410 that says the offer has ended and nothing of what
+    it was: listing ids are sequential, so serving them would hand a stranger
+    every price and piece ever taken off sale, one id at a time.
     """
     listing = _get_listing(db, listing_id)
     if not offering_writes.sellable_in_shop(listing, active_only=False):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Catalog item not found"
+        )
+    if not offering_writes.sellable_in_shop(listing) and not is_admin(caller):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="This listing is no longer for sale",
         )
     return to_catalog_item(listing)

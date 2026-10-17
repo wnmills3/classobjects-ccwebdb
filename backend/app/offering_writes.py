@@ -184,8 +184,8 @@ def sellable_in_shop(listing: Listing, *, active_only: bool = True) -> bool:
     this shop's at all, whatever state it is in. Two callers need that and
     say so: checkout, which refuses an inactive listing with its own message
     ("not currently for sale", which is not the same news as "not sold in
-    this shop"), and the catalog's detail endpoint, which serves a
-    withdrawn listing so a page someone bookmarked can say it has ended.
+    this shop"), and the catalog's detail endpoint, which answers a
+    withdrawn listing of the shop's own with a 410 rather than a 404.
     """
     ours = (
         listing.sales_venue.is_own_store and listing.format is ListingFormat.fixed_price

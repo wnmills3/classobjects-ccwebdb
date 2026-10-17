@@ -10,7 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from app.config import settings
+from app.config import PUBLISHED_SECRETS, settings
+from pydantic import ValidationError
 
 #: Fields whose values are credentials. `database_url` is one because it
 #: carries the database password.
@@ -48,3 +49,41 @@ def test_the_photograph_library_can_be_moved_by_environment(
 
     monkeypatch.setenv("PHOTO_LIBRARY_ROOT", "/tmp/elsewhere")
     assert Settings().photo_library_root == Path("/tmp/elsewhere")
+
+
+@pytest.mark.parametrize(
+    ("key", "problem"),
+    [
+        ("", "not set"),
+        ("q" * 31, "shorter than 32"),
+        *[(published, "published") for published in sorted(PUBLISHED_SECRETS)],
+    ],
+)
+def test_a_signing_key_a_stranger_could_know_is_refused(key: str, problem: str) -> None:
+    """Anyone holding the key can sign a manager's token: refuse to start.
+
+    And the refusal does not print the key it refused.
+    """
+    from app.config import Settings
+
+    with pytest.raises(ValidationError, match=problem) as refused:
+        Settings(jwt_secret=key)
+    if key:
+        assert key not in str(refused.value)
+
+
+def test_a_long_unpublished_signing_key_is_accepted() -> None:
+    """The other side of the refusal: a real key starts."""
+    from app.config import Settings
+
+    assert Settings(jwt_secret="k" * 32).jwt_secret == "k" * 32
+
+
+def test_a_misspelt_name_in_env_is_refused(tmp_path: Path) -> None:
+    """A misspelt JWT_SECRET is an error, not a setting left at its default."""
+    from app.config import Settings
+
+    env = tmp_path / ".env"
+    env.write_bytes(b"JWT_SECRT=" + b"k" * 64 + b"\n")
+    with pytest.raises(ValidationError, match="jwt_secrt"):
+        Settings(_env_file=env, jwt_secret="k" * 32)

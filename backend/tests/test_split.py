@@ -372,7 +372,7 @@ def test_splitting_withdraws_the_lots_listing(
 
     db.expire_all()
     assert db.get_one(Listing, listing.id).is_active is False
-    assert client.get(f"/api/catalog/{listing.id}").json()["is_active"] is False
+    assert client.get(f"/api/catalog/{listing.id}").status_code == 410
 
 
 def test_a_listed_lot_is_marked_split_without_autoflush(

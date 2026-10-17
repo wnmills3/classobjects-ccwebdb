@@ -4,11 +4,29 @@ from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/config.py -> backend/app -> backend -> repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+#: The shortest signing key accepted: 32 characters, half the 64 hex
+#: characters `secrets.token_hex(32)` makes.
+MIN_SECRET_LENGTH = 32
+
+#: Signing keys this repository has published, as a default or an example.
+#: Long enough to pass the length check, and known to everyone who reads it.
+PUBLISHED_SECRETS = frozenset(
+    {
+        "dev-only-insecure-secret-change-me",
+        "replace-me-with-a-random-64-char-hex-string",
+    }
+)
+
+_MAKE_A_SECRET = (
+    'Put a new one in .env: python -c "import secrets; print(secrets.token_hex(32))"'
+)
 
 
 class Settings(BaseSettings):
@@ -17,7 +35,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=REPO_ROOT / ".env",
         env_file_encoding="utf-8",
-        extra="ignore",
+        # A misspelt name in .env is an error, not a setting silently left at
+        # its default -- JWT_SECRET spelt wrong would otherwise run unsigned
+        # by any secret at all.
+        extra="forbid",
+        # A refusal must not print what it refused: the value is a secret.
+        hide_input_in_errors=True,
     )
 
     # --- database -----------------------------------------------------------
@@ -27,9 +50,10 @@ class Settings(BaseSettings):
     )
 
     # --- auth ---------------------------------------------------------------
-    # Overridden via JWT_SECRET in .env. The default is intentionally obvious
-    # so that an unconfigured deployment is easy to spot.
-    jwt_secret: str = Field(default="dev-only-insecure-secret-change-me", repr=False)
+    # JWT_SECRET in .env; no default. Anyone who knows it can sign a manager's
+    # token, so a missing, short or published value refuses to start
+    # (`_refuse_a_weak_secret`).
+    jwt_secret: str = Field(default="", repr=False)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 14
@@ -41,9 +65,10 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
-    # Seeded administrator, created by `python -m app.seed`.
+    # Seeded administrator, created by `python -m app.seed`. No default
+    # password: `seed` refuses to create the account without a strong one.
     first_admin_email: str = "admin@example.com"
-    first_admin_password: str = Field(default="adminpassword", repr=False)
+    first_admin_password: str = Field(default="", repr=False)
 
     # --- image storage ------------------------------------------------------
     # Bytes never live in the database: a collection's photographs run to
@@ -76,6 +101,21 @@ class Settings(BaseSettings):
     # refused at startup instead of multiplying every new cost by 7.35.
     sales_tax_rate: Decimal = Field(default=Decimal("0.0635"), ge=0, le=1)
     sales_tax_includes_shipping: bool = True
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def _refuse_a_weak_secret(cls, value: str) -> str:
+        """Refuse a signing key a stranger could know or guess."""
+        if not value:
+            raise ValueError(f"JWT_SECRET is not set. {_MAKE_A_SECRET}")
+        if value in PUBLISHED_SECRETS:
+            raise ValueError(f"JWT_SECRET is a published example. {_MAKE_A_SECRET}")
+        if len(value) < MIN_SECRET_LENGTH:
+            raise ValueError(
+                f"JWT_SECRET is shorter than {MIN_SECRET_LENGTH} characters. "
+                f"{_MAKE_A_SECRET}"
+            )
+        return value
 
 
 @lru_cache

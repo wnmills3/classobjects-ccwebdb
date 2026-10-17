@@ -309,7 +309,9 @@ export const api = {
   // as inventory_item_id, for the admin views that need it.
   listCatalog: (params = {}) =>
     send(withQuery('/api/catalog', params, { dropFalse: true }), { auth: false }),
-  getCatalogItem: (id) => send(`/api/catalog/${id}`, { auth: false }),
+  // Signed in when it can be: an ended listing is served in full only to an
+  // administrator, and answered 410 for anyone else.
+  getCatalogItem: (id) => send(`/api/catalog/${id}`),
 
   // reference vocabularies, for dropdowns
   // Retired values included: a record may still use one, and its picker has

@@ -31,9 +31,9 @@ const FIELDS = [
  * year -- because no single value of any of them describes a group, and no
  * photograph of its own. Its `members` say what it is and which coins, and
  * they keep saying it after the lot has sold, which is the case this page has
- * to get right: the detail endpoint serves an ended listing on purpose, so a
- * page someone bookmarked can say the offer is over rather than that it never
- * existed.
+ * to get right for an administrator: the detail endpoint serves an ended
+ * listing in full to one, and answers anyone else with a 410 whose message
+ * this page shows.
  */
 export default function CoinDetail() {
   const { id } = useParams()
@@ -54,8 +54,8 @@ export default function CoinDetail() {
   // decides which and says so in the alt text.
   const cover = coverImage(coin)
 
-  // The detail endpoint serves a listing that has been ended or paused, so
-  // a bookmarked page can say so. Whatever stock it still carries is not on
+  // An administrator is served a listing that has been ended or paused,
+  // and the page says so. Whatever stock it still carries is not on
   // offer -- checkout refuses it -- so it is neither counted nor addable.
   // One with no stock left reads "Sold out", which is the more exact news.
   const withdrawn = coin.is_active === false && coin.quantity_available > 0
@@ -98,7 +98,7 @@ export default function CoinDetail() {
       {/* Every field above is null for a lot, so that table is empty and the
           coins themselves are the only description there is. Past tense on
           purpose once a lot has ended: these are the coins the group HELD,
-          which is exactly what a bookmarked page of a sold lot must still be
+          which is exactly what the owner's view of a sold lot must still be
           able to say. */}
       {isLot(coin) && (
         <section className="lot-members">

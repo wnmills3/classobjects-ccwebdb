@@ -167,7 +167,9 @@ copy .env.example .env
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Paste that value into `JWT_SECRET` in `.env`. `.env` is gitignored;
+Paste that value into `JWT_SECRET` in `.env`; the API will not start
+without one. Set `FIRST_ADMIN_PASSWORD` to a password of your own, of 12
+characters or more, before `app.seed` below. `.env` is gitignored;
 `.env.example` is committed and holds the keys a new installation sets,
 including the sales-tax settings stamped onto each new item.
 [system-administration.md](system-administration.md) (*Settings*) lists every

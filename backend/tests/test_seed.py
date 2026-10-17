@@ -20,6 +20,31 @@ from tests.builders import ItemFactory, build_purchase_order
 _DEMO_TITLES = [row["title"] for row in SAMPLE_CATALOG]
 
 
+@pytest.fixture(autouse=True)
+def _a_strong_admin_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Whatever .env holds, the seed here is given a password it accepts."""
+    monkeypatch.setattr(settings, "first_admin_password", "a-long-unpublished-one")
+
+
+@pytest.mark.parametrize(
+    ("password", "problem"),
+    [
+        ("", "shorter than 12"),
+        ("elevenchars", "shorter than 12"),
+        ("adminpassword", "published"),
+    ],
+)
+def test_the_first_administrator_needs_a_strong_password(
+    db: Session, monkeypatch: pytest.MonkeyPatch, password: str, problem: str
+) -> None:
+    """A missing, short or published password makes no manager at all."""
+    monkeypatch.setattr(settings, "first_admin_password", password)
+    with pytest.raises(SystemExit, match=problem):
+        seed(db)
+    assert _first_admin(db) is None
+    assert _demo_items(db) == 0
+
+
 def _demo_items(db: Session) -> int:
     """How many items carry a demo catalog title."""
     found = db.scalar(
