@@ -243,6 +243,14 @@ export const FIELD_HELP = {
       'A die variety or other variant within the date and mint -- a doubled die, ' +
       'an overdate -- as the seller or grader names it.',
   },
+  bullion_serial: {
+    title: 'Serial number',
+    text:
+      'The number stamped or printed on this bar, round or Goldback, exactly as ' +
+      'it reads, letters and leading zeros included. It tells this piece from ' +
+      'every other of its kind, so it is what to give the police or an insurer ' +
+      'if the piece is stolen.',
+  },
   year_start: {
     title: 'Year',
     text:

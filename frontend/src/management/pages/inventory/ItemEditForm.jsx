@@ -1514,6 +1514,17 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           </label>
         )}
 
+        {/* A note's serial is among its own fields above; a bullion item's
+            sits with the other numbers that identify the piece. */}
+        {value('item_kind') === 'bullion' && (
+          <label className="field" data-help="bullion_serial">
+            <span>Serial number</span>
+            <input value={value('serial_number')} onChange={set('serial_number')} />
+            {side('serial_number', 'serial_number')}
+            <span />
+          </label>
+        )}
+
         <label className="field" data-help="cert_numbers">
           <span>Certificate no.</span>
           <input

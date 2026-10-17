@@ -1030,6 +1030,7 @@ class ItemDetailOut(InventoryItemOut):
     signature_combination: str | None = None
     series_year: int | None = None
     series_letter: str | None = None
+    #: A note's, or a bullion item's own (on its coin detail).
     serial_number: str | None = None
     face_plate_number: str | None = None
     back_plate_number: str | None = None
@@ -1165,6 +1166,7 @@ class InventoryItemUpdate(BaseModel):
     signature_combination: str | None = Field(default=None, max_length=64)
     series_year: SeriesYear | None = None
     series_letter: str | None = Field(default=None, max_length=4)
+    #: Bullion takes one too, on its coin detail; another kind refuses it.
     serial_number: str | None = Field(default=None, max_length=64)
     #: `E82`, `153`, or `FW E82` for a Fort Worth note (`app.plates`).
     face_plate_number: FacePlate = None
@@ -1226,7 +1228,7 @@ class BulkEditRequest(BaseModel):
 _COIN_ONLY_FIELDS: tuple[str, ...] = ("mint", "variety", "year_start", "year_end")
 
 #: Currency-detail fields on `ItemCreate`, valid only when `item_kind` is
-#: `currency`.
+#: `currency` -- but `serial_number`, which bullion takes too.
 _CURRENCY_ONLY_FIELDS: tuple[str, ...] = (
     "serial_number",
     "series_year",
@@ -1382,6 +1384,9 @@ class ItemCreate(BaseModel):
         """
         is_currency = self.item_kind == "currency"
         wrong_fields = _COIN_ONLY_FIELDS if is_currency else _CURRENCY_ONLY_FIELDS
+        if self.item_kind == "bullion":
+            # A bar, round or Goldback may carry a serial of its own.
+            wrong_fields = tuple(f for f in wrong_fields if f != "serial_number")
         offending = sorted(f for f in wrong_fields if getattr(self, f) is not None)
         if offending:
             raise ValueError(

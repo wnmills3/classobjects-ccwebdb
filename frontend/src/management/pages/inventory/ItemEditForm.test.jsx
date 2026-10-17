@@ -570,6 +570,7 @@ describe('Mint and variety', () => {
       item_kind: [
         { code: 'coin', label: 'Coin', source: 'seeded', extra: {} },
         { code: 'currency', label: 'Currency', source: 'seeded', extra: {} },
+        { code: 'bullion', label: 'Bullion', source: 'seeded', extra: {} },
       ],
     },
   })
@@ -583,6 +584,27 @@ describe('Mint and variety', () => {
     )
     await screen.findByDisplayValue('Mercury Dime')
   }
+
+  it('lets a bar record its serial number, as typed', async () => {
+    const user = userEvent.setup()
+    await open({ item_kind: 'bullion', serial_number: null })
+    await user.type(screen.getByRole('textbox', { name: 'Serial number' }), 'PAMP-0042')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({
+          serial_number: 'PAMP-0042',
+          base: expect.objectContaining({ serial_number: null }),
+        }),
+      ),
+    )
+  })
+
+  it('asks a coin for no serial number', async () => {
+    await open({ item_kind: 'coin', mint: null, variety: null })
+    expect(screen.queryByRole('textbox', { name: 'Serial number' })).toBeNull()
+  })
 
   it('lets a coin record its mint and variety', async () => {
     const user = userEvent.setup()

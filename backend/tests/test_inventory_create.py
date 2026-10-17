@@ -392,6 +392,23 @@ def test_currency_fields_on_a_coin_are_refused(
     assert any("serial_number" in str(err.get("msg", "")) for err in detail)
 
 
+def test_a_bullion_item_is_entered_with_its_serial(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(order.id, item_kind="bullion", serial_number="PAMP-0042"),
+        headers=admin_headers,
+    )
+    assert res.status_code == 201, res.text
+    detail = db.scalar(
+        select(CoinDetail).where(CoinDetail.inventory_item_id == res.json()["id"])
+    )
+    assert detail is not None
+    assert detail.serial_number == "PAMP-0042"
+
+
 def test_coin_fields_on_a_currency_item_are_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

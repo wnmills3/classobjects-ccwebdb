@@ -448,6 +448,8 @@ COIN_VIEW = ViewSpec(
         "mint": Col("m.label", (_J_COIN_DETAIL, _J_MINT)),
         "mint_mark": Col("m.mark", (_J_COIN_DETAIL, _J_MINT)),
         "variety": Col("cd.variety", (_J_COIN_DETAIL,)),
+        # A bullion item's own; no other kind holds one.
+        "serial_number": Col("cd.serial_number", (_J_COIN_DETAIL,)),
         "metal": Col("mt.code", (_J_METAL,)),
         "fineness": Col("i.fineness"),
         "gross_weight_ozt": Col("i.gross_weight_ozt"),
@@ -461,6 +463,7 @@ COIN_VIEW = ViewSpec(
         "mint": Filt("m.mark", join=(_J_COIN_DETAIL, _J_MINT)),
         "bullion_form": Filt("bf.code", join=(_J_BULLION,)),
         "set_form": Filt("sf.code", join=(_J_SET,)),
+        "serial_number": Filt("cd.serial_number", "ilike", (_J_COIN_DETAIL,)),
     },
     search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_RATING, _C_ITEM_CODE),
     named=(
@@ -474,6 +477,7 @@ COIN_VIEW = ViewSpec(
         "item_kind",
         "metal",
         "piece_count",
+        "serial_number",
     ),
     facets={
         **_SHARED_FACETS,

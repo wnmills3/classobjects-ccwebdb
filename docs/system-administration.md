@@ -469,9 +469,9 @@ lists the values present among the items the *other* filters find, with a
 count beside each, so a dropdown already set still offers its other values:
 with Status on Received, Returned is still there to choose. A dropdown
 reading **None recorded** is disabled because no matching item has that field
-filled in. The **Item code** and **Seller's item id** boxes, and on currency
-the **Serial number** box, match part of the value and take the same `%` and
-`_` wildcards. Seller's item id is the seller's own id for the listing an item
+filled in. The **Item code** and **Seller's item id** boxes, and the **Serial
+number** box (a note's on currency, a bullion item's on coins), match part of
+the value and take the same `%` and `_` wildcards. Seller's item id is the seller's own id for the listing an item
 was bought from -- eBay's item number -- so one number finds every piece split
 from that listing.
 
@@ -622,11 +622,13 @@ Half Dollar"); a year and a country alone do not make a title, and the
 seller's wording stays.
 
 **A kind change moves the detail row** (`app.item_kinds`). An item made a
-banknote loses its coin row (mint, variety, PCGS type) and gains an empty note
-row, so its serial number and other note fields can be sent in the same
-request. An item made anything else is refused while its note row still holds
-a value -- the serial above all, or an attached Friedberg number -- until the
-request clears it. The item editor's **Kind** picker does that clearing in the
+banknote loses its coin row (mint, variety, PCGS type) and gains a note row,
+so its serial number and other note fields can be sent in the same request.
+An item made anything else is refused while its note row still holds a
+value -- the serial above all, or an attached Friedberg number -- until the
+request clears it. The serial alone is kept across a change between note and
+bullion, which holds one too: it moves to the other row. Bullion made a coin,
+set, medal or token is refused while it holds a serial, until cleared. The item editor's **Kind** picker does that clearing in the
 draft: choosing a kind empties every field that does not fit it (a coin's
 metal, strike type, weights and coin-side denomination, series, grade and
 attributes; a note's own fields), names each one on screen, and puts them all
@@ -1186,6 +1188,7 @@ parameters and its table. Groups appear in the order the API lists them:
 | `cb_grades` | Collection | Grades | Grade band x strike type x grading service, across coins and currency, with items and total cost | Status, Disposition |
 | `cb_metal` | Collection | Precious metal | Metal x form, over items with a fine weight: items, ounces, cost, and melt value at the latest spot price | Status, Disposition |
 | `cb_attributes` | Collection | Attributes and errors | Every attribute and error type a live item carries, split by view, with items | Status, Disposition |
+| `cb_id_numbers` | Collection | Serial and certificate numbers | Every held item a number identifies -- a note's or a bullion item's serial, or a grading certificate: what it is, kind, metal, fine weight, serial, grading service, certificate numbers and whether it has a photo; the list for a theft report or an insurer. A row opens the item | Status, Disposition |
 | `cb_serials` | Collection | Matching serial numbers | Sets of notes whose serial numbers match one another, a row per set, which opens the list of its notes | Status, Disposition, Denomination (any, or must match), Letters (ignore, or must match), Star notes (match plain notes, or only other stars) |
 | `dq_issues` | Data quality | Open issues | Every named data-quality check, counted across coins and currency | none |
 | `dq_completeness` | Data quality | Field completeness | Percent of live items with each field filled in, by kind | none |

@@ -112,6 +112,8 @@ export const COIN_VIEW = {
     SELLERS_ITEM_ID,
     ORDER_NUMBER,
     ['Grade', 'grade', 'a grade, or a range like BU%', 'g'],
+    // A bar's, round's or Goldback's own; no coin holds one.
+    ['Serial number', 'serial_number', "all or part of a bar's serial", 'b'],
   ],
   facetFilters: [
     ['Denomination', 'denomination', 'denomination', 'm'],

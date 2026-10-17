@@ -352,9 +352,10 @@ kept apart:
 | Grading agency | who certified it | `inventory_item.grading_service_id` |
 | Certificate serial | one holder | `item_certification.cert_number` |
 | Note serial | printed on the note | `currency_detail.serial_number` |
+| Bullion serial | stamped on one bar, round or Goldback | `coin_detail.serial_number` |
 | Type number | every item of the type | `friedberg_number`, `pcgs_type` |
 
-All serials and numbers are text.
+All serials and numbers are text, and none is unique: two pieces may repeat a number. Only bullion holds a serial on `coin_detail`; the item edit refuses one for another non-note kind.
 
 ### Per-item link tables
 

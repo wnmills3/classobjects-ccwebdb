@@ -702,6 +702,12 @@ class CoinDetail(Base):
         ForeignKey("mint.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     variety: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: Stamped on a bar, round or Goldback: bullion only (the router refuses it
+    #: for another kind). Text, as a note's serial is, so leading zeros and
+    #: letters survive; never unique -- two pieces may repeat a number.
+    serial_number: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     pcgs_type_id: Mapped[int | None] = mapped_column(
         ForeignKey("pcgs_type.id", ondelete="RESTRICT"), index=True, nullable=True
     )

@@ -281,6 +281,9 @@ def _coin(db: Session, item: InventoryItem, given: Features | None) -> list[str]
     first.extend(_features(db, item, given))
     if (name := name_of(db, item, country_names=True)) is not None:
         first.append(name)
+    # Only bullion holds one (the item edit refuses it for another kind).
+    if item.coin_detail is not None and item.coin_detail.serial_number:
+        first.append(f"S/N {item.coin_detail.serial_number}")
     sentences = [" ".join(first)] if first else []
     if item.metal is not None:
         metal = item.metal.label

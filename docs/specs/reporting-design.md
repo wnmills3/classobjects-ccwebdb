@@ -53,6 +53,7 @@ or ever sold.
 | `cb_grades` | Grades | View (Coins or Currency) x grade band (1-49, 50-59, 60-64, 65-70, or "No numeric grade") x strike type x grading service ("Raw" when none): items, total cost, with an overall total. A row's drill is decided from its own group-by key, never by running a search at report time: it is kept only when no other row would be swept into the same search, and omitted for a band with no numeric grade, since no search term states that band. |
 | `cb_metal` | Precious metal | Metal x form (Coin, a bullion form, or the kind's own label), over items with a recorded fine weight: items, fine troy ounces, total cost, and melt value at the latest recorded spot price. A metal with no recorded price contributes to items, ounces and cost but not melt; the melt total is empty (not zero) when nothing is priced, and a note names every metal left out. A row's drill, like `cb_grades`, is decided structurally, not by a run-time search; currency and a bullion row with no form are never drilled. |
 | `cb_attributes` | Attributes and errors | Every attribute and error type a live item carries, split by the view it was recorded on (an attribute or error type that applies to either kind is two rows, one per view): items; attributes first, then errors, each in its vocabulary's own order (then label). No total: an item can carry several at once. A row drills to that view's search narrowed to the attribute or error type. |
+| `cb_id_numbers` | Serial and certificate numbers | Every live item holding a serial number -- a note's (`currency_detail`) or a bullion item's (`coin_detail`) -- or at least one grading certificate (`reports/id_numbers.py`), one row per item in item-code order: item, description, kind, metal, fine weight, serial number, grading service and certificate numbers (each different value once, joined), photo (yes/no). Items and fine weight are totalled. A row opens the item's editor. |
 | `cb_serials` | Matching serial numbers | Every set of two or more notes whose serial numbers match (`reports/serials.py`), one row per set, in order of the digits: serial digits, notes, star notes among them, the serials as written, and the denominations, series and districts among them (each different value once), total cost; notes, star notes and cost are totalled. A row drills to the Currency list of exactly the notes of its set (`item_codes=<code>,<code>`), whatever status they are in now. A serial with no digit matches nothing. |
 
 `cb_serials` takes three parameters beyond status and disposition, each
@@ -140,7 +141,8 @@ spacing are not part of a serial.
 - **Grouped by module**: `collection.py`, `data_quality.py`, `money.py`,
   `purchasing.py` and `selling.py`, each defining its own reports and
   registering them, and `serials.py`, which holds the one Collection report
-  that matches its rows in Python (`cb_serials`). Four small modules hold logic more than one group
+  that matches its rows in Python (`cb_serials`), and `id_numbers.py`
+  (`cb_id_numbers`, the per-item list of serials and certificates). Four small modules hold logic more than one group
   module shares, rather than each restating it: `tables.py` (the
   `inventory_item`/`item_kind` aliases and the live-row predicate on them,
   shared by every report that groups over live items), `live_params.py`
@@ -375,7 +377,7 @@ snapshots over time, which need history the database does not keep.
   including a deleted and a split item that must not count, and an item of a
   kind a field does not apply to (`tests/test_reports_collection.py`,
   `_data_quality`, `_purchasing`, `_selling`, `_money`; `sl_ready` in
-  `_ready`; `cb_serials` in `_serials`; date ranges in `_dates`; period
+  `_ready`; `cb_serials` in `_serials`; `cb_id_numbers` in `_id_numbers`; date ranges in `_dates`; period
   labels and bucketing in `_purchasing`; the period-by-vendor table
   `pr_spend` and `mn_tax` share in `test_period_by_vendor.py`; the
   registry's ordering and refusals in `_registry`).

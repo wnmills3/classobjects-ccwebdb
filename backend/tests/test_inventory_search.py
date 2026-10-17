@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.models import (
+    CoinDetail,
     CurrencyDetail,
     Denomination,
     ErrorType,
@@ -381,6 +382,25 @@ def test_a_note_can_be_found_by_its_printed_serial(
 
     found = search(client, "currency", admin_headers, serial_number="12345678").json()
     assert {r["id"] for r in found["rows"]} == {wanted.id}
+
+
+def test_a_bullion_item_can_be_found_by_its_serial(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    bullion = code_id(db, ItemKind, "bullion")
+    wanted = build_bare_item(db, item_kind_id=bullion)
+    other = build_bare_item(db, item_kind_id=bullion)
+    db.add_all(
+        [
+            CoinDetail(inventory_item_id=wanted.id, serial_number="PAMP-A0042"),
+            CoinDetail(inventory_item_id=other.id, serial_number="JM-77"),
+        ]
+    )
+    db.commit()
+
+    found = search(client, "coins", admin_headers, serial_number="a004").json()
+    assert {r["id"] for r in found["rows"]} == {wanted.id}
+    assert found["rows"][0]["serial_number"] == "PAMP-A0042"
 
 
 def test_filters_combine(

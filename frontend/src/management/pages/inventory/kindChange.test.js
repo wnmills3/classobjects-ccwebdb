@@ -80,6 +80,21 @@ describe('clearedByKind', () => {
     expect(attributes).toEqual({ keep: [], dropped: ['star_note'] })
   })
 
+  it("keeps a note's serial when it becomes bullion, which holds one too", () => {
+    const note = from({ serial_number: 'M88888888', series_year: 2019 })
+
+    expect(clearedByKind('bullion', note, vocab).fields).toEqual({ series_year: 2019 })
+  })
+
+  it("empties a bar's serial when it becomes a coin, and keeps it for a note", () => {
+    const bar = from({ serial_number: 'PAMP-0042' })
+
+    expect(clearedByKind('coin', bar, vocab).fields).toEqual({
+      serial_number: 'PAMP-0042',
+    })
+    expect(clearedByKind('currency', bar, vocab).fields).toEqual({})
+  })
+
   it('gives up nothing between kinds on the same side', () => {
     const coin = from({ metal: 'silver', denomination: 'usd_coin_1_00', grade: '65' })
 

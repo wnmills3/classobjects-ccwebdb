@@ -1,12 +1,13 @@
 """The report catalog: every report registered, reachable from one import.
 
 `REPORTS` and `register` live in `app.reports.registry`; this module's own
-job is to import every group module (`collection`, `serials`, `data_quality`,
-`money`, `purchasing`, `selling`) so each one's `register()` calls have run
--- and `REPORTS` is complete -- by the time anything imports `app.reports`
-itself, whether that is an API route, the CLI, or a test. A test importing a
-group module a second time cannot trip `register`'s duplicate check: Python
-caches an already-imported module and does not re-run it.
+job is to import every group module (`collection`, `serials`, `id_numbers`,
+`data_quality`, `money`, `purchasing`, `selling`) so each one's `register()`
+calls have run -- and `REPORTS` is complete -- by the time anything imports
+`app.reports` itself, whether that is an API route, the CLI, or a test. A
+test importing a group module a second time cannot trip `register`'s
+duplicate check: Python caches an already-imported module and does not re-run
+it.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from .data_quality import (
     DQ_SERIES_REVIEW,
     DQ_SERIES_YEARS,
 )
+from .id_numbers import CB_ID_NUMBERS
 from .money import MN_BASIS, MN_TAX, MN_VALUE
 from .purchasing import (
     PR_OUTSTANDING,
@@ -54,6 +56,7 @@ __all__ = [
     "CB_DESIGNS",
     "CB_GRADES",
     "CB_HOLDINGS",
+    "CB_ID_NUMBERS",
     "CB_METAL",
     "CB_NOTES",
     "CB_SERIALS",

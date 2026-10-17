@@ -1256,7 +1256,11 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     else:
         db.add(
             CoinDetail(
-                inventory_item_id=item.id, mint_id=mint_id, variety=payload.variety
+                inventory_item_id=item.id,
+                mint_id=mint_id,
+                variety=payload.variety,
+                # `ItemCreate` refuses a serial for any other non-note kind.
+                serial_number=_serial_or_none(payload.serial_number),
             )
         )
 
@@ -1436,6 +1440,7 @@ def _coin_fields(db: Session, item: InventoryItem) -> dict[str, object]:
     return {
         "mint": code_of(db, Mint, struck.mint_id),
         "variety": struck.variety,
+        "serial_number": struck.serial_number,
     }
 
 
@@ -1780,12 +1785,14 @@ def _dry_run_save(db: Session, item: InventoryItem, data: dict[str, Any]) -> Non
     a required field sent empty is left as it was, and status and
     disposition are not applied.
     """
-    coin_changes = {f: data.pop(f) for f in COIN_DETAIL_FIELDS if f in data}
+    coin_changes = _take_coin_changes(db, data, item)
     _split_grade(data)
     no_date = _no_date_after(item, data)
     worked_out = _refuse_fine_above_gross(db, [item], data)
     _dry_run_classifiers(db, item, data)
     note_changes = _note_changes(db, data, item.currency_detail)
+    if coin_changes:
+        _set_coin_detail(db, item, coin_changes)
     _set_notes_and_detail(db, [item], note_changes, kind_changed="item_kind" in data)
     if coin_changes:
         _set_coin_detail(db, item, coin_changes)
@@ -2337,6 +2344,37 @@ def _refuse_coin_only_fields(
 COIN_DETAIL_FIELDS: tuple[str, ...] = ("mint", "variety")
 
 
+def _kind_after(db: Session, data: dict[str, Any], item: InventoryItem) -> str | None:
+    """The code of the kind `item` will have once this edit is applied."""
+    if "item_kind" in data:
+        sent = data["item_kind"]
+        return sent if isinstance(sent, str) else None
+    return code_of(db, ItemKind, item.item_kind_id)
+
+
+def _take_coin_changes(
+    db: Session, data: dict[str, Any], item: InventoryItem
+) -> dict[str, object]:
+    """Take the fields that go to `coin_detail` out of `data`.
+
+    Mint and variety always do. `serial_number` is one API field for two
+    rows: it goes to the coin row when the item ends this edit as bullion,
+    or leaves bullion for another non-note kind (so that clearing it in the
+    same request lets the kind change through); otherwise it stays in `data`
+    for the note's row, which refuses it on an item that is not a note. A
+    serial left on the coin row of an item that ends as another kind is
+    refused by the kind change (`item_kinds.match_detail_to_kind`).
+    """
+    coin_changes = {f: data.pop(f) for f in COIN_DETAIL_FIELDS if f in data}
+    if "serial_number" not in data:
+        return coin_changes
+    after = _kind_after(db, data, item)
+    was_bullion = item.item_kind_id == item_kinds.bullion_kind_id(db)
+    if after == "bullion" or (was_bullion and after != "currency"):
+        coin_changes["serial_number"] = data.pop("serial_number")
+    return coin_changes
+
+
 def _refuse_coin_detail_on_a_note(
     data: dict[str, object],
     item: InventoryItem,
@@ -2365,17 +2403,20 @@ def _refuse_coin_detail_on_a_note(
 def _set_coin_detail(
     db: Session, item: InventoryItem, changes: dict[str, object]
 ) -> None:
-    """Write a coin's mint and variety, creating its detail row if it has none.
+    """Write a coin's mint, variety and a bullion serial, creating its row.
 
     A banknote holds its own detail row and never a coin's: a blank sent
     for one changes nothing (`_refuse_coin_detail_on_a_note` refuses a
-    value). Values sent as they are stored change nothing either.
+    value). Values sent as they are stored change nothing either, so the
+    edit may call this both before a kind change swaps the rows and after.
     """
     if item.currency_detail is not None:
         return
-    detail = db.get(CoinDetail, item.id)
+    # The relationship first: a row a kind change just made is not flushed.
+    detail = item.coin_detail or db.get(CoinDetail, item.id)
     mint_id = detail.mint_id if detail is not None else None
     variety = detail.variety if detail is not None else None
+    serial = detail.serial_number if detail is not None else None
     if "mint" in changes:
         code = changes["mint"]
         mint_id = code_to_id(
@@ -2384,7 +2425,14 @@ def _set_coin_detail(
     if "variety" in changes:
         sent = changes["variety"]
         variety = (sent.strip() or None) if isinstance(sent, str) else None
-    if detail is not None and (detail.mint_id, detail.variety) == (mint_id, variety):
+    if "serial_number" in changes:
+        sent = changes["serial_number"]
+        serial = _serial_or_none(sent if isinstance(sent, str) else None)
+    now = (mint_id, variety, serial)
+    if (
+        detail is not None
+        and (detail.mint_id, detail.variety, detail.serial_number) == now
+    ):
         return
     if detail is None:
         # Through the relationship, not only the session: the change log's
@@ -2393,6 +2441,7 @@ def _set_coin_detail(
         item.coin_detail = detail
     detail.mint_id = mint_id
     detail.variety = variety
+    detail.serial_number = serial
     # Another table: touching the item moves its version, as with attributes.
     item.updated_at = datetime.now(UTC)
 
@@ -3253,7 +3302,7 @@ def update_item(
     if moves and to_location is not None:
         _require_location(db, to_location)
     # The coin's own fields live on its detail row, not on the item.
-    coin_changes = {f: data.pop(f) for f in COIN_DETAIL_FIELDS if f in data}
+    coin_changes = _take_coin_changes(db, data, item)
     _refuse_coin_detail_on_a_note(data, item, coin_changes, db)
     refuse_null_required(data, REQUIRED_SCALARS)
     _refuse_coin_only_fields(data, [item], db)
@@ -3288,6 +3337,11 @@ def update_item(
 
     _set_classifiers(db, item, data, admin.id)
 
+    # Both sides of the row swap: before it, a bullion serial cleared on the
+    # way to another kind is gone when the swap checks; after it, a note
+    # made bullion has the coin row a serial sent with it is written to.
+    if coin_changes:
+        _set_coin_detail(db, item, coin_changes)
     _set_notes_and_detail(db, [item], note_changes, kind_changed="item_kind" in data)
     if coin_changes:
         _set_coin_detail(db, item, coin_changes)

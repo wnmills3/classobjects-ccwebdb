@@ -248,6 +248,27 @@ def test_a_coin_leads_with_its_name_then_its_metal(db: Session) -> None:
     )
 
 
+def test_a_bullion_serial_ends_the_first_sentence(db: Session) -> None:
+    """As a note's does: what identifies the piece, then its metal.
+
+    A year with nothing to name is not written, as for any coin-side item.
+    """
+    item = build_item(
+        db,
+        year_start=2024,
+        metal_id=code_id(db, Metal, "gold"),
+        fine_weight_ozt=Decimal("1.000000"),
+        grading_service_id=None,
+        grade_id=None,
+    )
+    db.add(CoinDetail(inventory_item_id=item.id, serial_number="PAMP-0042"))
+    db.flush()
+    db.refresh(item)
+    assert suggested_description(db, item) == (
+        f"S/N PAMP-0042. {_label(db, Metal, 'gold')}, 1 ozt fine."
+    )
+
+
 def _designation(db: Session, code: str, label: str) -> int:
     """A designation added by hand, whose code is not its abbreviation."""
     row = GradeDesignation(code=code, label=label, source="manual")

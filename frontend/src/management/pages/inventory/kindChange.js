@@ -31,7 +31,8 @@ const SIDED_CLASSIFIERS = [
   'signature_combination',
 ]
 
-//: A note's own fields that are not pickers: gone with the note.
+//: A note's own fields that are not pickers: gone with the note -- but the
+//: serial number, which bullion keeps, and which leaving bullion clears.
 const NOTE_SCALARS = [
   'series_year',
   'series_letter',
@@ -84,6 +85,8 @@ export function clearedByKind(kind, current, vocab) {
     if (!fieldFitsKind(key, kind) && isSet(current(key))) fields[key] = current(key)
   }
   for (const key of toNote ? COIN_MEASURES : NOTE_SCALARS) {
+    // Bullion holds a serial of its own: a note made bullion keeps it.
+    if (key === 'serial_number' && kind === 'bullion') continue
     if (isSet(current(key))) fields[key] = current(key)
   }
   for (const [key, table] of SIDED_VALUES) {
