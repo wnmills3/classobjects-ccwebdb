@@ -254,23 +254,63 @@ starts it.
 
 ## 6. Configure the application
 
+The application reads its settings from a file named `.env` in the
+repository folder. Each line is `NAME=value`, with no spaces around the `=`
+and no quotes; a line starting with `#` is a comment. The file holds this
+machine's secrets, so it is never committed (git ignores it), never copied
+into OneDrive, and made fresh on each machine from the committed template,
+`.env.example`.
+
+**1. Make the file from the template.** An existing `.env` is kept: a plain
+`copy` would ask to overwrite it, and the next line pasted would be taken as
+the answer.
+
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 if exist .env (echo .env exists: keeping it) else (copy .env.example .env)
+```
+
+**2. Make a sign-in secret.** This prints 64 random characters, different
+every time; copy them:
+
+```console
+conda activate ccwebdb
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-An existing `.env` is kept: a plain `copy` would ask to overwrite it, and
-the next line pasted would be taken as the answer.
+**3. Open the file in Notepad** and fill it in:
 
-Paste that value into `JWT_SECRET` in `.env`; the API will not start
-without one. Set `FIRST_ADMIN_PASSWORD` to a password of your own, of 12
-characters or more, before `app.seed` below. `.env` is gitignored;
-`.env.example` is committed and holds the keys a new installation sets,
-including the sales-tax settings stamped onto each new item.
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+notepad .env
+```
+
+| Setting | What to put there |
+| --- | --- |
+| `JWT_SECRET` | **Required.** The 64 characters from 2, pasted after the `=`. It signs every sign-in, so it is this machine's alone: the API refuses to start without one, with one under 32 characters, or with an example value published in this repository. |
+| `FIRST_ADMIN_PASSWORD` | A password of your own, 12 characters or more, for the administrator `app.seed` makes on a **trial installation** (step 8). Restoring this collection does not run `app.seed`, so it may stay empty there. |
+| `FIRST_ADMIN_EMAIL` | The trial administrator's sign-in; `admin@example.com` will do. |
+| `DATABASE_URL` | Leave it: it names the `ccwebdb` database and the `devpassword` of step 5. Change it only if step 5 used another password. |
+| `SALES_TAX_RATE`, `SALES_TAX_INCLUDES_SHIPPING` | Your sales tax on purchases, as a fraction (`0.0635` is 6.35%), and whether shipping is taxed (`true` or `false`). Each new item takes them when it is entered. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS` | Leave them. |
+
+Save the file and close Notepad. Keep the names exactly as the template
+spells them: a misspelt name stops the API from starting rather than being
+ignored.
+
+**4. Check it.** This loads the settings the way the API does and prints
+`settings OK`, or an error naming the setting that is wrong -- never a
+value:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+uv run python -c "from app.config import settings; print('settings OK')"
+```
+
+It needs step 7's dependencies, so on a new machine run it after step 7.
 [system-administration.md](system-administration.md) (*Settings*) lists every
-setting and says which must change before anything outside this machine can
-reach the system.
+setting -- photographs' folder, allowed web origins and the rest -- and says
+which must change before anything outside this machine can reach the system.
 
 ## 7. Install dependencies
 
