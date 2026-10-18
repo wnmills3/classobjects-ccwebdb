@@ -16,10 +16,19 @@ of its output, decides.
 One command runs everything, from the repository
 (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb`):
 
-| Command | What it does |
-| --- | --- |
-| `.\scripts\ccweb_check.cmd` | check only |
-| `.\scripts\ccweb_check.cmd fix` | ruff format, ruff check --fix and prettier --write first, then check |
+Check only:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_check.cmd
+```
+
+Ruff format, ruff check --fix and prettier --write first, then check:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_check.cmd fix
+```
 
 It exits non-zero if anything fails, and prints `FAILED:` with the names of
 the failed stages. Gate on that exit code; do not pipe the output through a

@@ -51,7 +51,7 @@ new key and request on the server, then use *Reissue* on the order in
 DigiCert's portal and paste in the request. DigiCert reissues at no charge
 and sends a new zip; the key never travels.
 
-```cmd
+```console
 mkdir C:\caddy\certs
 cd /d C:\caddy\certs
 openssl req -new -newkey rsa:2048 -nodes -keyout classobjects.com.key -out classobjects.com.csr -subj "/C=US/ST=Connecticut/L=Coventry/O=ClassObjects LLC/CN=classobjects.com"
@@ -67,7 +67,7 @@ the certificate *with its private key* as a `.pfx`
 (`certlm.msc` -> Personal -> Certificates -> the certificate -> All Tasks ->
 Export), carry the `.pfx` across, and take the key out of it:
 
-```cmd
+```console
 cd /d C:\caddy\certs
 openssl pkcs12 -in classobjects.com.pfx -nocerts -nodes -out classobjects.com.key
 ```
@@ -75,7 +75,7 @@ openssl pkcs12 -in classobjects.com.pfx -nocerts -nodes -out classobjects.com.ke
 Either way, Caddy wants the certificate and the intermediate in one file,
 site certificate first:
 
-```cmd
+```console
 cd /d C:\caddy\certs
 copy /b classobjects.com.pem + GeoTrustTLSRSACAG1.pem fullchain.pem
 type fullchain.pem
@@ -86,7 +86,7 @@ the two run together on one line, add a line break between them in a text
 editor. Then allow only the administrators and the account Caddy runs as to
 read the key (Caddy as a service runs as `SYSTEM`):
 
-```cmd
+```console
 icacls C:\caddy\certs\classobjects.com.key /inheritance:r /grant:r SYSTEM:R Administrators:F
 ```
 
@@ -101,7 +101,7 @@ the environment, the database cluster, `.env`, and the dependencies.
 PostgreSQL on a server has to start with the machine, not from a console.
 Register the cluster as a Windows service once, from an administrator cmd:
 
-```cmd
+```console
 pg_ctl register -N ccwebdb-postgres -D "%USERPROFILE%\dev\classobjects-ccwebdb\.pgdata" -S auto
 sc start ccwebdb-postgres
 ```
@@ -111,7 +111,7 @@ sc start ccwebdb-postgres
 Restore the current collection; never run `app.seed` on the server. On the
 development machine, with nothing writing to the database:
 
-```cmd
+```console
 pg_dump -Fc -f ccwebdb_to_server.dump ccwebdb
 python -m app.media_backup copy D:\to_server\media
 python -m app.media_backup check D:\to_server\media
@@ -125,7 +125,7 @@ release*, step 1), and copy `media` to the folder `MEDIA_ROOT` will name.
 Then, on the server, with `MEDIA_FOLDER` replaced by the folder `MEDIA_ROOT`
 names:
 
-```cmd
+```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.media_backup check MEDIA_FOLDER
 ```
@@ -151,7 +151,7 @@ still using a development password (`admin@example.com` among them).
 
 ## 5. Build the frontend
 
-```cmd
+```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\frontend
 npm ci
 npm run build
@@ -170,7 +170,7 @@ Save as `C:\ccwebdb-run\api.cmd` (outside the repository, so an update
 never overwrites it). `%USERPROFILE%` is the folder of the account the task
 runs as, which is the account that installed the system in step 2:
 
-```cmd
+```console
 @echo off
 cd /d "%USERPROFILE%\dev\classobjects-ccwebdb\backend"
 "%USERPROFILE%\miniforge3\envs\ccwebdb\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1 >> "%USERPROFILE%\dev\classobjects-ccwebdb\logs\backend.log" 2>&1
@@ -183,13 +183,13 @@ as the account that installed the system, which can read the repository and
 `MEDIA_ROOT`. The command asks for that account's password, so it is given
 alone -- pasted with others, the next line would be taken as the password:
 
-```cmd
+```console
 schtasks /create /tn "ccwebdb api" /sc onstart /ru "%USERDOMAIN%\%USERNAME%" /rp * /tr "C:\ccwebdb-run\api.cmd"
 ```
 
 Then start it and check it answers:
 
-```cmd
+```console
 schtasks /run /tn "ccwebdb api"
 curl -s -f -o nul http://127.0.0.1:8000/docs
 if errorlevel 1 echo The API is not answering: read logs\backend.log
@@ -239,7 +239,7 @@ port 80 by sending visitors to `https://`.
 
 Check the file, try it in the foreground, then make it a service:
 
-```cmd
+```console
 cd /d C:\caddy
 caddy validate --config Caddyfile
 caddy run --config Caddyfile
@@ -247,7 +247,7 @@ caddy run --config Caddyfile
 
 Stop it with Ctrl+C once the site answers, then:
 
-```cmd
+```console
 sc.exe create caddy start= auto binPath= "C:\caddy\caddy.exe run --config C:\caddy\Caddyfile"
 sc.exe start caddy
 ```
@@ -262,7 +262,7 @@ After changing the Caddyfile or the certificate files:
 - **Router:** forward ports 80 and 443 to the server, and nothing else.
 - **Windows firewall**, from an administrator cmd:
 
-  ```cmd
+  ```console
   netsh advfirewall firewall add rule name="Caddy HTTP" dir=in action=allow protocol=TCP localport=80
   netsh advfirewall firewall add rule name="Caddy HTTPS" dir=in action=allow protocol=TCP localport=443
   ```
@@ -272,7 +272,7 @@ After changing the Caddyfile or the certificate files:
 
 ## 9. Check it
 
-```cmd
+```console
 curl -sI https://classobjects.com/
 curl -s -o nul -w "%{http_code}\n" "https://classobjects.com/api/catalog?limit=1"
 curl -sI http://classobjects.com/

@@ -102,9 +102,12 @@ Parsed by `photo_names.parse`, a pure function.
 
 ## The import pass
 
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.photo_import
 ```
-python -m app.photo_import [--root PATH] [--commit]
-```
+
+Add `--root FOLDER` to read another library, and `--commit` to write.
 
 `--root` defaults to `settings.photo_library_root` (`photos/` at the
 repository root, environment-configurable, git-ignored). **Dry run by

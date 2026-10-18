@@ -75,11 +75,26 @@ is and leaves any remaining tie for a person.
 
 ## The pass
 
-| Command | What it does |
-| --- | --- |
-| `python -m app.ebay_orders FILE.xlsx` | the dry run, over one or more order workbooks |
-| `python -m app.ebay_orders FILE.xlsx --review OUT.xlsx` | the same, writing the review workbook |
-| `python -m app.ebay_orders FILE.xlsx --commit --by EMAIL` | writes |
+The dry run, over one or more order workbooks:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.ebay_orders FILE.xlsx
+```
+
+The same, writing the review workbook:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.ebay_orders FILE.xlsx --review OUT.xlsx
+```
+
+Writes:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.ebay_orders FILE.xlsx --commit --by EMAIL
+```
 
 Run from `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`).
 

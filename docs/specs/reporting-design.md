@@ -232,12 +232,33 @@ spacing are not part of a serial.
 
 ### Command line
 
-| Command | What it does |
-| --- | --- |
-| `python -m app.reports list` | every report's id, group and title |
-| `python -m app.reports run REPORT_ID` | one report as a plain-text table |
-| `python -m app.reports run REPORT_ID --param NAME=VALUE` | with a parameter set; repeatable |
-| `python -m app.reports run REPORT_ID --workbook FILE.xlsx` | written as a workbook too |
+Every report's id, group and title:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.reports list
+```
+
+One report as a plain-text table:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.reports run REPORT_ID
+```
+
+With a parameter set; repeatable:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.reports run REPORT_ID --param NAME=VALUE
+```
+
+Written as a workbook too:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.reports run REPORT_ID --workbook FILE.xlsx
+```
 
 Run from `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`).
 

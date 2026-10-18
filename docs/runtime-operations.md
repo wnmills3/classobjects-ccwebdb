@@ -25,17 +25,68 @@ for backups and applying a schema release see
 
 Run from the repository root (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb`):
 
-| Command | What it does |
-| --- | --- |
-| `.\scripts\ccweb_status.cmd` | what is running, and what to run next |
-| `.\scripts\ccweb_startup.cmd` | start PostgreSQL, the API and Vite (run it bare) |
-| `.\scripts\ccweb_shutdown.cmd` | stop everything |
-| `.\scripts\ccweb_shutdown.cmd /keepdb` | stop the servers, leave PostgreSQL running |
-| `.\scripts\ccweb_check.cmd` | every quality gate (code-quality.md); add `fix` to auto-fix first |
-| `.\scripts\ccweb_claude.cmd` | start Claude Code with the env in play; add a session name to resume |
-| `.\scripts\ccweb_psql.cmd` | psql against ccwebdb; psql's own arguments follow |
-| `.\scripts\ccweb_pgadmin.cmd` | pgAdmin on http://127.0.0.1:5050 |
-| `.\scripts\ccweb_backup.cmd` | one proved backup; `/schedule` runs it daily |
+What is running, and what to run next:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_status.cmd
+```
+
+Start PostgreSQL, the API and Vite (run it bare):
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_startup.cmd
+```
+
+Stop everything:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_shutdown.cmd
+```
+
+Stop the servers, leave PostgreSQL running:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_shutdown.cmd /keepdb
+```
+
+Every quality gate (code-quality.md); add `fix` to auto-fix first:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_check.cmd
+```
+
+Start Claude Code with the env in play; add a session name to resume:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_claude.cmd
+```
+
+Psql against ccwebdb; psql's own arguments follow:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_psql.cmd
+```
+
+PgAdmin on http://127.0.0.1:5050:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_pgadmin.cmd
+```
+
+One proved backup; `/schedule` runs it daily:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_backup.cmd
+```
 
 **Run `ccweb_startup.cmd` bare -- never piped or redirected** (no `| more`,
 `> file`, `2>&1`). The servers it starts inherit the output handle, so a
@@ -113,7 +164,8 @@ stops with *Could not determine home directory*. Conda is found through
 
 ## Checking what is running
 
-```cmd
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_status.cmd
 ```
 
@@ -192,13 +244,40 @@ code is 1.
 
 ## Starting a Claude Code session
 
-| Command | What it does |
-| --- | --- |
-| `.\scripts\ccweb_claude.cmd` | new session |
-| `.\scripts\ccweb_claude.cmd ccweb` | resume, searching for "ccweb" |
-| `.\scripts\ccweb_claude.cmd ccweb --effort high` | extra flags pass through |
-| `.\scripts\ccweb_claude.cmd /check` | report the environment, do not start Claude Code |
-| `.\scripts\ccweb_claude.cmd /nodb` | skip the database check; other arguments may follow |
+New session:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_claude.cmd
+```
+
+Resume, searching for "ccweb":
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_claude.cmd ccweb
+```
+
+Extra flags pass through:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_claude.cmd ccweb --effort high
+```
+
+Report the environment, do not start Claude Code:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_claude.cmd /check
+```
+
+Skip the database check; other arguments may follow:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_claude.cmd /nodb
+```
 
 It activates `ccwebdb`, starts PostgreSQL if it is not running (nearly any
 work here needs it), changes to the repository root and starts Claude Code.
@@ -265,11 +344,26 @@ read first.
 A self-hosted SonarQube keeps the code-quality dashboard and backs the
 `mcp__sonarqube__*` tools. It is optional: nothing in the runtime needs it.
 
-| Command | What it does |
-| --- | --- |
-| `.\scripts\ccweb_sonar_start.cmd` | start the server and its database |
-| `.\scripts\ccweb_sonar_scan.cmd` | run tests with coverage and publish an analysis |
-| `.\scripts\ccweb_sonar_stop.cmd` | stop the server, keeping its data |
+Start the server and its database:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_sonar_start.cmd
+```
+
+Run tests with coverage and publish an analysis:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_sonar_scan.cmd
+```
+
+Stop the server, keeping its data:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_sonar_stop.cmd
+```
 
 Dashboard: http://localhost:9000, project `classobjects-ccwebdb`. The server
 and its database run as podman containers (`sonarqube`, `sonar-db`) on the
@@ -284,7 +378,7 @@ analysis history and admin account.
 environment -- the scanner runs in a container and cannot read the host
 keychain:
 
-```cmd
+```console
 set /p SONAR_TOKEN=SonarQube token:
 ```
 
@@ -350,7 +444,7 @@ once, with no pause, when stdin is redirected), process trees from
 For `--reload` during active backend work, or to watch output directly. Start
 the database first, then in separate windows:
 
-```cmd
+```console
 :: database
 conda activate ccwebdb
 pg_ctl -D .pgdata -l logs\postgres-by-hand.log start
@@ -380,7 +474,7 @@ these up: the port sweep catches what the PID file does not know about.
 by its access permissions`** -- almost never permissions. Either something is
 already listening, or Windows has reserved the port range (Hyper-V / WSL):
 
-```cmd
+```console
 netstat -ano | findstr ":8000" | findstr LISTENING
 netsh interface ipv4 show excludedportrange protocol=tcp
 ```

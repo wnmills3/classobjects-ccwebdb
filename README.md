@@ -38,7 +38,8 @@ First time on a machine, follow
 **[docs/environment-setup.md](docs/environment-setup.md)**. After that, one
 command starts the database, the API and both applications:
 
-```cmd
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_startup.cmd
 ```
 
@@ -188,7 +189,8 @@ Rules that hold across the API:
 
 In a browser, with pgAdmin:
 
-```cmd
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_pgadmin.cmd
 ```
 
@@ -197,17 +199,32 @@ already registered; it asks once for the password in `DATABASE_URL`. pgAdmin is 
 dependency; install it once into its own uv tool environment, pinned to
 Python 3.13 (the script header says why):
 
-```cmd
+```console
 uv tool install --python 3.13 pgadmin4
 ```
 
 At the command line, with psql (every argument passes straight to psql):
 
-| Command | What it does |
-| --- | --- |
-| `.\scripts\ccweb_psql.cmd` | interactive psql |
-| `.\scripts\ccweb_psql.cmd -c "select * from metal;"` | one statement |
-| `.\scripts\ccweb_psql.cmd -f query.sql` | a file |
+Interactive psql:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_psql.cmd
+```
+
+One statement:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_psql.cmd -c "select * from metal;"
+```
+
+A file:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_psql.cmd -f query.sql
+```
 
 The views `coin_inventory`, `currency_inventory`, `item_valuation` and
 `public_catalog` resolve foreign keys to readable codes and exclude split and
@@ -226,10 +243,19 @@ where coalesce(source_title, '') || ' ' || coalesce(description, '') ilike '%mor
 
 ## Code quality and tests
 
-| Command | What it does |
-| --- | --- |
-| `.\scripts\ccweb_check.cmd` | every gate: ruff (format, lint), mutation-scaffolding guard, mypy, pytest, eslint, prettier, vitest, bundle isolation |
-| `.\scripts\ccweb_check.cmd fix` | auto-fix first, then check |
+Every gate: ruff (format, lint), mutation-scaffolding guard, mypy, pytest, eslint, prettier, vitest, bundle isolation:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_check.cmd
+```
+
+Auto-fix first, then check:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_check.cmd fix
+```
 
 Every gate is at zero, so any finding is new.
 [docs/code-quality.md](docs/code-quality.md) lists what runs and the three

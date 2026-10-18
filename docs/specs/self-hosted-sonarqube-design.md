@@ -88,7 +88,7 @@ server)*).
 **Coverage paths must resolve inside the scanner's container.** The scan
 script runs, from the repository root:
 
-```cmd
+```console
 python -m pytest --cov=backend/app --cov-report=xml:coverage.xml
 ```
 

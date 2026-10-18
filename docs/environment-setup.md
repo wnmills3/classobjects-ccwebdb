@@ -31,13 +31,13 @@ no Anaconda Terms-of-Service prompts.
 **First check whether it is already installed.** This finds Miniforge in its
 usual place, whether or not your shells can run `conda` yet:
 
-```cmd
+```console
 if exist "%USERPROFILE%\miniforge3\Scripts\conda.exe" ("%USERPROFILE%\miniforge3\Scripts\conda.exe" --version) else (echo Miniforge is not installed in %USERPROFILE%\miniforge3)
 ```
 
 and this lists every `conda` your shells can run now, from any installation:
 
-```cmd
+```console
 where conda
 ```
 
@@ -45,11 +45,11 @@ where conda
   install below, bring conda up to date, and go on to `conda init`. Preview
   the update, then make it:
 
-  ```cmd
+  ```console
   "%USERPROFILE%\miniforge3\Scripts\conda.exe" update -n base conda --dry-run
   ```
 
-  ```cmd
+  ```console
   "%USERPROFILE%\miniforge3\Scripts\conda.exe" update -n base conda
   ```
 
@@ -64,7 +64,7 @@ where conda
   anyway. Its `conda init` makes Miniforge the conda new windows use; the
   other installation can stay or be uninstalled.
 
-```cmd
+```console
 winget install --id CondaForge.Miniforge3 --source winget --scope user --accept-package-agreements --accept-source-agreements
 ```
 
@@ -79,7 +79,7 @@ it as an upgrade -- which is why an installed Miniforge is updated with
 It installs to `%USERPROFILE%\miniforge3`. Make `conda` available to your
 shells:
 
-```cmd
+```console
 "%USERPROFILE%\miniforge3\Scripts\conda.exe" init cmd.exe bash
 ```
 
@@ -93,13 +93,13 @@ new terminal** before continuing.
 
 First check whether it exists:
 
-```cmd
+```console
 if exist "%USERPROFILE%\miniforge3\envs\ccwebdb\python.exe" (echo The ccwebdb environment exists: skip creating it) else (echo No ccwebdb environment yet: create it below)
 ```
 
 If it does not, create it:
 
-```cmd
+```console
 conda create -n ccwebdb python=3.13
 ```
 
@@ -109,7 +109,7 @@ everything installed in it.
 
 Then, either way:
 
-```cmd
+```console
 conda activate ccwebdb
 ```
 
@@ -123,13 +123,13 @@ uv owns Python dependency management for this project.
 
 Check first whether it is installed; this prints its version if it is:
 
-```cmd
+```console
 uv --version
 ```
 
 If cmd says `uv` is not recognized, install it:
 
-```cmd
+```console
 winget install --id astral-sh.uv --source winget --accept-package-agreements --accept-source-agreements
 ```
 
@@ -147,7 +147,7 @@ route. Update the same way, `winget upgrade astral-sh.uv`.
 Run these in **cmd** with `ccwebdb` active, so the paths come from the
 activated environment:
 
-```cmd
+```console
 conda activate ccwebdb
 setx UV_PROJECT_ENVIRONMENT "%CONDA_PREFIX%"
 setx UV_CACHE_DIR "%USERPROFILE%\dev\uv\cache"
@@ -178,7 +178,7 @@ None of these is a Python package, so `uv sync` never prunes them. This line
 is the record of what conda owns in `ccwebdb`; Python packages are recorded in
 `pyproject.toml` and `uv.lock` and are never installed with conda.
 
-```cmd
+```console
 conda install -n ccwebdb -c conda-forge nodejs=24.19.0 postgresql gh=2.100.0
 ```
 
@@ -192,7 +192,7 @@ been pre-releases. `gh` lands in `envs\ccwebdb\Library\bin`, so it is on
 
 Verify, with the environment active:
 
-```cmd
+```console
 node --version
 psql --version
 gh --version
@@ -209,14 +209,14 @@ that line if you cloned it elsewhere.
 
 First check whether the cluster exists:
 
-```cmd
+```console
 if exist "%USERPROFILE%\dev\classobjects-ccwebdb\.pgdata\PG_VERSION" (echo The database cluster exists: skip creating it) else (echo No database cluster yet: create it below)
 ```
 
 If it does not, create it (`initdb` refuses a `.pgdata` that is not empty,
 so this never overwrites one):
 
-```cmd
+```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 echo devpassword>"%TEMP%\initpw.txt"
 initdb -D .pgdata -U postgres --pwfile="%TEMP%\initpw.txt" --auth-host=scram-sha-256 --encoding=UTF8
@@ -232,7 +232,7 @@ Start the server by hand, then create the application role and database.
 `.\scripts\ccweb_startup.cmd` cannot start it yet: it stops before
 PostgreSQL unless the dependencies of step 7 are installed.
 
-```cmd
+```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 pg_ctl -D .pgdata -l logs\postgres-by-hand.log start
 set "PGPASSWORD=devpassword"
@@ -254,7 +254,7 @@ starts it.
 
 ## 6. Configure the application
 
-```cmd
+```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 if exist .env (echo .env exists: keeping it) else (copy .env.example .env)
 python -c "import secrets; print(secrets.token_hex(32))"
@@ -274,7 +274,7 @@ reach the system.
 
 ## 7. Install dependencies
 
-```cmd
+```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 uv sync
 cd frontend
@@ -304,7 +304,7 @@ the procedure is in [system-administration.md](system-administration.md)
 
 ### A trial installation, with demo data
 
-```cmd
+```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 cd backend
 uv run alembic upgrade head
@@ -324,7 +324,7 @@ item other than the five demo ones, and writes nothing, unless
 
 ## Running the application
 
-```cmd
+```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_startup.cmd
 ```
@@ -338,7 +338,7 @@ not involved during development.
 
 ## Running the tests
 
-```cmd
+```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 uv run pytest
 cd frontend
@@ -369,12 +369,33 @@ Two suites worth knowing about:
 Starting, stopping and checking the runtime, and the quality gate, are in
 [runtime-operations.md](runtime-operations.md) (*Quick reference*).
 
-| Task                        | Command                                          |
-| --------------------------- | ------------------------------------------------ |
-| Add a Python dependency     | `uv add <pkg>` (from repo root)                  |
-| Add a dev-only dependency   | `uv add --dev <pkg>`                             |
-| Add a JS dependency         | `npm install <pkg>` (from `frontend\`)           |
-| New migration               | `cd backend && uv run alembic revision --autogenerate -m "..."` |
+Add a Python dependency, with its name in place of `PACKAGE`:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+uv add PACKAGE
+```
+
+Add a dev-only dependency:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+uv add --dev PACKAGE
+```
+
+Add a JS dependency:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\frontend
+npm install PACKAGE
+```
+
+Make a new migration, with what it changes in place of `DESCRIPTION`:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+uv run alembic revision --autogenerate -m "DESCRIPTION"
+```
 
 A migration reaches the live database only through the release procedure in
 [system-administration.md](system-administration.md) (*Applying a schema
