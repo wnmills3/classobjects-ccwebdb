@@ -8,6 +8,7 @@ vi.mock('../api', () => ({
     createSalesVenue: vi.fn(),
     updateSalesVenue: vi.fn(),
     listVendors: vi.fn(),
+    createVendor: vi.fn(),
   },
 }))
 
@@ -279,6 +280,50 @@ describe('Platforms', () => {
     expect(
       within(source).getByRole('option', { name: 'whatnot.com' }),
     ).toBeInTheDocument()
+  })
+
+  it('adds a purchase source from its picker and links the platform to it', async () => {
+    const user = userEvent.setup()
+    api.createVendor.mockResolvedValue({ id: 3, name: 'hibid.com', vendor_kind: null })
+    api.createSalesVenue.mockResolvedValue({
+      ...EBAY,
+      code: 'hibid',
+      name: 'HiBid',
+      vendor_id: 3,
+    })
+    renderPage()
+    await screen.findByRole('row', { name: /eBay/ })
+
+    await user.click(screen.getByRole('button', { name: 'Add platform' }))
+    const dialog = screen.getByRole('dialog', { name: 'Add platform' })
+    await user.type(within(dialog).getByLabelText('Name'), 'HiBid')
+    await user.type(within(dialog).getByLabelText('Code'), 'hibid')
+    await user.selectOptions(within(dialog).getByLabelText('Kind'), 'marketplace')
+    await user.selectOptions(
+      within(dialog).getByLabelText('Purchase source'),
+      '+ Add a vendor...',
+    )
+    await user.type(
+      within(dialog).getByLabelText('Vendor web address'),
+      'https://hibid.com',
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Add' }))
+
+    expect(api.createVendor).toHaveBeenCalledWith({
+      name: 'hibid.com',
+      vendor_kind: null,
+      url: 'https://hibid.com',
+    })
+    // The new vendor is offered and chosen, and the save links to it.
+    const source = await within(dialog).findByLabelText('Purchase source')
+    expect(source).toHaveValue('3')
+    expect(
+      within(source).getByRole('option', { name: 'hibid.com' }),
+    ).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    expect(api.createSalesVenue).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'hibid', vendor_id: 3 }),
+    )
   })
 
   it('edits a platform, sending its version', async () => {

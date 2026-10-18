@@ -10,6 +10,7 @@ import { orNull } from '../../shared/text'
 import { money } from '../../shared/format'
 import { useGuardedSave } from '../useGuardedSave'
 import { SaveButton } from '../SaveButton'
+import VendorField from '../VendorField'
 
 /**
  * The platforms the business sells through.
@@ -143,7 +144,7 @@ function toPayload(form) {
  * otherwise. The web store's kind and active status cannot be changed here,
  * so those fields are hidden for it and dropped from what gets sent.
  */
-function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
+function PlatformForm({ venue, venues, vendors, onVendorAdded, onSaved, onClose }) {
   const adding = venue === null
   const [form, setForm] = useState(adding ? BLANK : toForm(venue))
   const { error, saving, send } = useGuardedSave(onSaved)
@@ -232,18 +233,15 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
         )}
         <label>
           <AccessLabel text="Purchase source" accessKey={KEYS.vendor} />
-          <select
+          <VendorField
+            vendors={sources}
             value={form.vendor_id}
-            onChange={set('vendor_id')}
+            onChange={(id) => setForm({ ...form, vendor_id: id ?? '' })}
+            onVendorAdded={onVendorAdded}
+            blankLabel="(none)"
+            label="Purchase source"
             {...accel(KEYS.vendor)}
-          >
-            <option value="">(none)</option>
-            {sources.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </select>
+          />
         </label>
         <label>
           <AccessLabel text="Account" accessKey={KEYS.account} />
@@ -428,6 +426,11 @@ export default function Platforms() {
           venue={open === 'new' ? null : open}
           venues={venues}
           vendors={vendors}
+          onVendorAdded={(created) =>
+            setVendors((v) =>
+              [...v, created].sort((a, b) => a.name.localeCompare(b.name)),
+            )
+          }
           onSaved={saved}
           onClose={() => setOpen(null)}
         />

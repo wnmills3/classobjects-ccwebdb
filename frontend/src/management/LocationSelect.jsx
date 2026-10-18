@@ -16,15 +16,26 @@ const BLANK_DRAFT = { kind: '', institution: '', identifier: '' }
 /**
  * Where an item is kept: a select over the storage locations, "--" for not
  * recorded, opening with "+ Add a location..." for an inline kind / place / box
- * form -- the vendor and seller pickers' shape. Optional everywhere it is
- * offered.
+ * form -- the vendor and seller pickers' shape.
  *
  * `value` is the location's id as text ('' for none) and `onChange` receives
  * the same; the form turns it into a number or null when it sends it. A list
  * that fails to load leaves only "--" and the add, with the failure said
- * beside them: a location is never required.
+ * beside them.
+ *
+ * Where a location is required -- where items come back to from an
+ * auction -- the caller names the blank option for what it asks
+ * (`blankLabel`, "Choose a location") and refuses it itself. `label` is the
+ * select's accessible name when the field around it is not a plain
+ * `<label>` naming it.
  */
-export default function LocationSelect({ value, onChange, disabled = false }) {
+export default function LocationSelect({
+  value,
+  onChange,
+  disabled = false,
+  blankLabel = '--',
+  label,
+}) {
   const loaded = useRequest('locations', () => api.listStorageLocations())
   const [added, setAdded] = useState([])
   //: True once Add location was pressed before a kind was chosen.
@@ -85,6 +96,7 @@ export default function LocationSelect({ value, onChange, disabled = false }) {
       <select
         value={value ?? ''}
         disabled={disabled}
+        aria-label={label}
         onKeyDown={addOption.onKeyDown}
         onChange={(e) => {
           if (e.target.value !== ADD) {
@@ -97,7 +109,7 @@ export default function LocationSelect({ value, onChange, disabled = false }) {
           else if (meant !== null) onChange(meant)
         }}
       >
-        <option value="">--</option>
+        <option value="">{blankLabel}</option>
         <option value={ADD}>+ Add a location...</option>
         {locations.map((loc) => (
           <option key={loc.id} value={String(loc.id)}>

@@ -964,7 +964,8 @@ item is offered, or a sales lot's status (`docs/specs/selling-design.md`).
 **Platforms** (`/management/platforms`) lists every platform the business sells
 through -- the web store, eBay, Whatnot, an auction house -- with its kind, an
 optional link to the purchase source of the same name, account handle,
-listing-link template and default fees.
+listing-link template and default fees. A purchase source not yet recorded
+is added from the picker's "+ Add a vendor...".
 
 The **web store platform** is created by the migration and every store listing
 and order names it. Its kind cannot be changed and it cannot be retired --

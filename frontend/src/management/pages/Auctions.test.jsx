@@ -371,7 +371,13 @@ describe('Auctions', () => {
     expect(api.removeAuctionLot).not.toHaveBeenCalled()
     expect(within(dialog).getByText(reason)).toHaveClass('error')
 
-    await user.selectOptions(within(dialog).getByLabelText(/return items to/i), '9')
+    const picker = within(dialog).getByLabelText(/return items to/i)
+    // A place not yet recorded can be added from the picker itself.
+    expect(
+      within(picker).getByRole('option', { name: '+ Add a location...' }),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(within(picker).getAllByRole('option')).toHaveLength(3))
+    await user.selectOptions(picker, '9')
     expect(within(dialog).queryByText(reason)).toBeNull()
     await user.click(confirm)
 

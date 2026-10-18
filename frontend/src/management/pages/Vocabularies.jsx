@@ -598,7 +598,9 @@ export default function Vocabularies() {
                 setAdding(false)
               }}
             >
-              {(tables.length ? tables : [table]).map((name) => (
+              {/* By name: the server lists them in the order they depend on
+                  one another, which no one reading the list can predict. */}
+              {(tables.length ? [...tables].sort() : [table]).map((name) => (
                 <option key={name} value={name}>
                   {name}
                 </option>

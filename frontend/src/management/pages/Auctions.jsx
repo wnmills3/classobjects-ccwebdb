@@ -11,6 +11,7 @@ import { subjectOf, UNKNOWN } from './listing-labels'
 import { date } from '../../shared/format'
 import { useGuardedSave } from '../useGuardedSave'
 import { useMounted } from '../useMounted'
+import LocationSelect from '../LocationSelect'
 import { useSalesVenues } from '../useSalesVenues'
 import { useRequest } from '../../shared/useRequest'
 import { ASSEMBLING_LOTS } from './assembling-lots'
@@ -416,7 +417,6 @@ function ConsignDialog({ auction, onSaved, onClose }) {
  */
 function ReturnLocationConfirm({
   auction,
-  locations,
   question,
   confirmLabel,
   busyLabel,
@@ -453,18 +453,12 @@ function ReturnLocationConfirm({
       {needsLocation && (
         <label>
           Return items to{/* */}
-          <select
-            aria-label="Return items to"
+          <LocationSelect
+            label="Return items to"
+            blankLabel="Choose a location"
             value={locationId}
-            onChange={(e) => setLocationId(e.target.value)}
-          >
-            <option value="">Choose a location</option>
-            {locations.map((loc) => (
-              <option key={loc.id} value={loc.id}>
-                {loc.label}
-              </option>
-            ))}
-          </select>
+            onChange={setLocationId}
+          />
         </label>
       )}
       {needsLocation && locationId === '' && (
@@ -485,7 +479,7 @@ function ReturnLocationConfirm({
  * this is the one place these particular writes happen, and the list page
  * only ever needs the auction this replaced.
  */
-function AuctionDetail({ auction, venues, locations, onChanged }) {
+function AuctionDetail({ auction, venues, onChanged }) {
   const [refusal, setRefusal] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
@@ -744,7 +738,6 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
         <SettlementGrid
           auction={auction}
           isAuctionHouse={isAuctionHouse}
-          locations={locations}
           onSettled={settled}
         />
       )}
@@ -766,7 +759,6 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
       {cancelling && (
         <ReturnLocationConfirm
           auction={auction}
-          locations={locations}
           question={`Cancel ${auction.title}?`}
           confirmLabel="Cancel auction"
           busyLabel="Cancelling..."
@@ -783,7 +775,6 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
       {removing && (
         <ReturnLocationConfirm
           auction={auction}
-          locations={locations}
           question={`Remove lot ${removing.lot_number} from ${auction.title}?`}
           confirmLabel="Remove lot"
           busyLabel="Removing..."
@@ -805,8 +796,6 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
 export default function Auctions() {
   const [auctions, setAuctions] = useState(null)
   const { venues, error: venuesError } = useSalesVenues()
-  const storage = useRequest('locations', () => api.listStorageLocations())
-  const locations = storage.data ?? []
   const [auctionsError, setAuctionsError] = useState('')
   const [notice, setNotice] = useState('')
   const [selectedId, setSelectedId] = useState(null)
@@ -842,7 +831,7 @@ export default function Auctions() {
   // its own shell either way -- losing the whole page (the heading, "New
   // auction...", any open dialog) is not an acceptable answer to a load
   // failure the owner still needs to see and react to.
-  const error = auctionsError || venuesError || storage.error
+  const error = auctionsError || venuesError
   const selected = (auctions ?? []).find((a) => a.id === selectedId) ?? null
 
   return (
@@ -904,7 +893,6 @@ export default function Auctions() {
           key={selected.id}
           auction={selected}
           venues={venues}
-          locations={locations}
           onChanged={replace}
         />
       )}

@@ -319,7 +319,8 @@ the version token sent back on save. Cost basis, value, fees and margin are
 staff-only.
 
 1. **Platforms** (`/management/platforms`): add, edit, retire. Name, kind,
-   purchase source (a `vendor` picker), account handle, URL template with an
+   purchase source (a `vendor` picker whose "+ Add a vendor..." makes one
+   not yet recorded), account handle, URL template with an
    example link, default fees and their as-of date. The store's kind is
    fixed.
 2. **Offer from inventory.** The coin and currency pages' bulk bar has

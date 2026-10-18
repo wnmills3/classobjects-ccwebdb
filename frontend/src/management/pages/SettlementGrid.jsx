@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { api } from '../api'
 import ConfirmDialog from '../ConfirmDialog'
+import LocationSelect from '../LocationSelect'
 import { RESULTS } from './auction-labels'
 import { centsOrZero, signedFromCents } from '../../shared/cents'
 import { subjectOf, UNKNOWN } from './listing-labels'
@@ -118,17 +119,11 @@ function splitRefusals(refused) {
  *
  * `isAuctionHouse` lets a blank buyer stand for the house's undisclosed
  * one, which then gets a fee table of its own, and adds the picker for
- * where unsold and withdrawn items come back to, from the storage
- * `locations`. Settle asks for confirmation and sends
- * the whole grid; `onSettled` gets the result, and a refusal leaves the
- * grid as typed with each refused lot marked on its row.
+ * where unsold and withdrawn items come back to. Settle asks for
+ * confirmation and sends the whole grid; `onSettled` gets the result, and a
+ * refusal leaves the grid as typed with each refused lot marked on its row.
  */
-export default function SettlementGrid({
-  auction,
-  isAuctionHouse,
-  locations,
-  onSettled,
-}) {
+export default function SettlementGrid({ auction, isAuctionHouse, onSettled }) {
   const [lines, setLines] = useState({})
   // One typed amount per buyer key and fee kind code. A buyer key of '' is
   // the auction house's standing undisclosed buyer -- the same meaning
@@ -365,18 +360,12 @@ export default function SettlementGrid({
       {isAuctionHouse && (
         <label>
           Return unsold and withdrawn items to{/* */}
-          <select
-            aria-label="Return unsold and withdrawn items to"
+          <LocationSelect
+            label="Return unsold and withdrawn items to"
+            blankLabel="Choose a location"
             value={returnedToLocationId}
-            onChange={(e) => setReturnedToLocationId(e.target.value)}
-          >
-            <option value="">Choose a location</option>
-            {locations.map((loc) => (
-              <option key={loc.id} value={loc.id}>
-                {loc.label}
-              </option>
-            ))}
-          </select>
+            onChange={setReturnedToLocationId}
+          />
         </label>
       )}
 

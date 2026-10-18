@@ -71,6 +71,20 @@ function row(label) {
 }
 
 describe('Vocabularies', () => {
+  it('lists the vocabularies by name, whatever order the server gives', async () => {
+    api.listReferenceTables.mockResolvedValue(['series', 'grade', 'note_type'])
+    renderWithProviders(<Vocabularies />, { auth: adminAuth(), reference })
+    const picker = screen.getByLabelText('Vocabulary')
+    await within(picker).findByRole('option', { name: 'grade' })
+    expect(
+      within(picker)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['grade', 'note_type', 'series'])
+    // Still opens on the series, not on whichever sorts first.
+    expect(picker).toHaveValue('series')
+  })
+
   it('opens on the series and lists each value with its aliases', async () => {
     renderWithProviders(<Vocabularies />, { auth: adminAuth(), reference })
     expect(await screen.findByText('Walker')).toBeInTheDocument()

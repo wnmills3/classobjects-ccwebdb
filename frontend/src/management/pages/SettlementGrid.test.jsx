@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
-  api: { settleAuction: vi.fn() },
+  api: { settleAuction: vi.fn(), listStorageLocations: vi.fn() },
 }))
 
 import { api } from '../api'
@@ -78,6 +78,9 @@ function closedAuction(overrides = {}) {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  api.listStorageLocations.mockResolvedValue([
+    { id: 9, label: 'Home safe', kind: 'home' },
+  ])
 })
 
 describe('SettlementGrid', () => {
@@ -90,12 +93,7 @@ describe('SettlementGrid', () => {
       orders: [{ id: 1 }],
     })
     renderWithProviders(
-      <SettlementGrid
-        auction={auction}
-        isAuctionHouse={false}
-        locations={[]}
-        onSettled={onSettled}
-      />,
+      <SettlementGrid auction={auction} isAuctionHouse={false} onSettled={onSettled} />,
       { strict: true, reference: reference() },
     )
 
@@ -162,12 +160,7 @@ describe('SettlementGrid', () => {
       ),
     )
     renderWithProviders(
-      <SettlementGrid
-        auction={auction}
-        isAuctionHouse={false}
-        locations={[]}
-        onSettled={vi.fn()}
-      />,
+      <SettlementGrid auction={auction} isAuctionHouse={false} onSettled={vi.fn()} />,
       { strict: true, reference: reference() },
     )
 
@@ -189,12 +182,7 @@ describe('SettlementGrid', () => {
   it('does not ask for a return location off an auction house', () => {
     const auction = closedAuction()
     renderWithProviders(
-      <SettlementGrid
-        auction={auction}
-        isAuctionHouse={false}
-        locations={[{ id: 9, label: 'Home safe', kind: 'home' }]}
-        onSettled={vi.fn()}
-      />,
+      <SettlementGrid auction={auction} isAuctionHouse={false} onSettled={vi.fn()} />,
       { strict: true, reference: reference() },
     )
     expect(screen.queryByLabelText(/return unsold/i)).toBeNull()
@@ -203,15 +191,25 @@ describe('SettlementGrid', () => {
   it('asks for a return location at an auction house', () => {
     const auction = closedAuction()
     renderWithProviders(
-      <SettlementGrid
-        auction={auction}
-        isAuctionHouse
-        locations={[{ id: 9, label: 'Home safe', kind: 'home' }]}
-        onSettled={vi.fn()}
-      />,
+      <SettlementGrid auction={auction} isAuctionHouse onSettled={vi.fn()} />,
       { strict: true, reference: reference() },
     )
     expect(screen.getByLabelText(/return unsold/i)).toBeVisible()
+  })
+
+  it('offers to add a return location that is not yet recorded', async () => {
+    const auction = closedAuction()
+    renderWithProviders(
+      <SettlementGrid auction={auction} isAuctionHouse onSettled={vi.fn()} />,
+      { strict: true, reference: reference() },
+    )
+    const picker = screen.getByLabelText(/return unsold/i)
+    expect(
+      within(picker).getByRole('option', { name: '+ Add a location...' }),
+    ).toBeInTheDocument()
+    expect(
+      await within(picker).findByRole('option', { name: 'Home safe' }),
+    ).toBeInTheDocument()
   })
 
   it('sends nothing until a required return location is chosen, and says why', async () => {
@@ -223,12 +221,7 @@ describe('SettlementGrid', () => {
     const user = userEvent.setup()
     const auction = closedAuction({ consigned_on: '2026-10-01' })
     renderWithProviders(
-      <SettlementGrid
-        auction={auction}
-        isAuctionHouse
-        locations={[{ id: 9, label: 'Home safe', kind: 'home' }]}
-        onSettled={vi.fn()}
-      />,
+      <SettlementGrid auction={auction} isAuctionHouse onSettled={vi.fn()} />,
       { strict: true, reference: reference() },
     )
 
@@ -246,6 +239,8 @@ describe('SettlementGrid', () => {
       }),
     ).toHaveClass('error')
 
+    // Offered once the picker has read the storage locations.
+    await screen.findByRole('option', { name: 'Home safe' })
     await user.selectOptions(
       screen.getByLabelText('Return unsold and withdrawn items to'),
       '9',
@@ -267,12 +262,7 @@ describe('SettlementGrid', () => {
       orders: [{ id: 1 }],
     })
     renderWithProviders(
-      <SettlementGrid
-        auction={auction}
-        isAuctionHouse={false}
-        locations={[]}
-        onSettled={vi.fn()}
-      />,
+      <SettlementGrid auction={auction} isAuctionHouse={false} onSettled={vi.fn()} />,
       { strict: true, reference: reference() },
     )
 
@@ -309,7 +299,6 @@ describe('SettlementGrid', () => {
       <SettlementGrid
         auction={closedAuction()}
         isAuctionHouse={false}
-        locations={[]}
         onSettled={vi.fn()}
       />,
       { reference: reference() },
