@@ -13,12 +13,13 @@ real -- there is no backlog to read past. That only stays true if nothing is
 ignored to spare the codebase work, and if the gate's exit code, not a skim
 of its output, decides.
 
-One command runs everything:
+One command runs everything, from the repository
+(`cd /d %USERPROFILE%\dev\classobjects-ccwebdb`):
 
-```cmd
-.\scripts\ccweb_check.cmd          check only
-.\scripts\ccweb_check.cmd fix      ruff format, ruff check --fix and prettier --write first, then check
-```
+| Command | What it does |
+| --- | --- |
+| `.\scripts\ccweb_check.cmd` | check only |
+| `.\scripts\ccweb_check.cmd fix` | ruff format, ruff check --fix and prettier --write first, then check |
 
 It exits non-zero if anything fails, and prints `FAILED:` with the names of
 the failed stages. Gate on that exit code; do not pipe the output through a

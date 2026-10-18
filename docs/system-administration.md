@@ -254,11 +254,19 @@ An eBay purchase is found and receipted by its order number, and a listing id
 links an item back to the page it was bought from; `app.ebay_orders` fills
 both in from eBay's own purchase history. That history comes from the Chrome
 extension named in the README (*Useful tools*): one workbook per year, a row
-per item bought. From `backend\`:
+per item bought. Name the workbooks in place of `WORKBOOK.xlsx` (several
+may be given), and first look at what it would do:
 
 ```cmd
-python -m app.ebay_orders <workbook>... --review ..\logs\ebay_orders_review.xlsx
-python -m app.ebay_orders <workbook>... --commit --by <your email>
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.ebay_orders WORKBOOK.xlsx --review ..\logs\ebay_orders_review.xlsx
+```
+
+Then write it, with your email in place of `EMAIL`:
+
+```cmd
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.ebay_orders WORKBOOK.xlsx --commit --by EMAIL
 ```
 
 The first is a dry run: it prints what it would do and, with `--review`,
@@ -1026,11 +1034,27 @@ A platform links to a `vendor` row as its purchase source, and the vendor
 list can hold one business under several spellings. `app.vendor_cleanup`
 tidies them, each
 change named on the command line -- which vendors are the same business is
-the owner's call:
+the owner's call.
+
+It runs from `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`).
+Each change is an option naming vendors by id, and nothing is written without
+`--commit`: run it first without, to see what it would do.
+
+| Option | What it does |
+| --- | --- |
+| `--merge FROM_ID:INTO_ID` | moves the purchases of one vendor onto another |
+| `--kind ID:KIND_CODE` | sets the vendor's kind |
+| `--rename ID:NAME` | renames it |
+| `--delete ID` | removes a vendor with no purchases |
+| `--commit` | writes; without it the run only says what it would do |
+
+For example, `python -m app.vendor_cleanup --merge 15:12 --delete 6` shows
+what merging vendor 15 into vendor 12 and deleting vendor 6 would do; the
+same with `--commit` added does it. To find the ids, from the repository:
 
 ```cmd
-python -m app.vendor_cleanup
-python -m app.vendor_cleanup --merge <from>:<into> --kind <id>:<code> --rename <id>:<name> --delete <id> --commit
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_psql.cmd -c "select id, name from vendor order by name;"
 ```
 
 `--merge` moves the purchase orders from one vendor onto another and removes
@@ -1403,13 +1427,15 @@ numbers. See [reference-data.md](reference-data.md).
 brings back a merged value, never overwrites a row marked `manual`, and never
 restores a retired alias.
 
-```cmd
-python -m app.seeding load                                  load every seed file
-python -m app.seeding load --only <table>...                only those tables
-python -m app.seeding load --data-dir <dir>                 from another folder
-python -m app.seeding export --out <dir>                    write seed files, seeded rows only
-python -m app.seeding export --out <dir> --source seeded manual --include-inactive
-```
+From `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`):
+
+| Command | What it does |
+| --- | --- |
+| `python -m app.seeding load` | load every seed file |
+| `python -m app.seeding load --only TABLE` | only those tables (several may follow `--only`) |
+| `python -m app.seeding load --data-dir FOLDER` | from another folder |
+| `python -m app.seeding export --out FOLDER` | write seed files, seeded rows only |
+| `python -m app.seeding export --out FOLDER --source seeded manual --include-inactive` | the manual and retired rows too |
 
 `--source` takes any of `seeded`, `derived` and `manual` (default `seeded`);
 `--include-inactive` also exports retired values. A schema release runs
@@ -1515,12 +1541,15 @@ restore. **Photograph bytes are in no database backup** -- they live under
 
 ### The routine backup
 
-```cmd
-.\scripts\ccweb_backup.cmd                    back up now
-.\scripts\ccweb_backup.cmd /schedule [HH:MM]  every day at that time (default 20:00)
-.\scripts\ccweb_backup.cmd /unschedule        stop the daily run
-.\scripts\ccweb_backup.cmd /scheduled         show the daily task
-```
+From the repository (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb`):
+
+| Command | What it does |
+| --- | --- |
+| `.\scripts\ccweb_backup.cmd` | back up now |
+| `.\scripts\ccweb_backup.cmd /schedule` | every day at 20:00 |
+| `.\scripts\ccweb_backup.cmd /schedule 06:30` | every day at the time given |
+| `.\scripts\ccweb_backup.cmd /unschedule` | stop the daily run |
+| `.\scripts\ccweb_backup.cmd /scheduled` | show the daily task |
 
 One command does what the sections below describe step by step
 (`python -m app.backup_run <folder> [--keep N]`):
@@ -1556,12 +1585,15 @@ not made up later.
 
 ### Photographs
 
-```cmd
-python -m app.media_backup copy [<folder>]     media storage -> <folder>
-python -m app.media_backup check [<folder>]    <folder> against the image rows
-python -m app.media_backup prune [<folder>]    files in <folder> no image row names
-    [--delete]                                 ... removed, not only listed
-```
+From `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`). Each takes a folder after
+the action, `ccwebdb-backups\media` when none is given:
+
+| Command | What it does |
+| --- | --- |
+| `python -m app.media_backup copy` | media storage copied to the folder |
+| `python -m app.media_backup check` | the folder checked against the image rows |
+| `python -m app.media_backup prune` | lists files in the folder no image row names |
+| `python -m app.media_backup prune --delete` | removes them, not only lists them |
 
 The folder defaults to `ccwebdb-backups\media`. `copy` writes every file the
 image rows name -- each original and its two renditions -- under the same
@@ -1592,7 +1624,7 @@ yet.
 layout:
 
 ```cmd
-robocopy "%USERPROFILE%\dev\ccwebdb-backups\media" "<repo>\media" /E
+robocopy "%USERPROFILE%\dev\ccwebdb-backups\media" "%USERPROFILE%\dev\classobjects-ccwebdb\media" /E
 ```
 
 Backups are kept beside the repository, in `ccwebdb-backups\` (on this
@@ -1609,10 +1641,19 @@ old revision, and cannot be migrated or restored faithfully.
 `pg_restore --list` or `python -m app.backup --list` shows that a file or copy
 exists and its size, not that it holds the collection: a copy that aborted
 partway still lists at a plausible size while holding no inventory items at
-all. Restore into a new database and run:
+all. Restore into a new database, then compare it with live.
+First the database password -- the one in `DATABASE_URL` in `.env` --
+asked for on its own, so nothing else pasted is taken as the answer:
 
 ```cmd
-python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@localhost:5432/<restored name>
+set /p PGPASSWORD=Database password: 
+```
+
+Then, with the restored database's name in place of `RESTORED_NAME`:
+
+```cmd
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:%PGPASSWORD%@localhost:5432/RESTORED_NAME
 ```
 
 `compare` reads both databases' tables from the databases themselves, not the
@@ -1626,13 +1667,15 @@ failed backup.
 
 ### The database copy (`app.backup`)
 
-```cmd
-python -m app.backup                      copy to a new ccwebdb_bak_<time> database
-python -m app.backup --name before_split  copy to a new database of that name
-python -m app.backup --to <url>           copy anywhere SQLAlchemy reaches
-python -m app.backup --list               list the local ccwebdb_bak* databases and their size
-python -m app.backup --verify <name>      row counts of a local copy against live
-```
+From `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`):
+
+| Command | What it does |
+| --- | --- |
+| `python -m app.backup` | copy to a new `ccwebdb_bak_` database named for the time |
+| `python -m app.backup --name before_split` | copy to a new database of that name |
+| `python -m app.backup --to DATABASE_URL` | copy anywhere SQLAlchemy reaches |
+| `python -m app.backup --list` | list the local `ccwebdb_bak*` databases and their size |
+| `python -m app.backup --verify NAME` | row counts of a local copy against live |
 
 Every table is copied, `alembic_version` too (it has no model, so it is read
 from the database itself), and the item-code sequence is set past the highest
@@ -1662,7 +1705,14 @@ is a one-line edit.
   again:
 
   ```cmd
-  set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/<copy name>"
+  set /p PGPASSWORD=Database password:
+  ```
+
+  Then, with the copy's name in place of `COPY_NAME`:
+
+  ```cmd
+  cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+  set "DATABASE_URL=postgresql+psycopg://ccwebdb:%PGPASSWORD%@localhost:5432/COPY_NAME"
   python -m app.backup --name ccwebdb_restored
   set "DATABASE_URL="
   ```
@@ -1684,14 +1734,16 @@ sheet per table in foreign-key order. Ids and foreign keys are exactly as
 stored, so relationships survive. The tables are read from the database
 itself, not the models, so none is missed.
 
-```cmd
-python -m app.workbook_backup export                        live -> ccwebdb-backups\ccwebdb_<time>.xlsx
-python -m app.workbook_backup export --out <file.xlsx>      ... to a file you name
-    [--media <folder> | --no-media]                         where its photographs go, or none
-python -m app.workbook_backup import <file.xlsx> --to <url> workbook -> an empty database
-    [--unknown-for-missing]                                 a vocabulary link to nothing -> Unknown
-python -m app.workbook_backup compare <url>                 live vs <url>, every row of every table
-```
+From `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`):
+
+| Command | What it does |
+| --- | --- |
+| `python -m app.workbook_backup export` | live to `ccwebdb-backups\ccwebdb_` and the time `.xlsx` |
+| `python -m app.workbook_backup export --out FILE.xlsx` | to a file you name |
+| `python -m app.workbook_backup export --media FOLDER` | its photographs to that folder (`--no-media` for none) |
+| `python -m app.workbook_backup import FILE.xlsx --to DATABASE_URL` | a workbook into an empty database |
+| `python -m app.workbook_backup import FILE.xlsx --to DATABASE_URL --unknown-for-missing` | a vocabulary link to nothing becomes Unknown |
+| `python -m app.workbook_backup compare DATABASE_URL` | live against that database, every row of every table |
 
 An export also copies the photographs (*Photographs*, above) into a `media`
 folder beside the workbook, or the folder `--media` names, and exits 1 when
@@ -1712,23 +1764,35 @@ with its column when a migration adds or moves one. To change them, resize the
 columns in an export, save it, and run:
 
 ```cmd
-python -m app.workbook_backup widths <file.xlsx>
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.workbook_backup widths FILE.xlsx
 ```
+
+with the saved workbook in place of `FILE.xlsx`.
 
 A sheet you resized replaces that sheet's remembered widths; the others stay.
 Commit the widths file so the next export uses them.
 
-**Restoring from it.** Always into a new database, from `backend\`:
+**Restoring from it.** Always into a new database.
+First the database password -- the one in `DATABASE_URL` in `.env` --
+asked for on its own, so nothing else pasted is taken as the answer:
 
 ```cmd
+set /p PGPASSWORD=Database password: 
+```
+
+Then, with the workbook in place of `FILE.xlsx`:
+
+```cmd
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 set PGDATABASE=postgres
 ..\scripts\ccweb_psql.cmd -c "create database ccwebdb_restored"
 set PGDATABASE=
-set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_restored"
+set "DATABASE_URL=postgresql+psycopg://ccwebdb:%PGPASSWORD%@localhost:5432/ccwebdb_restored"
 python -m alembic upgrade head
 set "DATABASE_URL="
-python -m app.workbook_backup import <file.xlsx> --to postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_restored
-python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_restored
+python -m app.workbook_backup import FILE.xlsx --to postgresql+psycopg://ccwebdb:%PGPASSWORD%@localhost:5432/ccwebdb_restored
+python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:%PGPASSWORD%@localhost:5432/ccwebdb_restored
 ```
 
 The import refuses a database at a different migration revision than the
@@ -1783,18 +1847,26 @@ every release is schema first, reference data second.
 defaults, `PGPASSWORD` included.
 
 1. **Back up with `pg_dump`, and prove the dump by restoring it.** With the
-   code that live is running still checked out, from `backend\`:
+   code that live is running still checked out. First the database
+   password, the one in `DATABASE_URL` in `.env`, asked for on its own so
+   nothing else pasted is taken as the answer:
 
    ```cmd
+   set /p PGPASSWORD=Database password:
+   ```
+
+   Then, with today's date in place of `YYYYMMDD`:
+
+   ```cmd
+   cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
    set "PGBIN=%CONDA_PREFIX%\Library\bin"
    set "PGHOST=localhost"
    set "PGUSER=ccwebdb"
-   set "PGPASSWORD=<password>"
    set "DUMP=%USERPROFILE%\dev\ccwebdb-backups\ccwebdb_pre_release_YYYYMMDD.dump"
    "%PGBIN%\pg_dump.exe" -Fc -d ccwebdb -f "%DUMP%"
    "%PGBIN%\createdb.exe" ccwebdb_rehearsal
    "%PGBIN%\pg_restore.exe" -d ccwebdb_rehearsal --no-owner "%DUMP%"
-   python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_rehearsal
+   python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:%PGPASSWORD%@localhost:5432/ccwebdb_rehearsal
    ```
 
    `PGBIN` is PostgreSQL's binaries inside the active `ccwebdb` environment,
@@ -1808,9 +1880,12 @@ defaults, `PGPASSWORD` included.
    application and psql at the rehearsal database, record the item count and
    cost basis, migrate and seed, and record them again:
 
+   In the same window, so the password from step 1 is still set:
+
    ```cmd
+   cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
    set "PGDATABASE=ccwebdb_rehearsal"
-   set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_rehearsal"
+   set "DATABASE_URL=postgresql+psycopg://ccwebdb:%PGPASSWORD%@localhost:5432/ccwebdb_rehearsal"
    ..\scripts\ccweb_psql.cmd -c "select count(*), sum(total_cost) from inventory_item where split_at is null and deleted_at is null;"
    python -m alembic upgrade head
    python -m app.seeding load
@@ -1830,6 +1905,7 @@ defaults, `PGPASSWORD` included.
    schema changes. From the repo root:
 
    ```cmd
+   cd /d %USERPROFILE%\dev\classobjects-ccwebdb
    .\scripts\ccweb_shutdown.cmd /keepdb
    ```
 
@@ -1837,6 +1913,7 @@ defaults, `PGPASSWORD` included.
    at `ccwebdb` (the `.env` value):
 
    ```cmd
+   cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
    python -m alembic upgrade head
    python -m app.seeding load
    ```
@@ -1851,6 +1928,7 @@ defaults, `PGPASSWORD` included.
    out, from the repo root, in a shell nothing else depends on:
 
    ```cmd
+   cd /d %USERPROFILE%\dev\classobjects-ccwebdb
    .\scripts\ccweb_shutdown.cmd
    .\scripts\ccweb_startup.cmd
    ```

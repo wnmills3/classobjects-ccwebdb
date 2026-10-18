@@ -23,19 +23,19 @@ for backups and applying a schema release see
 
 ## Quick reference
 
-Run from the repository root:
+Run from the repository root (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb`):
 
-```cmd
-.\scripts\ccweb_status.cmd               what is running, and what to run next
-.\scripts\ccweb_startup.cmd              start PostgreSQL, the API and Vite (run it bare)
-.\scripts\ccweb_shutdown.cmd             stop everything
-.\scripts\ccweb_shutdown.cmd /keepdb     stop the servers, leave PostgreSQL running
-.\scripts\ccweb_check.cmd [fix]          every quality gate (code-quality.md)
-.\scripts\ccweb_claude.cmd [name]        start Claude Code with the env in play
-.\scripts\ccweb_psql.cmd [psql args]     psql against ccwebdb
-.\scripts\ccweb_pgadmin.cmd              pgAdmin on http://127.0.0.1:5050
-.\scripts\ccweb_backup.cmd               one proved backup; /schedule runs it daily
-```
+| Command | What it does |
+| --- | --- |
+| `.\scripts\ccweb_status.cmd` | what is running, and what to run next |
+| `.\scripts\ccweb_startup.cmd` | start PostgreSQL, the API and Vite (run it bare) |
+| `.\scripts\ccweb_shutdown.cmd` | stop everything |
+| `.\scripts\ccweb_shutdown.cmd /keepdb` | stop the servers, leave PostgreSQL running |
+| `.\scripts\ccweb_check.cmd` | every quality gate (code-quality.md); add `fix` to auto-fix first |
+| `.\scripts\ccweb_claude.cmd` | start Claude Code with the env in play; add a session name to resume |
+| `.\scripts\ccweb_psql.cmd` | psql against ccwebdb; psql's own arguments follow |
+| `.\scripts\ccweb_pgadmin.cmd` | pgAdmin on http://127.0.0.1:5050 |
+| `.\scripts\ccweb_backup.cmd` | one proved backup; `/schedule` runs it daily |
 
 **Run `ccweb_startup.cmd` bare -- never piped or redirected** (no `| more`,
 `> file`, `2>&1`). The servers it starts inherit the output handle, so a
@@ -192,13 +192,13 @@ code is 1.
 
 ## Starting a Claude Code session
 
-```cmd
-.\scripts\ccweb_claude.cmd                        new session
-.\scripts\ccweb_claude.cmd ccweb                  resume, searching for "ccweb"
-.\scripts\ccweb_claude.cmd ccweb --effort high    extra flags pass through
-.\scripts\ccweb_claude.cmd /check                 report the environment, do not start Claude Code
-.\scripts\ccweb_claude.cmd /nodb ...              skip the database check
-```
+| Command | What it does |
+| --- | --- |
+| `.\scripts\ccweb_claude.cmd` | new session |
+| `.\scripts\ccweb_claude.cmd ccweb` | resume, searching for "ccweb" |
+| `.\scripts\ccweb_claude.cmd ccweb --effort high` | extra flags pass through |
+| `.\scripts\ccweb_claude.cmd /check` | report the environment, do not start Claude Code |
+| `.\scripts\ccweb_claude.cmd /nodb` | skip the database check; other arguments may follow |
 
 It activates `ccwebdb`, starts PostgreSQL if it is not running (nearly any
 work here needs it), changes to the repository root and starts Claude Code.
@@ -265,11 +265,11 @@ read first.
 A self-hosted SonarQube keeps the code-quality dashboard and backs the
 `mcp__sonarqube__*` tools. It is optional: nothing in the runtime needs it.
 
-```cmd
-.\scripts\ccweb_sonar_start.cmd          start the server and its database
-.\scripts\ccweb_sonar_scan.cmd           run tests with coverage and publish an analysis
-.\scripts\ccweb_sonar_stop.cmd           stop the server, keeping its data
-```
+| Command | What it does |
+| --- | --- |
+| `.\scripts\ccweb_sonar_start.cmd` | start the server and its database |
+| `.\scripts\ccweb_sonar_scan.cmd` | run tests with coverage and publish an analysis |
+| `.\scripts\ccweb_sonar_stop.cmd` | stop the server, keeping its data |
 
 Dashboard: http://localhost:9000, project `classobjects-ccwebdb`. The server
 and its database run as podman containers (`sonarqube`, `sonar-db`) on the
@@ -285,7 +285,7 @@ environment -- the scanner runs in a container and cannot read the host
 keychain:
 
 ```cmd
-set "SONAR_TOKEN=squ_..."
+set /p SONAR_TOKEN=SonarQube token:
 ```
 
 On a fresh server, log in at http://localhost:9000 as `admin` / `admin`,

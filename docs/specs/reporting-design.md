@@ -232,11 +232,14 @@ spacing are not part of a serial.
 
 ### Command line
 
-```cmd
-cd backend
-python -m app.reports list
-python -m app.reports run <id> [--param name=value ...] [--workbook FILE]
-```
+| Command | What it does |
+| --- | --- |
+| `python -m app.reports list` | every report's id, group and title |
+| `python -m app.reports run REPORT_ID` | one report as a plain-text table |
+| `python -m app.reports run REPORT_ID --param NAME=VALUE` | with a parameter set; repeatable |
+| `python -m app.reports run REPORT_ID --workbook FILE.xlsx` | written as a workbook too |
+
+Run from `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`).
 
 The same registry, for a report wanted from a script or before the console is
 open. `list` prints every report's id, group and title; `run` prints it as a

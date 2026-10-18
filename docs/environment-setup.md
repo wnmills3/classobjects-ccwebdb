@@ -28,6 +28,42 @@ Versions in use; newer patch releases should be fine:
 Miniforge is conda configured for the `conda-forge` channel only, so there are
 no Anaconda Terms-of-Service prompts.
 
+**First check whether it is already installed.** This finds Miniforge in its
+usual place, whether or not your shells can run `conda` yet:
+
+```cmd
+if exist "%USERPROFILE%\miniforge3\Scripts\conda.exe" ("%USERPROFILE%\miniforge3\Scripts\conda.exe" --version) else (echo Miniforge is not installed in %USERPROFILE%\miniforge3)
+```
+
+and this lists every `conda` your shells can run now, from any installation:
+
+```cmd
+where conda
+```
+
+- **It prints a version (`conda 26.9.3`):** Miniforge is installed. Skip the
+  install below, bring conda up to date, and go on to `conda init`. Preview
+  the update, then make it:
+
+  ```cmd
+  "%USERPROFILE%\miniforge3\Scripts\conda.exe" update -n base conda --dry-run
+  ```
+
+  ```cmd
+  "%USERPROFILE%\miniforge3\Scripts\conda.exe" update -n base conda
+  ```
+
+  Update conda this way, not with `winget upgrade`: winget remembers the
+  installer it ran, not the conda since updated in place, and its "upgrade"
+  reinstalls the base environment from an installer that can be older than
+  the conda you have -- rolling it back.
+- **It says Miniforge is not installed, and `where conda` finds nothing:**
+  install it below.
+- **It says Miniforge is not installed, but `where conda` names another
+  folder** (an Anaconda or Miniconda installation): install Miniforge below
+  anyway. Its `conda init` makes Miniforge the conda new windows use; the
+  other installation can stay or be uninstalled.
+
 ```cmd
 winget install --id CondaForge.Miniforge3 --source winget --scope user --accept-package-agreements --accept-source-agreements
 ```

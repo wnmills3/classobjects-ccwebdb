@@ -963,10 +963,12 @@ twelve Federal Reserve districts, the composition of a pre-1965 dime — so they
 live in versioned JSON under `backend/data/reference/` and load into any
 installation. From `backend`, with the `ccwebdb` environment active:
 
-```cmd
-python -m app.seeding load [--data-dir <dir>] [--only <table> ...]   idempotent
-python -m app.seeding export --out <dir> [--source seeded derived] [--include-inactive]
-```
+| Command | What it does |
+| --- | --- |
+| `python -m app.seeding load` | load every seed file; idempotent |
+| `python -m app.seeding load --only TABLE` | only the tables named (several may follow `--only`) |
+| `python -m app.seeding load --data-dir FOLDER` | from another folder |
+| `python -m app.seeding export --out FOLDER` | write seed files; add `--source seeded derived` and `--include-inactive` to widen it |
 
 **Foreign keys travel as codes, not ids.** A seed row says `"metal": "silver"`;
 the key `metal` resolves through the column `metal_id` to whatever table it

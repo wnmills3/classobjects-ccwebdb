@@ -75,10 +75,13 @@ is and leaves any remaining tie for a person.
 
 ## The pass
 
-```cmd
-cd backend
-python -m app.ebay_orders FILE... [--review OUT.xlsx] [--commit --by EMAIL]
-```
+| Command | What it does |
+| --- | --- |
+| `python -m app.ebay_orders FILE.xlsx` | the dry run, over one or more order workbooks |
+| `python -m app.ebay_orders FILE.xlsx --review OUT.xlsx` | the same, writing the review workbook |
+| `python -m app.ebay_orders FILE.xlsx --commit --by EMAIL` | writes |
+
+Run from `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`).
 
 **Dry run by default**: it prints what it would do and writes nothing.
 `--commit` writes, in one transaction, and requires `--by`, the email of the

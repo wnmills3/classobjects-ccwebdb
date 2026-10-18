@@ -203,11 +203,11 @@ uv tool install --python 3.13 pgadmin4
 
 At the command line, with psql (every argument passes straight to psql):
 
-```cmd
-.\scripts\ccweb_psql.cmd                              interactive psql
-.\scripts\ccweb_psql.cmd -c "select * from metal;"    one statement
-.\scripts\ccweb_psql.cmd -f query.sql                 a file
-```
+| Command | What it does |
+| --- | --- |
+| `.\scripts\ccweb_psql.cmd` | interactive psql |
+| `.\scripts\ccweb_psql.cmd -c "select * from metal;"` | one statement |
+| `.\scripts\ccweb_psql.cmd -f query.sql` | a file |
 
 The views `coin_inventory`, `currency_inventory`, `item_valuation` and
 `public_catalog` resolve foreign keys to readable codes and exclude split and
@@ -226,10 +226,10 @@ where coalesce(source_title, '') || ' ' || coalesce(description, '') ilike '%mor
 
 ## Code quality and tests
 
-```cmd
-.\scripts\ccweb_check.cmd          every gate: ruff (format, lint), mutation-scaffolding guard, mypy, pytest, eslint, prettier, vitest, bundle isolation
-.\scripts\ccweb_check.cmd fix      auto-fix first, then check
-```
+| Command | What it does |
+| --- | --- |
+| `.\scripts\ccweb_check.cmd` | every gate: ruff (format, lint), mutation-scaffolding guard, mypy, pytest, eslint, prettier, vitest, bundle isolation |
+| `.\scripts\ccweb_check.cmd fix` | auto-fix first, then check |
 
 Every gate is at zero, so any finding is new.
 [docs/code-quality.md](docs/code-quality.md) lists what runs and the three

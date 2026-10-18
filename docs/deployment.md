@@ -102,7 +102,7 @@ PostgreSQL on a server has to start with the machine, not from a console.
 Register the cluster as a Windows service once, from an administrator cmd:
 
 ```cmd
-pg_ctl register -N ccwebdb-postgres -D <repo>\.pgdata -S auto
+pg_ctl register -N ccwebdb-postgres -D "%USERPROFILE%\dev\classobjects-ccwebdb\.pgdata" -S auto
 sc start ccwebdb-postgres
 ```
 
@@ -122,10 +122,12 @@ restore into an empty database (`createdb`, then `pg_restore -d ccwebdb
 ccwebdb_to_server.dump`), as in
 [system-administration.md](system-administration.md) (*Applying a schema
 release*, step 1), and copy `media` to the folder `MEDIA_ROOT` will name.
-Then, on the server:
+Then, on the server, with `MEDIA_FOLDER` replaced by the folder `MEDIA_ROOT`
+names:
 
 ```cmd
-python -m app.media_backup check <MEDIA_ROOT>
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.media_backup check MEDIA_FOLDER
 ```
 
 `check` exits 1 naming any photograph missing or damaged.
@@ -150,7 +152,7 @@ still using a development password (`admin@example.com` among them).
 ## 5. Build the frontend
 
 ```cmd
-cd /d <repo>\frontend
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\frontend
 npm ci
 npm run build
 ```
@@ -165,21 +167,29 @@ anyone is signed in. `python -m uvicorn` rather than `uvicorn.exe`: Smart
 App Control blocks unsigned `.exe` wrappers on some machines.
 
 Save as `C:\ccwebdb-run\api.cmd` (outside the repository, so an update
-never overwrites it):
+never overwrites it). `%USERPROFILE%` is the folder of the account the task
+runs as, which is the account that installed the system in step 2:
 
 ```cmd
 @echo off
-cd /d <repo>\backend
-"<env>\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1 >> "<repo>\logs\backend.log" 2>&1
+cd /d "%USERPROFILE%\dev\classobjects-ccwebdb\backend"
+"%USERPROFILE%\miniforge3\envs\ccwebdb\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1 >> "%USERPROFILE%\dev\classobjects-ccwebdb\logs\backend.log" 2>&1
 ```
 
 `--proxy-headers` with `--forwarded-allow-ips 127.0.0.1` makes the API see
 the visitor's address and `https` from Caddy's headers, and trust those
-headers from Caddy alone. Register it from an administrator cmd, as an
-account that can read the repository and `MEDIA_ROOT`:
+headers from Caddy alone. Register it from an administrator cmd, signed in
+as the account that installed the system, which can read the repository and
+`MEDIA_ROOT`. The command asks for that account's password, so it is given
+alone -- pasted with others, the next line would be taken as the password:
 
 ```cmd
-schtasks /create /tn "ccwebdb api" /sc onstart /ru <account> /rp * /tr "C:\ccwebdb-run\api.cmd"
+schtasks /create /tn "ccwebdb api" /sc onstart /ru "%USERDOMAIN%\%USERNAME%" /rp * /tr "C:\ccwebdb-run\api.cmd"
+```
+
+Then start it and check it answers:
+
+```cmd
 schtasks /run /tn "ccwebdb api"
 curl -s -f -o nul http://127.0.0.1:8000/docs
 if errorlevel 1 echo The API is not answering: read logs\backend.log
