@@ -287,20 +287,114 @@ Two cases, and they are **not interchangeable**.
 
 ### This collection, on a new machine
 
-Restore the latest verified backup of `ccwebdb` -- a `pg_dump` or a workbook
-backup -- into the empty database. The backups live outside the repository;
-the procedure is in [system-administration.md](system-administration.md)
-(*Backing up and restoring*). Two things to know before starting:
+The collection moves as the backup workbook and its photographs, through a
+folder OneDrive keeps on both machines. `%USERPROFILE%\OneDrive\coin_data`
+is the suggested one, and the commands below use it; change them if you
+keep it elsewhere.
 
-- `python -m app.workbook_backup import FILE --to URL` loads only into an
-  empty database at the same migration revision as the workbook (for a
-  workbook exported from the current code, `alembic upgrade head` first), and
-  refuses the database `DATABASE_URL` names -- `ccwebdb`, by default and in
-  `.env.example`. Restore into a database of another name, then point
-  `DATABASE_URL` at it; the full procedure is in
-  *The workbook backup* in system-administration.md.
-- Do not run `app.seed` afterwards: the restored database already holds its
-  own accounts, and you sign in with one of those.
+**On the machine that holds the collection**, send the backup there. Once
+is enough -- `setx` keeps it for new windows and for the daily backup:
+
+```console
+setx CCWEB_BACKUP_DIR "%USERPROFILE%\OneDrive\coin_data"
+```
+
+Then, **in a new window** (so the setting is seen), take a backup. It
+writes the workbook `ccwebdb_` and the date and time `.xlsx`, copies the
+photographs into `media`, and proves both against the database before it
+says so:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_backup.cmd
+```
+
+It ends `backup proved, in C:\Users\...\OneDrive\coin_data`. Anything else
+is a failed backup; `logs\backup.log` says why.
+
+**On the new machine**, with steps 1 to 7 done and the PostgreSQL server
+from step 5 still running in its window, and with the same version of the
+code as the machine the backup came from (a workbook loads only into a
+database at its own migration revision):
+
+1. **Wait for OneDrive to finish syncing** the folder -- the workbook and
+   all of `media`. This lists what has arrived:
+
+   ```console
+   dir "%USERPROFILE%\OneDrive\coin_data"
+   ```
+
+2. **Make a new database for it and give it the schema.** The import never
+   loads into the database `.env` names, so the collection goes into
+   `ccwebdb_restored` first:
+
+   ```console
+   cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+   set "PGPASSWORD=devpassword"
+   psql -h localhost -U ccwebdb -d postgres -c "CREATE DATABASE ccwebdb_restored OWNER ccwebdb ENCODING 'UTF8';"
+   set "DATABASE_URL=postgresql+psycopg://ccwebdb:devpassword@localhost:5432/ccwebdb_restored"
+   uv run alembic upgrade head
+   set "DATABASE_URL="
+   ```
+
+3. **Load the newest workbook into it.** The first line finds it; the
+   import checks every link in the workbook before writing anything, and
+   refuses the whole workbook if one points at nothing:
+
+   ```console
+   cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+   for /f "delims=" %F in ('dir /b /od "%USERPROFILE%\OneDrive\coin_data\ccwebdb_*.xlsx"') do @set "WORKBOOK=%USERPROFILE%\OneDrive\coin_data\%F"
+   echo %WORKBOOK%
+   uv run python -m app.workbook_backup import "%WORKBOOK%" --to postgresql+psycopg://ccwebdb:devpassword@localhost:5432/ccwebdb_restored
+   ```
+
+4. **Put it in place as `ccwebdb`**, the name `.env` and the scripts use.
+   This drops the empty `ccwebdb` made in step 5 and renames the restored
+   one -- but only when `ccwebdb` holds no tables, so it never drops a
+   database with anything in it:
+
+   ```console
+   set "PGPASSWORD=devpassword"
+   for /f %N in ('psql -h localhost -U ccwebdb -d ccwebdb -tAc "select count(*) from information_schema.tables where table_schema = 'public'"') do @if "%N"=="0" (psql -h localhost -U ccwebdb -d postgres -c "DROP DATABASE ccwebdb;" && psql -h localhost -U ccwebdb -d postgres -c "ALTER DATABASE ccwebdb_restored RENAME TO ccwebdb;") else (echo ccwebdb already holds tables: nothing was dropped)
+   ```
+
+   It prints `DROP DATABASE` and `ALTER DATABASE`. If it says `ccwebdb`
+   already holds tables, something was loaded into it already: look before
+   going on.
+
+5. **Copy the photographs** into the folder the application keeps them in
+   (`media` in the repository, unless `MEDIA_ROOT` in `.env` names
+   another), then check every one against its record:
+
+   ```console
+   robocopy "%USERPROFILE%\OneDrive\coin_data\media" "%USERPROFILE%\dev\classobjects-ccwebdb\media" /E
+   ```
+
+   ```console
+   cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+   uv run python -m app.media_backup check "%USERPROFILE%\dev\classobjects-ccwebdb\media"
+   ```
+
+   `robocopy` reports success with exit codes 0 to 7; 1 means files were
+   copied. The check names any photograph missing or not matching its
+   record.
+
+6. **Stop the hand-started server** (step 5) and start everything the usual
+   way (*Running the application*, below):
+
+   ```console
+   cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+   pg_ctl -D .pgdata -m fast stop
+   ```
+
+Then sign in with an account from the old machine -- the restored database
+holds its own accounts. **Do not run `app.seed`.** If a manager account still
+has the published password `adminpassword`, change it under **People**
+before the machine is reachable from anywhere else.
+
+The steps by which a backup is made and proved, and the other ways to
+restore, are in [system-administration.md](system-administration.md)
+(*Backing up and restoring*).
 
 ### A trial installation, with demo data
 
