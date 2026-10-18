@@ -177,7 +177,7 @@ The server's `.env` (template: `.env.example`; every setting is in
 | Setting | On the server |
 |---|---|
 | `JWT_SECRET` | a new value (`python -c "import secrets; print(secrets.token_hex(32))"`), never the development one. The API will not start without one |
-| `DATABASE_URL` | the server's database, with a password that is not `devpassword`: change it first with `ALTER ROLE ccwebdb PASSWORD '...'` in `psql` |
+| `DATABASE_URL` | the server's database, with a password that is not `devpassword`: change it first, as below |
 | `MEDIA_ROOT` | the folder the photographs were copied to |
 | `SALES_TAX_RATE`, `SALES_TAX_INCLUDES_SHIPPING` | as on the development machine |
 
@@ -185,6 +185,70 @@ The server's `.env` (template: `.env.example`; every setting is in
 which is never run on the server: the restored database already holds its
 accounts. Sign in with one of them, and change the password of any account
 still using a development password (`admin@example.com` among them).
+
+### The database passwords
+
+environment-setup.md step 5 gives both database accounts the password
+`devpassword`: `ccwebdb`, which the application signs in as, and
+`postgres`, the administrator. Change both on the server.
+
+**1. Make a new password**, once for each account. This prints 32 random
+characters -- letters, digits, `-` and `_` -- that go into `.env` as they
+are. A password with `@ # : / %` in it would break `DATABASE_URL`, which is
+a web-style address, unless those characters were encoded.
+
+```console
+conda activate ccwebdb
+python -c "import secrets; print(secrets.token_urlsafe(24))"
+```
+
+**2. Start psql as the administrator.** It asks for the `postgres`
+password, still `devpassword`:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+psql -h localhost -U postgres -d postgres
+```
+
+**3. At the `postgres=#` prompt, set each password.** `\password` asks for
+the new one twice and shows nothing as it is typed or pasted. It keeps the
+password out of psql's history file and the server's log, which
+`ALTER ROLE ... PASSWORD '...'` would not.
+
+```console
+\password ccwebdb
+```
+
+```console
+\password postgres
+```
+
+Then `\q` to leave. The application never uses the `postgres` password:
+keep it somewhere safe, for psql and for schema releases.
+
+**4. Put the `ccwebdb` password into `.env`.** Change only the part between
+`ccwebdb:` and `@`, so the line reads
+`DATABASE_URL=postgresql+psycopg://ccwebdb:NEWPASSWORD@localhost:5432/ccwebdb`
+with the new password in place of `NEWPASSWORD`:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+notepad .env
+```
+
+**5. Check that the application signs in.** This prints the database's
+schema revision, ending `(head)`; a `password authentication failed` means
+`.env` does not match what was typed in 3:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend && uv run alembic current
+```
+
+An API already running read the old `.env` when it started: restart it
+(*Keeping it running*, below). The backup and the application read `.env`
+and need nothing more. `scripts\ccweb_psql.cmd` assumes `devpassword`
+unless `PGPASSWORD` is set in the window first, so it no longer signs in;
+plain `psql`, as in 2, asks for the password.
 
 ## 5. Build the frontend
 
