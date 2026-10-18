@@ -228,13 +228,27 @@ gains a trailing space. `.pgdata\` is gitignored. The "enabling trust
 authentication for local connections" warning is harmless on Windows: there
 are no Unix domain sockets, so only the `host` rules apply.
 
-Start the server by hand, then create the application role and database.
-`.\scripts\ccweb_startup.cmd` cannot start it yet: it stops before
-PostgreSQL unless the dependencies of step 7 are installed.
+Start the server by hand. `.\scripts\ccweb_startup.cmd` cannot start it
+yet: it stops before PostgreSQL unless the dependencies of step 7 are
+installed. `start` gives the server a minimized window of its own, titled
+`ccweb-postgres`, so it keeps working when this window closes:
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
-pg_ctl -D .pgdata -l logs\postgres-by-hand.log start
+start "ccweb-postgres" /min pg_ctl -D .pgdata -l logs\postgres-by-hand.log start
+```
+
+Wait until this says `accepting connections`; run it again if it says
+`no response` within the first few seconds:
+
+```console
+pg_isready -h localhost -p 5432
+```
+
+Then create the application role and database:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 set "PGPASSWORD=devpassword"
 psql -h localhost -U postgres -d postgres -c "CREATE ROLE ccwebdb WITH LOGIN PASSWORD 'devpassword' CREATEDB;"
 psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ccwebdb OWNER ccwebdb ENCODING 'UTF8';"
@@ -243,14 +257,20 @@ psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ccwebdb OWNER ccwe
 `CREATEDB` is for the test suite, which creates and drops its own
 `ccwebdb_test` database. On an existing role: `ALTER ROLE ccwebdb CREATEDB;`.
 Run again, the two `CREATE` lines answer `role "ccwebdb" already exists` and
-`database "ccwebdb" already exists`, and change nothing; `pg_ctl` answers
-`another server might be running` when the server is already up.
+`database "ccwebdb" already exists`, and change nothing; with the server
+already up, the `start` line changes nothing either.
 
-A server started this way belongs to this window and breaks when the window
-closes ([runtime-operations.md](runtime-operations.md), *Running a service
-by hand*). Leave the window open through step 8, then stop the server with
-`pg_ctl -D .pgdata -m fast stop`; from then on `.\scripts\ccweb_startup.cmd`
-starts it.
+The server runs until step 8 stops it, or until the machine restarts; after a
+restart, start it again with the `start` line above. From the end of step 8
+on, `.\scripts\ccweb_startup.cmd` starts it. Do not leave out the `start`: a
+server started straight from a setup window keeps the port when that window
+closes, but stops answering ([runtime-operations.md](runtime-operations.md),
+*Troubleshooting*).
+
+A command that needs the database and finds no server answering --
+`alembic`, `app.seeding`, the import -- waits and then fails with
+`connection timeout expired`, for `::1` and `127.0.0.1`. On Windows that is
+also what a server that is simply not running looks like.
 
 ## 6. Configure the application
 
@@ -326,7 +346,18 @@ npm install
 
 ## 8. Fill the database
 
-Two cases, and they are **not interchangeable**.
+Two cases, and they are **not interchangeable**. Both need the PostgreSQL
+server of step 5; first check that it answers:
+
+```console
+pg_isready -h localhost -p 5432
+```
+
+`accepting connections` is ready. `no response` means it is not running:
+start it with the `start` line of step 5 and check again. If it still says
+`no response` and `netstat -ano | findstr ":5432"` shows the port LISTENING,
+the server was started from a window that has since closed: see
+[runtime-operations.md](runtime-operations.md) (*Troubleshooting*).
 
 ### This collection, on a new machine
 
@@ -349,7 +380,7 @@ It ends `backup proved, in C:\Users\...\OneDrive\coins_backup`. Anything else
 is a failed backup; `logs\backup.log` says why.
 
 **On the new machine**, with steps 1 to 7 done and the PostgreSQL server
-from step 5 still running in its window, and with the same version of the
+from step 5 answering, and with the same version of the
 code as the machine the backup came from (a workbook loads only into a
 database at its own migration revision):
 
@@ -423,8 +454,10 @@ database at its own migration revision):
    pg_ctl -D .pgdata -m fast stop
    ```
 
-Then sign in with an account from the old machine -- the restored database
-holds its own accounts. **Do not run `app.seed`.** If a manager account still
+The restore is then complete: **skip *A trial installation* below** -- its
+`alembic upgrade`, `app.seeding load` and `app.seed` are for an empty
+database, not this one. Sign in with an account from the old machine -- the
+restored database holds its own accounts. **Do not run `app.seed`.** If a manager account still
 has the published password `adminpassword`, change it under **People**
 before the machine is reachable from anywhere else.
 
