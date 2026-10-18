@@ -302,8 +302,23 @@ To restart it after an update:
 
 ## 7. Caddy
 
-Download `caddy.exe` for Windows from caddyserver.com into `C:\caddy`, and
-save this as `C:\caddy\Caddyfile`. Caddy wants forward slashes in Windows
+Caddy is one program, `caddy.exe`. Download it into `C:\caddy` (this is the
+address behind the Windows amd64 button on caddyserver.com's download page,
+which saves the same file as `caddy_windows_amd64.exe`; renamed to
+`caddy.exe`, that one does as well):
+
+```console
+mkdir C:\caddy
+curl -L -o C:\caddy\caddy.exe "https://caddyserver.com/api/download?os=windows&arch=amd64"
+C:\caddy\caddy.exe version
+```
+
+`version` prints a `v2.` version line. Every command here names
+`C:\caddy\caddy.exe` in full: on a machine with
+`NoDefaultCurrentDirectoryInExePath` set, as the development machine has, a
+bare `caddy` is not found even in `C:\caddy`.
+
+Then save this as `C:\caddy\Caddyfile`. Caddy wants forward slashes in Windows
 paths. The two `root` lines name the repository installed in step 2 as
 `C:\Users\wnmil\dev\classobjects-ccwebdb`; installed under another account
 or folder, change them to match. They must be written out: Caddy runs as
@@ -343,23 +358,74 @@ other with the shop's `index.html`, as Vite's development fallback does.
 Given its own certificate, Caddy asks no one else for one; it still answers
 port 80 by sending visitors to `https://`.
 
-Check the file, try it in the foreground, then make it a service:
+The two `tls` lines must name the key file Caddy is really to use, and that
+is the copy to lock down with `icacls` (step 1). Keep one copy of the key in
+`C:\caddy\certs`, not several under different names.
+
+Check the file. It says `Valid configuration`, and that it is skipping
+automatic certificates because the files given are loaded:
 
 ```console
-cd /d C:\caddy
-caddy validate --config Caddyfile
-caddy run --config Caddyfile
+C:\caddy\caddy.exe validate --config C:\caddy\Caddyfile
 ```
 
-Stop it with Ctrl+C once the site answers, then:
+### Caddy as a service
+
+Caddy runs as a Windows service by itself -- no wrapper program -- so that
+it starts with the machine and keeps running when no one is signed in.
+Caddy started by hand in a window (`caddy run`) holds ports 80 and 443 until
+that window closes; stop it with Ctrl+C first, and check that none is left:
+
+```console
+tasklist /fi "imagename eq caddy.exe"
+```
+
+It should say `No tasks are running`. Then, from a cmd window run **as
+administrator** (Start, type `cmd`, right-click *Command Prompt*, *Run as
+administrator*; its title starts `Administrator:`), create the service --
+copy the line rather than retype it:
 
 ```console
 sc.exe create caddy start= auto binPath= "C:\caddy\caddy.exe run --config C:\caddy\Caddyfile"
+```
+
+It prints `[SC] CreateService SUCCESS`. `sc` wants a space after each `=`
+and nothing else there: `start= auto`, exactly; a misspelt value is refused
+as an `Invalid start= field`. Start it and check it:
+
+```console
+sc.exe start caddy
+sc query caddy
+curl -s -o nul -w "%{http_code}\n" https://classobjects.com/
+```
+
+`RUNNING` and `200`. Caddy reads the Caddyfile only when it starts, so after
+changing it or the certificate files, restart the service:
+
+```console
+sc.exe stop caddy
 sc.exe start caddy
 ```
 
-After changing the Caddyfile or the certificate files:
-`caddy reload --config C:\caddy\Caddyfile`.
+**When the service will not start or cannot be created:**
+
+| What it says | What it means |
+|---|---|
+| `StartService FAILED 2: The system cannot find the file specified` | the program named in the service is not there. `sc qc caddy` shows the path it runs (`BINARY_PATH_NAME`); put `caddy.exe` there, or point the service at where it is with `sc.exe config caddy binPath= "..."` |
+| `CreateService FAILED 5: Access is denied` | in a window that is not elevated, that is all it means: open one as administrator. In an elevated one, the name is still held by a service deleted while something had it open -- see below |
+| `CreateService FAILED 1073: The specified service already exists` | `sc.exe delete caddy` first |
+| `FAILED 1072: The specified service has been marked for deletion` | the same held name, said plainly -- see below |
+| copying `caddy.exe` into `C:\caddy` fails with `Access is denied` | the old `caddy.exe` was deleted while still open, and its name is held -- see below |
+
+**Close the Services window before deleting or re-creating a service.** A
+service deleted with `sc.exe delete` while the Services window (or anything
+else) has it open is only *marked* for deletion: it lingers, and its name
+cannot be used again. A `caddy.exe` deleted while a process still has it open
+is held the same way -- gone from `dir`, but its name refused to anything
+that tries to create it. Both clear when whatever holds them lets go; a
+restart always does it. Until then, a service under another name
+(`caddy-web`, say) running a copy of `caddy.exe` from another folder keeps
+the site up.
 
 ## 8. Open the server to the internet
 
@@ -418,7 +484,7 @@ are up; step 9 checks the whole site.
   within it, at no charge, before each one ends. Ahead of each expiry,
   reissue in DigiCert's portal (the request made in step 1 can be used
   again, so the key stays where it is), replace `classobjects.com.pem` and
-  `fullchain.pem` in `C:\caddy\certs`, and `caddy reload`. This comes round
+  `fullchain.pem` in `C:\caddy\certs`, and restart the `caddy` service. This comes round
   about twice a year; the date is in the certificate itself
   (`openssl x509 -in classobjects.com.pem -noout -enddate`).
 - **An update:** `git pull`, `uv sync`, then a schema release as in
