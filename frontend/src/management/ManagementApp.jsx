@@ -56,7 +56,7 @@ function Console() {
       <div className="app console-app">
         <header className="topbar">
           <span className="brand">
-            ccwebdb{/* */}
+            ClassObjects{/* */}
             <span className="brand-sub">Console</span>
           </span>
 

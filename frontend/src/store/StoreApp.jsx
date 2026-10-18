@@ -40,7 +40,7 @@ export default function StoreApp() {
     <div className="app">
       <header className="topbar">
         <Link to="/" className="brand">
-          ccwebdb{/* */}
+          ClassObjects{/* */}
           <span className="brand-sub">Numismatics &amp; Currency</span>
         </Link>
 

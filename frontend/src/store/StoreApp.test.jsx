@@ -35,7 +35,8 @@ function SignsIn({ children }) {
 describe('shop shell', () => {
   it('renders the brand and the public navigation', () => {
     renderWithProviders(<StoreApp />)
-    expect(screen.getByRole('link', { name: /ccwebdb/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^ClassObjects/ })).toBeInTheDocument()
+    expect(screen.queryByText(/ccwebdb/i)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /catalog/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /^cart$/i })).toBeInTheDocument()
   })

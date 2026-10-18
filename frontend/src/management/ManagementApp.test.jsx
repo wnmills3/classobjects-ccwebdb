@@ -80,6 +80,20 @@ describe('management console shell', () => {
   // the api module, and a factory mock here would have to list every export
   // the inventory page touches and would break the moment it touched one
   // more. What the menu holds and how it opens is ConsoleMenu's own test.
+  it('frames the sign-in page like every other page', () => {
+    renderWithProviders(<ManagementApp />, { auth: anonymousAuth(), route: '/login' })
+    const heading = screen.getByRole('heading', { name: 'Sign in' })
+    // `.app` carries the side padding; outside it the form meets the edge.
+    expect(heading.closest('.app')).not.toBeNull()
+    expect(screen.getByRole('banner')).toHaveTextContent(/^ClassObjects\s*Console/)
+  })
+
+  it('names the business in the console header', () => {
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
+    expect(screen.getByRole('banner')).toHaveTextContent(/^ClassObjects\s*Console/)
+    expect(screen.queryByText(/ccwebdb/i)).not.toBeInTheDocument()
+  })
+
   it('renders the console menu for an administrator', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
