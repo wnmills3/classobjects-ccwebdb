@@ -55,6 +55,14 @@ describe('shop shell', () => {
     expect(screen.getByRole('link', { name: /cart \(3\)/i })).toBeInTheDocument()
   })
 
+  it('names the business in the footer, not a development build', () => {
+    renderWithProviders(<StoreApp />)
+    const footer = screen.getByRole('contentinfo')
+    const year = new Date().getFullYear()
+    expect(footer).toHaveTextContent(`© ${year} ClassObjects LLC`)
+    expect(footer).not.toHaveTextContent(/sample data|development build/i)
+  })
+
   it('puts the certificate seal in the footer and loads its script once', () => {
     // StrictMode mounts the shell twice; a second script would draw a second seal.
     renderWithProviders(<StoreApp />, { strict: true })

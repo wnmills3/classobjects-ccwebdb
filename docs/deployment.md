@@ -365,9 +365,3 @@ are up; step 9 checks the whole site.
   `CCWEB_BACKUP_DIR` naming a folder that leaves the machine
   ([system-administration.md](system-administration.md), *Backing up and
   restoring*).
-
-## Not yet done before the public can reach it
-
-This is known and open, and worth settling before the shop is announced:
-
-- the shop footer says "Prices and inventory are sample data".

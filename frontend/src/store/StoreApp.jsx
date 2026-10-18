@@ -87,7 +87,7 @@ export default function StoreApp() {
       </main>
 
       <footer className="footer muted">
-        ccwebdb - development build. Prices and inventory are sample data.
+        &copy; {new Date().getFullYear()} ClassObjects LLC
         <DigiCertSeal />
       </footer>
     </div>
