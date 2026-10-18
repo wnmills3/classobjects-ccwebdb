@@ -29,8 +29,7 @@ Miniforge is conda configured for the `conda-forge` channel only, so there are
 no Anaconda Terms-of-Service prompts.
 
 ```cmd
-winget install --id CondaForge.Miniforge3 --source winget --scope user ^
-  --accept-package-agreements --accept-source-agreements
+winget install --id CondaForge.Miniforge3 --source winget --scope user --accept-package-agreements --accept-source-agreements
 ```
 
 It installs to `%USERPROFILE%\miniforge3`. Make `conda` available to your
@@ -61,8 +60,7 @@ commands you type yourself.
 uv owns Python dependency management for this project.
 
 ```cmd
-winget install --id astral-sh.uv --source winget ^
-  --accept-package-agreements --accept-source-agreements
+winget install --id astral-sh.uv --source winget --accept-package-agreements --accept-source-agreements
 ```
 
 Astral's own installer is a PowerShell script, so winget is the cmd-native
@@ -118,18 +116,23 @@ been pre-releases. `gh` lands in `envs\ccwebdb\Library\bin`, so it is on
 
 Verify, with the environment active:
 
+```cmd
+node --version
+psql --version
+gh --version
 ```
-node --version     -> v24.19.0
-psql --version     -> psql (PostgreSQL) 18.6
-gh --version       -> gh version 2.100.0
-```
+
+They print `v24.19.0`, `psql (PostgreSQL) 18.6` and `gh version 2.100.0`.
 
 ## 5. Create the local database cluster
 
-PostgreSQL runs directly from the conda environment -- no Docker.
+PostgreSQL runs directly from the conda environment -- no Docker. From here on,
+each block of commands starts by changing to the repository, at
+`%USERPROFILE%\dev\classobjects-ccwebdb`, so it can be pasted on its own; change
+that line if you cloned it elsewhere.
 
 ```cmd
-cd /d <repo root>
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 echo devpassword>"%TEMP%\initpw.txt"
 initdb -D .pgdata -U postgres --pwfile="%TEMP%\initpw.txt" --auth-host=scram-sha-256 --encoding=UTF8
 del "%TEMP%\initpw.txt"
@@ -145,6 +148,7 @@ Start the server by hand, then create the application role and database.
 PostgreSQL unless the dependencies of step 7 are installed.
 
 ```cmd
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 pg_ctl -D .pgdata -l logs\postgres-by-hand.log start
 set "PGPASSWORD=devpassword"
 psql -h localhost -U postgres -d postgres -c "CREATE ROLE ccwebdb WITH LOGIN PASSWORD 'devpassword' CREATEDB;"
@@ -163,6 +167,7 @@ starts it.
 ## 6. Configure the application
 
 ```cmd
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 copy .env.example .env
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
@@ -179,7 +184,7 @@ reach the system.
 ## 7. Install dependencies
 
 ```cmd
-cd /d <repo root>
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 uv sync
 cd frontend
 npm install
@@ -209,6 +214,7 @@ the procedure is in [system-administration.md](system-administration.md)
 ### A trial installation, with demo data
 
 ```cmd
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 cd backend
 uv run alembic upgrade head
 uv run python -m app.seeding load
@@ -228,6 +234,7 @@ item other than the five demo ones, and writes nothing, unless
 ## Running the application
 
 ```cmd
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_startup.cmd
 ```
 
@@ -240,9 +247,8 @@ not involved during development.
 
 ## Running the tests
 
-From the repo root:
-
 ```cmd
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 uv run pytest
 cd frontend
 npm test
