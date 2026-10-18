@@ -7,6 +7,13 @@ How to run the system on a server the public can reach as
 `scripts\ccweb_startup.cmd` with Vite serving the frontend; a server runs
 none of that. Every command here is cmd; none is PowerShell.
 
+**On the server, do not use `ccweb_startup.cmd` or `ccweb_shutdown.cmd`
+once step 6 is done.** The shutdown script kills whatever listens on port
+8000 -- there, the live API -- and stops PostgreSQL, taking the site down.
+The startup script finds the API and PostgreSQL already running and leaves
+them, but starts Vite as well, which the server has no use for. The server's
+own controls are under *Keeping it running*.
+
 ## The shape
 
 ```
@@ -58,7 +65,9 @@ openssl req -new -newkey rsa:2048 -nodes -keyout classobjects.com.key -out class
 type classobjects.com.csr
 ```
 
-`openssl` is in the conda environment (`<env>\Library\bin\openssl.exe`).
+`openssl` is in the conda environment
+(`%USERPROFILE%\miniforge3\envs\ccwebdb\Library\bin\openssl.exe`), so run
+these in a window where `conda activate ccwebdb` has been run.
 Ask for `www.classobjects.com` as an additional name in the portal.
 
 **Or export the key from the machine that made the request.** If the
@@ -99,14 +108,42 @@ to 7: Miniforge, the `ccwebdb` conda environment, uv, Node and PostgreSQL in
 the environment, the database cluster, `.env`, and the dependencies.
 
 PostgreSQL on a server has to start with the machine, not from a console.
-Register the cluster as a Windows service once, from an administrator cmd:
+It becomes a Windows service, and a service cannot start while another
+server holds the cluster -- one started by `ccweb_startup.cmd` or by hand in
+environment-setup.md step 5. First stop any that is running (it prints
+`server stopped`, or `Is server running?` when none was):
+
+```console
+conda activate ccwebdb
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+pg_ctl -D .pgdata -m fast stop
+```
+
+Then register the cluster as a service once, from an administrator cmd with
+`conda activate ccwebdb` run in it, and start it:
 
 ```console
 pg_ctl register -N ccwebdb-postgres -D "%USERPROFILE%\dev\classobjects-ccwebdb\.pgdata" -S auto
-sc start ccwebdb-postgres
 ```
 
+```console
+sc start ccwebdb-postgres
+pg_isready -h localhost -p 5432
+```
+
+`pg_isready` says `accepting connections` within a few seconds; run it again
+if it says `no response` at first. `sc qc ccwebdb-postgres` shows what was
+registered. The service runs as `LocalSystem`, which can read a cluster in
+the user's folder, and runs `pg_ctl.exe` from the conda environment by its
+full path: re-creating the `ccwebdb` environment breaks it until the service
+is registered again (`pg_ctl unregister -N ccwebdb-postgres`, then the
+`register` line above).
+
 ## 3. Move the collection across
+
+Skip this step if the collection is already on the server: restored from
+the backup workbook by environment-setup.md step 8 (*This collection, on a
+new machine*), it is complete.
 
 Restore the current collection; never run `app.seed` on the server. On the
 development machine, with nothing writing to the database:
@@ -201,7 +238,11 @@ To restart it after an update:
 ## 7. Caddy
 
 Download `caddy.exe` for Windows from caddyserver.com into `C:\caddy`, and
-save this as `C:\caddy\Caddyfile` (forward slashes in Windows paths):
+save this as `C:\caddy\Caddyfile`. Caddy wants forward slashes in Windows
+paths. The two `root` lines name the repository installed in step 2 as
+`C:\Users\wnmil\dev\classobjects-ccwebdb`; installed under another account
+or folder, change them to match. They must be written out: Caddy runs as
+`SYSTEM`, whose own `USERPROFILE` is not the installing account's.
 
 ```
 classobjects.com {
@@ -213,13 +254,13 @@ classobjects.com {
 	}
 
 	handle /management* {
-		root * <repo>/frontend/dist
+		root * C:/Users/wnmil/dev/classobjects-ccwebdb/frontend/dist
 		try_files {path} /management.html
 		file_server
 	}
 
 	handle {
-		root * <repo>/frontend/dist
+		root * C:/Users/wnmil/dev/classobjects-ccwebdb/frontend/dist
 		try_files {path} /index.html
 		file_server
 	}
@@ -284,6 +325,27 @@ footer (it shows only on the domain the certificate names), and
 `https://classobjects.com/management` signs in.
 
 ## Keeping it running
+
+The server's three parts start with the machine and are controlled on
+their own, never with the `ccweb_` start-up and shut-down scripts. From an
+administrator cmd, stop the site, API first:
+
+```console
+schtasks /end /tn "ccwebdb api"
+sc stop caddy
+sc stop ccwebdb-postgres
+```
+
+Start it again, database first:
+
+```console
+sc start ccwebdb-postgres
+schtasks /run /tn "ccwebdb api"
+sc start caddy
+```
+
+`sc query ccwebdb-postgres` and `sc query caddy` say `RUNNING` when they
+are up; step 9 checks the whole site.
 
 - **The certificate expires on 2027-04-30**, though the purchase covers
   five years. A public certificate may now last no more than 200 days, so a
