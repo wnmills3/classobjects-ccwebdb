@@ -303,10 +303,13 @@ ignored.
 value:
 
 ```console
-cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
-uv run python -c "from app.config import settings; print('settings OK')"
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend && uv run python -c "from app.config import settings; print('settings OK')"
 ```
 
+It must run in the repository's `backend` folder -- anywhere else Python
+answers `No module named 'app'` -- so the change of folder and the check are
+one line. If cmd answers `The system cannot find the path specified`, the
+repository is somewhere else on this machine: change the folder in the line.
 It needs step 7's dependencies, so on a new machine run it after step 7.
 [system-administration.md](system-administration.md) (*Settings*) lists every
 setting -- photographs' folder, allowed web origins and the rest -- and says
