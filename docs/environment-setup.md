@@ -287,29 +287,22 @@ Two cases, and they are **not interchangeable**.
 
 ### This collection, on a new machine
 
-The collection moves as the backup workbook and its photographs, through a
-folder OneDrive keeps on both machines. `%USERPROFILE%\OneDrive\coin_data`
-is the suggested one, and the commands below use it; change them if you
-keep it elsewhere.
+The collection moves as the backup workbook and its photographs, through
+the folder the backup writes to and OneDrive keeps on both machines:
+`%USERPROFILE%\OneDrive\coins_backup`. (A backup kept elsewhere, through
+`CCWEB_BACKUP_DIR` -- see `scripts\ccweb_backup.cmd` -- needs that folder in
+the commands below instead.)
 
-**On the machine that holds the collection**, send the backup there. Once
-is enough -- `setx` keeps it for new windows and for the daily backup:
-
-```console
-setx CCWEB_BACKUP_DIR "%USERPROFILE%\OneDrive\coin_data"
-```
-
-Then, **in a new window** (so the setting is seen), take a backup. It
-writes the workbook `ccwebdb_` and the date and time `.xlsx`, copies the
-photographs into `media`, and proves both against the database before it
-says so:
+**On the machine that holds the collection**, take a backup. It writes the
+workbook `ccwebdb_` and the date and time `.xlsx`, copies the photographs
+into `media`, and proves both against the database before it says so:
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_backup.cmd
 ```
 
-It ends `backup proved, in C:\Users\...\OneDrive\coin_data`. Anything else
+It ends `backup proved, in C:\Users\...\OneDrive\coins_backup`. Anything else
 is a failed backup; `logs\backup.log` says why.
 
 **On the new machine**, with steps 1 to 7 done and the PostgreSQL server
@@ -321,7 +314,7 @@ database at its own migration revision):
    all of `media`. This lists what has arrived:
 
    ```console
-   dir "%USERPROFILE%\OneDrive\coin_data"
+   dir "%USERPROFILE%\OneDrive\coins_backup"
    ```
 
 2. **Make a new database for it and give it the schema.** The import never
@@ -343,7 +336,7 @@ database at its own migration revision):
 
    ```console
    cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
-   for /f "delims=" %F in ('dir /b /od "%USERPROFILE%\OneDrive\coin_data\ccwebdb_*.xlsx"') do @set "WORKBOOK=%USERPROFILE%\OneDrive\coin_data\%F"
+   for /f "delims=" %F in ('dir /b /od "%USERPROFILE%\OneDrive\coins_backup\ccwebdb_*.xlsx"') do @set "WORKBOOK=%USERPROFILE%\OneDrive\coins_backup\%F"
    echo %WORKBOOK%
    uv run python -m app.workbook_backup import "%WORKBOOK%" --to postgresql+psycopg://ccwebdb:devpassword@localhost:5432/ccwebdb_restored
    ```
@@ -367,7 +360,7 @@ database at its own migration revision):
    another), then check every one against its record:
 
    ```console
-   robocopy "%USERPROFILE%\OneDrive\coin_data\media" "%USERPROFILE%\dev\classobjects-ccwebdb\media" /E
+   robocopy "%USERPROFILE%\OneDrive\coins_backup\media" "%USERPROFILE%\dev\classobjects-ccwebdb\media" /E
    ```
 
    ```console
