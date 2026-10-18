@@ -68,6 +68,14 @@ where conda
 winget install --id CondaForge.Miniforge3 --source winget --scope user --accept-package-agreements --accept-source-agreements
 ```
 
+On a machine where it is already installed, winget answers "Found an
+existing package already installed. Trying to upgrade the installed
+package..." and, with nothing newer, "No available upgrade found" and an
+error code (-1978335189, 0x8A15002B). Nothing was changed; it is not a
+failure. When a newer installer exists, though, winget runs
+it as an upgrade -- which is why an installed Miniforge is updated with
+`conda update` above, not installed again.
+
 It installs to `%USERPROFILE%\miniforge3`. Make `conda` available to your
 shells:
 
@@ -77,13 +85,31 @@ shells:
 
 For cmd this adds an AutoRun entry under
 `HKCU\Software\Microsoft\Command Processor` that loads conda's hook in every
-new cmd window. Reverse it with `conda init --reverse cmd.exe bash`. **Open a
+new cmd window. Reverse it with `conda init --reverse cmd.exe bash`. Run
+again, it reports `no change` for what is already set up. **Open a
 new terminal** before continuing.
 
 ## 2. The `ccwebdb` conda environment
 
+First check whether it exists:
+
+```cmd
+if exist "%USERPROFILE%\miniforge3\envs\ccwebdb\python.exe" (echo The ccwebdb environment exists: skip creating it) else (echo No ccwebdb environment yet: create it below)
+```
+
+If it does not, create it:
+
 ```cmd
 conda create -n ccwebdb python=3.13
+```
+
+**If conda asks to remove an existing environment, answer `n`.** It asks
+that when `ccwebdb` already exists, and `y` deletes the environment with
+everything installed in it.
+
+Then, either way:
+
+```cmd
 conda activate ccwebdb
 ```
 
@@ -95,9 +121,23 @@ commands you type yourself.
 
 uv owns Python dependency management for this project.
 
+Check first whether it is installed; this prints its version if it is:
+
+```cmd
+uv --version
+```
+
+If cmd says `uv` is not recognized, install it:
+
 ```cmd
 winget install --id astral-sh.uv --source winget --accept-package-agreements --accept-source-agreements
 ```
+
+On a machine where it is already installed, winget answers "Found an
+existing package already installed. Trying to upgrade the installed
+package..." and, with nothing newer, "No available upgrade found" and an
+error code (-1978335189, 0x8A15002B). Nothing was changed; it is not a
+failure.
 
 Astral's own installer is a PowerShell script, so winget is the cmd-native
 route. Update the same way, `winget upgrade astral-sh.uv`.
@@ -167,6 +207,15 @@ each block of commands starts by changing to the repository, at
 `%USERPROFILE%\dev\classobjects-ccwebdb`, so it can be pasted on its own; change
 that line if you cloned it elsewhere.
 
+First check whether the cluster exists:
+
+```cmd
+if exist "%USERPROFILE%\dev\classobjects-ccwebdb\.pgdata\PG_VERSION" (echo The database cluster exists: skip creating it) else (echo No database cluster yet: create it below)
+```
+
+If it does not, create it (`initdb` refuses a `.pgdata` that is not empty,
+so this never overwrites one):
+
 ```cmd
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 echo devpassword>"%TEMP%\initpw.txt"
@@ -193,6 +242,9 @@ psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ccwebdb OWNER ccwe
 
 `CREATEDB` is for the test suite, which creates and drops its own
 `ccwebdb_test` database. On an existing role: `ALTER ROLE ccwebdb CREATEDB;`.
+Run again, the two `CREATE` lines answer `role "ccwebdb" already exists` and
+`database "ccwebdb" already exists`, and change nothing; `pg_ctl` answers
+`another server might be running` when the server is already up.
 
 A server started this way belongs to this window and breaks when the window
 closes ([runtime-operations.md](runtime-operations.md), *Running a service
@@ -204,9 +256,12 @@ starts it.
 
 ```cmd
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
-copy .env.example .env
+if exist .env (echo .env exists: keeping it) else (copy .env.example .env)
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
+
+An existing `.env` is kept: a plain `copy` would ask to overwrite it, and
+the next line pasted would be taken as the answer.
 
 Paste that value into `JWT_SECRET` in `.env`; the API will not start
 without one. Set `FIRST_ADMIN_PASSWORD` to a password of your own, of 12
