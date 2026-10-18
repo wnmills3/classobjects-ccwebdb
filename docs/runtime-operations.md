@@ -39,6 +39,14 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_startup.cmd
 ```
 
+The same, with Vite answering other machines on the local network too (see
+*Opening the console to the local network*):
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_startup.cmd /lan
+```
+
 Stop everything:
 
 ```console
@@ -436,6 +444,53 @@ ports from `netstat`, readiness from `curl`, sleeps from
 `ping -n 2 127.0.0.1 >nul` (`timeout` needs a real console and returns at
 once, with no pause, when stdin is redirected), process trees from
 `taskkill /T`.
+
+---
+
+## Opening the console to the local network
+
+By default Vite answers `127.0.0.1` only, so no other machine can reach it.
+`/lan` (or `--lan` from Git Bash) binds it to `0.0.0.0` instead; the API
+and PostgreSQL stay on this machine, and the browser reaches the API through
+Vite's `/api` proxy as it always does. Sign-in works from another machine:
+the tokens live in that browser.
+
+It applies only when the startup script starts Vite. If Vite is already
+running on loopback, the script says `/lan changed nothing`; stop the
+servers and start again:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_shutdown.cmd /keepdb
+```
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_startup.cmd /lan
+```
+
+At the end it lists an address for each network adapter, such as
+`http://192.168.50.11:5173/management`. The address is `http`, not `https`:
+Vite's dev server has no certificate.
+
+Windows blocks the port from other machines until a firewall rule allows it.
+Once, in a cmd window run as administrator (the script says when the rule is
+missing):
+
+```console
+netsh advfirewall firewall add rule name="ccweb frontend LAN" dir=in action=allow protocol=TCP localport=5173 remoteip=localsubnet
+```
+
+`remoteip=localsubnet` admits only machines on the same network. Never
+forward 5173 on the router: the dev server serves the source tree and is not
+built to face the internet. Reaching the system from outside is
+[deployment.md](deployment.md). To close the port again:
+
+```console
+netsh advfirewall firewall delete rule name="ccweb frontend LAN"
+```
+
+The next start without `/lan` puts Vite back on loopback.
 
 ---
 

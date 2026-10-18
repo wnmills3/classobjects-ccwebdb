@@ -497,7 +497,10 @@ The addresses are in [runtime-operations.md](runtime-operations.md)
 account: on a trial installation, the administrator from `.env`; on a
 restored one, an account from the backup. Vite
 proxies `/api` to port 8000, so the browser talks to one origin and CORS is
-not involved during development.
+not involved during development. To use the console from another machine on
+the same network, start with `.\scripts\ccweb_startup.cmd /lan`;
+[runtime-operations.md](runtime-operations.md) (*Opening the console to the
+local network*) has the firewall rule it needs.
 
 ## Running the tests
 

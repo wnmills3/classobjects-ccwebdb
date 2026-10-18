@@ -7,6 +7,15 @@ rem    1. PostgreSQL   localhost:5432   (pg_ctl, cluster in .pgdata)
 rem    2. FastAPI      127.0.0.1:8000
 rem    3. Vite         127.0.0.1:5173
 rem
+rem  Usage:  scripts\ccweb_startup.cmd         Vite answers this machine only
+rem          scripts\ccweb_startup.cmd /lan    Vite answers the local network too
+rem          scripts\ccweb_startup.cmd --lan   the same; use this from git bash
+rem
+rem  /lan binds Vite to 0.0.0.0 instead of 127.0.0.1. The API and the database
+rem  stay on this machine either way: the browser reaches the API only through
+rem  Vite's /api proxy. Other machines also need the firewall rule printed at
+rem  the end. Vite's dev server is for a home network, never the internet.
+rem
 rem  PIDs are written to .runtime\ccweb.pids for ccweb_shutdown.cmd.
 rem  Logs go to %CCWEB_LOG_DIR% (default .\logs), three files per type of
 rem  at most 1 GB each; logs\README.md lists the files and the settings.
@@ -15,6 +24,22 @@ rem
 rem  Pure cmd - no PowerShell. Uses netstat for PIDs and curl for readiness
 rem  (curl.exe ships with Windows 10 1803 and later).
 rem ---------------------------------------------------------------------------
+
+rem An unrecognised argument is refused, never ignored. Git bash rewrites /lan
+rem into a path such as C:/Program Files/Git/lan, and ignoring that would
+rem start a frontend the caller asked to open to the network on loopback only.
+set "LAN="
+if /I "%~1"=="/lan" set "LAN=1"
+if /I "%~1"=="--lan" set "LAN=1"
+if "%~1"=="" goto :args_ok
+if defined LAN goto :args_ok
+echo ERROR: unrecognised argument: %1
+echo        usage: scripts\ccweb_startup.cmd [/lan ^| --lan]
+echo        from git bash write --lan: bash rewrites /lan into a path
+exit /b 2
+:args_ok
+set "FHOST=127.0.0.1"
+if defined LAN set "FHOST=0.0.0.0"
 
 rem This script lives in scripts\, so the repo root is one level up.
 rem %%~fI resolves the "..\" to a real absolute path with no trailing slash.
@@ -107,9 +132,16 @@ rem --- 3. Vite frontend -----------------------------------------------------
 call :portpid %FPORT% FPID
 if defined FPID (
     echo [3/3] frontend     already running on %FPORT% ^(pid !FPID!^)
+    if defined LAN (
+        netstat -ano -p TCP | findstr /R /C:"0\.0\.0\.0:%FPORT%  *[0-9]" | findstr "LISTENING" >nul
+        if errorlevel 1 (
+            echo       WARNING - it answers this machine only, so /lan changed nothing.
+            echo       Stop it with scripts\ccweb_shutdown.cmd /keepdb, then run this again.
+        )
+    )
 ) else (
     echo [3/3] frontend     starting on %FPORT%...
-    start "ccweb-frontend" /MIN /D "%REPO%\frontend" cmd /c ""%ENVDIR%\node.exe" .\node_modules\vite\bin\vite.js --host 127.0.0.1 --port %FPORT% 2>&1 | "%ENVDIR%\python.exe" "%LOGPIPE%" "%LOGS%\frontend.log""
+    start "ccweb-frontend" /MIN /D "%REPO%\frontend" cmd /c ""%ENVDIR%\node.exe" .\node_modules\vite\bin\vite.js --host %FHOST% --port %FPORT% 2>&1 | "%ENVDIR%\python.exe" "%LOGPIPE%" "%LOGS%\frontend.log""
     call :waiturl "http://127.0.0.1:%FPORT%/" 60
     if errorlevel 1 (
         echo       FAILED - Vite did not answer - see !LOGS!\frontend.log
@@ -141,8 +173,30 @@ echo.
 echo   logs        %LOGS%
 echo   PIDs        .runtime\ccweb.pids
 echo   stop with   scripts\ccweb_shutdown.cmd
+if defined LAN call :lanreport
 echo ============================================
 exit /b 0
+
+rem ---------------------------------------------------------------------------
+rem  :lanreport  - the addresses other machines use, and the firewall rule
+rem
+rem  Every IPv4 address is listed, since a machine with more than one adapter
+rem  has more than one. Adding the rule needs an administrator window, which
+rem  this script does not assume, so it only says whether the rule exists.
+rem ---------------------------------------------------------------------------
+:lanreport
+echo.
+for /f "tokens=2 delims=:" %%A in ('ipconfig ^| findstr /C:"IPv4 Address"') do (
+    for /f "tokens=1" %%B in ("%%A") do echo   network     http://%%B:%FPORT%/management
+)
+netsh advfirewall firewall show rule name="ccweb frontend LAN" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo   firewall    no rule yet; other machines are blocked until, in an
+    echo               administrator window, you run:
+    echo   netsh advfirewall firewall add rule name="ccweb frontend LAN" dir=in action=allow protocol=TCP localport=%FPORT% remoteip=localsubnet
+)
+goto :eof
 
 rem ---------------------------------------------------------------------------
 rem  :portpid <port> <varname>  - PID listening on <port>, empty if none
