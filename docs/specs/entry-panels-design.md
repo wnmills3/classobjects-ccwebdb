@@ -27,7 +27,7 @@ piece is in hand, from Receiving or the item editor
 | Web addresses | A purchase's `source_url` must start with `http://` or `https://` (422 otherwise), the rule Receiving applies when showing it. A seller's `store_url` may also be `mailto:` and a mail address, for a seller reached by mail; a mail address sent alone is stored with `mailto:` in front. |
 | Who sold it? | The vendor is often the marketplace (ebay.com, whatnot.com); the seller on it is a row of its own (`seller`: a unique name and an optional store link) that the purchase names by `seller_id` -- one seller per purchase, since a marketplace order comes from one, and many purchases per seller. |
 | One form for an item | An item is entered in the item editor, the form it is later corrected in: entering and correcting must not differ in what they offer or in what Suggest description writes. The purchase page makes the row and opens the editor on it. |
-| Repeated entry | **Add another like it** starts the next piece from exactly what it shares with the item last opened on the purchase, or its latest (`SHARED_ON_REPEAT` in `AddItem.jsx`, listed under *New item* below). A set's grade, strike type and grade designation are copied too, since a run of sets is bought as one grade. A loose piece's grade, grade designation, serial number, certificate, variety, years, description and piece count are per piece and are entered each time, even when they often repeat. |
+| Repeated entry | **Add another like it** starts the next piece from exactly what it shares with the item last opened on the purchase, or its latest (`SHARED_ON_REPEAT` in `AddItem.jsx`, listed under *New item* below). Grade and strike type are copied, since the pieces of one purchase are mostly of one grade and strike, and a set's grade designation too, since a run of sets is bought as one designation. A loose piece's grade designation, serial number, certificate, variety, years, description and piece count are per piece and are entered each time, even when they often repeat. |
 
 **Tax fields are three-state.** They sit on the purchase, above the item
 form. The tax-rate box starts empty, meaning the configured rate (sent as
@@ -201,11 +201,11 @@ page:
   next from `SHARED_ON_REPEAT` -- kind, title, item cost, shipping, seller's
   item id, listing web
   address, status, storage location (a parcel is put away in one place),
-  country, denomination, series, set form (Proof Set, Mint Set...), grading
-  service, and a note's series year
-  and letter, seal, district, class and signatures or anything else's metal
-  and mint, and a set's grade, strike type and grade designation
-  (`SET_ONLY`) -- and with that item's tax rate and tax-on-shipping setting
+  country, denomination, series, set form (Proof Set, Mint Set...), grade,
+  grading service, and a note's series year
+  and letter, seal, district, class and signatures or anything else's metal,
+  mint, bullion form (Silver Eagle, Goldback...) and strike type, and a
+  set's grade designation (`SET_ONLY`) -- and with that item's tax rate and tax-on-shipping setting
   rather than the purchase-wide ones (`taxOf`), so "No sales tax charged"
   ticked on it stays ticked on the next; then opens it in the editor.
 - **Suggest description** is the editor's: it posts what the form shows to

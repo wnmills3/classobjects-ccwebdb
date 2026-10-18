@@ -7,8 +7,9 @@ import ItemEditDialog from '../inventory/ItemEditDialog'
 //: What the next piece of one purchase shares with the last, copied by "Add
 //: another like it". The pieces entered one after another usually came from
 //: one listing, at one price and one shipping charge, and are put away in one
-//: place; what varies piece to piece -- grade (but a set's, see `SET_ONLY`),
-//: serial, certificate, the years, the description -- is left for the editor.
+//: place, and are mostly of one grade and strike; what varies piece to
+//: piece -- the grade designation (but a set's, see `SET_ONLY`), serial,
+//: certificate, the years, the description -- is left for the editor.
 const SHARED_ON_REPEAT = [
   'item_kind',
   'source_title',
@@ -23,6 +24,8 @@ const SHARED_ON_REPEAT = [
   'series',
   // A run of sets, one Proof Set after another.
   'set_form',
+  // A run of bullion, one Silver Eagle or Goldback after another.
+  'bullion_form',
   'series_year',
   'series_letter',
   'seal_color',
@@ -50,10 +53,10 @@ const NOTE_ONLY = new Set([
   'note_type',
   'signature_combination',
 ])
-const COIN_ONLY = new Set(['metal', 'mint'])
-//: Copied only from a set: a run of sets is bought as one grade (PR69 DCAM
-//: Proof Sets), where loose pieces are graded one by one.
-const SET_ONLY = new Set(['grade', 'strike_type', 'grade_designation'])
+const COIN_ONLY = new Set(['metal', 'mint', 'bullion_form', 'strike_type'])
+//: Copied only from a set: a run of sets is bought as one designation
+//: (PR69 DCAM Proof Sets), where a loose piece's is judged on its own.
+const SET_ONLY = new Set(['grade_designation'])
 
 //: The statuses an item may be entered with; the server refuses any other.
 const ENTRY_STATUSES = new Set(['ordered', 'received'])

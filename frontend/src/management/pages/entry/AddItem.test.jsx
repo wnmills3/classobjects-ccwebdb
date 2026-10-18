@@ -135,8 +135,9 @@ describe('AddItem', () => {
       // One listing, one price and one shipping charge: copied.
       item_cost: '60.00',
       shipping_cost: '4.20',
-      // Per piece: never copied.
+      // The pieces of one purchase are mostly of one grade: copied.
       grade: '65',
+      // Per piece: never copied.
       serial_number: 'PF55577555G',
       description: 'Gem Unc 65 2017A $20 S/N PF55577555G.',
     })
@@ -163,6 +164,7 @@ describe('AddItem', () => {
         signature_combination: 'carranza_mnuchin',
         fed_district: 'F',
         grading_service: 'PMG',
+        grade: '65',
         tax_rate: '0.0635',
         tax_includes_shipping: true,
       }),
@@ -236,7 +238,7 @@ describe('AddItem', () => {
     )
   })
 
-  it("leaves a loose coin's grade, strike and designation for the next piece's own", async () => {
+  it("copies a loose coin's grade and strike, and leaves its designation for the next piece's own", async () => {
     const user = userEvent.setup()
     renderRow({ items: ENTERED })
     api.getInventoryItem.mockResolvedValue({
@@ -253,6 +255,64 @@ describe('AddItem', () => {
         purchase_order_id: 22,
         item_kind: 'coin',
         source_title: 'A dollar',
+        grade: '64',
+        strike_type: 'business',
+        tax_rate: '0.0635',
+        tax_includes_shipping: true,
+      }),
+    )
+  })
+
+  it("copies a bullion piece's bullion form, metal and strike to the next", async () => {
+    const user = userEvent.setup()
+    renderRow({ items: ENTERED })
+    api.getInventoryItem.mockResolvedValue({
+      id: 30,
+      item_kind: 'bullion',
+      source_title: '2024 Silver Eagles',
+      bullion_form: 'silver_eagle',
+      metal: 'silver',
+      strike_type: 'business',
+      grade: '70',
+      // Per piece: never copied.
+      serial_number: 'A123',
+    })
+    await user.click(screen.getByRole('button', { name: 'Add another like CC-000030' }))
+
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenLastCalledWith({
+        purchase_order_id: 22,
+        item_kind: 'bullion',
+        source_title: '2024 Silver Eagles',
+        bullion_form: 'silver_eagle',
+        metal: 'silver',
+        grade: '70',
+        strike_type: 'business',
+        tax_rate: '0.0635',
+        tax_includes_shipping: true,
+      }),
+    )
+  })
+
+  it("copies a note's grade but never a strike, which a note does not have", async () => {
+    const user = userEvent.setup()
+    renderRow({ items: ENTERED })
+    api.getInventoryItem.mockResolvedValue({
+      id: 30,
+      item_kind: 'currency',
+      source_title: '1957 $1 Silver Certificates',
+      grade: '64',
+      strike_type: 'business',
+      bullion_form: 'bill',
+    })
+    await user.click(screen.getByRole('button', { name: 'Add another like CC-000030' }))
+
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenLastCalledWith({
+        purchase_order_id: 22,
+        item_kind: 'currency',
+        source_title: '1957 $1 Silver Certificates',
+        grade: '64',
         tax_rate: '0.0635',
         tax_includes_shipping: true,
       }),
