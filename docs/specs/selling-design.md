@@ -88,7 +88,9 @@ of one.
 coins at the house. `remove_lot` and `cancel` then require a location to
 return them to, and `settle` requires one when any lot is coming back.
 `cancel` and `settle` clear the date once every coin is back; removing one lot
-never does.
+never does. The console asks for that location with the storage-location
+picker (`LocationSelect.jsx`), whose "+ Add a location..." records one not
+yet on file.
 
 **Removing a lot deletes its `auction_lot` row**, so its `lot_number` is free
 again at once; lot numbers and reserves stay editable until the auction

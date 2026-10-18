@@ -43,7 +43,10 @@ carry, which `GET /api/friedberg/signatures` answers from the issue facts.
 
 The console's Vocabularies page (`management/pages/Vocabularies.jsx`) adds
 values and maintains existing ones, for every vocabulary, so none of them
-needs the database edited by hand.
+needs the database edited by hand. Its **Vocabulary** picker lists them by
+name, alphabetically -- the server's `GET /api/reference` gives them in
+dependency order, which no reader can predict -- and the page opens on
+`series`.
 
 | Action | Endpoint | Rule |
 |---|---|---|

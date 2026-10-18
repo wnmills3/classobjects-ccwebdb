@@ -154,7 +154,9 @@ page:
    and sorted by any column from a button in its header (date, newest first,
    until another is chosen; an undated purchase always last; ties newest
    first). A row or
-   its order-number button picks the purchase -- or a new one: vendor (with
+   its order-number button picks the purchase -- or a new one: vendor
+   (`management/VendorField.jsx`, which the Platforms form's purchase source
+   uses too, with
    "+ Add a vendor..." opening an inline web address / name / kind form that
    never submits the outer form; the address is asked first and proposes the
    name from the part of it that is the vendor's own -- the first part of a

@@ -1172,7 +1172,8 @@ a single timed auction) and moves `draft` -> `scheduled` -> [`consigned`] ->
   per-coin shares; unsold and withdrawn lots dissolve and their store listings
   resume.
 - **Cancel**, and removing a lot while the items are at the house, require a
-  return location.
+  return location. That picker, and the settlement grid's, list the storage
+  locations and offer "+ Add a location..." for one not yet recorded.
 
 The `consigned` storage location kind is reference data loaded by
 `python -m app.seeding load`, not by the migration; without it consigning
@@ -1297,7 +1298,7 @@ Classifiers -- grades, mints, denominations, metals and the rest -- are rows
 in reference tables, not free text. Values are added from the dropdown where
 they are needed, or on the **Vocabularies** page
 (`/management/vocabularies`), which also renames, retires, merges and
-reorders them.
+reorders them; its picker lists the vocabularies alphabetically.
 
 - **Add a value...** asks for a label and whatever the vocabulary's values
   need: a denomination's currency, face value and whether it is a coin or a

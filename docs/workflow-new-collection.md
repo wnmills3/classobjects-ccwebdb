@@ -56,7 +56,9 @@ is the account on it. Both can be added inline from their pickers.
 
 Then add the purchase's items with the **New item** row beneath it: a kind
 and a title open each one in the item editor, and "Add another like it"
-starts the next from what items on one order share.
+starts the next from what items on one order share -- the listing, cost,
+where it is kept, its series, set or bullion form, grade and strike among
+them (`docs/specs/entry-panels-design.md`).
 No item is entered outside a purchase: a single buy is a purchase holding one
 item. Each item carries its own item cost and shipping.
 
