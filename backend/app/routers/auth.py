@@ -10,7 +10,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 
 from .. import throttle
-from ..deps import CurrentUser, DbSession
+from ..config import settings
+from ..deps import SHOP_CLOSED, CurrentUser, DbSession
 from ..models import User, UserRole
 from ..schemas import RefreshRequest, TokenPair, UserCreate, UserOut
 from ..security import (
@@ -47,6 +48,10 @@ def register(payload: UserCreate, request: Request, db: DbSession) -> User:
     (`throttle.REGISTRATIONS_BY_ADDRESS`), so the answer can be had for a
     handful of addresses and not for a list.
     """
+    # A closed shop takes no customers: an account would only open the
+    # catalog the coming-soon page is there to keep shut.
+    if not settings.shop_open:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SHOP_CLOSED)
     address = _caller_address(request)
     throttle.REGISTRATIONS_BY_ADDRESS.refuse_if_spent(address)
     throttle.REGISTRATIONS_BY_ADDRESS.record(address)

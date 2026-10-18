@@ -31,6 +31,7 @@ describe("the shop's api object", () => {
       'createOrder',
       'getCatalogItem',
       'getReference',
+      'getShop',
       'listCatalog',
       'listMyOrders',
       'login',

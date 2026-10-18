@@ -163,6 +163,7 @@ are read by the runtime scripts, not by `config.py`; see
 | `JWT_SECRET` | none: required | signs every token; anyone who knows it can mint an admin session. Nothing starts without one, nor with one under 32 characters or one this repository has published (`config.PUBLISHED_SECRETS`). Make one with `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `FIRST_ADMIN_PASSWORD` | none | used only by `python -m app.seed` (`FIRST_ADMIN_EMAIL`, default `admin@example.com`, names the account), which refuses one under 12 characters or one published in this repository (`seed.PUBLISHED_PASSWORDS`). It does not check an account that already exists: change the password of any account still on a development one under **People** |
 | `DATABASE_URL` | local `ccwebdb` with `devpassword` | contains the database password |
+| `SHOP_OPEN` | `true` | `false` until opening day. Closed, a visitor who is not signed in sees only a coming-soon page and sign-in, at every shop address; the API refuses them the catalog (`/api/catalog`, 403 *The shop is not open yet*) and refuses registration, so a listing made ahead of opening cannot be read by someone who skips the page. Signed-in accounts and the console are unaffected. To open the shop, set it to `true` and restart the API; the pages ask `/api/shop` and need no rebuild |
 
 ### Worth reviewing
 

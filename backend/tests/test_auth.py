@@ -36,6 +36,19 @@ def test_register_creates_customer(client: TestClient) -> None:
     assert "password" not in body
 
 
+def test_a_closed_shop_takes_no_registrations(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "shop_open", False)
+    response = client.post(
+        "/api/auth/register",
+        json={"email": "early@example.com", "password": "longenough"},
+    )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "The shop is not open yet"}
+    assert db.query(User).filter(User.email == "early@example.com").count() == 0
+
+
 def test_register_cannot_self_assign_admin(client: TestClient, db: Session) -> None:
     """A caller must not be able to become an admin by passing extra fields."""
     response = client.post(

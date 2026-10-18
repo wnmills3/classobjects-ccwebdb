@@ -427,6 +427,12 @@ class CatalogPage(BaseModel):
     offset: int
 
 
+class ShopStatus(BaseModel):
+    """Whether the public shop is open to callers who are not signed in."""
+
+    open: bool
+
+
 # --------------------------------------------------------------------------
 # Customers
 # --------------------------------------------------------------------------

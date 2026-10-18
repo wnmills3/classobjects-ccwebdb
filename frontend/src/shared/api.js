@@ -307,8 +307,12 @@ export const api = {
   // A catalog entry is a listing plus the inventory item behind it. The
   // id in these paths is the LISTING id -- the item id is carried alongside
   // as inventory_item_id, for the admin views that need it.
+  // Signed in when it can be: a closed shop (SHOP_OPEN=false) serves its
+  // catalog to signed-in accounts only.
   listCatalog: (params = {}) =>
-    send(withQuery('/api/catalog', params, { dropFalse: true }), { auth: false }),
+    send(withQuery('/api/catalog', params, { dropFalse: true })),
+  // Whether the shop is open to visitors who are not signed in.
+  getShop: () => send('/api/shop', { auth: false }),
   // Signed in when it can be: an ended listing is served in full only to an
   // administrator, and answered 410 for anyone else.
   getCatalogItem: (id) => send(`/api/catalog/${id}`),

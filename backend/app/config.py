@@ -65,6 +65,12 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
+    # Whether the public shop is open (SHOP_OPEN). Closed, the catalog
+    # answers signed-in callers only, registration is refused, and the
+    # shop's pages show a coming-soon page to anyone signed out. The
+    # console and every signed-in account are unaffected.
+    shop_open: bool = True
+
     # Seeded administrator, created by `python -m app.seed`. No default
     # password: `seed` refuses to create the account without a strong one.
     first_admin_email: str = "admin@example.com"

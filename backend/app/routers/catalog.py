@@ -22,12 +22,13 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import grades, offering_writes
-from ..deps import DbSession, OptionalUser, is_admin
+from ..config import settings
+from ..deps import DbSession, OptionalUser, is_admin, require_open_shop_or_user
 from ..lot_writes import members_held
 from ..models import (
     Country,
@@ -42,11 +43,26 @@ from ..models import (
     SalesLotItem,
 )
 from ..references import code_to_id, id_to_code
-from ..schemas import CatalogItemOut, CatalogMemberOut, CatalogPage
+from ..schemas import CatalogItemOut, CatalogMemberOut, CatalogPage, ShopStatus
 from ._resolve import found_or_404
 from .images import image_urls
 
-router = APIRouter(prefix="/catalog", tags=["catalog"])
+router = APIRouter(
+    prefix="/catalog",
+    tags=["catalog"],
+    dependencies=[Depends(require_open_shop_or_user)],
+)
+shop_router = APIRouter(prefix="/shop", tags=["catalog"])
+
+
+@shop_router.get("")
+def shop_status() -> ShopStatus:
+    """Whether the shop is open. Public: the shop's pages ask it first.
+
+    Closed, a signed-out visitor is shown a coming-soon page rather than a
+    catalog the API would refuse them.
+    """
+    return ShopStatus(open=settings.shop_open)
 
 
 def _item_loads() -> tuple[Any, ...]:

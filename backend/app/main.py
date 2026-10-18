@@ -52,6 +52,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(catalog.router, prefix=settings.api_prefix)
+app.include_router(catalog.shop_router, prefix=settings.api_prefix)
 app.include_router(images.router, prefix=settings.api_prefix)
 app.include_router(image_links.router, prefix=settings.api_prefix)
 app.include_router(inventory.router, prefix=settings.api_prefix)

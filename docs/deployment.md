@@ -180,6 +180,7 @@ The server's `.env` (template: `.env.example`; every setting is in
 | `DATABASE_URL` | the server's database, with a password that is not `devpassword`: change it first, as below |
 | `MEDIA_ROOT` | the folder the photographs were copied to |
 | `SALES_TAX_RATE`, `SALES_TAX_INCLUDES_SHIPPING` | as on the development machine |
+| `SHOP_OPEN` | `false` until opening day: visitors who are not signed in see a coming-soon page, and the API refuses them the catalog and registration. Set it to `true` and restart the API to open the shop |
 
 `FIRST_ADMIN_EMAIL` and `FIRST_ADMIN_PASSWORD` are read only by `app.seed`,
 which is never run on the server: the restored database already holds its

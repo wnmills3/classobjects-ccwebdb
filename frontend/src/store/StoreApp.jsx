@@ -1,6 +1,8 @@
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 
+import { api } from '../shared/api'
 import { useAuth } from '../shared/auth-context'
+import { useRequest } from '../shared/useRequest'
 import { useCart } from './cart-context'
 import DigiCertSeal from './DigiCertSeal'
 import Cart from './pages/Cart'
@@ -25,24 +27,98 @@ function RequireAuth({ children }) {
   return children
 }
 
+/** The shop's name, which links home on every page, the closed one too. */
+function Brand() {
+  return (
+    <Link to="/" className="brand">
+      ClassObjects{/* */}
+      <span className="brand-sub">Numismatics &amp; Currency</span>
+    </Link>
+  )
+}
+
+/** The footer every page of the shop ends with. */
+function Footer() {
+  return (
+    <footer className="footer muted">
+      &copy; {new Date().getFullYear()} ClassObjects LLC
+      <DigiCertSeal />
+    </footer>
+  )
+}
+
+/** What a signed-out visitor is shown at any address while the shop is closed. */
+function ComingSoon() {
+  return (
+    <section className="narrow">
+      <h1>Coming soon</h1>
+      <p>ClassObjects is getting ready to open its shop of coins and currency.</p>
+      <p className="muted">
+        Have an account? <Link to="/login">Sign in</Link>.
+      </p>
+    </section>
+  )
+}
+
+/**
+ * The shop before opening day (SHOP_OPEN=false), for a visitor who is not
+ * signed in: sign-in and the coming-soon page, and nothing else -- no
+ * catalog, cart or registration, which the API refuses them anyway.
+ */
+function ClosedShop() {
+  return (
+    <div className="app">
+      <header className="topbar">
+        <Brand />
+        <div className="account">
+          <NavLink to="/login">Sign in</NavLink>
+        </div>
+      </header>
+      <main className="content">
+        <Routes>
+          <Route path="/login" element={<Login canRegister={false} />} />
+          <Route path="*" element={<ComingSoon />} />
+        </Routes>
+      </main>
+      <Footer />
+    </div>
+  )
+}
+
 /**
  * The public shop.
  *
  * There is no admin-only branch here and no console route. A visitor who
  * types a console URL gets the same "not found" as any other unknown path:
  * a "privileges are required" answer would tell a stranger the page exists.
+ *
+ * It asks first whether the shop is open. A failed answer is taken as open:
+ * the API enforces the closed shop on its own, so the worst a wrong guess
+ * here can do is show a catalog that then reports the refusal.
  */
 export default function StoreApp() {
-  const { user, logout } = useAuth()
+  const { user, loading, logout } = useAuth()
   const { count } = useCart()
+  const shop = useRequest('shop', () => api.getShop())
+
+  if (loading || (shop.data === undefined && !shop.error)) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <Brand />
+        </header>
+        <main className="content">
+          <p className="muted">Loading...</p>
+        </main>
+      </div>
+    )
+  }
+  if (shop.data?.open === false && !user) return <ClosedShop />
 
   return (
     <div className="app">
       <header className="topbar">
-        <Link to="/" className="brand">
-          ClassObjects{/* */}
-          <span className="brand-sub">Numismatics &amp; Currency</span>
-        </Link>
+        <Brand />
 
         <nav className="nav">
           <NavLink to="/">Catalog</NavLink>
@@ -86,10 +162,7 @@ export default function StoreApp() {
         </Routes>
       </main>
 
-      <footer className="footer muted">
-        &copy; {new Date().getFullYear()} ClassObjects LLC
-        <DigiCertSeal />
-      </footer>
+      <Footer />
     </div>
   )
 }

@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 from app import offering_writes
+from app.config import settings
 from app.models import (
     InventoryItem,
     Listing,
@@ -57,6 +58,53 @@ def test_detail_is_public(client: TestClient, listing: Listing) -> None:
     item = listing.inventory_item
     assert item is not None
     assert response.json()["title"] == item.source_title
+
+
+@pytest.fixture
+def closed_shop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The shop as SHOP_OPEN=false leaves it, before opening day."""
+    monkeypatch.setattr(settings, "shop_open", False)
+
+
+def test_shop_status_says_whether_the_shop_is_open(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert client.get("/api/shop").json() == {"open": True}
+    monkeypatch.setattr(settings, "shop_open", False)
+    assert client.get("/api/shop").json() == {"open": False}
+
+
+@pytest.mark.usefixtures("closed_shop")
+def test_a_closed_shop_shows_a_stranger_no_listing(
+    client: TestClient, listing: Listing
+) -> None:
+    for path in ("/api/catalog", f"/api/catalog/{listing.id}"):
+        response = client.get(path)
+        assert response.status_code == 403, path
+        assert response.json() == {"detail": "The shop is not open yet"}
+        assert str(listing.id) not in response.text
+
+
+@pytest.mark.usefixtures("closed_shop")
+def test_a_closed_shop_still_serves_a_signed_in_account(
+    client: TestClient, listing: Listing, customer_headers: dict[str, str]
+) -> None:
+    listed = client.get("/api/catalog", headers=customer_headers)
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["id"] == listing.id
+    detail = client.get(f"/api/catalog/{listing.id}", headers=customer_headers)
+    assert detail.status_code == 200
+
+
+@pytest.mark.usefixtures("closed_shop")
+def test_a_closed_shop_refuses_a_stale_token_as_signed_out(
+    client: TestClient, listing: Listing
+) -> None:
+    """A bad token is a signed-out caller, not a key to the closed shop."""
+    response = client.get(
+        "/api/catalog", headers={"Authorization": "Bearer not-a-token"}
+    )
+    assert response.status_code == 403
 
 
 def test_detail_404_for_unknown_id(client: TestClient) -> None:

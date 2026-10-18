@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event'
 import { screen } from '@testing-library/react'
 import { useMemo, useState } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../shared/api', () => ({
   api: {
@@ -9,10 +9,12 @@ vi.mock('../shared/api', () => ({
       .fn()
       .mockResolvedValue({ items: [], total: 0, limit: 12, offset: 0 }),
     listMyOrders: vi.fn().mockResolvedValue([]),
+    getShop: vi.fn().mockResolvedValue({ open: true }),
   },
 }))
 
 import StoreApp from './StoreApp'
+import { api } from '../shared/api'
 import { AuthContext } from '../shared/auth-context'
 import {
   adminAuth,
@@ -32,41 +34,52 @@ function SignsIn({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+/**
+ * Render the shop and wait until it has asked whether the shop is open --
+ * until then it shows only "Loading...", and an assertion that something is
+ * absent would pass against that.
+ */
+async function renderShop(ui, options) {
+  const result = renderWithProviders(ui, options)
+  await screen.findByRole('contentinfo')
+  return result
+}
+
 describe('shop shell', () => {
-  it('renders the brand and the public navigation', () => {
-    renderWithProviders(<StoreApp />)
+  it('renders the brand and the public navigation', async () => {
+    await renderShop(<StoreApp />)
     expect(screen.getByRole('link', { name: /^ClassObjects/ })).toBeInTheDocument()
     expect(screen.queryByText(/ccwebdb/i)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /catalog/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /^cart$/i })).toBeInTheDocument()
   })
 
-  it('hides Orders from an anonymous visitor', () => {
-    renderWithProviders(<StoreApp />)
+  it('hides Orders from an anonymous visitor', async () => {
+    await renderShop(<StoreApp />)
     expect(screen.queryByRole('link', { name: /orders/i })).not.toBeInTheDocument()
   })
 
-  it('shows Orders once someone is signed in', () => {
-    renderWithProviders(<StoreApp />, { auth: adminAuth() })
+  it('shows Orders once someone is signed in', async () => {
+    await renderShop(<StoreApp />, { auth: adminAuth() })
     expect(screen.getByRole('link', { name: /orders/i })).toBeInTheDocument()
   })
 
-  it('puts the item count in the cart link only when the cart has something in it', () => {
-    renderWithProviders(<StoreApp />, { cart: emptyCart({ count: 3 }) })
+  it('puts the item count in the cart link only when the cart has something in it', async () => {
+    await renderShop(<StoreApp />, { cart: emptyCart({ count: 3 }) })
     expect(screen.getByRole('link', { name: /cart \(3\)/i })).toBeInTheDocument()
   })
 
-  it('names the business in the footer, not a development build', () => {
-    renderWithProviders(<StoreApp />)
+  it('names the business in the footer, not a development build', async () => {
+    await renderShop(<StoreApp />)
     const footer = screen.getByRole('contentinfo')
     const year = new Date().getFullYear()
     expect(footer).toHaveTextContent(`© ${year} ClassObjects LLC`)
     expect(footer).not.toHaveTextContent(/sample data|development build/i)
   })
 
-  it('puts the certificate seal in the footer and loads its script once', () => {
+  it('puts the certificate seal in the footer and loads its script once', async () => {
     // StrictMode mounts the shell twice; a second script would draw a second seal.
-    renderWithProviders(<StoreApp />, { strict: true })
+    await renderShop(<StoreApp />, { strict: true })
     const footer = screen.getByRole('contentinfo')
     expect(footer.querySelector('#DigiCertClickID_kOj5Uc3j')).not.toBeNull()
     const scripts = document.querySelectorAll(
@@ -79,8 +92,8 @@ describe('shop shell', () => {
     })
   })
 
-  it('offers no console navigation, even to an administrator', () => {
-    renderWithProviders(<StoreApp />, { auth: adminAuth() })
+  it('offers no console navigation, even to an administrator', async () => {
+    await renderShop(<StoreApp />, { auth: adminAuth() })
     expect(screen.queryByRole('link', { name: /manage/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /people/i })).not.toBeInTheDocument()
   })
@@ -89,14 +102,15 @@ describe('shop shell', () => {
     // A guard that sends a visitor to /login without saying where from lands
     // them on the catalog after signing in from a bookmarked /orders.
     const user = userEvent.setup()
-    renderWithProviders(
+    await renderShop(
       <SignsIn>
         <StoreApp />
       </SignsIn>,
       { route: '/orders' },
     )
 
-    await user.type(screen.getByLabelText(/email/i), 'buyer@example.com')
+    // The redirect to sign-in lands a render after the shell itself does.
+    await user.type(await screen.findByLabelText(/email/i), 'buyer@example.com')
     await user.type(screen.getByLabelText(/password/i), 'hunter2')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
 
@@ -112,10 +126,47 @@ describe('shop shell', () => {
   // proves the route is absent rather than merely guarded.
   it.each(['/people', '/inventory/coins'])(
     'does not confirm that %s exists',
-    (route) => {
-      renderWithProviders(<StoreApp />, { auth: adminAuth(), route })
+    async (route) => {
+      await renderShop(<StoreApp />, { auth: adminAuth(), route })
       expect(screen.getByText(/page not found/i)).toBeInTheDocument()
       expect(screen.queryByText(/privileges/i)).not.toBeInTheDocument()
     },
   )
+})
+
+describe('shop before opening day', () => {
+  beforeEach(() => {
+    api.getShop.mockResolvedValue({ open: false })
+    // Earlier tests asked the catalog; nothing here may.
+    api.listCatalog.mockClear()
+  })
+  afterEach(() => {
+    api.getShop.mockResolvedValue({ open: true })
+  })
+
+  it.each(['/', '/cart', '/register', '/coins/1'])(
+    'shows a signed-out visitor only the coming-soon page at %s',
+    async (route) => {
+      await renderShop(<StoreApp />, { route })
+      expect(screen.getByRole('heading', { name: 'Coming soon' })).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /catalog/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /cart/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /register/i })).not.toBeInTheDocument()
+      expect(api.listCatalog).not.toHaveBeenCalled()
+    },
+  )
+
+  it('still lets a visitor sign in, with no offer to register', async () => {
+    await renderShop(<StoreApp />, { route: '/login' })
+    expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+    expect(screen.queryByText(/no account/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a signed-in account the shop as usual', async () => {
+    await renderShop(<StoreApp />, { auth: customerAuth() })
+    expect(screen.getByRole('link', { name: /catalog/i })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Coming soon' }),
+    ).not.toBeInTheDocument()
+  })
 })

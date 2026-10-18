@@ -27,9 +27,19 @@ describe('Catalog', () => {
     expect(screen.getByText('$89.50')).toBeInTheDocument()
   })
 
-  it('says nothing matched rather than showing a blank page', async () => {
+  it('says nothing is for sale, not that filters missed, when none are set', async () => {
     api.listCatalog.mockResolvedValue(page([]))
     renderWithProviders(<Catalog />)
+    expect(await screen.findByText('Nothing is for sale yet.')).toBeInTheDocument()
+    expect(screen.queryByText(/match those filters/)).not.toBeInTheDocument()
+  })
+
+  it('says nothing matched rather than showing a blank page', async () => {
+    const user = userEvent.setup()
+    api.listCatalog.mockResolvedValue(page([]))
+    renderWithProviders(<Catalog />)
+    await screen.findByText('Nothing is for sale yet.')
+    await user.click(screen.getByLabelText(/in stock only/i))
     expect(await screen.findByText('No items match those filters.')).toBeInTheDocument()
   })
 
@@ -49,7 +59,7 @@ describe('Catalog', () => {
     const user = userEvent.setup()
     api.listCatalog.mockResolvedValue(page([]))
     renderWithProviders(<Catalog />)
-    await screen.findByText('No items match those filters.')
+    await screen.findByText('Nothing is for sale yet.')
 
     await user.type(
       screen.getByRole('searchbox', { name: 'Search the catalog' }),

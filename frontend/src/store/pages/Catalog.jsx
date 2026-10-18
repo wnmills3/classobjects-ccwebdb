@@ -103,8 +103,14 @@ export default function Catalog() {
 
       {error && <p className="error">{error}</p>}
       {busy && <p className="muted">Loading...</p>}
-      {!busy && page.items.length === 0 && (
-        <p className="muted">No items match those filters.</p>
+      {!busy && !error && page.items.length === 0 && (
+        <p className="muted">
+          {/* Judged on what the request asked for -- the debounced search,
+              not the box mid-keystroke -- so the message fits the answer. */}
+          {q.trim() || filters.kind || filters.in_stock
+            ? 'No items match those filters.'
+            : 'Nothing is for sale yet.'}
+        </p>
       )}
 
       <div className="grid">

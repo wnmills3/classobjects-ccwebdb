@@ -109,6 +109,21 @@ def get_optional_user(
 OptionalUser = Annotated[User | None, Depends(get_optional_user)]
 
 
+#: What a signed-out caller is told while the shop is closed.
+SHOP_CLOSED = "The shop is not open yet"
+
+
+def require_open_shop_or_user(caller: OptionalUser) -> None:
+    """Refuse a signed-out caller while the shop is closed (`shop_open`).
+
+    The coming-soon page hides the shop from a browser, but the catalog is
+    an API anyone can call: a listing made before opening day must not be
+    readable by a stranger who skips the page.
+    """
+    if not settings.shop_open and caller is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SHOP_CLOSED)
+
+
 def is_admin(user: User | None) -> bool:
     """Whether this caller is a signed-in administrator."""
     return user is not None and user.role is UserRole.manager
