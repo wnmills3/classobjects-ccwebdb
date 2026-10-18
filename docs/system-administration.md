@@ -1481,11 +1481,12 @@ These four lists are not vocabularies, but they grow the same way: a row is
 added inline while something else is being done (a Friedberg number while a
 note is identified, a seller or vendor while a purchase is entered, a storage
 location from the location picker in the item editor or Receiving). **Lists** (`/management/lists`, a tab each, `?tab=` in the
-address) is where a slip made there is corrected
+address) is where a slip made there is corrected, and where a row is
+added ahead of the purchase or item that will use it
 (`docs/specs/list-maintenance-design.md`).
 
 Each tab lists its rows with a search box and how many records use each row.
-**Edit** changes a row in place; **Delete** is offered only for a row nothing
+**Add** opens a form for a new row; **Edit** changes a row in place; **Delete** is offered only for a row nothing
 uses, and the server refuses the rest (every foreign key into these tables is
 `RESTRICT`). A storage location any item has ever been in stays, as part of
 that item's history. A location of kind `consigned` is made by the auction

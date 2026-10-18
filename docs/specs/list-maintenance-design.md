@@ -1,13 +1,14 @@
 # List maintenance
 
 *2026-09-29.* The owner keeps four lists that are not vocabularies -- the
-Friedberg catalog, sellers, vendors and storage locations. Each grows by
-inline entry while something else is being done: a Friedberg number while a
-note is identified, a seller or vendor while a purchase is entered, a
+Friedberg catalog, sellers, vendors and storage locations. Each grows mostly
+by inline entry while something else is being done: a Friedberg number while
+a note is identified, a seller or vendor while a purchase is entered, a
 location while an item is placed. A slip made there -- a Friedberg number
 pasted as `9907-` for `9907-L`, a vendor entered twice -- is corrected or
 pruned on one management-console page, **Lists** (`/management/lists`,
-`pages/Lists.jsx`), for managers only. Vocabularies
+`pages/Lists.jsx`), for managers only, which also adds a row ahead of the
+purchase or item that will use it. Vocabularies
 (`/management/vocabularies`) and sales platforms (`/management/platforms`)
 have their own pages. The page is not called "catalogs": the shop's public
 side is the catalog, and the console never links to it.
@@ -22,6 +23,22 @@ only the fields changed are sent, a blank as null, and the list is read
 again after every write. **Delete** is offered only for a row nothing uses.
 The server refuses the rest too -- every foreign key into these tables is
 `RESTRICT` -- with a 409 saying how many records hold it.
+
+**Add <row>** above the table opens a form for a new row, sent to the
+list's own create route -- the one its inline entry uses -- with the
+fields filled in and the blank ones left out. A refusal is shown with
+the form kept as typed. What a new row is asked for:
+
+| Tab | Asked for | Required |
+|---|---|---|
+| Friedberg numbers | number, description | the number, cleaned and checked as everywhere else |
+| Sellers | name, store link | name |
+| Vendors | name, link (`https://` added to a bare `ebay.com`, as the purchase screen does), kind (none is `unknown`) | name |
+| Storage locations | kind, institution, identifier, notes | kind; never `consigned` or `sold` |
+
+A Friedberg number added here has no type: the type is what a note in
+hand gives it, so a number meant for the lookup is better recorded from
+the note.
 
 | Tab | Shown | Editable | "Uses" counts |
 |---|---|---|---|

@@ -5,15 +5,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../api', () => ({
   api: {
     listFriedbergCatalog: vi.fn(),
+    createFriedbergNumber: vi.fn(),
     updateFriedbergNumber: vi.fn(),
     deleteFriedbergNumber: vi.fn(),
     listSellers: vi.fn(),
+    createSeller: vi.fn(),
     updateSeller: vi.fn(),
     deleteSeller: vi.fn(),
     listVendors: vi.fn(),
+    createVendor: vi.fn(),
     updateVendor: vi.fn(),
     deleteVendor: vi.fn(),
     listStorageLocations: vi.fn(),
+    createStorageLocation: vi.fn(),
     updateStorageLocation: vi.fn(),
     deleteStorageLocation: vi.fn(),
   },
@@ -358,5 +362,126 @@ describe('Lists: sellers, vendors and storage locations', () => {
     await waitFor(() =>
       expect(api.updateStorageLocation).toHaveBeenCalledWith(7, { identifier: '201' }),
     )
+  })
+})
+
+describe('Lists: adding', () => {
+  /** Open the add form on the tab shown, and return it. */
+  async function openAdd(user, noun) {
+    await user.click(await screen.findByRole('button', { name: `Add ${noun}` }))
+    return screen.getByRole('form', { name: `New ${noun}` })
+  }
+
+  it('adds a Friedberg number, checked before it is sent', async () => {
+    const user = userEvent.setup()
+    api.createFriedbergNumber.mockResolvedValue({})
+    open('friedberg')
+    const form = await openAdd(user, 'number')
+
+    await user.type(within(form).getByRole('textbox', { name: 'Number' }), '9928-')
+    await user.click(within(form).getByRole('button', { name: 'Add' }))
+    expect(await screen.findByText(/ends with a hyphen/)).toBeVisible()
+    expect(api.createFriedbergNumber).not.toHaveBeenCalled()
+
+    await user.type(within(form).getByRole('textbox', { name: 'Number' }), 'K')
+    await user.type(
+      within(form).getByRole('textbox', { name: 'Description' }),
+      'Kansas City star',
+    )
+    await user.click(within(form).getByRole('button', { name: 'Add' }))
+    await waitFor(() =>
+      expect(api.createFriedbergNumber).toHaveBeenCalledWith({
+        fr_number: '9928-K',
+        description: 'Kansas City star',
+      }),
+    )
+    // Closed, and the list read again to show what the server kept.
+    await waitFor(() =>
+      expect(screen.queryByRole('form', { name: 'New number' })).toBeNull(),
+    )
+    expect(api.listFriedbergCatalog).toHaveBeenCalledTimes(2)
+  })
+
+  it('adds a seller by name alone, leaving out the link not given', async () => {
+    const user = userEvent.setup()
+    api.createSeller.mockResolvedValue({})
+    open('sellers')
+    const form = await openAdd(user, 'seller')
+
+    await user.click(within(form).getByRole('button', { name: 'Add' }))
+    expect(await screen.findByText('Name cannot be blank.')).toBeVisible()
+    expect(api.createSeller).not.toHaveBeenCalled()
+
+    await user.type(within(form).getByRole('textbox', { name: 'Name' }), ' coin_shop ')
+    await user.click(within(form).getByRole('button', { name: 'Add' }))
+    await waitFor(() =>
+      expect(api.createSeller).toHaveBeenCalledWith({ name: 'coin_shop' }),
+    )
+  })
+
+  it('adds a vendor with its kind, and its address as a web address', async () => {
+    const user = userEvent.setup()
+    api.createVendor.mockResolvedValue({})
+    open('vendors')
+    const form = await openAdd(user, 'vendor')
+
+    await user.type(within(form).getByRole('textbox', { name: 'Name' }), 'apmex.com')
+    await user.type(within(form).getByRole('textbox', { name: 'Link' }), 'apmex.com')
+    await user.selectOptions(
+      within(form).getByRole('combobox', { name: 'Kind' }),
+      'dealer',
+    )
+    await user.click(within(form).getByRole('button', { name: 'Add' }))
+    await waitFor(() =>
+      expect(api.createVendor).toHaveBeenCalledWith({
+        name: 'apmex.com',
+        url: 'https://apmex.com',
+        vendor_kind: 'dealer',
+      }),
+    )
+  })
+
+  it('adds a location only with a kind, and never one the auction code makes', async () => {
+    const user = userEvent.setup()
+    api.createStorageLocation.mockResolvedValue({})
+    open('locations')
+    const form = await openAdd(user, 'location')
+    const kind = within(form).getByRole('combobox', { name: 'Kind' })
+    expect(within(kind).queryByRole('option', { name: 'Consigned' })).toBeNull()
+
+    await user.type(within(form).getByRole('textbox', { name: 'Identifier' }), '12')
+    await user.click(within(form).getByRole('button', { name: 'Add' }))
+    expect(await screen.findByText('Kind cannot be blank.')).toBeVisible()
+    expect(api.createStorageLocation).not.toHaveBeenCalled()
+
+    await user.selectOptions(kind, 'safe_deposit_box')
+    await user.type(
+      within(form).getByRole('textbox', { name: 'Institution' }),
+      'Test Bank',
+    )
+    await user.click(within(form).getByRole('button', { name: 'Add' }))
+    await waitFor(() =>
+      expect(api.createStorageLocation).toHaveBeenCalledWith({
+        kind: 'safe_deposit_box',
+        institution: 'Test Bank',
+        identifier: '12',
+      }),
+    )
+  })
+
+  it('keeps what was typed when the server refuses it, and Cancel sends nothing', async () => {
+    const user = userEvent.setup()
+    api.createVendor.mockRejectedValue(new Error('A vendor named ebay.com exists.'))
+    open('vendors')
+    const form = await openAdd(user, 'vendor')
+    await user.type(within(form).getByRole('textbox', { name: 'Name' }), 'ebay.com')
+    await user.click(within(form).getByRole('button', { name: 'Add' }))
+
+    expect(await screen.findByText('A vendor named ebay.com exists.')).toBeVisible()
+    expect(within(form).getByRole('textbox', { name: 'Name' })).toHaveValue('ebay.com')
+
+    await user.click(within(form).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('form', { name: 'New vendor' })).toBeNull()
+    expect(api.createVendor).toHaveBeenCalledTimes(1)
   })
 })

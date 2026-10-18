@@ -3,16 +3,18 @@ import { useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
 import { frProblem, normalizeFr } from '../friedberg-format'
+import { withScheme } from '../site-name'
 import { useReference } from '../../shared/reference-context'
 
 /**
  * The owner-kept lists that are not vocabularies -- the Friedberg catalog,
- * sellers, vendors and storage locations -- listed, corrected and pruned
- * (`docs/specs/list-maintenance-design.md`).
+ * sellers, vendors and storage locations -- listed, added to, corrected
+ * and pruned (`docs/specs/list-maintenance-design.md`).
  *
- * Each grows by inline entry while something else is being done, and this
- * page is where a slip made there is corrected -- a Friedberg number pasted
- * as `9907-` for `9907-L`. One table serves
+ * Each grows mostly by inline entry while something else is being done,
+ * and this page is where a slip made there is corrected -- a Friedberg
+ * number pasted as `9907-` for `9907-L` -- and where one is added ahead of
+ * the purchase or the item that will use it. One table serves
  * all four, driven by a small description of each (`lists` below): its
  * columns, which of them can be edited, how it is read and written, and how
  * many records use a row -- only a row nothing uses offers Delete, and the
@@ -33,6 +35,18 @@ const TABS = [
   { key: 'vendors', label: 'Vendors' },
   { key: 'locations', label: 'Storage locations' },
 ]
+
+//: A Friedberg number, cleaned and checked as one typed at a lookup is
+//: (`friedberg-format.js`): neither a correction nor a new row may bring a
+//: slip of its own.
+const FR_NUMBER = {
+  key: 'fr_number',
+  label: 'Number',
+  clean: normalizeFr,
+  check: frProblem,
+  required: true,
+}
+const FR_DESCRIPTION = { key: 'description', label: 'Description' }
 
 /** The label `options` gives `code`, or the code itself when it has none. */
 function labelIn(options, code) {
@@ -57,18 +71,38 @@ function typeOf(row) {
 
 /**
  * The description of each list, by tab key, that `CatalogTable` is driven
- * by: how it is read, changed and deleted, what a row is called, how many
- * records use it, the text a search matches, and its columns -- a column
- * with a `field` can be edited. The two kind vocabularies are passed in
+ * by: how it is read, added to, changed and deleted, what a row is called,
+ * how many records use it, the text a search matches, its columns -- a
+ * column with a `field` can be edited -- and `adds`, the fields a new row
+ * is asked for. A field `required` refuses a blank. The two kind
+ * vocabularies are passed in
  * because their labels and pickers come from reference data loaded later.
  */
 function lists(vendorKinds, locationKinds) {
   // Every kind names a row; only the ones made by hand are offered.
   const offeredKinds = locationKinds.filter((entry) => !MADE_ELSEWHERE.has(entry.code))
+  const sellerName = { key: 'name', label: 'Name', required: true }
+  const storeLink = { key: 'store_url', label: 'Store link' }
+  const vendorName = { key: 'name', label: 'Name', required: true }
+  const vendorLink = { key: 'url', label: 'Link' }
+  const vendorKind = { key: 'vendor_kind', label: 'Kind', options: vendorKinds }
+  const locationKind = {
+    key: 'kind',
+    label: 'Kind',
+    options: offeredKinds,
+    required: true,
+  }
+  const institution = { key: 'institution', label: 'Institution' }
+  const identifier = { key: 'identifier', label: 'Identifier' }
+  const notes = { key: 'notes', label: 'Notes' }
   return {
     friedberg: {
       noun: 'number',
       load: api.listFriedbergCatalog,
+      // A number alone is a row the server takes: the note's type is
+      // learnt when a note in hand is matched to it.
+      create: api.createFriedbergNumber,
+      adds: [FR_NUMBER, FR_DESCRIPTION],
       update: api.updateFriedbergNumber,
       remove: api.deleteFriedbergNumber,
       name: (row) => row.fr_number,
@@ -80,20 +114,13 @@ function lists(vendorKinds, locationKinds) {
         {
           label: 'Number',
           value: (row) => <span className="mono">{row.fr_number}</span>,
-          // Cleaned and checked as a new number is (`friedberg-format.js`):
-          // a correction must not bring a slip of its own.
-          field: {
-            key: 'fr_number',
-            label: 'Number',
-            clean: normalizeFr,
-            check: frProblem,
-          },
+          field: FR_NUMBER,
         },
         { label: 'Type', value: typeOf },
         {
           label: 'Description',
           value: (row) => row.description ?? '',
-          field: { key: 'description', label: 'Description' },
+          field: FR_DESCRIPTION,
         },
         { label: 'Status', value: (row) => (row.verified ? 'confirmed' : 'proposed') },
       ],
@@ -113,6 +140,8 @@ function lists(vendorKinds, locationKinds) {
     sellers: {
       noun: 'seller',
       load: api.listSellers,
+      create: api.createSeller,
+      adds: [sellerName, storeLink],
       update: api.updateSeller,
       remove: api.deleteSeller,
       name: (row) => row.name,
@@ -123,18 +152,22 @@ function lists(vendorKinds, locationKinds) {
         {
           label: 'Name',
           value: (row) => row.name,
-          field: { key: 'name', label: 'Name' },
+          field: sellerName,
         },
         {
           label: 'Store',
           value: (row) => row.store_url ?? '',
-          field: { key: 'store_url', label: 'Store link' },
+          field: storeLink,
         },
       ],
     },
     vendors: {
       noun: 'vendor',
       load: api.listVendors,
+      // The address as the purchase screen's vendor form sends it: the
+      // server takes only an http(s) one, and `ebay.com` is meant as one.
+      create: (body) => api.createVendor({ ...body, url: withScheme(body.url) }),
+      adds: [vendorName, vendorLink, vendorKind],
       update: api.updateVendor,
       remove: api.deleteVendor,
       name: (row) => row.name,
@@ -145,23 +178,25 @@ function lists(vendorKinds, locationKinds) {
         {
           label: 'Name',
           value: (row) => row.name,
-          field: { key: 'name', label: 'Name' },
+          field: vendorName,
         },
         {
           label: 'Link',
           value: (row) => row.url ?? '',
-          field: { key: 'url', label: 'Link' },
+          field: vendorLink,
         },
         {
           label: 'Kind',
           value: (row) => labelIn(vendorKinds, row.vendor_kind),
-          field: { key: 'vendor_kind', label: 'Kind', options: vendorKinds },
+          field: vendorKind,
         },
       ],
     },
     locations: {
       noun: 'location',
       load: api.listStorageLocations,
+      create: api.createStorageLocation,
+      adds: [locationKind, institution, identifier, notes],
       update: api.updateStorageLocation,
       remove: api.deleteStorageLocation,
       name: (row) => row.label,
@@ -177,22 +212,22 @@ function lists(vendorKinds, locationKinds) {
         {
           label: 'Kind',
           value: (row) => labelIn(locationKinds, row.kind),
-          field: { key: 'kind', label: 'Kind', options: offeredKinds },
+          field: locationKind,
         },
         {
           label: 'Institution',
           value: (row) => row.institution ?? '',
-          field: { key: 'institution', label: 'Institution' },
+          field: institution,
         },
         {
           label: 'Identifier',
           value: (row) => row.identifier ?? '',
-          field: { key: 'identifier', label: 'Identifier' },
+          field: identifier,
         },
         {
           label: 'Notes',
           value: (row) => row.notes ?? '',
-          field: { key: 'notes', label: 'Notes' },
+          field: notes,
         },
       ],
     },
@@ -234,22 +269,24 @@ export default function Lists() {
 
 /**
  * Why `value`, typed and cleaned for `field`, cannot be saved, or nothing
- * when it can: the field's own check, and a name left blank.
+ * when it can: the field's own check, and a required field left blank.
  */
 function refusalOf(field, value) {
   const problem = field.check?.(value)
   if (problem) return problem
   // A name sent as null is left as it was by the server, which would read
-  // here as a save that took.
-  if (value === '' && field.key === 'name') return `${field.label} cannot be blank.`
+  // here as a save that took; a new row without one is refused.
+  if (value === '' && field.required) return `${field.label} cannot be blank.`
   return null
 }
 
 /**
- * One catalog's rows: search, edit in place, and delete what nothing uses.
+ * One catalog's rows: search, add, edit in place, and delete what nothing
+ * uses.
  *
- * An edit sends only the fields changed, blank as null, and the list is read
- * again after every write -- what is shown is what the server kept.
+ * An edit sends only the fields changed, blank as null; a new row sends the
+ * fields filled in. The list is read again after every write -- what is
+ * shown is what the server kept.
  */
 function CatalogTable({ config }) {
   const [rows, setRows] = useState(null)
@@ -258,6 +295,8 @@ function CatalogTable({ config }) {
   const [editing, setEditing] = useState(null)
   const [draft, setDraft] = useState({})
   const [deleting, setDeleting] = useState(null)
+  //: The new row being typed, by field key; null while no add is open.
+  const [adding, setAdding] = useState(null)
   const { load } = config
 
   const reload = useCallback(() => {
@@ -278,6 +317,7 @@ function CatalogTable({ config }) {
       setEditing(null)
       setDraft({})
       setDeleting(null)
+      setAdding(null)
       reload()
     } catch (err) {
       setError(err.message)
@@ -309,6 +349,22 @@ function CatalogTable({ config }) {
     change(row, body)
   }
 
+  function add(e) {
+    e.preventDefault()
+    const body = {}
+    for (const field of config.adds) {
+      const typed = adding[field.key] ?? ''
+      const value = field.clean ? field.clean(typed) : typed.trim()
+      const problem = refusalOf(field, value)
+      if (problem) {
+        setError(problem)
+        return
+      }
+      if (value !== '') body[field.key] = value
+    }
+    write(() => config.create(body))
+  }
+
   if (rows === null) return <p className="muted">Loading...</p>
 
   const needle = search.trim().toLowerCase()
@@ -327,6 +383,44 @@ function CatalogTable({ config }) {
           onChange={(e) => setSearch(e.target.value)}
         />
       </label>
+      {adding === null ? (
+        <button
+          type="button"
+          onClick={() => {
+            setAdding({})
+            setEditing(null)
+            setDeleting(null)
+            setError('')
+          }}
+        >
+          Add {config.noun}
+        </button>
+      ) : (
+        <form className="row" aria-label={`New ${config.noun}`} onSubmit={add}>
+          {config.adds.map((field) => (
+            <label key={field.key}>
+              {field.label}
+              {/* */}
+              <Field
+                field={field}
+                value={adding[field.key] ?? ''}
+                onChange={(value) => setAdding({ ...adding, [field.key]: value })}
+              />
+            </label>
+          ))}
+          <button type="submit">Add</button>
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              setAdding(null)
+              setError('')
+            }}
+          >
+            Cancel
+          </button>
+        </form>
+      )}
       {error && <p className="error">{error}</p>}
       {shown.length === 0 ? (
         <p className="muted">
@@ -411,6 +505,7 @@ function CatalogTable({ config }) {
                                 setEditing(row.id)
                                 setDraft({})
                                 setDeleting(null)
+                                setAdding(null)
                               }}
                             >
                               Edit
