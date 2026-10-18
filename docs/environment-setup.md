@@ -530,38 +530,28 @@ Two suites worth knowing about:
 
 ---
 
-## Daily workflow
+## Changing the code
 
-Starting, stopping and checking the runtime, and the quality gate, are in
+**Setup is finished at step 8; nothing in this section is part of it.** It
+is for someone changing the program. Starting, stopping and checking the
+runtime, and the quality gate, are in
 [runtime-operations.md](runtime-operations.md) (*Quick reference*).
 
-Add a Python dependency, with its name in place of `PACKAGE`:
+These commands need a name only the person making the change knows, so
+they are written here as text rather than as commands to copy. A stand-in
+word is no protection: `package` is a real, long-dead package on PyPI, and
+`uv add PACKAGE` tries to install it.
 
-```console
-cd /d %USERPROFILE%\dev\classobjects-ccwebdb
-uv add PACKAGE
-```
-
-Add a dev-only dependency:
-
-```console
-cd /d %USERPROFILE%\dev\classobjects-ccwebdb
-uv add --dev PACKAGE
-```
-
-Add a JS dependency:
-
-```console
-cd /d %USERPROFILE%\dev\classobjects-ccwebdb\frontend
-npm install PACKAGE
-```
-
-Make a new migration, with what it changes in place of `DESCRIPTION`:
-
-```console
-cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
-uv run alembic revision --autogenerate -m "DESCRIPTION"
-```
+- **A Python dependency:** in the repository folder, `uv add` followed by
+  its name. A dependency only the tests and tools need: `uv add --dev`
+  followed by its name. Both change `pyproject.toml` and `uv.lock`, which
+  are committed.
+- **A JavaScript dependency:** in `frontend`, `npm install` followed by its
+  name. It changes `package.json` and `package-lock.json`.
+- **A migration:** in `backend`, `uv run alembic revision --autogenerate -m`
+  followed by a short description of the change, in quotes. It writes a new
+  file under `backend\alembic\versions`, to be read and corrected before it
+  is committed.
 
 A migration reaches the live database only through the release procedure in
 [system-administration.md](system-administration.md) (*Applying a schema
