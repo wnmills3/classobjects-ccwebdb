@@ -1,7 +1,9 @@
 import userEvent from '@testing-library/user-event'
 import { screen } from '@testing-library/react'
 import { useMemo, useState } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+
+const SEAL_SCRIPT = 'https://seal.digicert.com/seals/cascade/seal.min.js'
 
 vi.mock('../shared/api', () => ({
   api: {
@@ -77,14 +79,28 @@ describe('shop shell', () => {
     expect(footer).not.toHaveTextContent(/sample data|development build/i)
   })
 
+  it('shows no seal and loads no script when no seal is configured', async () => {
+    // A script left by another test would make "none loaded" meaningless.
+    document.querySelectorAll(`script[src="${SEAL_SCRIPT}"]`).forEach((s) => s.remove())
+    vi.stubEnv('VITE_DIGICERT_SEAL_ID', '')
+    try {
+      await renderShop(<StoreApp />)
+      const footer = screen.getByRole('contentinfo')
+      expect(footer.querySelector('[id^="DigiCertClickID_"]')).toBeNull()
+      expect(document.querySelectorAll(`script[src="${SEAL_SCRIPT}"]`)).toHaveLength(0)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('puts the certificate seal in the footer and loads its script once', async () => {
+    vi.stubEnv('VITE_DIGICERT_SEAL_ID', 'kOj5Uc3j')
+    onTestFinished(() => vi.unstubAllEnvs())
     // StrictMode mounts the shell twice; a second script would draw a second seal.
     await renderShop(<StoreApp />, { strict: true })
     const footer = screen.getByRole('contentinfo')
     expect(footer.querySelector('#DigiCertClickID_kOj5Uc3j')).not.toBeNull()
-    const scripts = document.querySelectorAll(
-      'script[src="https://seal.digicert.com/seals/cascade/seal.min.js"]',
-    )
+    const scripts = document.querySelectorAll(`script[src="${SEAL_SCRIPT}"]`)
     expect(scripts).toHaveLength(1)
     expect(window.__dcid).toContainEqual({
       cid: 'DigiCertClickID_kOj5Uc3j',
