@@ -41,6 +41,7 @@ _ccweb_testdb_main() {
     . "$here/ccweb_env.sh" || return 2
     . "$here/ccweb_settings.sh" --include-password || return 2
     local data="$CCWEB_TEST_DB_CLUSTER_DIR" port="$CCWEB_TEST_DB_PORT"
+    local host="$CCWEB_TEST_DB_HOST"
     # The superuser's password is the application role's: one password for
     # a cluster that holds nothing but test databases.
     export PGPASSWORD="$CCWEB_TEST_DB_PASSWORD"
@@ -48,7 +49,7 @@ _ccweb_testdb_main() {
     . "$here/ccweb_logdir.sh"
     mkdir -p "$LOGS"
 
-    ready() { "$PGBIN/pg_isready" -h localhost -p "$port" -U postgres -d postgres >/dev/null 2>&1; }
+    ready() { "$PGBIN/pg_isready" -h "$host" -p "$port" -U postgres -d postgres >/dev/null 2>&1; }
 
     case "$mode" in
         stop)
@@ -60,9 +61,9 @@ _ccweb_testdb_main() {
             if [ ! -f "$data/PG_VERSION" ]; then
                 echo "Test cluster   not created  (./scripts/ccweb_testdb.sh creates it)"
             elif ready; then
-                echo "Test cluster   localhost:$port   RUNNING"
+                echo "Test cluster   $host:$port   RUNNING"
             else
-                echo "Test cluster   localhost:$port   stopped"
+                echo "Test cluster   $host:$port   stopped"
             fi
             return 0
             ;;
@@ -104,7 +105,7 @@ _ccweb_testdb_main() {
         if [ -n "$created" ]; then
             # The application role, as in the collection's cluster: allowed to
             # create databases, not a superuser.
-            if ! "$PGBIN/psql" -h localhost -p "$port" -U postgres -d postgres -q -v ON_ERROR_STOP=1 \
+            if ! "$PGBIN/psql" -h "$host" -p "$port" -U postgres -d postgres -q -v ON_ERROR_STOP=1 \
                 -c "CREATE ROLE $CCWEB_TEST_DB_USER WITH LOGIN PASSWORD '$PGPASSWORD' CREATEDB;"; then
                 echo "ERROR: could not create the $CCWEB_TEST_DB_USER role in the test cluster"
                 return 1
@@ -116,7 +117,7 @@ _ccweb_testdb_main() {
         printf '%s\n' "$CCWEB_TEST_DB_URL" >&3
         return 0
     fi
-    echo "Test cluster RUNNING on localhost:$port ($data)"
+    echo "Test cluster RUNNING on $host:$port ($data)"
     echo "ccweb_check.sh uses it by itself. For pytest on its own, first run:"
     echo "    export TEST_DATABASE_URL='$CCWEB_TEST_DB_URL'"
     return 0

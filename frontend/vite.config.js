@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { sealWarning } from './seal-warning.js'
 
 /**
  * The development server's defaults, shared with the scripts: they read the
@@ -105,8 +106,10 @@ function bundleGraph() {
   }
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const dev = devServerSettings(mode)
+  const warning = sealWarning(command, mode, loadEnv(mode, '..', 'VITE_'))
+  if (warning) console.warn(`\n  WARNING: ${warning}\n`)
   return {
     // The repository's .env, so a VITE_ key there (VITE_DIGICERT_SEAL_ID)
     // reaches the page. Vite passes only VITE_ keys to client code.

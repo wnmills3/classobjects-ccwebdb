@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from subprocess import CompletedProcess
 
 import pytest
 from app.config import Settings
@@ -361,6 +362,121 @@ def test_conda_env_name_read_like_pydantic(tmp_path: Path, dotenv: bytes) -> Non
     ).stdout.strip()
     pydantic = RuntimeSettings(_env_file=env_file).ccweb_conda_env or "ccwebdb"
     assert shown == f"CCWEB_CONDA_ENV={pydantic}"
+
+
+def _run_cmd_probe(tmp_path: Path, body: str, **extra: str) -> CompletedProcess[str]:
+    """Run `body` as a .cmd file, without this shell's CCWEB_ settings."""
+    probe = tmp_path / "probe.cmd"
+    probe.write_bytes(("@echo off\r\n" + body.replace("\n", "\r\n")).encode())
+    environment = {k: v for k, v in os.environ.items() if not k.startswith("CCWEB_")}
+    return subprocess.run(
+        ["cmd", "/d", "/c", str(probe)],
+        capture_output=True,
+        text=True,
+        env={**environment, **extra},
+        check=False,
+    )
+
+
+@windows_only
+def test_ccweb_settings_cmd_writes_no_file(tmp_path: Path) -> None:
+    """The password must not pass through a file, even a temporary one."""
+    nowhere = tmp_path / "nowhere"
+    shown = _run_cmd_probe(
+        tmp_path,
+        f'call "{SCRIPTS}\\ccweb_env.cmd" >nul || exit /b 9\n'
+        f'set "TEMP={nowhere}"\n'
+        f'set "TMP={nowhere}"\n'
+        f'call "{SCRIPTS}\\ccweb_settings.cmd" --include-password || exit /b 3\n'
+        "echo port=%CCWEB_API_PORT%\n"
+        "if defined CCWEB_DB_PASSWORD echo password=given\n",
+    )
+    assert shown.returncode == 0, shown.stdout + shown.stderr
+    assert re.search(r"^port=\d+$", shown.stdout, re.MULTILINE)
+    assert "password=given" in shown.stdout.splitlines()
+    assert not nowhere.exists()
+
+
+@windows_only
+def test_ccweb_settings_cmd_exits_2_and_sets_nothing_on_a_refusal(
+    tmp_path: Path,
+) -> None:
+    """A refused .env stops the caller; no half of the settings is left set."""
+    shown = _run_cmd_probe(
+        tmp_path,
+        f'call "{SCRIPTS}\\ccweb_env.cmd" >nul || exit /b 9\n'
+        f'call "{SCRIPTS}\\ccweb_settings.cmd"\n'
+        "echo rc=%errorlevel% repo=[%CCWEB_REPO%] port=[%CCWEB_API_PORT%]\n",
+        CCWEB_API_PORT="80a",
+    )
+    assert "rc=2 repo=[] port=[80a]" in shown.stdout.splitlines()
+    assert "CCWEB_API_PORT" in shown.stderr
+
+
+#: The loopback addresses a script may write itself, and why each is not a
+#: setting: cmd's one-second sleep pings the loopback; a backend bound to
+#: every address is asked for on the loopback; pgAdmin runs with no sign-in
+#: and SonarQube holds the source, so both listen on the loopback by design
+#: -- an address .env could move would expose them.
+_LOOPBACK_ALLOWED = re.compile(
+    r"ping -n \d+ 127\.0\.0\.1"
+    r"|0\.0\.0\.0.*127\.0\.0\.1"
+)
+_LOOPBACK_BY_DESIGN = {"ccweb_pgadmin", "ccweb_sonar_scan", "ccweb_sonar_start"}
+
+
+@pytest.mark.parametrize("suffix", [".cmd", ".sh"])
+def test_scripts_write_no_host_of_their_own(suffix: str) -> None:
+    """Every other host comes from the settings, as ports and folders do."""
+    found = [
+        f"{path.name}:{number}: {line.strip()}"
+        for path in sorted(SCRIPTS.glob(f"*{suffix}"))
+        for number, line in _code_lines(path)
+        if re.search(r"127\.0\.0\.1|localhost", line)
+        and not _LOOPBACK_ALLOWED.search(line)
+        and not (path.stem in _LOOPBACK_BY_DESIGN and "localhost" not in line)
+        and not (path.stem == "ccweb_status" and "SonarQube" in line)
+    ]
+    assert found == []
+
+
+@pytest.mark.parametrize("suffix", [".cmd", ".sh"])
+def test_the_development_cluster_starts_on_the_settings_port(suffix: str) -> None:
+    """pg_ctl is told DATABASE_URL's port, not left to postgresql.conf's."""
+    text = (SCRIPTS / f"ccweb_pgstart{suffix}").read_text(encoding="utf-8")
+    assert re.search(r"pg_ctl[^\n]*-o \"-p (%CCWEB_DB_PORT%|\$\d)", text), text
+
+
+@windows_only
+def test_status_cmd_names_the_conda_environment_it_looked_for(
+    tmp_path: Path,
+) -> None:
+    """CCWEB_CONDA_ENV may name another environment; status must say which."""
+    shown = _run_cmd_probe(
+        tmp_path,
+        f'call "{SCRIPTS}\\ccweb_status.cmd"\n',
+        CCWEB_CONDA_ENV="nosuch_env_q",
+    )
+    assert re.search(r"conda nosuch_env_q\s+NOT AVAILABLE", shown.stdout), shown.stdout
+    assert "conda ccwebdb" not in shown.stdout
+
+
+def test_status_sh_names_the_conda_environment_it_looked_for() -> None:
+    """The bash twin says the same."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash here other than WSL's launcher")
+    environment = {k: v for k, v in os.environ.items() if not k.startswith("CCWEB_")}
+    shown = subprocess.run(
+        [bash, (SCRIPTS / "ccweb_status.sh").as_posix()],
+        capture_output=True,
+        text=True,
+        env={**environment, "CCWEB_CONDA_ENV": "nosuch_env_q"},
+        timeout=60,
+        check=False,
+    )
+    assert re.search(r"conda nosuch_env_q\s+NOT AVAILABLE", shown.stdout), shown.stdout
+    assert "conda ccwebdb" not in shown.stdout
 
 
 #: A Markdown link's target: `](target)` or `](target#anchor)`.

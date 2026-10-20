@@ -227,8 +227,9 @@ def assignments(s: RuntimeFields, *, include_password: bool = False) -> dict[str
         "CCWEB_TLS_KEY": s.ccweb_tls_key,
         "CCWEB_SITE_ROOT": str(s.ccweb_site_root),
     }
-    # ccweb_testdb creates the role the test URL signs in as.
+    # ccweb_testdb asks the host and creates the role the test URL names.
     test_url = make_url(values["CCWEB_TEST_DB_URL"])
+    values["CCWEB_TEST_DB_HOST"] = test_url.host or "localhost"
     values["CCWEB_TEST_DB_USER"] = test_url.username or ""
     if include_password:
         values["CCWEB_DB_PASSWORD"] = url.password or ""
@@ -249,7 +250,7 @@ def _cmd_encoding() -> str:
 
 
 def format_cmd(values: dict[str, str], encoding: str = "utf-8") -> str:
-    """`set "NAME=value"` lines, for a .cmd to `call`, all in `encoding`."""
+    """`set "NAME=value"` lines, for a .cmd to run one by one, all in `encoding`."""
     for name, value in values.items():
         if _CMD_UNSAFE.intersection(value):
             raise UnsafeValue(name)

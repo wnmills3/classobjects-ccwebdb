@@ -65,6 +65,7 @@ def test_with_no_env_file_the_values_are_todays_literals(
         "CCWEB_DB_USER": "ccwebdb",
         "CCWEB_TEST_DB_CLUSTER_DIR": str(REPO_ROOT / ".pgdata.test"),
         "CCWEB_TEST_DB_PORT": "5433",
+        "CCWEB_TEST_DB_HOST": "localhost",
         "CCWEB_TEST_DB_USER": "ccwebdb",
         "CCWEB_TEST_DB_URL": (
             "postgresql+psycopg://ccwebdb:devpassword@localhost:5433/ccwebdb_test"
@@ -103,6 +104,15 @@ def test_the_test_clusters_role_comes_from_its_url(bare: pytest.MonkeyPatch) -> 
     assert "CCWEB_TEST_DB_PASSWORD" not in plain
     asked = assignments(defaults(), include_password=True)
     assert asked["CCWEB_TEST_DB_PASSWORD"] == "t3st-pw"
+
+
+def test_the_test_clusters_host_comes_from_its_url(bare: pytest.MonkeyPatch) -> None:
+    """ccweb_testdb asks the host its URL names, not one written in the script."""
+    assert assignments(defaults())["CCWEB_TEST_DB_HOST"] == "localhost"
+    bare.setenv(
+        "TEST_DATABASE_URL", "postgresql+psycopg://tester:pw@127.0.0.1:5433/x_test"
+    )
+    assert assignments(defaults())["CCWEB_TEST_DB_HOST"] == "127.0.0.1"
 
 
 @pytest.mark.parametrize(

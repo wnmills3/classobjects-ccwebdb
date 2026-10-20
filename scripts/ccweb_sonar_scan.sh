@@ -23,7 +23,7 @@ if ! curl -s -f -o /dev/null --max-time 3 "http://127.0.0.1:$SQPORT/api/system/s
 fi
 if [ -z "${SONAR_TOKEN:-}" ]; then
     echo "ERROR: SONAR_TOKEN is not set. Generate one at"
-    echo "       http://localhost:$SQPORT/account/security"
+    echo "       http://127.0.0.1:$SQPORT/account/security"
     echo "       then:  read -rs SONAR_TOKEN && export SONAR_TOKEN"
     exit 1
 fi
@@ -56,5 +56,5 @@ if ! podman run --rm --network sonar-net \
 fi
 
 echo
-echo "Published: http://localhost:$SQPORT/dashboard?id=classobjects-ccwebdb"
+echo "Published: http://127.0.0.1:$SQPORT/dashboard?id=classobjects-ccwebdb"
 exit 0

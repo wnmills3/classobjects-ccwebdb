@@ -30,7 +30,7 @@ if errorlevel 1 (
 
 if "%SONAR_TOKEN%"=="" (
     echo ERROR: SONAR_TOKEN is not set. Generate one at
-    echo        http://localhost:%SQPORT%/account/security
+    echo        http://127.0.0.1:%SQPORT%/account/security
     echo        then:  set "SONAR_TOKEN=squ_..."
     exit /b 1
 )
@@ -91,5 +91,5 @@ if errorlevel 1 (
 
 popd
 echo.
-echo Published: http://localhost:%SQPORT%/dashboard?id=classobjects-ccwebdb
+echo Published: http://127.0.0.1:%SQPORT%/dashboard?id=classobjects-ccwebdb
 exit /b 0

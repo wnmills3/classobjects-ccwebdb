@@ -129,7 +129,8 @@ npm ci
 npm run build
 ```
 
-Set `VITE_DIGICERT_SEAL_ID` before building, or the shop has no seal. Ubuntu
+Set `VITE_DIGICERT_SEAL_ID` before building, or the shop has no seal; the
+build then ends with a `WARNING` naming it. Ubuntu
 makes each home folder readable by its owner alone, so Caddy cannot serve
 `frontend/dist` where it is. Copy it where it can, to `CCWEB_SITE_ROOT`:
 

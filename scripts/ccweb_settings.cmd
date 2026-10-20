@@ -25,20 +25,16 @@ if not defined ENVDIR (
     echo ERROR: ccweb_settings.cmd needs ccweb_env.cmd to have run first
     exit /b 2
 )
-set "CCWEB_SETTINGS_FILE=%TEMP%\ccweb_settings_%RANDOM%%RANDOM%.cmd"
+rem  Each `set "NAME=value"` line Python prints is run as it is read, so the
+rem  values, the password among them, never pass through a file. for /f
+rem  cannot see Python's exit code; a refusal prints nothing on stdout, so
+rem  CCWEB_REPO, emptied first and always printed, says whether it ran.
+set "CCWEB_REPO="
 pushd "%~dp0..\backend"
-"%ENVDIR%\python.exe" -m app.runtime_settings --format cmd %1 >"%CCWEB_SETTINGS_FILE%"
-set "CCWEB_SETTINGS_RC=%errorlevel%"
+for /f "delims=" %%L in ('""%ENVDIR%\python.exe" -m app.runtime_settings --format cmd %1"') do %%L
 popd
-if not "%CCWEB_SETTINGS_RC%"=="0" (
-    del "%CCWEB_SETTINGS_FILE%" >nul 2>&1
-    set "CCWEB_SETTINGS_FILE="
-    set "CCWEB_SETTINGS_RC="
+if not defined CCWEB_REPO (
     echo ERROR: the settings above were refused - fix them in .env
     exit /b 2
 )
-call "%CCWEB_SETTINGS_FILE%"
-del "%CCWEB_SETTINGS_FILE%" >nul 2>&1
-set "CCWEB_SETTINGS_FILE="
-set "CCWEB_SETTINGS_RC="
 exit /b 0

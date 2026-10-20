@@ -296,7 +296,8 @@ npm run build
 
 This writes `frontend\dist`: `index.html`, `management.html`,
 `favicon-lock.png` and `assets\`. The build reads `VITE_DIGICERT_SEAL_ID`
-from `.env`, so set it (step 4) before building, or the shop has no seal.
+from `.env`, so set it (step 4) before building, or the shop has no seal;
+the build then ends with a `WARNING` naming it.
 Build again after every update.
 
 ## 6. Run the API at start-up

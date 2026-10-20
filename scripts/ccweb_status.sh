@@ -36,18 +36,23 @@ echo "  ccwebdb runtime status"
 echo "============================================"
 
 # --- 0. Environment ---------------------------------------------------------
+# Named as ccweb_env.sh reads it, so a failure names the one it looked
+# for, not the default.
+ENVNAME="$(bash "$here/ccweb_env.sh" --read-dotenv)"
+ENVNAME="${ENVNAME#CCWEB_CONDA_ENV=}"
+ENVNAME="${ENVNAME:-ccwebdb}"
 ENVOK=""
 PGBIN=""
 if . "$here/ccweb_env.sh"; then ENVOK=1; fi
 if [ -z "$ENVOK" ]; then
-    echo "  Environment  conda ccwebdb    NOT AVAILABLE"
-    echo "  BLOCKED: the ccwebdb conda environment could not be put in play"
+    echo "  Environment  conda $ENVNAME    NOT AVAILABLE"
+    echo "  BLOCKED: the $ENVNAME conda environment could not be put in play"
     echo "           see docs/environment-setup-linux.md"
     BLOCKED=1
 elif [ "$CCWEB_ENV_STATE" = "already active" ]; then
-    echo "  Environment  conda ccwebdb    active in this shell"
+    echo "  Environment  conda $ENVNAME    active in this shell"
 else
-    echo "  Environment  conda ccwebdb    activated for this check (not active in this shell)"
+    echo "  Environment  conda $ENVNAME    activated for this check (not active in this shell)"
 fi
 
 # Every address and folder below is a setting, read by the environment's

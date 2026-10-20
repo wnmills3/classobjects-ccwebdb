@@ -32,6 +32,7 @@ if /i "%MODE%"=="use" if defined TEST_DATABASE_URL exit /b 0
 call "%~dp0ccweb_env.cmd" || exit /b 2
 call "%~dp0ccweb_settings.cmd" --include-password || exit /b 2
 set "TESTDATA=%CCWEB_TEST_DB_CLUSTER_DIR%"
+set "TESTHOST=%CCWEB_TEST_DB_HOST%"
 set "TESTPORT=%CCWEB_TEST_DB_PORT%"
 set "TESTURL=%CCWEB_TEST_DB_URL%"
 set "TESTUSER=%CCWEB_TEST_DB_USER%"
@@ -50,7 +51,7 @@ echo usage: ccweb_testdb.cmd [start ^| stop ^| status]
 exit /b 2
 
 :start
-"%PGBIN%\pg_isready.exe" -h localhost -p %TESTPORT% -U postgres -d postgres >nul 2>&1
+"%PGBIN%\pg_isready.exe" -h %TESTHOST% -p %TESTPORT% -U postgres -d postgres >nul 2>&1
 if not errorlevel 1 goto ready
 
 set "CREATED="
@@ -76,7 +77,7 @@ start "ccweb-postgres-test" /MIN cmd /c ""%PGBIN%\pg_ctl.exe" -D "%TESTDATA%" -o
 set /a TRIES=0
 :wait
 ping -n 2 127.0.0.1 >nul
-"%PGBIN%\pg_isready.exe" -h localhost -p %TESTPORT% -U postgres -d postgres >nul 2>&1
+"%PGBIN%\pg_isready.exe" -h %TESTHOST% -p %TESTPORT% -U postgres -d postgres >nul 2>&1
 if not errorlevel 1 goto started
 set /a TRIES+=1
 if !TRIES! lss 30 goto wait
@@ -87,7 +88,7 @@ exit /b 1
 rem  The application role, as in the shared cluster: allowed to create
 rem  databases, not a superuser, so the tests meet the same permissions.
 if not defined CREATED goto ready
-"%PGBIN%\psql.exe" -h localhost -p %TESTPORT% -U postgres -d postgres -q -v ON_ERROR_STOP=1 -c "CREATE ROLE %TESTUSER% WITH LOGIN PASSWORD '%PGPASSWORD%' CREATEDB;"
+"%PGBIN%\psql.exe" -h %TESTHOST% -p %TESTPORT% -U postgres -d postgres -q -v ON_ERROR_STOP=1 -c "CREATE ROLE %TESTUSER% WITH LOGIN PASSWORD '%PGPASSWORD%' CREATEDB;"
 if errorlevel 1 (
     echo ERROR: could not create the %TESTUSER% role in the test cluster
     exit /b 1
@@ -99,13 +100,13 @@ endlocal & set "TEST_DATABASE_URL=%TESTURL%"
 exit /b 0
 
 :report
-echo Test cluster RUNNING on localhost:%TESTPORT% (%TESTDATA%)
+echo Test cluster RUNNING on %TESTHOST%:%TESTPORT% (%TESTDATA%)
 echo ccweb_check.cmd uses it by itself. For pytest on its own, first run:
 echo     set "TEST_DATABASE_URL=%TESTURL%"
 exit /b 0
 
 :stop
-"%PGBIN%\pg_isready.exe" -h localhost -p %TESTPORT% -U postgres -d postgres >nul 2>&1
+"%PGBIN%\pg_isready.exe" -h %TESTHOST% -p %TESTPORT% -U postgres -d postgres >nul 2>&1
 if errorlevel 1 (
     echo Test cluster is not running.
     exit /b 0
@@ -118,10 +119,10 @@ if not exist "%TESTDATA%\PG_VERSION" (
     echo Test cluster   not created  ^(.\scripts\ccweb_testdb.cmd creates it^)
     exit /b 0
 )
-"%PGBIN%\pg_isready.exe" -h localhost -p %TESTPORT% -U postgres -d postgres >nul 2>&1
+"%PGBIN%\pg_isready.exe" -h %TESTHOST% -p %TESTPORT% -U postgres -d postgres >nul 2>&1
 if errorlevel 1 (
-    echo Test cluster   localhost:%TESTPORT%   stopped
+    echo Test cluster   %TESTHOST%:%TESTPORT%   stopped
 ) else (
-    echo Test cluster   localhost:%TESTPORT%   RUNNING
+    echo Test cluster   %TESTHOST%:%TESTPORT%   RUNNING
 )
 exit /b 0

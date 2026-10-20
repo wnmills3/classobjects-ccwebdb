@@ -74,6 +74,6 @@ until curl -s --max-time 3 "http://127.0.0.1:$SQPORT/api/system/status" | grep -
 done
 
 echo
-echo "SonarQube is up:  http://localhost:$SQPORT"
+echo "SonarQube is up:  http://127.0.0.1:$SQPORT"
 echo "First login is admin / admin - you will be forced to change it."
 exit 0

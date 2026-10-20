@@ -37,18 +37,22 @@ rem  Put ccwebdb in play the same way ccweb_startup.cmd does, and say whether
 rem  the shell running this already had it. A failure is reported rather than
 rem  fatal: "why can't I start?" is the question this script exists to answer,
 rem  and the rest of the list is still worth seeing.
+rem  Named as ccweb_env.cmd reads it, so a failure names the one it
+rem  looked for, not the default.
+set "ENVNAME=ccwebdb"
+for /f "tokens=1,* delims==" %%A in ('call "%~dp0ccweb_env.cmd" --read-dotenv') do set "ENVNAME=%%B"
 set "ENVOK="
 set "PGBIN="
 call "%~dp0ccweb_env.cmd" && set "ENVOK=1"
 if not defined ENVOK (
-    echo   Environment  conda ccwebdb    NOT AVAILABLE
-    echo   BLOCKED: the ccwebdb conda environment could not be put in play
+    echo   Environment  conda !ENVNAME!    NOT AVAILABLE
+    echo   BLOCKED: the !ENVNAME! conda environment could not be put in play
     echo            see docs\environment-setup-windows.md
     set "BLOCKED=1"
 ) else if /i "!CCWEB_ENV_STATE!"=="already active" (
-    echo   Environment  conda ccwebdb    active in this shell
+    echo   Environment  conda !ENVNAME!    active in this shell
 ) else (
-    echo   Environment  conda ccwebdb    activated for this check ^(not active in this shell^)
+    echo   Environment  conda !ENVNAME!    activated for this check ^(not active in this shell^)
 )
 
 rem  Every address and folder below is a setting, read by the environment's
