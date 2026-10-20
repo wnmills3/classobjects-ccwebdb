@@ -7,7 +7,8 @@
 The repository was written for Windows 11 alone: every script is cmd, every
 documented command is cmd, and the hosting guide builds one particular
 Windows server. The owner wants the same code and the same documentation to
-let anyone develop, test and host the system on **Ubuntu 24.04 LTS**, on a
+let anyone develop, test and host the system on **Ubuntu 26.04 LTS** (the current LTS; 24.04 is
+expected to work but is not tested), on a
 computer of its own or under WSL, starting from a fresh install and without
 ever having seen the Windows setup. The owner may use it that way too.
 
@@ -54,7 +55,7 @@ ever having seen the Windows setup. The owner may use it that way too.
   Windows documents become generic: they describe "a server", "your domain",
   "a backup folder", and use the owner's installation (OneDrive,
   classobjects.com) only as clearly labelled examples.
-- Ubuntu 24.04 LTS; hosting mirrors the Windows layout with systemd.
+- Ubuntu LTS; hosting mirrors the Windows layout with systemd.
 
 ## Design
 
@@ -210,8 +211,8 @@ commands; shared documents for what is the same on both:
   check, psql, backup `/scheduled`, startup/shutdown while the stack can
   run); `runtime_settings --format cmd` with an empty `.env` printing exactly
   today's literals, pinned by a test.
-- **Linux working:** a WSL Ubuntu 24.04 on this computer (installed only
-  with the owner's go-ahead), set up by following `environment-setup-linux.md`
+- **Linux working:** the WSL Ubuntu 26.04 already on this computer,
+  in a fresh home folder or a new distribution if that one is not clean, set up by following `environment-setup-linux.md`
   from nothing as a stranger would, then the gate, the dev stack, the test
   cluster and a scratch-restored collection; hosting checked as far as WSL
   allows (systemd services up, Caddy serving on localhost), the remainder
