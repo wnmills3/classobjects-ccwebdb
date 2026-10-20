@@ -24,19 +24,21 @@ rem  exist, or TEST_DATABASE_URL is already set, "use" changes nothing.
 rem ---------------------------------------------------------------------------
 
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
-set "TESTDATA=%REPO%\.pgdata.test"
-set "TESTPORT=5433"
-set "TESTURL=postgresql+psycopg://ccwebdb:devpassword@localhost:%TESTPORT%/ccwebdb_test"
-set "PGPASSWORD=devpassword"
 
 set "MODE=%~1"
 if "%MODE%"=="" set "MODE=start"
-if /i "%MODE%"=="use" (
-    if defined TEST_DATABASE_URL exit /b 0
-    if not exist "%TESTDATA%\PG_VERSION" exit /b 0
-)
+if /i "%MODE%"=="use" if defined TEST_DATABASE_URL exit /b 0
 
 call "%~dp0ccweb_env.cmd" || exit /b 2
+call "%~dp0ccweb_settings.cmd" --include-password || exit /b 2
+set "TESTDATA=%CCWEB_TEST_DB_CLUSTER_DIR%"
+set "TESTPORT=%CCWEB_TEST_DB_PORT%"
+set "TESTURL=%CCWEB_TEST_DB_URL%"
+set "TESTUSER=%CCWEB_TEST_DB_USER%"
+rem  The superuser's password is the application role's: one password
+rem  for a cluster that holds nothing but test databases.
+set "PGPASSWORD=%CCWEB_TEST_DB_PASSWORD%"
+if /i "%MODE%"=="use" if not exist "%TESTDATA%\PG_VERSION" exit /b 0
 call "%~dp0ccweb_logdir.cmd"
 if not exist "%LOGS%" mkdir "%LOGS%"
 
@@ -56,7 +58,7 @@ if exist "%TESTDATA%\PG_VERSION" goto launch
 echo Creating the test cluster in %TESTDATA%
 set "PWFILE=%TEMP%\ccweb_testdb_pw.txt"
 rem  No space before the redirection: it would end up in the password.
->"%PWFILE%" echo devpassword
+>"%PWFILE%" echo %PGPASSWORD%
 "%PGBIN%\initdb.exe" -D "%TESTDATA%" -U postgres --pwfile="%PWFILE%" --auth-host=scram-sha-256 --auth-local=scram-sha-256 --encoding=UTF8 >"%LOGS%\initdb-test.log" 2>&1
 set "RC=!errorlevel!"
 del "%PWFILE%"
@@ -85,9 +87,9 @@ exit /b 1
 rem  The application role, as in the shared cluster: allowed to create
 rem  databases, not a superuser, so the tests meet the same permissions.
 if not defined CREATED goto ready
-"%PGBIN%\psql.exe" -h localhost -p %TESTPORT% -U postgres -d postgres -q -v ON_ERROR_STOP=1 -c "CREATE ROLE ccwebdb WITH LOGIN PASSWORD 'devpassword' CREATEDB;"
+"%PGBIN%\psql.exe" -h localhost -p %TESTPORT% -U postgres -d postgres -q -v ON_ERROR_STOP=1 -c "CREATE ROLE %TESTUSER% WITH LOGIN PASSWORD '%PGPASSWORD%' CREATEDB;"
 if errorlevel 1 (
-    echo ERROR: could not create the ccwebdb role in the test cluster
+    echo ERROR: could not create the %TESTUSER% role in the test cluster
     exit /b 1
 )
 

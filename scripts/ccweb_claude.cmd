@@ -24,8 +24,6 @@ rem ---------------------------------------------------------------------------
 rem This script lives in scripts\, so the repo root is one level up.
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
 set "ENVNAME=ccwebdb"
-set "PGDATA=%REPO%\.pgdata"
-call "%REPO%\scripts\ccweb_logdir.cmd"
 
 set "CHECKONLY="
 set "SKIPDB="
@@ -50,6 +48,9 @@ rem  finds conda and makes sure USERPROFILE is set, and says why when it cannot.
 rem  %REPO%, not %~dp0: the argument loop above uses a plain `shift`, which
 rem  shifts %0 as well, so by now %~dp0 names the folder of an argument.
 call "%REPO%\scripts\ccweb_env.cmd" || exit /b 1
+call "%REPO%\scripts\ccweb_settings.cmd" || exit /b 1
+set "PGDATA=%CCWEB_DB_CLUSTER_DIR%"
+call "%REPO%\scripts\ccweb_logdir.cmd"
 
 cd /d "%REPO%"
 
@@ -61,16 +62,16 @@ rem --- database -------------------------------------------------------------
 set "DBSTATE=skipped"
 if not defined SKIPDB (
     if not exist "%PGDATA%\PG_VERSION" (
-        set "DBSTATE=no cluster at .pgdata - see docs\environment-setup.md"
+        set "DBSTATE=no cluster at %PGDATA% - see docs\environment-setup.md"
     ) else (
-        "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+        "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
         if errorlevel 1 (
             call "%REPO%\scripts\ccweb_pgstart.cmd"
             if errorlevel 1 (
                 set "DBSTATE=NOT STARTED - postmaster.pid: the other computer may be running it"
             ) else (
                 call :waitpg 60
-                "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+                "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
                 if errorlevel 1 (
                     set "DBSTATE=FAILED TO START - see %LOGS%\postgres.log"
                 ) else (
@@ -130,7 +131,7 @@ rem ---------------------------------------------------------------------------
 :waitpg
 set /a _tries=0
 :waitpg_loop
-"%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+"%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
 if not errorlevel 1 goto :eof
 set /a _tries+=1
 if %_tries% GEQ %~1 goto :eof

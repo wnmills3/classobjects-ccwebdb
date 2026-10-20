@@ -24,10 +24,6 @@ rem ---------------------------------------------------------------------------
 
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
 
-set "PGDATA=%REPO%\.pgdata"
-set "BPORT=8000"
-set "FPORT=5173"
-set "SPORT=9000"
 
 set "DOWN="
 set "BLOCKED="
@@ -55,6 +51,26 @@ if not defined ENVOK (
     echo   Environment  conda ccwebdb    activated for this check ^(not active in this shell^)
 )
 
+rem  Every address and folder below is a setting, read by the environment's
+rem  Python. Without it nothing here knows where to look, so each check says
+rem  UNKNOWN rather than guessing an address. A setting .env gets wrong is a
+rem  blocker of its own: ccweb_settings has printed which one.
+set "SETOK="
+if defined ENVOK call "%~dp0ccweb_settings.cmd" && set "SETOK=1"
+if defined ENVOK if not defined SETOK (
+    echo   BLOCKED: a setting in .env was refused - see the message above
+    set "BLOCKED=1"
+)
+set "WHY=no environment to ask with"
+if defined ENVOK set "WHY=a setting in .env was refused"
+set "PGDATA="
+if defined SETOK (
+    set "PGDATA=%CCWEB_DB_CLUSTER_DIR%"
+    set "BPORT=%CCWEB_API_PORT%"
+    set "FPORT=%CCWEB_FRONTEND_PORT%"
+    set "SPORT=%CCWEB_SONAR_PORT%"
+)
+
 rem --- 1. PostgreSQL --------------------------------------------------------
 rem  pg_isready asks the postmaster, rather than looking for a listening
 rem  socket: a cluster still starting up answers "rejecting connections", and
@@ -62,17 +78,17 @@ rem  that is not the same as being up. Without the environment there is no
 rem  pg_isready to ask, and a failed call looks exactly like "stopped" -- so
 rem  that case says UNKNOWN instead of guessing.
 set "PGUP="
-if defined PGBIN (
-    "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+if defined SETOK (
+    "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
     if not errorlevel 1 set "PGUP=1"
 )
-if not defined PGBIN (
-    echo   PostgreSQL   localhost:5432   UNKNOWN - no environment to ask with
+if not defined SETOK (
+    echo   PostgreSQL   UNKNOWN - !WHY!
     set "DOWN=!DOWN! postgresql"
 ) else if defined PGUP (
-    echo   PostgreSQL   localhost:5432   RUNNING
+    echo   PostgreSQL   %CCWEB_DB_HOST%:%CCWEB_DB_PORT%   RUNNING
 ) else (
-    echo   PostgreSQL   localhost:5432   stopped
+    echo   PostgreSQL   %CCWEB_DB_HOST%:%CCWEB_DB_PORT%   stopped
     set "DOWN=!DOWN! postgresql"
 )
 
@@ -80,37 +96,48 @@ rem --- 2. Backend -----------------------------------------------------------
 rem  /api/reference/item_status is public and reads the database, so a 200
 rem  here means the backend is up AND talking to PostgreSQL. A port held with
 rem  no answer is reported as its own state, not as running.
+if not defined SETOK (
+    echo   Backend      UNKNOWN - !WHY!
+    set "DOWN=!DOWN! backend"
+    goto :frontend
+)
 call :portpid %BPORT% BPID
 set "BOK="
 if defined BPID (
-    curl -s -f -o nul --max-time 5 "http://127.0.0.1:%BPORT%/api/reference/item_status" && set "BOK=1"
+    curl -s -f -o nul --max-time 5 "http://%CCWEB_API_HOST%:%BPORT%/api/reference/item_status" && set "BOK=1"
 )
 if defined BOK (
-    echo   Backend      127.0.0.1:%BPORT%   RUNNING   pid !BPID!
+    echo   Backend      %CCWEB_API_HOST%:%BPORT%   RUNNING   pid !BPID!
 ) else (
     if defined BPID (
-        echo   Backend      127.0.0.1:%BPORT%   LISTENING but not answering   pid !BPID!
+        echo   Backend      %CCWEB_API_HOST%:%BPORT%   LISTENING but not answering   pid !BPID!
         set "DOWN=!DOWN! backend"
     ) else (
-        echo   Backend      127.0.0.1:%BPORT%   stopped
+        echo   Backend      %CCWEB_API_HOST%:%BPORT%   stopped
         set "DOWN=!DOWN! backend"
     )
 )
 
 rem --- 3. Frontend ----------------------------------------------------------
+:frontend
+if not defined SETOK (
+    echo   Frontend     UNKNOWN - !WHY!
+    set "DOWN=!DOWN! frontend"
+    goto :sonar
+)
 call :portpid %FPORT% FPID
 set "FOK="
 if defined FPID (
-    curl -s -f -o nul --max-time 5 "http://127.0.0.1:%FPORT%/management" && set "FOK=1"
+    curl -s -f -o nul --max-time 5 "http://%CCWEB_FRONTEND_HOST%:%FPORT%/management" && set "FOK=1"
 )
 if defined FOK (
-    echo   Frontend     127.0.0.1:%FPORT%   RUNNING   pid !FPID!
+    echo   Frontend     %CCWEB_FRONTEND_HOST%:%FPORT%   RUNNING   pid !FPID!
 ) else (
     if defined FPID (
-        echo   Frontend     127.0.0.1:%FPORT%   LISTENING but not answering   pid !FPID!
+        echo   Frontend     %CCWEB_FRONTEND_HOST%:%FPORT%   LISTENING but not answering   pid !FPID!
         set "DOWN=!DOWN! frontend"
     ) else (
-        echo   Frontend     127.0.0.1:%FPORT%   stopped
+        echo   Frontend     %CCWEB_FRONTEND_HOST%:%FPORT%   stopped
         set "DOWN=!DOWN! frontend"
     )
 )
@@ -119,6 +146,11 @@ rem --- 4. SonarQube (optional) ----------------------------------------------
 rem  Not part of the runtime and never counted as "down": code quality is
 rem  inspected on demand, and reporting it as missing would train the reader
 rem  to ignore this whole list.
+:sonar
+if not defined SETOK (
+    echo   SonarQube    UNKNOWN - !WHY!   ^(optional^)
+    goto :preflight
+)
 call :portpid %SPORT% SPID
 if defined SPID (
     echo   SonarQube    127.0.0.1:%SPORT%   running   pid !SPID!   ^(optional^)
@@ -127,10 +159,11 @@ if defined SPID (
 )
 
 rem --- preflight: things that would make a start fail ------------------------
+:preflight
 rem  Checked only when something is actually down. A missing cluster matters
 rem  when you are about to start PostgreSQL; it is noise when it is running.
 if defined DOWN (
-    if not exist "%PGDATA%\PG_VERSION" (
+    if defined PGDATA if not exist "%PGDATA%\PG_VERSION" (
         echo.
         echo   BLOCKED: no PostgreSQL cluster at !PGDATA!
         echo            see docs\environment-setup.md
@@ -149,9 +182,9 @@ echo.
 if not defined DOWN (
     echo   Everything is up.
     echo.
-    echo     shop     http://127.0.0.1:%FPORT%/
-    echo     console  http://127.0.0.1:%FPORT%/management
-    echo     API docs http://127.0.0.1:%BPORT%/docs
+    echo     shop     http://%CCWEB_FRONTEND_HOST%:%FPORT%/
+    echo     console  http://%CCWEB_FRONTEND_HOST%:%FPORT%/management
+    echo     API docs http://%CCWEB_API_HOST%:%BPORT%/docs
     echo ============================================
     exit /b 0
 )

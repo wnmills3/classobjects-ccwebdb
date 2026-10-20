@@ -18,12 +18,14 @@ setlocal
 rem  Put the ccwebdb conda environment in play and take ENVDIR and PGBIN
 rem  from it, rather than from a guessed path. See ccweb_env.cmd.
 call "%~dp0ccweb_env.cmd" || exit /b 2
+rem  The database the API uses: DATABASE_URL's, from .env.
+call "%~dp0ccweb_settings.cmd" --include-password || exit /b 2
 
-if not defined PGHOST     set "PGHOST=localhost"
-if not defined PGPORT     set "PGPORT=5432"
-if not defined PGDATABASE set "PGDATABASE=ccwebdb"
-if not defined PGUSER     set "PGUSER=ccwebdb"
-if not defined PGPASSWORD set "PGPASSWORD=devpassword"
+if not defined PGHOST     set "PGHOST=%CCWEB_DB_HOST%"
+if not defined PGPORT     set "PGPORT=%CCWEB_DB_PORT%"
+if not defined PGDATABASE set "PGDATABASE=%CCWEB_DB_NAME%"
+if not defined PGUSER     set "PGUSER=%CCWEB_DB_USER%"
+if not defined PGPASSWORD set "PGPASSWORD=%CCWEB_DB_PASSWORD%"
 
 if not exist "%PGBIN%\psql.exe" (
     echo ERROR: psql not found at %PGBIN%

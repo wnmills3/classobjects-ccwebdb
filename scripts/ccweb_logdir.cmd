@@ -2,18 +2,14 @@
 rem ---------------------------------------------------------------------------
 rem  ccweb_logdir.cmd - set LOGS, the directory the runtime writes its logs to.
 rem
-rem  CCWEB_LOG_DIR names it and defaults to .\logs. A relative path is taken
-rem  from the repo root, not from wherever the caller happens to stand, so
-rem  startup and shutdown always agree. LOGS is always absolute, with no
-rem  trailing backslash.
+rem  CCWEB_LOG_DIR names it (default logs, in the repository); ccweb_settings
+rem  has already made it absolute, taking a relative path from the repo root,
+rem  not from wherever the caller happens to stand, so startup and shutdown
+rem  always agree.
 rem
-rem  Called by ccweb_startup.cmd, ccweb_shutdown.cmd, ccweb_claude.cmd and
-rem  ccweb_backup.cmd once REPO is set. No setlocal: setting the caller's
-rem  LOGS is the point.
+rem  Called by ccweb_startup.cmd, ccweb_shutdown.cmd, ccweb_claude.cmd,
+rem  ccweb_backup.cmd and ccweb_testdb.cmd after ccweb_settings.cmd. No
+rem  setlocal: setting the caller's LOGS is the point.
 rem ---------------------------------------------------------------------------
-if not defined CCWEB_LOG_DIR set "CCWEB_LOG_DIR=.\logs"
-pushd "%REPO%"
-for %%I in ("%CCWEB_LOG_DIR%") do set "LOGS=%%~fI"
-popd
-if "%LOGS:~-1%"=="\" if not "%LOGS:~-2,1%"==":" set "LOGS=%LOGS:~0,-1%"
+set "LOGS=%CCWEB_LOG_DIR%"
 exit /b 0

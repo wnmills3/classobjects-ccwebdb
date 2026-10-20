@@ -3,15 +3,18 @@ setlocal EnableExtensions EnableDelayedExpansion
 rem ---------------------------------------------------------------------------
 rem  ccweb_startup.cmd - bring up the ccwebdb development runtime.
 rem
-rem    1. PostgreSQL   localhost:5432   (pg_ctl, cluster in .pgdata)
-rem    2. FastAPI      127.0.0.1:8000
-rem    3. Vite         127.0.0.1:5173
+rem    1. PostgreSQL   (pg_ctl, cluster in CCWEB_DB_CLUSTER_DIR)
+rem    2. FastAPI      CCWEB_API_HOST:CCWEB_API_PORT
+rem    3. Vite         CCWEB_FRONTEND_HOST:CCWEB_FRONTEND_PORT
+rem
+rem  Addresses and folders are settings (.env.example lists them), with
+rem  defaults 127.0.0.1, 8000, 5173 and .pgdata.
 rem
 rem  Usage:  scripts\ccweb_startup.cmd         Vite answers this machine only
 rem          scripts\ccweb_startup.cmd /lan    Vite answers the local network too
 rem          scripts\ccweb_startup.cmd --lan   the same; use this from git bash
 rem
-rem  /lan binds Vite to 0.0.0.0 instead of 127.0.0.1. The API and the database
+rem  /lan binds Vite to 0.0.0.0 instead of CCWEB_FRONTEND_HOST. The API and the database
 rem  stay on this machine either way: the browser reaches the API only through
 rem  Vite's /api proxy. Other machines also need the firewall rule printed at
 rem  the end. Vite's dev server is for a home network, never the internet.
@@ -38,8 +41,6 @@ echo        usage: scripts\ccweb_startup.cmd [/lan ^| --lan]
 echo        from git bash write --lan: bash rewrites /lan into a path
 exit /b 2
 :args_ok
-set "FHOST=127.0.0.1"
-if defined LAN set "FHOST=0.0.0.0"
 
 rem This script lives in scripts\, so the repo root is one level up.
 rem %%~fI resolves the "..\" to a real absolute path with no trailing slash.
@@ -50,7 +51,8 @@ rem  from it, rather than from a guessed path. See ccweb_env.cmd.
 rem  Everything started below inherits it: `start` passes this environment
 rem  on to the consoles it opens.
 call "%~dp0ccweb_env.cmd" || exit /b 2
-set "PGDATA=%REPO%\.pgdata"
+call "%~dp0ccweb_settings.cmd" || exit /b 2
+set "PGDATA=%CCWEB_DB_CLUSTER_DIR%"
 set "RUNTIME=%REPO%\.runtime"
 set "PIDFILE=%RUNTIME%\ccweb.pids"
 call "%~dp0ccweb_logdir.cmd"
@@ -59,8 +61,15 @@ set "LOGPIPE=%REPO%\backend\app\logpipe.py"
 rem  Without this a piped Python holds its output back in a buffer, and
 rem  the backend log would lag behind what the server has done.
 set "PYTHONUNBUFFERED=1"
-set "BPORT=8000"
-set "FPORT=5173"
+set "BHOST=%CCWEB_API_HOST%"
+set "BPORT=%CCWEB_API_PORT%"
+set "FPORT=%CCWEB_FRONTEND_PORT%"
+set "FHOST=%CCWEB_FRONTEND_HOST%"
+if defined LAN set "FHOST=0.0.0.0"
+rem  Where to ask whether Vite answers: its own address, or loopback when
+rem  it listens on every address.
+set "FASK=%FHOST%"
+if "%FASK%"=="0.0.0.0" set "FASK=127.0.0.1"
 
 echo ============================================
 echo   ccwebdb runtime startup
@@ -90,14 +99,14 @@ rem  Started into a console of its own, like the backend and frontend below;
 rem  ccweb_pgstart.cmd says why. Started from the caller's console instead,
 rem  it would break when that console closes -- a tool's shell, say --
 rem  while the backend and frontend kept running.
-"%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+"%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
 if not errorlevel 1 (
     echo [1/3] postgresql   already running
 ) else (
     echo [1/3] postgresql   starting...
     call "%~dp0ccweb_pgstart.cmd" || exit /b 1
     call :waitpg 60
-    "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+    "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
     if errorlevel 1 (
         echo       FAILED - see !LOGS!\postgres.log
         exit /b 1
@@ -112,10 +121,10 @@ if defined BPID (
 ) else (
     echo [2/3] backend      starting on %BPORT%...
     rem  The pipe is inside the quoted part, so the new console runs it.
-    start "ccweb-backend" /MIN /D "%REPO%\backend" cmd /c ""%ENVDIR%\Scripts\uvicorn.exe" app.main:app --host 127.0.0.1 --port %BPORT% 2>&1 | "%ENVDIR%\python.exe" "%LOGPIPE%" "%LOGS%\backend.log""
+    start "ccweb-backend" /MIN /D "%REPO%\backend" cmd /c ""%ENVDIR%\Scripts\uvicorn.exe" app.main:app --host %BHOST% --port %BPORT% 2>&1 | "%ENVDIR%\python.exe" "%LOGPIPE%" "%LOGS%\backend.log""
     rem  A held port is not an answer: a backend that binds and then hangs
     rem  holds 8000 exactly as a healthy one does.
-    call :waiturl "http://127.0.0.1:%BPORT%/health" 60
+    call :waiturl "http://%BHOST%:%BPORT%/health" 60
     if errorlevel 1 (
         echo       FAILED - /health did not answer - see !LOGS!\backend.log
         exit /b 1
@@ -142,7 +151,7 @@ if defined FPID (
 ) else (
     echo [3/3] frontend     starting on %FPORT%...
     start "ccweb-frontend" /MIN /D "%REPO%\frontend" cmd /c ""%ENVDIR%\node.exe" .\node_modules\vite\bin\vite.js --host %FHOST% --port %FPORT% 2>&1 | "%ENVDIR%\python.exe" "%LOGPIPE%" "%LOGS%\frontend.log""
-    call :waiturl "http://127.0.0.1:%FPORT%/" 60
+    call :waiturl "http://%FASK%:%FPORT%/" 60
     if errorlevel 1 (
         echo       FAILED - Vite did not answer - see !LOGS!\frontend.log
         exit /b 1
@@ -163,10 +172,10 @@ rem --- record PIDs ----------------------------------------------------------
 rem --- report ---------------------------------------------------------------
 echo.
 echo ============================================
-echo   UI          http://127.0.0.1:%FPORT%
-echo   API         http://127.0.0.1:%BPORT%
-echo   API docs    http://127.0.0.1:%BPORT%/docs
-echo   database    localhost:5432/ccwebdb
+echo   UI          http://%FASK%:%FPORT%
+echo   API         http://%BHOST%:%BPORT%
+echo   API docs    http://%BHOST%:%BPORT%/docs
+echo   database    %CCWEB_DB_HOST%:%CCWEB_DB_PORT%/%CCWEB_DB_NAME%
 echo.
 echo   sign in     a manager account (FIRST_ADMIN_EMAIL in .env on a trial installation)
 echo.
@@ -233,7 +242,7 @@ rem ---------------------------------------------------------------------------
 :waitpg
 set /a _tries=0
 :waitpg_loop
-"%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+"%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
 if not errorlevel 1 goto :eof
 set /a _tries+=1
 if %_tries% GEQ %~1 goto :eof

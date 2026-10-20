@@ -61,6 +61,7 @@ def test_with_no_env_file_the_values_are_todays_literals(
         "CCWEB_DB_USER": "ccwebdb",
         "CCWEB_TEST_DB_CLUSTER_DIR": str(REPO_ROOT / ".pgdata.test"),
         "CCWEB_TEST_DB_PORT": "5433",
+        "CCWEB_TEST_DB_USER": "ccwebdb",
         "CCWEB_TEST_DB_URL": (
             "postgresql+psycopg://ccwebdb:devpassword@localhost:5433/ccwebdb_test"
         ),
@@ -86,6 +87,18 @@ def test_the_password_is_given_only_when_asked(bare: pytest.MonkeyPatch) -> None
     assert not [name for name, value in plain.items() if "s3cret-pw" in value]
     asked = assignments(defaults(), include_password=True)
     assert asked["CCWEB_DB_PASSWORD"] == "s3cret-pw"
+
+
+def test_the_test_clusters_role_comes_from_its_url(bare: pytest.MonkeyPatch) -> None:
+    """ccweb_testdb creates the role its URL signs in as, not a second copy."""
+    bare.setenv(
+        "TEST_DATABASE_URL", "postgresql+psycopg://tester:t3st-pw@localhost:5433/x_test"
+    )
+    plain = assignments(defaults())
+    assert plain["CCWEB_TEST_DB_USER"] == "tester"
+    assert "CCWEB_TEST_DB_PASSWORD" not in plain
+    asked = assignments(defaults(), include_password=True)
+    assert asked["CCWEB_TEST_DB_PASSWORD"] == "t3st-pw"
 
 
 @pytest.mark.parametrize(

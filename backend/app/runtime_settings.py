@@ -222,8 +222,12 @@ def assignments(s: RuntimeFields, *, include_password: bool = False) -> dict[str
         "CCWEB_TLS_KEY": s.ccweb_tls_key,
         "CCWEB_SITE_ROOT": str(s.ccweb_site_root),
     }
+    # ccweb_testdb creates the role the test URL signs in as.
+    test_url = make_url(values["CCWEB_TEST_DB_URL"])
+    values["CCWEB_TEST_DB_USER"] = test_url.username or ""
     if include_password:
         values["CCWEB_DB_PASSWORD"] = url.password or ""
+        values["CCWEB_TEST_DB_PASSWORD"] = test_url.password or ""
     return values
 
 

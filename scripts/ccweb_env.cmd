@@ -33,8 +33,35 @@ rem  Note: conda's own _conda_activate.bat (conda 26.5.3) runs PowerShell to
 rem  make a GUID for a temp file name. That is upstream, not this project, and
 rem  activation still succeeds without it -- the GUID is simply empty.
 rem
-rem  Exit 0 when ccwebdb is active, 1 when it could not be put in play.
+rem  Which environment, and where conda is, are CCWEB_CONDA_ENV (default
+rem  ccwebdb) and CCWEB_CONDA_ROOT: from the environment when set there,
+rem  otherwise from the repository's .env. They are read here, by cmd,
+rem  because Python is what this script is finding.
+rem
+rem      ccweb_env.cmd --read-dotenv    print the name it would use, and stop
+rem
+rem  Exit 0 when the environment is active, 1 when it could not be put in play.
 rem ---------------------------------------------------------------------------
+
+rem --- which environment, and where conda is ----------------------------------
+rem  Only these two keys are read. As the API's reader does, a line starting
+rem  with # is skipped and one pair of quotes around a value is dropped. The
+rem  _CCWEB_ names are this script's own and are cleared before it returns.
+set "_CCWEB_ENVNAME=%CCWEB_CONDA_ENV%"
+set "_CCWEB_CONDAROOT=%CCWEB_CONDA_ROOT%"
+if exist "%~dp0..\.env" for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%~dp0..\.env") do (
+    if /i "%%A"=="CCWEB_CONDA_ENV" if not defined CCWEB_CONDA_ENV set "_CCWEB_ENVNAME=%%~B"
+    if /i "%%A"=="CCWEB_CONDA_ROOT" if not defined CCWEB_CONDA_ROOT set "_CCWEB_CONDAROOT=%%~B"
+)
+if defined _CCWEB_ENVNAME set "_CCWEB_ENVNAME=%_CCWEB_ENVNAME:'=%"
+if defined _CCWEB_CONDAROOT set "_CCWEB_CONDAROOT=%_CCWEB_CONDAROOT:'=%"
+if not defined _CCWEB_ENVNAME set "_CCWEB_ENVNAME=ccwebdb"
+if /i "%~1"=="--read-dotenv" (
+    echo CCWEB_CONDA_ENV=%_CCWEB_ENVNAME%
+    set "_CCWEB_ENVNAME="
+    set "_CCWEB_CONDAROOT="
+    exit /b 0
+)
 
 rem --- home directory -------------------------------------------------------
 rem  USERPROFILE is used as-is when it names a folder that exists. When it is
@@ -76,32 +103,37 @@ rem  So the claim is accepted only when the first python on PATH is the
 rem  environment's own; otherwise the environment is activated again, which
 rem  rebuilds PATH. A stale variable left by a deleted environment fails too.
 set "CCWEB_ENV_STATE="
-if /i "%CONDA_DEFAULT_ENV%"=="ccwebdb" if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\python.exe" call :ccweb_path_agrees
+if /i "%CONDA_DEFAULT_ENV%"=="%_CCWEB_ENVNAME%" if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\python.exe" call :ccweb_path_agrees
 if defined CCWEB_ENV_STATE goto :ccweb_env_ready
 
 rem --- find conda -----------------------------------------------------------
 rem  CONDA_EXE is set by `conda init` and names conda.exe in <root>\Scripts, so
 rem  condabin sits two levels up. %%~f normalizes the "..\.." away.
 set "CCWEB_CONDABAT="
-if defined CONDA_EXE for %%I in ("%CONDA_EXE%\..\..\condabin\conda.bat") do if exist "%%~fI" set "CCWEB_CONDABAT=%%~fI"
+if defined _CCWEB_CONDAROOT if exist "%_CCWEB_CONDAROOT%\condabin\conda.bat" set "CCWEB_CONDABAT=%_CCWEB_CONDAROOT%\condabin\conda.bat"
+if not defined CCWEB_CONDABAT if defined CONDA_EXE for %%I in ("%CONDA_EXE%\..\..\condabin\conda.bat") do if exist "%%~fI" set "CCWEB_CONDABAT=%%~fI"
 if not defined CCWEB_CONDABAT for /f "delims=" %%I in ('where conda.bat 2^>nul') do if not defined CCWEB_CONDABAT set "CCWEB_CONDABAT=%%I"
 if not defined CCWEB_CONDABAT if exist "%USERPROFILE%\miniforge3\condabin\conda.bat" set "CCWEB_CONDABAT=%USERPROFILE%\miniforge3\condabin\conda.bat"
 if not defined CCWEB_CONDABAT (
     echo ERROR: conda not found
-    echo        looked at CONDA_EXE, conda.bat on PATH, and
+    echo        looked at CCWEB_CONDA_ROOT, CONDA_EXE, conda.bat on PATH, and
     echo        %USERPROFILE%\miniforge3\condabin\conda.bat
     echo        see docs\environment-setup.md
+    set "_CCWEB_ENVNAME="
+    set "_CCWEB_CONDAROOT="
     exit /b 1
 )
 
 rem --- activate -------------------------------------------------------------
 rem  Kept on its own line, outside any parenthesised block: the check below
 rem  must be parsed after activation has run, or it reads the old value.
-call "%CCWEB_CONDABAT%" activate ccwebdb
-if /i not "%CONDA_DEFAULT_ENV%"=="ccwebdb" (
-    echo ERROR: could not activate the ccwebdb conda environment
+call "%CCWEB_CONDABAT%" activate %_CCWEB_ENVNAME%
+if /i not "%CONDA_DEFAULT_ENV%"=="%_CCWEB_ENVNAME%" (
+    echo ERROR: could not activate the %_CCWEB_ENVNAME% conda environment
     echo        CONDA_DEFAULT_ENV is "%CONDA_DEFAULT_ENV%"
-    echo        create it with:  conda create -n ccwebdb python=3.13
+    echo        create it with:  conda create -n %_CCWEB_ENVNAME% python=3.13
+    set "_CCWEB_ENVNAME="
+    set "_CCWEB_CONDAROOT="
     exit /b 1
 )
 set "CCWEB_ENV_STATE=activated"
@@ -109,6 +141,8 @@ set "CCWEB_ENV_STATE=activated"
 :ccweb_env_ready
 set "ENVDIR=%CONDA_PREFIX%"
 set "PGBIN=%ENVDIR%\Library\bin"
+set "_CCWEB_ENVNAME="
+set "_CCWEB_CONDAROOT="
 exit /b 0
 
 rem ---------------------------------------------------------------------------

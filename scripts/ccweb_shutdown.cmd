@@ -7,8 +7,9 @@ rem  Usage:  scripts\ccweb_shutdown.cmd            stop everything
 rem          scripts\ccweb_shutdown.cmd /keepdb    stop the servers, leave PostgreSQL
 rem          scripts\ccweb_shutdown.cmd --keepdb   the same; use this from git bash
 rem
-rem  Stops the servers by recorded PID, then sweeps ports 8000 and 5173 for
-rem  survivors, then stops PostgreSQL with pg_ctl.
+rem  Stops the servers by recorded PID, then sweeps the API and frontend
+rem  ports (CCWEB_API_PORT, CCWEB_FRONTEND_PORT) for survivors, then stops
+rem  PostgreSQL with pg_ctl.
 rem
 rem  PostgreSQL is never killed: a forced stop leaves the cluster needing crash
 rem  recovery. pg_ctl -m fast rolls back open transactions and checkpoints.
@@ -31,10 +32,19 @@ if errorlevel 1 (
     echo          stopped from here; the servers still will be.
     set "PGBIN="
 )
-set "PGDATA=%REPO%\.pgdata"
+rem  Ports and folders are settings, read by the environment's Python.
+rem  Without them the recorded PIDs are still stopped; the port sweep and
+rem  the database are left, since their addresses are not known.
+set "SETOK="
+if defined PGBIN call "%~dp0ccweb_settings.cmd" && set "SETOK=1"
+set "PGDATA="
+set "LOGS="
+if defined SETOK (
+    set "PGDATA=%CCWEB_DB_CLUSTER_DIR%"
+    call "%~dp0ccweb_logdir.cmd"
+)
 set "RUNTIME=%REPO%\.runtime"
 set "PIDFILE=%RUNTIME%\ccweb.pids"
-call "%~dp0ccweb_logdir.cmd"
 
 rem An unrecognised argument is refused, never ignored. Git bash rewrites
 rem /keepdb into a path such as C:/Program Files/Git/keepdb, and ignoring that
@@ -53,7 +63,7 @@ exit /b 2
 rem The log directory must exist before anything redirects into it; otherwise
 rem the redirect fails and the command attached to it never runs at all.
 if not exist "%RUNTIME%" mkdir "%RUNTIME%"
-if not exist "%LOGS%" mkdir "%LOGS%"
+if defined LOGS if not exist "%LOGS%" mkdir "%LOGS%"
 
 echo ============================================
 echo   ccwebdb runtime shutdown
@@ -70,9 +80,13 @@ if exist "%PIDFILE%" (
 )
 
 rem --- 2. sweep the ports ---------------------------------------------------
-echo [2/3] sweeping ports 8000 and 5173...
-call :killport 8000
-call :killport 5173
+if defined SETOK (
+    echo [2/3] sweeping ports %CCWEB_API_PORT% and %CCWEB_FRONTEND_PORT%...
+    call :killport %CCWEB_API_PORT%
+    call :killport %CCWEB_FRONTEND_PORT%
+) else (
+    echo [2/3] port sweep   SKIPPED - without the settings the ports are not known
+)
 
 rem --- 3. PostgreSQL --------------------------------------------------------
 rem  With no environment there is no pg_isready to ask, and a failed call to it
@@ -81,10 +95,13 @@ set "PGSKIP="
 if not defined PGBIN (
     echo [3/3] postgresql   SKIPPED - no ccwebdb environment to stop it with
     set "PGSKIP=1"
+) else if not defined SETOK (
+    echo [3/3] postgresql   SKIPPED - a setting in .env was refused
+    set "PGSKIP=1"
 ) else if defined KEEPDB (
     echo [3/3] postgresql   left running ^(/keepdb^)
 ) else (
-    "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+    "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
     if errorlevel 1 (
         echo [3/3] postgresql   already stopped
     ) else (
@@ -94,7 +111,7 @@ if not defined PGBIN (
         if exist "%ENVDIR%\python.exe" "%ENVDIR%\python.exe" "%REPO%\backend\app\logpipe.py" "%LOGS%\pg_stop.log" --rotate
         "%PGBIN%\pg_ctl.exe" -D "%PGDATA%" -m fast -w stop >"%LOGS%\pg_stop.log" 2>&1
         rem Trust pg_isready over the exit code: a failed redirect can mask it.
-        "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+        "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
         if errorlevel 1 (
             echo       stopped cleanly
         ) else (
@@ -110,7 +127,11 @@ rem --- verify ---------------------------------------------------------------
 echo.
 echo verifying...
 set "PROBLEM="
-for %%P in (8000 5173) do (
+if not defined SETOK (
+    echo   ports     NOT CHECKED - without the settings the ports are not known
+    set "PROBLEM=1"
+)
+if defined SETOK for %%P in (%CCWEB_API_PORT% %CCWEB_FRONTEND_PORT%) do (
     call :portpid %%P HOLDER
     if defined HOLDER (
         echo   port %%P  STILL HELD by pid !HOLDER!
@@ -121,11 +142,11 @@ for %%P in (8000 5173) do (
     set "HOLDER="
 )
 if defined PGSKIP (
-    echo   postgres  NOT CHECKED - no ccwebdb environment
+    echo   postgres  NOT CHECKED - no ccwebdb environment or settings
     set "PROBLEM=1"
     goto :verified
 )
-"%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+"%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
 if errorlevel 1 (
     echo   postgres  stopped
 ) else (
