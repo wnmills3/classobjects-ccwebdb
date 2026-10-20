@@ -101,6 +101,9 @@ class Filt:
     #: is read as a number before it is bound, and one that is not a number
     #: is refused by name rather than handed to the database to reject.
     integer: bool = False
+    #: The column is a date, sent as YYYY-MM-DD, read the same way and for
+    #: the same reason.
+    day: bool = False
 
 
 @dataclass(frozen=True)
@@ -366,6 +369,9 @@ _SHARED_FILTERS: dict[str, Filt] = {
     # Exact: a link naming one order. Its number is neither unique across
     # vendors nor always recorded, so a number match cannot stand in for it.
     "purchase_order_id": Filt("i.purchase_order_id", integer=True),
+    # Orders placed on this day or later: how Receiving narrows to what is
+    # due when no order number is to hand. An order with no date is not one.
+    "ordered_since": Filt("po.ordered_on", "gte", (_J_PURCHASE_ORDER,), day=True),
     "country": Filt("c.code", join=(_J_COUNTRY,)),
     # Not here: `grade`, `grade_min` and `grade_max` are search terms
     # (55%, BU+), read by `_grade_clause`.
@@ -901,8 +907,8 @@ def _issue_clause(
 def _value_clause(key: str, value: object, f: Filt, bound: dict[str, Any]) -> str:
     """One column-to-value comparison from the view's filter table.
 
-    Raises ValueError, naming the parameter, for text sent to an integer
-    filter.
+    Raises ValueError, naming the parameter, for text sent to an integer or
+    a date filter that is not one.
     """
     placeholder = f"p_{key}"
     template = _FILTER_TEMPLATES.get(f.op, _FILTER_DEFAULT)
@@ -911,6 +917,11 @@ def _value_clause(key: str, value: object, f: Filt, bound: dict[str, Any]) -> st
             value = int(str(value).strip())
         except ValueError:
             raise ValueError(f"{key}={value!r} is not a whole number.") from None
+    if f.day:
+        try:
+            value = date.fromisoformat(str(value).strip())
+        except ValueError:
+            raise ValueError(f"{key}={value!r} is not a date, YYYY-MM-DD.") from None
     bound[placeholder] = f"%{value}%" if f.op == "ilike" else value
     return template.format(sql=f.sql, placeholder=placeholder)
 

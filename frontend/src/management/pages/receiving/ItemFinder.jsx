@@ -35,6 +35,7 @@ const EMPTY_FILTERS = {
   year: '',
   mint: '',
   serialNumber: '',
+  orderedSince: '',
   seriesYear: '',
 }
 
@@ -51,12 +52,16 @@ function statusesFor(filters) {
 
 /**
  * The filters every request of one search carries, whichever view it asks:
- * the denomination, and the order -- by id for a linked order, else by the
- * part of a number typed.
+ * the denomination, part of a serial (a note's on the currency view, a
+ * bar's, round's or Goldback's on the coins view), orders placed since a
+ * date, and the order -- by id for a linked order, else by the part of a
+ * number typed.
  */
 function sharedParams(filters, orderId) {
   const shared = {}
   if (filters.denomination) shared.denomination = filters.denomination
+  if (filters.serialNumber.trim()) shared.serial_number = filters.serialNumber.trim()
+  if (filters.orderedSince) shared.ordered_since = filters.orderedSince
   if (orderId != null) shared.purchase_order_id = orderId
   else if (filters.orderNumber.trim()) shared.order_number = filters.orderNumber.trim()
   return shared
@@ -64,9 +69,9 @@ function sharedParams(filters, orderId) {
 
 /**
  * The filters shown for only one kind. Sent only once that kind is chosen:
- * they are shown only then, and the other view would refuse the mint, the
- * serial number and the series year as unknown filters, and read a coin's
- * year as a note's series year.
+ * they are shown only then, and the other view would refuse the mint and
+ * the series year as unknown filters, and read a coin's year as a note's
+ * series year.
  */
 function kindParams(kind, filters) {
   const params = {}
@@ -77,7 +82,6 @@ function kindParams(kind, filters) {
     }
     if (filters.mint) params.mint = filters.mint
   } else if (kind === 'currency') {
-    if (filters.serialNumber) params.serial_number = filters.serialNumber
     if (filters.seriesYear) params.series_year = filters.seriesYear
   }
   return params
@@ -361,6 +365,26 @@ export default function ItemFinder({
               ))}
             </select>
           </label>
+          <label data-help="serial_filter">
+            Serial number{/* */}
+            <input
+              type="text"
+              placeholder="all or part"
+              value={filters.serialNumber}
+              onChange={(e) => setField('serialNumber', e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') find()
+              }}
+            />
+          </label>
+          <label data-help="ordered_since">
+            Ordered since{/* */}
+            <input
+              type="date"
+              value={filters.orderedSince}
+              onChange={(e) => setField('orderedSince', e.target.value)}
+            />
+          </label>
 
           {kind === 'coins' && (
             <>
@@ -384,14 +408,6 @@ export default function ItemFinder({
           )}
           {kind === 'currency' && (
             <>
-              <label data-help="serial_number">
-                Serial number{/* */}
-                <input
-                  type="text"
-                  value={filters.serialNumber}
-                  onChange={(e) => setField('serialNumber', e.target.value)}
-                />
-              </label>
               <label data-help="series_year">
                 Series year{/* */}
                 <input
@@ -413,7 +429,7 @@ export default function ItemFinder({
         {results && more > 0 && (
           <p className="error">
             {more} more match than are shown -- narrow the search (an order number, a
-            kind or a denomination) to see them.
+            date, a serial, a kind or a denomination) to see them.
           </p>
         )}
 

@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -129,6 +129,56 @@ describe('ItemFinder', () => {
     await find(2)
     expect(calls().every(([view]) => view === 'currency')).toBe(true)
     expect(calls()[0][1].serial_number).toBe('L1234')
+  })
+
+  it('looks anything up by part of a serial under Any: a note’s or a bar’s', async () => {
+    // The coins view searches a bar's, round's or Goldback's own serial, so
+    // the box is no longer only Currency's.
+    renderWithProviders(<ItemFinder onPick={vi.fn()} />)
+    await userEvent.type(screen.getByLabelText(/serial/i), ' 4241 ')
+    await find(4)
+    expect(calls().every(([, params]) => params.serial_number === '4241')).toBe(true)
+    expect([...new Set(calls().map(([view]) => view))].sort()).toEqual([
+      'coins',
+      'currency',
+    ])
+  })
+
+  it('narrows to orders placed since a date, in both views', async () => {
+    renderWithProviders(<ItemFinder onPick={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText(/ordered since/i), {
+      target: { value: '2026-10-01' },
+    })
+    await find(4)
+    expect(calls().every(([, params]) => params.ordered_since === '2026-10-01')).toBe(
+      true,
+    )
+  })
+
+  it('finds a $1 note by date, denomination and part of its serial together', async () => {
+    renderWithProviders(<ItemFinder onPick={vi.fn()} />, { reference: vocabularies })
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /denomination/i }),
+      'usd_coin_1_00',
+    )
+    await userEvent.type(screen.getByLabelText(/serial/i), '4241')
+    fireEvent.change(screen.getByLabelText(/ordered since/i), {
+      target: { value: '2026-10-01' },
+    })
+    await find(4)
+    expect(calls()[0][1]).toMatchObject({
+      denomination: 'usd_coin_1_00',
+      serial_number: '4241',
+      ordered_since: '2026-10-01',
+    })
+  })
+
+  it('sends no serial or date when they are left empty', async () => {
+    renderWithProviders(<ItemFinder onPick={vi.fn()} />)
+    await find(4)
+    expect(calls().some(([, p]) => 'serial_number' in p || 'ordered_since' in p)).toBe(
+      false,
+    )
   })
 
   it('chooses a denomination by name and searches by its code', async () => {

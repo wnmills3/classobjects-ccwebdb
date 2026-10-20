@@ -585,7 +585,15 @@ export const FIELD_HELP = {
     title: 'Serial number',
     text:
       'All or part of a serial, anywhere in it. _ stands for exactly one ' +
-      'character, so B0808450_ finds a run of consecutive notes; % for any run.',
+      'character, so B0808450_ finds a run of consecutive notes; % for any run. ' +
+      "On coins it is a bar's, round's or Goldback's own serial.",
+  },
+  ordered_since: {
+    title: 'Ordered since',
+    text:
+      'Only items from orders placed on this date or later -- the order date, ' +
+      'not the day it arrives. With no order number to hand, a date a little ' +
+      'before the order, a denomination and part of the serial find the item.',
   },
   error_filter: {
     title: 'Error',

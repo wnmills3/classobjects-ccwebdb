@@ -211,6 +211,77 @@ def test_an_order_number_finds_notes_too(
     assert {r["id"] for r in body["rows"]} == {wanted.id}
 
 
+def test_ordered_since_finds_the_items_of_orders_placed_that_day_or_later(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Receiving narrows to recent orders when the order number is not known.
+
+    The day itself counts. An order placed earlier, one with no date, and an
+    item on no order are all left out -- and on both views alike.
+    """
+    before = _order(db, number="B-1", vendor_name="a.com", ordered_on=date(2025, 5, 9))
+    on_day = _order(db, number="D-1", vendor_name="b.com", ordered_on=date(2025, 5, 10))
+    after = _order(db, number="A-1", vendor_name="c.com", ordered_on=date(2025, 5, 20))
+    undated = PurchaseOrder(vendor_id=before.vendor_id, order_number="U-1")
+    db.add(undated)
+    db.commit()
+    day_coin = coin(db, purchase_order_id=on_day.id)
+    later_coin = coin(db, purchase_order_id=after.id)
+    coin(db, purchase_order_id=before.id)
+    coin(db, purchase_order_id=undated.id)
+    coin(db)
+    later_note = note(db, serial="C33333333A")
+    later_note.purchase_order_id = after.id
+    early_note = note(db, serial="C44444444A")
+    early_note.purchase_order_id = before.id
+    db.commit()
+
+    coins = search(client, "coins", admin_headers, ordered_since="2025-05-10").json()
+    assert {r["id"] for r in coins["rows"]} == {day_coin.id, later_coin.id}
+    notes = search(client, "currency", admin_headers, ordered_since="2025-05-10").json()
+    assert {r["id"] for r in notes["rows"]} == {later_note.id}
+
+
+def test_ordered_since_narrows_with_denomination_and_part_of_a_serial(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A $1 note with a serial containing 4241, ordered lately: one item."""
+    recent = _order(db, number="R-1", vendor_name="a.com", ordered_on=date(2025, 6, 2))
+    old = _order(db, number="O-1", vendor_name="b.com", ordered_on=date(2025, 1, 2))
+    one = code_id(db, Denomination, "usd_note_1")
+    two = code_id(db, Denomination, "usd_note_2")
+    wanted = note(db, serial="K42411424A", denomination_id=one)
+    for serial, order, denomination in (
+        ("K42411424B", old, one),  # the serial, but ordered long ago
+        ("K42411424C", recent, two),  # the serial, but a $2 note
+        ("K99999999A", recent, one),  # recent $1, another serial
+    ):
+        other = note(db, serial=serial, denomination_id=denomination)
+        other.purchase_order_id = order.id
+    wanted.purchase_order_id = recent.id
+    db.commit()
+
+    body = search(
+        client,
+        "currency",
+        admin_headers,
+        ordered_since="2025-06-01",
+        denomination="usd_note_1",
+        serial_number="4241",
+    ).json()
+    assert {r["id"] for r in body["rows"]} == {wanted.id}
+
+
+def test_an_ordered_since_that_is_no_date_is_refused_by_name(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Refused before the database sees it, naming the filter."""
+    response = search(client, "coins", admin_headers, ordered_since="10/20/2026")
+    assert response.status_code == 422
+    assert "ordered_since" in response.json()["detail"]
+    assert "YYYY-MM-DD" in response.json()["detail"]
+
+
 def test_an_item_without_a_purchase_order_still_appears(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
