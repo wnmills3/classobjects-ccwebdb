@@ -5,6 +5,7 @@ import BulkEditBar from './inventory/BulkEditBar'
 import FilterPanel from './inventory/FilterPanel'
 import InventoryTable from './inventory/InventoryTable'
 import ItemEditDialog from './inventory/ItemEditDialog'
+import OtherViewSerial from './inventory/OtherViewSerial'
 import ReviewPane from './inventory/ReviewPane'
 import { COIN_VIEW, CURRENCY_VIEW, PAGE_SIZE } from './inventory/specs'
 import { useInventorySearch } from './inventory/useInventorySearch'
@@ -125,6 +126,7 @@ function InventoryView({ config }) {
       {error && <p className="error">{error}</p>}
       {linked.problem && <p className="error">{linked.problem}</p>}
       {!busy && total === 0 && <p className="muted">Nothing matches those filters.</p>}
+      <OtherViewSerial view={config.view} serial={current.serial_number} />
 
       {rows.length > 0 && (
         <InventoryTable

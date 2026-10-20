@@ -62,7 +62,7 @@ const CARRIED = [
 
 export const COIN_VIEW = {
   view: 'coins',
-  title: 'Coins & bullion',
+  title: 'Coins',
   columns: [
     ['Code', 'item_code', 'mono'],
     ['Denomination', 'denomination_label'],
