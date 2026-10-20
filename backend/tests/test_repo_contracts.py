@@ -97,8 +97,8 @@ def test_scripts_name_no_port_or_cluster_literal(name: str) -> None:
     assert found == []
 
 
-@windows_only
-@pytest.mark.parametrize(
+#: .env files shaped as people write them, Windows editors included.
+_DOTENVS = pytest.mark.parametrize(
     "dotenv",
     [
         b"CCWEB_CONDA_ENV=alpha\r\nSHOP_OPEN=true\r\n",
@@ -119,6 +119,85 @@ def test_scripts_name_no_port_or_cluster_literal(name: str) -> None:
         "absent",
     ],
 )
+
+
+def _bash() -> str | None:
+    """A bash that is not WSL's launcher, or None (see test_runtime_settings)."""
+    if sys.platform != "win32":
+        return shutil.which("bash")
+    git = shutil.which("git")
+    if git is None:
+        return None
+    for folder in Path(git).resolve().parents:
+        candidate = folder / "bin" / "bash.exe"
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+@_DOTENVS
+def test_the_bash_twin_reads_the_conda_env_name_like_pydantic(
+    tmp_path: Path, dotenv: bytes
+) -> None:
+    """ccweb_env.sh reads .env before Python can run, as ccweb_env.cmd does."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash here other than WSL's launcher")
+    shutil.copytree(SCRIPTS, tmp_path / "scripts")
+    env_file = tmp_path / ".env"
+    env_file.write_bytes(dotenv)
+    environment = {k: v for k, v in os.environ.items() if not k.startswith("CCWEB_")}
+    shown = subprocess.run(
+        [bash, (tmp_path / "scripts" / "ccweb_env.sh").as_posix(), "--read-dotenv"],
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=True,
+    ).stdout.strip()
+    pydantic = RuntimeSettings(_env_file=env_file).ccweb_conda_env or "ccwebdb"
+    assert shown == f"CCWEB_CONDA_ENV={pydantic}"
+
+
+def test_the_conda_default_is_the_same_in_both_env_scripts() -> None:
+    """The one default written in two places, because no Python runs yet."""
+    cmd = (SCRIPTS / "ccweb_env.cmd").read_text(encoding="utf-8")
+    sh = (SCRIPTS / "ccweb_env.sh").read_text(encoding="utf-8")
+    in_cmd = re.findall(r'set "_CCWEB_ENVNAME=(\w+)"', cmd)
+    in_sh = re.findall(r'_ccweb_envname="\$\{_ccweb_envname:-(\w+)\}"', sh)
+    assert in_cmd == in_sh == ["ccwebdb"]
+
+
+#: Scripts with no twin in the other shell, and why.
+_ONE_SHELL_ONLY: dict[str, str] = {}
+
+
+@pytest.mark.xfail(strict=True, reason="the remaining twins land in later commits")
+def test_every_script_has_a_twin_in_the_other_shell() -> None:
+    """A step a Windows reader can script, a Linux reader can too."""
+    cmd = {p.stem for p in SCRIPTS.glob("*.cmd")}
+    sh = {p.stem for p in SCRIPTS.glob("*.sh")}
+    assert sorted(cmd - sh - _ONE_SHELL_ONLY.keys()) == [], "no .sh twin"
+    assert sorted(sh - cmd - _ONE_SHELL_ONLY.keys()) == [], "no .cmd twin"
+
+
+def test_shell_scripts_are_lf_and_executable() -> None:
+    """A CR breaks every line for bash, and git must record the +x bit."""
+    listing = subprocess.run(
+        ["git", "ls-files", "-s", "--", "scripts/*.sh"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    modes = {line.split()[3]: line.split()[0] for line in listing}
+    on_disk = {f"scripts/{p.name}" for p in SCRIPTS.glob("*.sh")}
+    assert sorted(on_disk - modes.keys()) == [], "not committed"
+    assert sorted(name for name, mode in modes.items() if mode != "100755") == []
+    assert [p.name for p in SCRIPTS.glob("*.sh") if b"\r" in p.read_bytes()] == []
+
+
+@windows_only
+@_DOTENVS
 def test_conda_env_name_read_like_pydantic(tmp_path: Path, dotenv: bytes) -> None:
     """ccweb_env reads .env before Python can run; it must read it the same way."""
     shutil.copytree(SCRIPTS, tmp_path / "scripts")

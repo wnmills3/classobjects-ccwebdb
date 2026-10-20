@@ -20,6 +20,11 @@
 *.cmd text eol=crlf
 *.bat text eol=crlf
 
+# Shell scripts are read by bash, which takes a CR as part of the line: a
+# CRLF checkout breaks every one of them. Named, rather than left to the
+# default above, so no local setting can change it.
+*.sh text eol=lf
+
 # Binary. `text=auto` detects most of these on its own; naming them means a
 # corrupt checkout is impossible rather than merely unlikely. The project
 # handles photographs and spreadsheets, so these will appear eventually.
