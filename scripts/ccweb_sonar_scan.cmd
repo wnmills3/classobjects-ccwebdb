@@ -13,7 +13,11 @@ rem ---------------------------------------------------------------------------
 setlocal enabledelayedexpansion
 
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
-set "SQPORT=9000"
+rem  Put the ccwebdb conda environment in play and take ENVDIR, PGBIN
+rem  and the settings from it, rather than from guessed values.
+call "%~dp0ccweb_env.cmd" || exit /b 2
+call "%~dp0ccweb_settings.cmd" || exit /b 2
+set "SQPORT=%CCWEB_SONAR_PORT%"
 
 rem  Fail fast rather than starting the server implicitly. An implicit start
 rem  would hide a stopped server and make a stale dashboard look current.
@@ -33,9 +37,6 @@ if "%SONAR_TOKEN%"=="" (
 
 pushd "%REPO%"
 
-rem  Put the ccwebdb conda environment in play and take ENVDIR and PGBIN
-rem  from it, rather than from a guessed path. See ccweb_env.cmd.
-call "%~dp0ccweb_env.cmd" || exit /b 2
 set "PY=%ENVDIR%\python.exe"
 set "NODE=%ENVDIR%\node.exe"
 

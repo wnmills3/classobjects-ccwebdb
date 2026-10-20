@@ -10,6 +10,8 @@ pgAdmin reads this by exec'ing it, so the module-level constants below are the
 interface -- they are not unused.
 """
 
+import os
+
 # Desktop mode: a single local user, no login screen and no master password.
 # This is only safe in combination with the loopback bind below. In server mode
 # pgAdmin behaves as a shared multi-user service and demands an account, which
@@ -20,7 +22,11 @@ SERVER_MODE = False
 # in front of this, so binding a routable address would publish an
 # unauthenticated console over the network.
 DEFAULT_SERVER = "127.0.0.1"
-DEFAULT_SERVER_PORT = 5050
+
+# CCWEB_PGADMIN_PORT, which the launch script passes from the settings. Left
+# unset, pgAdmin's own default (5050) stands.
+if os.environ.get("CCWEB_PGADMIN_PORT"):
+    DEFAULT_SERVER_PORT = int(os.environ["CCWEB_PGADMIN_PORT"])
 
 # The launch script opens the browser once the port answers, so pgAdmin does
 # not need to race it.

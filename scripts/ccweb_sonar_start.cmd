@@ -19,7 +19,9 @@ setlocal enabledelayedexpansion
 set "NET=sonar-net"
 set "DBNAME=sonar-db"
 set "SQNAME=sonarqube"
-set "SQPORT=9000"
+call "%~dp0ccweb_env.cmd" || exit /b 2
+call "%~dp0ccweb_settings.cmd" || exit /b 2
+set "SQPORT=%CCWEB_SONAR_PORT%"
 set "DBPASS=sonar"
 
 rem  The machine is a WSL VM that does not survive a reboot, and this

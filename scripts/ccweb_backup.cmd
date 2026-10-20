@@ -41,21 +41,23 @@ if not "%~1"=="" (
     exit /b 2
 )
 
-rem  The log's line for this run is written before anything that can fail,
-rem  so a run that gets no further still leaves its date and the reason.
+rem  The log folder and the backup folder are settings, which the
+rem  environment's Python reads; without it there is no backup.log to
+rem  write to, and the failure is said here only. A scheduled run's
+rem  result is also in the task's own Last Result.
+call "%~dp0ccweb_env.cmd"
+if errorlevel 1 (
+    echo backup FAILED - the ccwebdb environment could not be put in play; no backup was made
+    exit /b 2
+)
+call "%~dp0ccweb_settings.cmd"
+if errorlevel 1 (
+    echo backup FAILED - a setting in .env was refused; no backup was made
+    exit /b 2
+)
 call "%~dp0ccweb_logdir.cmd"
 if not exist "%LOGS%\" mkdir "%LOGS%"
 echo ==== %DATE% %TIME% ==== >> "%LOGS%\backup.log"
-
-rem  Put the ccwebdb conda environment in play. See ccweb_env.cmd.
-call "%~dp0ccweb_env.cmd"
-if errorlevel 1 (
-    echo ERROR: the ccwebdb environment could not be put in play - no backup was made >> "%LOGS%\backup.log"
-    echo backup FAILED - the ccwebdb environment could not be put in play; see %LOGS%\backup.log
-    exit /b 2
-)
-
-if not defined CCWEB_BACKUP_DIR set "CCWEB_BACKUP_DIR=%USERPROFILE%\OneDrive\coins_backup"
 
 pushd "%REPO%\backend"
 "%ENVDIR%\python.exe" -m app.backup_run "%CCWEB_BACKUP_DIR%" >> "%LOGS%\backup.log" 2>&1
@@ -70,9 +72,10 @@ if "%RC%"=="0" (
 exit /b %RC%
 
 :schedule
+call "%~dp0ccweb_env.cmd" || exit /b 2
+call "%~dp0ccweb_settings.cmd" || exit /b 2
 set "AT=%~2"
-if "%AT%"=="" set "AT=20:00"
-if not defined CCWEB_BACKUP_DIR set "CCWEB_BACKUP_DIR=%USERPROFILE%\OneDrive\coins_backup"
+if "%AT%"=="" set "AT=%CCWEB_BACKUP_TIME%"
 rem  /NP: the task runs as this user whether or not anyone is signed in,
 rem  and no password is stored -- in exchange it reaches only this machine,
 rem  which is all a backup needs. Windows allows that only from an

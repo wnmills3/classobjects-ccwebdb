@@ -17,11 +17,13 @@ from app.config import Settings
 from app.runtime_settings import (
     REPO_ROOT,
     RuntimeSettings,
+    UnknownPlaceholder,
     UnsafeValue,
     assignments,
     format_cmd,
     format_sh,
     main,
+    render,
 )
 
 
@@ -240,3 +242,45 @@ def test_settings_still_refuses_a_misspelt_key(tmp_path: Path) -> None:
 def test_every_runtime_field_is_a_settings_field() -> None:
     """So every key a script reads may be written in `.env`."""
     assert RuntimeSettings.model_fields.keys() <= Settings.model_fields.keys()
+
+
+def test_render_fills_both_placeholder_forms() -> None:
+    """`@NAME@` for files of our own, `{$NAME}` for Caddy's own syntax."""
+    values = {"CCWEB_DB_PORT": "5432", "CCWEB_SITE_DOMAIN": "example.com"}
+    assert render("port @CCWEB_DB_PORT@ at {$CCWEB_SITE_DOMAIN}", values) == (
+        "port 5432 at example.com"
+    )
+
+
+def test_render_leaves_other_braces_and_at_signs_alone() -> None:
+    """A JSON body, a mail address and Caddy's {path} are not placeholders."""
+    text = '{"to": "me@example.com"} try_files {path} /index.html'
+    assert render(text, {"CCWEB_DB_PORT": "5432"}) == text
+
+
+def test_an_unknown_placeholder_is_refused_by_name() -> None:
+    """A misspelt placeholder must not reach a service's configuration empty."""
+    with pytest.raises(UnknownPlaceholder, match="CCWEB_DB_PROT"):
+        render("port @CCWEB_DB_PROT@", {"CCWEB_DB_PORT": "5432"})
+
+
+def test_render_prints_a_template_filled_from_settings(
+    bare: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--render FILE` is how a script or a person fills a template."""
+    template = tmp_path / "t.json"
+    template.write_bytes(b'{"Port": @CCWEB_DB_PORT@, "User": "@CCWEB_DB_USER@"}\n')
+    assert main(["--render", str(template)]) == 0
+    assert capsys.readouterr().out == '{"Port": 5432, "User": "ccwebdb"}\n'
+
+
+def test_render_names_an_unknown_placeholder_and_exits_2(
+    bare: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Exit 2 with the placeholder's name; nothing half-filled on stdout."""
+    template = tmp_path / "t.conf"
+    template.write_bytes(b"x=@CCWEB_NOPE@\n")
+    assert main(["--render", str(template)]) == 2
+    captured = capsys.readouterr()
+    assert "CCWEB_NOPE" in captured.err
+    assert captured.out == ""

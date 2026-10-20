@@ -20,6 +20,7 @@ settings when imported, which refuses to run without a signing key.
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import re
 import sys
@@ -249,6 +250,33 @@ def format_sh(values: dict[str, str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+#: `@NAME@` in a template of this repository's own; `{$NAME}` where the file
+#: is Caddy's, which reads that syntax itself. Upper-case names only, so a
+#: mail address or Caddy's own {path} is never taken for one.
+_PLACEHOLDER = re.compile(r"@([A-Z][A-Z0-9_]*)@|\{\$([A-Z][A-Z0-9_]*)\}")
+
+
+class UnknownPlaceholder(ValueError):
+    """A template names a value the settings do not have."""
+
+    def __init__(self, name: str) -> None:
+        """Name the placeholder, so the template can be corrected."""
+        super().__init__(f"{name} is not a setting a template can use")
+        self.name = name
+
+
+def render(template: str, values: dict[str, str]) -> str:
+    """`template` with every placeholder replaced by its value."""
+
+    def fill(match: re.Match[str]) -> str:
+        name = match.group(1) or match.group(2)
+        if name not in values:
+            raise UnknownPlaceholder(name)
+        return values[name]
+
+    return _PLACEHOLDER.sub(fill, template)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Print the settings for a shell; exit 2, naming the key, on a bad one."""
     parser = argparse.ArgumentParser(prog="python -m app.runtime_settings")
@@ -262,10 +290,19 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="add CCWEB_DB_PASSWORD, for a script to read into a variable",
     )
+    parser.add_argument(
+        "--render",
+        metavar="TEMPLATE",
+        help="print TEMPLATE with its @NAME@ and {$NAME} placeholders filled",
+    )
     args = parser.parse_args(argv)
     try:
         values = assignments(RuntimeSettings(), include_password=args.include_password)
-        if args.format == "cmd":
+        if args.render:
+            values["CCWEB_USER"] = getpass.getuser()
+            template = Path(args.render).read_text(encoding="utf-8")
+            text = render(template, values)
+        elif args.format == "cmd":
             text = format_cmd(values)
         elif args.format == "sh":
             text = format_sh(values)
@@ -279,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
         return 2
-    except UnsafeValue as refused:
+    except (UnsafeValue, UnknownPlaceholder) as refused:
         print(f"runtime_settings: {refused}", file=sys.stderr)
         return 2
     sys.stdout.write(text)

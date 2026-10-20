@@ -28,10 +28,11 @@ rem  pgAdmin lives in its own uv tool environment, not in ccwebdb, but the
 rem  helper is still what makes sure USERPROFILE and APPDATA are set, rather
 rem  than assuming the shell set them.
 call "%~dp0ccweb_env.cmd" || exit /b 2
+call "%~dp0ccweb_settings.cmd" || exit /b 2
 set "PGADMIN=%USERPROFILE%\.local\bin\pgadmin4.exe"
 set "PGADMIN_CLI=%USERPROFILE%\.local\bin\pgadmin4-cli.exe"
 set "PKG=%APPDATA%\uv\tools\pgadmin4\Lib\site-packages\pgadmin4"
-set "PORT=5050"
+set "PORT=%CCWEB_PGADMIN_PORT%"
 set "URL=http://127.0.0.1:%PORT%/browser/"
 
 rem --- preflight ------------------------------------------------------------
@@ -58,14 +59,22 @@ if not exist "%PKG%\config_local.py" (
         exit /b 1
     )
     echo Re-registering the ccwebdb connection ...
-    "%PGADMIN_CLI%" load-servers "%REPO%\scripts\pgadmin-servers.json" ^
+    rem  pgadmin-servers.json is a template: the connection is the one
+    rem  DATABASE_URL names, filled in from the settings.
+    set "SERVERS=%TEMP%\ccweb_pgadmin_servers_%RANDOM%.json"
+    pushd "%REPO%\backend"
+    "%ENVDIR%\python.exe" -m app.runtime_settings --render "%REPO%\scripts\pgadmin-servers.json" >"!SERVERS!"
+    popd
+    "%PGADMIN_CLI%" load-servers "!SERVERS!" ^
         --user pgadmin4@pgadmin.org >nul
+    set "LOADRC=!errorlevel!"
+    del "!SERVERS!" >nul 2>&1
     rem  Said, not passed over: this block runs only while config_local.py
     rem  is missing, so a registration that failed is not tried again.
-    if errorlevel 1 (
+    if not "!LOADRC!"=="0" (
         echo WARNING: the ccwebdb connection was not registered. pgAdmin
         echo          still starts; add the server there by hand -
-        echo          localhost:5432, database and user ccwebdb.
+        echo          %CCWEB_DB_HOST%:%CCWEB_DB_PORT%, database %CCWEB_DB_NAME%, user %CCWEB_DB_USER%.
     )
 )
 
@@ -91,11 +100,11 @@ if errorlevel 1 goto :notready
 echo pgAdmin is up. Opening the browser.
 start "" "%URL%"
 echo.
-echo   Connection:  ccwebdb ^(local^)  -  localhost:5432, user ccwebdb
+echo   Connection:  ccwebdb ^(local^)  -  %CCWEB_DB_HOST%:%CCWEB_DB_PORT%, user %CCWEB_DB_USER%
 echo   Password:    the one in DATABASE_URL ^(.env^) - tick "Save Password" to be asked once
 echo.
 echo   The friendly rows are in the VIEWS, not the tables:
-echo     Databases ^> ccwebdb ^> Schemas ^> public ^> Views
+echo     Databases ^> %CCWEB_DB_NAME% ^> Schemas ^> public ^> Views
 echo     coin_inventory, currency_inventory, item_valuation, public_catalog
 echo.
 echo   Stop it by closing the "pgAdmin 4" window.
