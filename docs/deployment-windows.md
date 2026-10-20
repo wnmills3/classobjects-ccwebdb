@@ -5,7 +5,8 @@
 How to run the system on a Windows server the public can reach over
 `https://` at a domain of your own. The development machine runs everything
 from `scripts\ccweb_startup.cmd` with Vite serving the frontend; a server
-runs none of that. Every command here is cmd; none is PowerShell.
+runs none of that. Every command here is cmd; none is PowerShell. For an
+Ubuntu server, see [deployment-linux.md](deployment-linux.md).
 
 **The example installation.** Where a value has to be shown, it is the
 owner's: a server named `classobjects` serving `https://classobjects.com`,

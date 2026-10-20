@@ -17,7 +17,9 @@ assume it. Starting services another way works, but loses those guarantees
 For first-time machine setup see [environment-setup-windows.md](environment-setup-windows.md);
 for backups and applying a schema release see
 [system-administration.md](system-administration.md). All commands here are
-**cmd**, not PowerShell.
+**cmd**, not PowerShell. On Linux, see
+[runtime-operations-linux.md](runtime-operations-linux.md): each `.sh` there
+does what the `.cmd` of the same name does here.
 
 ---
 

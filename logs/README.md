@@ -4,14 +4,16 @@ What the development runtime writes while it runs. Everything in this directory 
 (`logs/*` and `!logs/README.md` in `.gitignore`), so nothing written here
 reaches GitHub.
 
-`scripts\ccweb_startup.cmd`, `scripts\ccweb_shutdown.cmd`,
-`scripts\ccweb_claude.cmd` and `scripts\ccweb_backup.cmd` write here. When
-something fails, they print the log file to read first.
+`ccweb_startup`, `ccweb_shutdown`, `ccweb_claude`, `ccweb_backup` and
+`ccweb_testdb` in `scripts/` -- the `.cmd` on Windows, the `.sh` on Linux --
+write here. When something fails, they print the log file to read first. A
+server installed as a systemd service on Linux logs to the journal instead
+(`journalctl -u ccwebdb-api`; see `docs/deployment-linux.md`).
 
 ## Layout
 
 ```
-logs\
+logs/
   README.md               this file (the only tracked file)
   backend.log             uvicorn: startup, requests, tracebacks
   backend.1.log           the file before it
@@ -19,11 +21,12 @@ logs\
   frontend.log  .1  .2    Vite: dev server output and build errors
   postgres.log  .1  .2    PostgreSQL: pg_ctl's start messages, then the server's own log
   pg_stop.log   .1  .2    pg_ctl stop: "server stopped"
-  backup.log              ccweb_backup.cmd: what each backup run did
+  postgres-test.log       the test cluster (ccweb_testdb), the same way
+  backup.log              ccweb_backup: what each backup run did
 ```
 
-`.runtime\ccweb.pids` is not a log: it holds the running processes' PIDs for
-shutdown, and it stays in `.runtime\`.
+`.runtime/ccweb.pids` is not a log: it holds the running processes' PIDs
+(process groups, on Linux) for shutdown, and it stays in `.runtime/`.
 
 ## What each file is for
 
@@ -47,13 +50,15 @@ those grows past 1 GB.**
   therefore still leaves three bounded files. A start that wrote nothing
   does not push a useful log out.
 - The backend, frontend and PostgreSQL write through a pipe into
-  `backend\app\logpipe.py`, which does the rotating. PostgreSQL's own logging
+  `backend/app/logpipe.py`, which does the rotating. PostgreSQL's own logging
   collector is turned off for this: it can cap a file's size but not how many
   files it leaves behind.
-- A current file that another program still has open cannot be moved up --
-  Windows refuses -- so no new file is started: the lines are added to that
-  file, under one line beginning `[logpipe]` that says so, and the older
-  files stay as they were.
+- On Windows, a current file that another program still has open cannot be
+  moved up -- Windows refuses -- so no new file is started: the lines are
+  added to that file, under one line beginning `[logpipe]` that says so, and
+  the older files stay as they were. Linux allows the move, so a program
+  still writing to the old file goes on writing into it under its new name,
+  `.1`.
 - `pg_stop.log` holds a few lines from each stop. Shutdown rotates it before
   each stop and never measures it.
 - `backup.log` is one file that every backup run adds to, each under a line
@@ -62,36 +67,35 @@ those grows past 1 GB.**
 
 ## Settings
 
-Set these in the console before running the scripts, or in the system
-environment to make them permanent. The defaults need no settings.
+Set these in `.env` (they are listed, commented out at their defaults, in
+`.env.example`), or in the environment of the shell that runs the scripts,
+which wins over `.env`. The defaults need no settings.
 
-| Variable | Default | Effect |
+| Setting | Default | Effect |
 |---|---|---|
-| `CCWEB_LOG_DIR` | `.\logs` | where all of the above goes; a relative path is taken from the repo root |
+| `CCWEB_LOG_DIR` | `logs` | where all of the above goes; a relative path is taken from the repo root |
 | `CCWEB_LOG_KEEP` | `3` | files kept per type, the current one included (at least 1) |
 | `CCWEB_LOG_MAX_BYTES` | `1073741824` (1 GiB) | the size at which a file rolls over (at least 1024) |
 
-```cmd
-set "CCWEB_LOG_DIR=D:\ccweb-logs"
-set "CCWEB_LOG_KEEP=5"
-set "CCWEB_LOG_MAX_BYTES=104857600"
-scripts\ccweb_startup.cmd
+For example, in `.env`:
+
+```
+CCWEB_LOG_DIR=D:\ccweb-logs
+CCWEB_LOG_KEEP=5
+CCWEB_LOG_MAX_BYTES=104857600
 ```
 
-A nonsense value such as `CCWEB_LOG_KEEP=zero` is refused with a message,
-not quietly replaced with the default.
+A nonsense value such as `CCWEB_LOG_KEEP=zero` is refused with a message
+naming the setting, not quietly replaced with the default.
 
 The settings are read when each program starts, so a change reaches a
 running server only when it is restarted. PostgreSQL restarts only with a
-full shutdown: `ccweb_shutdown.cmd --keepdb` leaves it running and logging
-as before.
-
-Shutdown must see the same `CCWEB_LOG_DIR` as startup, or its `pg_stop.log`
-lands in a different directory. The logic that resolves the directory is in
-`scripts\ccweb_logdir.cmd`.
+full shutdown: `ccweb_shutdown --keepdb` leaves it running and logging as
+before. Startup and shutdown both read the folder from the settings, so they
+always agree on it.
 
 ## Deleting logs
 
 Anything here except this README can be deleted while the runtime is stopped.
-While it runs, the current files are held open and Windows refuses to delete
-them; the numbered files can be deleted.
+While it runs on Windows, the current files are held open and Windows
+refuses to delete them; the numbered files can be deleted.

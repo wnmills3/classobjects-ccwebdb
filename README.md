@@ -34,19 +34,32 @@ database is backed up and restored as a workbook by `app.workbook_backup`
 
 ## Getting started
 
-First time on a machine, follow
-**[docs/environment-setup-windows.md](docs/environment-setup-windows.md)**. After that, one
-command starts the database, the API and both applications:
+The system is developed and hosted on Windows 11 and on Ubuntu LTS; every
+script in `scripts/` comes as a `.cmd` for Windows and a `.sh` for Linux
+that do the same. First time on a machine, follow
+**[docs/environment-setup-windows.md](docs/environment-setup-windows.md)**
+or **[docs/environment-setup-linux.md](docs/environment-setup-linux.md)**.
+After that, one command starts the database, the API and both
+applications. On Windows, in cmd:
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_startup.cmd
 ```
 
-Stop with `.\scripts\ccweb_shutdown.cmd`; see what is running with
-`.\scripts\ccweb_status.cmd`. [docs/runtime-operations-windows.md](docs/runtime-operations-windows.md)
-covers every script, and its *Quick reference* lists the addresses of the
-shop, the console and the API.
+On Linux, in bash:
+
+```console
+cd ~/dev/classobjects-ccwebdb
+./scripts/ccweb_startup.sh
+```
+
+Stop with `ccweb_shutdown`; see what is running with `ccweb_status`.
+[docs/runtime-operations-windows.md](docs/runtime-operations-windows.md) and
+[docs/runtime-operations-linux.md](docs/runtime-operations-linux.md) cover
+every script, and their *Quick reference* lists the addresses of the shop,
+the console and the API. Every port, host and folder is a setting in
+`.env`; `.env.example` lists them all with their defaults.
 
 ## Documentation
 
@@ -55,8 +68,9 @@ shop, the console and the API.
 | [docs/project-purpose.md](docs/project-purpose.md) | Why the system exists; the rules every design follows |
 | [docs/workflow-new-collection.md](docs/workflow-new-collection.md) | An item's path from purchase to sale, in the console |
 | [docs/system-administration.md](docs/system-administration.md) | Every console screen, setting, pass, backup and release step |
-| [docs/environment-setup-windows.md](docs/environment-setup-windows.md) | Building the development environment on a clean machine |
-| [docs/runtime-operations-windows.md](docs/runtime-operations-windows.md) | Starting, stopping and checking the servers |
+| [docs/environment-setup-windows.md](docs/environment-setup-windows.md), [-linux](docs/environment-setup-linux.md) | Building the development environment on a clean machine |
+| [docs/runtime-operations-windows.md](docs/runtime-operations-windows.md), [-linux](docs/runtime-operations-linux.md) | Starting, stopping and checking the servers |
+| [docs/deployment-windows.md](docs/deployment-windows.md), [-linux](docs/deployment-linux.md) | Running the public site on a server |
 | [docs/database-design.md](docs/database-design.md) | The schema |
 | [docs/code-quality.md](docs/code-quality.md) | The quality gates and their exceptions |
 | [docs/reference-data.md](docs/reference-data.md) | What reference data may be shipped with the product |

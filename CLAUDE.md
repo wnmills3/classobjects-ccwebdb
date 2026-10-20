@@ -37,9 +37,27 @@ skill specifies a different path, format, or workflow, this file wins.
 
 ## Scripts and shell
 
-- **cmd/batch only. No PowerShell.** This covers runnable commands given in
-  chat, `.cmd` scripts, and documentation examples. No `.ps1`, and no shelling
-  out to `powershell -Command` from inside a `.cmd` — that is still PowerShell.
+- **cmd on Windows (no PowerShell), bash on Linux.** This covers runnable
+  commands given in chat, scripts, and documentation examples. No `.ps1`, and
+  no shelling out to `powershell -Command` from inside a `.cmd` — that is
+  still PowerShell.
+- **Every `scripts/*.cmd` has a `scripts/*.sh` twin** with the same name,
+  modes, wording and exit codes (slash options become `--` options). Change
+  one, change the other in the same commit. A test fails when either lacks
+  its twin.
+- **No script writes a port, host or folder of its own.** Each comes from
+  `backend/app/runtime_settings.py` through `ccweb_settings.cmd` / `.sh`;
+  a new one is a new field there with today's value as its default, and a
+  line in `.env.example`. A test refuses the old literals in the scripts.
+- **Documentation commands paste into their shell as written.** Fence them
+  as ```` ```console ````; one command per line; a stand-in is a CAPITALISED
+  word, and only where pasting it unchanged fails harmlessly — otherwise
+  prose; a block that depends on its folder starts with `cd /d ...` (cmd) or
+  `cd ~/...` (bash); anything that prompts (`set /p`, `read -rs`) stands
+  alone in its block. Per-OS documents are `<topic>-windows.md` and
+  `<topic>-linux.md`; a shared document shows a block that differs by OS in
+  both forms, each labelled. The owner's installation appears only as a
+  labelled example.
 - Useful pure-cmd equivalents: `curl -s -f -o nul <url>` then `if errorlevel 1`
   for readiness checks; `ping -n 2 127.0.0.1 >nul` to sleep — `timeout` needs a
   real console and fails instantly, with no sleep at all, when stdin is
@@ -49,6 +67,12 @@ skill specifies a different path, format, or workflow, this file wins.
 - **Machine trap:** `NoDefaultCurrentDirectoryInExePath=1` is set, so
   `cmd /c script.cmd` fails with "not recognized" even in the current
   directory. Always invoke as `.\script.cmd` or with a full path.
+- In bash: `ccweb_env.sh`, `ccweb_settings.sh`, `ccweb_logdir.sh` and
+  `ccweb_testdb.sh use` are sourced and must not `set -u` or end in a
+  top-level `return`/`exit`; `shellcheck -x` must report no warning or error.
+  WSL from Git Bash: `MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu --cd /mnt/c/...
+  --exec bash -c '...'` — `wsl.exe --` re-parses through a shell and eats
+  `$variables`.
 
 ## Git workflow
 

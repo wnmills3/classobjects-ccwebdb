@@ -303,7 +303,6 @@ def test_every_relative_markdown_link_resolves() -> None:
 _DOC_NAMED = re.compile(r"docs[\\/]([\w./-]+\.md)")
 
 
-@pytest.mark.xfail(strict=True, reason="the Linux documents are written next")
 def test_every_document_a_script_or_source_names_exists() -> None:
     """A document a script tells its reader to see must be there to see."""
     sources = [*_tracked("scripts/*"), *_tracked("backend/app/*.py")]

@@ -30,6 +30,9 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_check.cmd fix
 ```
 
+On Linux the same gates, in the same order, are `./scripts/ccweb_check.sh`
+(and `./scripts/ccweb_check.sh fix`), from `~/dev/classobjects-ccwebdb`.
+
 It exits non-zero if anything fails, and prints `FAILED:` with the names of
 the failed stages. Gate on that exit code; do not pipe the output through a
 filter that replaces it.
@@ -49,7 +52,7 @@ In order:
 |---|---|---|
 | Python formatting | `ruff format --check` | `pyproject.toml` `[tool.ruff]`, `[tool.ruff.format]` |
 | Python linting | `ruff check` | `pyproject.toml` `[tool.ruff.lint]` |
-| Mutation-scaffolding guard | `findstr /S /N` over `backend\app\*.py` | `scripts\ccweb_check.cmd` |
+| Mutation-scaffolding guard | `findstr /S /N` (Windows) or `grep -rn` (Linux) over `backend/app/*.py` | `scripts/ccweb_check.cmd`, `scripts/ccweb_check.sh` |
 | Python types | `mypy` | `pyproject.toml` `[tool.mypy]` |
 | Python tests | `pytest` (from `backend`) | `pyproject.toml` `[tool.pytest.ini_options]` |
 | Frontend linting | `eslint --max-warnings 0` | `frontend/eslint.config.js` |

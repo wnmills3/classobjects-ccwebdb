@@ -9,6 +9,9 @@ nothing lands machine-wide where another project could disturb it.
 
 All commands are **cmd**, not PowerShell. For day-to-day starting and stopping
 once set up, see [runtime-operations-windows.md](runtime-operations-windows.md).
+For an Ubuntu machine, see
+[environment-setup-linux.md](environment-setup-linux.md), whose steps are
+numbered as these are.
 
 Versions in use; newer patch releases should be fine:
 

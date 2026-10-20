@@ -9,7 +9,10 @@ scripts, reads the dashboard at `http://localhost:9000`, and the development
 tool queries it through the SonarQube MCP tools. It runs locally in Podman
 containers, so code and analysis data never leave the machine. Day-to-day
 commands are in `docs/runtime-operations-windows.md`, section "SonarQube (local
-server)".
+server)". On Linux each script has a `.sh` twin
+(`docs/runtime-operations-linux.md`), where podman runs natively and there
+is no podman machine to start. The server's host port is the setting
+`CCWEB_SONAR_PORT`, default 9000.
 
 Out of scope: TLS, LAN or CI exposure, user management, auto-start on boot,
 and Developer Edition features (branch analysis, PR decoration). Community

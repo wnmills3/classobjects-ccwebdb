@@ -109,8 +109,11 @@ zone, so Windows is unchanged and a UTC Linux server can name
 `America/New_York`. `tzdata` becomes a dependency on every OS so a named zone
 always resolves.
 
-Vite reads the frontend and API host and port from the root `.env`
-(`loadEnv`, `envDir: '..'`). Client code reads only `VITE_` variables; the
+Vite reads the frontend and API host and port from the environment (the
+scripts export them) or the root `.env` (`loadEnv`, `envDir: '..'`), and
+falls back to `frontend/dev-server.json`, the file `runtime_settings` takes
+the same four defaults from, so neither language keeps a copy of the
+other's. Client code reads only `VITE_` variables; the
 DigiCert seal (tied to one certificate) becomes `VITE_DIGICERT_SEAL_ID`, and
 with none set the shop shows no seal. The owner's `.env` sets it.
 
@@ -123,16 +126,25 @@ refusing a misspelt key and nothing needs a second file.
 
 - `.cmd` files keep their names, arguments, output and exit codes. Their
   literals are replaced by the values `runtime_settings` prints; that is the
-  only change. *(Builder's call:)* where Python cannot run at all -- no
-  conda environment -- a script cannot know the configured port, so the
-  line that today names `localhost:5432` in that failure mode names no port
-  ("UNKNOWN - no environment to ask with"). That failure-mode wording is the
-  one permitted change in output; no literal default is kept in a script.
+  only change. Where Python cannot run at all -- no conda environment --
+  or `.env` holds a value it refuses, a script cannot know the configured
+  ports and folders, and no literal default is kept in a script to guess
+  with. So in those failure modes, and only there, the output changes:
+  `ccweb_status` reports every service "UNKNOWN - no environment to ask
+  with" (or "- a setting in .env was refused") with no address;
+  `ccweb_shutdown` stops what its PID file names and says it skipped the
+  port sweep and the database; `ccweb_backup` reports the failure on its
+  console without a `backup.log` line, since the log folder is a setting.
+  The scripts' "see docs\..." lines name the renamed documents.
 - Each `.sh` matches its `.cmd`: same name, same modes, same output wording
   where it applies, same exit codes. Slash options have `--` forms only
   (`--lan`, `--keepdb`, `--check`, `--nodb`, `--schedule`).
-- `ccweb_env.sh`, `ccweb_logdir.sh` and `ccweb_testdb.sh use` are sourced
-  (`. scripts/ccweb_env.sh`), because they set the caller's environment.
+- `ccweb_env.sh`, `ccweb_settings.sh`, `ccweb_logdir.sh` and
+  `ccweb_testdb.sh use` are sourced (`. scripts/ccweb_env.sh`), because
+  they set the caller's environment. The settings are loaded by
+  `ccweb_settings` in each script's own scope, never by `ccweb_env`, which
+  people also run in their own shell, where the values would then outrank
+  later edits to `.env`.
 - Detached processes start with `setsid nohup`, their pids recorded in
   `.runtime/ccweb.pids` as the cmd scripts do; shutdown kills the process
   group. Port-to-pid lookups use `ss`.
@@ -154,17 +166,27 @@ Tracked templates replace configuration that today exists only as text in a
 document:
 
 - `deploy/Caddyfile` -- one file for both OSes, using Caddy's `{$VAR}`
-  substitution for the domain, the frontend folder, the certificate and key,
-  and the API address.
+  placeholders for the domain, the frontend folder, the certificate and
+  key, and the API address, so the template is valid Caddy by itself.
 - `deploy/linux/ccwebdb-postgres.service`, `ccwebdb-api.service`,
-  `ccwebdb-backup.service`, `ccwebdb-backup.timer` -- with an
-  `EnvironmentFile=` naming the repository's `.env`.
+  `ccwebdb-backup.service`, `ccwebdb-backup.timer` -- with `@NAME@`
+  placeholders for the repository, the environment, the account and the
+  settings they need.
+
+Every template is filled by one command,
+`python -m app.runtime_settings --render TEMPLATE`, on both systems: Caddy's
+placeholders with forward slashes, which Caddy wants on Windows too. Caddy
+therefore reads no environment of its own on either system -- the Windows
+service has none, and apt's `caddy.service` is left as installed -- and no
+unit names `.env`: the API reads it itself, and a second reader with
+systemd's different rules for quotes and `#` would be a second opinion of
+one file. A template rendered with the defaults leaves no placeholder
+behind, and the Caddyfile rendered with the owner's values is exactly the
+one `deployment-windows.md` shows; tests hold both.
 
 The running Windows server is not re-deployed. Its hand-written
-`C:\caddy\Caddyfile` is what `deploy/Caddyfile` becomes with the values
-filled in, and `deployment-windows.md` says exactly that: copy the template
-and fill in the values (the Windows service has no environment of its own).
-On Linux the Caddy unit reads them from `.env` through `EnvironmentFile=`.
+`C:\caddy\Caddyfile` is what `deploy/Caddyfile` renders to with its values,
+and `deployment-windows.md` renders it the same way for a new server.
 
 ### 3a. The owner's two installations
 

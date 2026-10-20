@@ -52,6 +52,15 @@ shown is underlined. Command-line examples are cmd: `python -m`
 commands run from `backend\` with the `ccwebdb` conda environment active;
 `.\scripts\...` commands run from the repository root.
 
+**On Linux** each runs the same in bash, with three changes: the folder is
+`~/dev/classobjects-ccwebdb` (`cd ~/dev/classobjects-ccwebdb/backend` for
+`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`); a script is
+`./scripts/NAME.sh` for `.\scripts\NAME.cmd`, with `--option` for
+`/option`; and a variable is set with `export NAME=value` for
+`set "NAME=value"`, or, for a password asked for, `read -rs PGPASSWORD &&
+export PGPASSWORD` for `set /p PGPASSWORD=...`. Blocks that differ in more
+than that show the Linux form beside the Windows one.
+
 ## Accounts
 
 ### The two roles
@@ -1584,7 +1593,7 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_backup.cmd
 ```
 
-Every day at 20:00:
+Every day at `CCWEB_BACKUP_TIME` (20:00 unless `.env` says otherwise):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
@@ -1612,6 +1621,16 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_backup.cmd /scheduled
 ```
 
+On Linux, `./scripts/ccweb_backup.sh` takes the same actions as
+`--schedule [HH:MM]`, `--unschedule` and `--scheduled`, from
+`~/dev/classobjects-ccwebdb`. The daily run there is a systemd user timer
+rather than a scheduled task:
+
+```console
+cd ~/dev/classobjects-ccwebdb
+./scripts/ccweb_backup.sh --schedule
+```
+
 One command does what the sections below describe step by step
 (`python -m app.backup_run <folder> [--keep N]`):
 
@@ -1635,18 +1654,31 @@ in play, or the argument is unknown). An edit
 made between the export and the comparison shows as a difference and fails
 that run; the next one sets it right.
 
-The folder is `%USERPROFILE%\OneDrive\coins_backup`, or the one
-`CCWEB_BACKUP_DIR` names; `CCWEB_BACKUP_DIR` has to be a user environment
-variable for the scheduled task to see it. Every run is appended to `backup.log` in the logs
+The folder is `CCWEB_BACKUP_DIR` in `.env` -- unset, `OneDrive\coins_backup`
+in your home on Windows and `ccwebdb-backup` in your home on Linux. Choose
+one whose files leave the machine: the example installation uses a
+OneDrive folder. Every run is appended to `backup.log` in the logs
 folder under a line with its date and time: read it after a failure, and now
-and then to see that the daily runs say `proved`. `/schedule`, from an
-administrator cmd, makes a Windows scheduled task named `ccwebdb backup`
-that runs as you whether or not you are signed in, with no password stored
--- so it reaches only this machine, which is all the backup needs. Signed
-out, OneDrive is not running, so `/schedule` pins the folder to stay on the
-device (`attrib +P`) and the run's files sync at the next sign-in.
-PostgreSQL has to be running, and a run the machine was off or asleep for is
-not made up later.
+and then to see that the daily runs say `proved`; a run that cannot put the
+conda environment in play, and so cannot read the log folder's setting,
+says so on its console and in its scheduler's record instead.
+
+On Windows, `/schedule`, from an administrator cmd, makes a scheduled task
+named `ccwebdb backup` that runs as you whether or not you are signed in,
+with no password stored -- so it reaches only this machine, which is all the
+backup needs. It reads `.env` itself, so the folder set there is the one a
+signed-out run uses. A OneDrive client is not running while you are signed
+out, so `/schedule` pins the folder to stay on the device (`attrib +P`) and
+the run's files sync at the next sign-in; on a folder outside OneDrive the
+pin does nothing. A run the machine was off or asleep for is not made up
+later.
+
+On Linux, `--schedule` installs `ccwebdb-backup.service` and
+`ccwebdb-backup.timer` (from `deploy/linux/`) as systemd user units and
+turns on lingering for your account, so the timer runs whether or not you
+are signed in. The timer is persistent: a run the machine was off for
+happens when it is next up. `journalctl --user -u ccwebdb-backup` shows its
+runs. Either way PostgreSQL has to be running.
 
 ### Photographs
 
@@ -1713,9 +1745,15 @@ layout:
 robocopy "%USERPROFILE%\dev\ccwebdb-backups\media" "%USERPROFILE%\dev\classobjects-ccwebdb\media" /E
 ```
 
-Backups are kept beside the repository, in `ccwebdb-backups\` (on this
-machine `%USERPROFILE%\dev\ccwebdb-backups\`); the workbook export writes
-there by default.
+On Linux:
+
+```console
+rsync -a ~/dev/ccwebdb-backups/media/ ~/dev/classobjects-ccwebdb/media/
+```
+
+Backups are kept beside the repository, in `ccwebdb-backups` -- the folder
+`CCWEB_ARCHIVE_DIR` names, by default beside the repository folder; the
+workbook export and the photograph copy write there when given no folder.
 
 **Why `pg_dump`, not `app.backup`, before a migration.** `pg_dump` copies the
 database exactly as it is, `alembic_version` included. `app.backup` builds the
@@ -1989,8 +2027,8 @@ every release is schema first, reference data second.
 
 `pg_dump`, `pg_restore`, `createdb` and `dropdb` connect with the standard
 `PG*` variables, set in step 1; set them in each window you use.
-`scripts\ccweb_psql.cmd` fills in any it finds unset with the development
-defaults, `PGPASSWORD` included.
+`scripts\ccweb_psql.cmd` fills in any it finds unset from `DATABASE_URL`,
+`PGPASSWORD` included.
 
 1. **Back up with `pg_dump`, and prove the dump by restoring it.** With the
    code that live is running still checked out. First the database
@@ -2013,6 +2051,18 @@ defaults, `PGPASSWORD` included.
    "%PGBIN%\createdb.exe" ccwebdb_rehearsal
    "%PGBIN%\pg_restore.exe" -d ccwebdb_rehearsal --no-owner "%DUMP%"
    python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:%PGPASSWORD%@localhost:5432/ccwebdb_rehearsal
+   ```
+
+   On Linux, after `read -rs PGPASSWORD && export PGPASSWORD`:
+
+   ```console
+   cd ~/dev/classobjects-ccwebdb/backend
+   export PGBIN="$CONDA_PREFIX/bin" PGHOST=localhost PGUSER=ccwebdb
+   DUMP=~/dev/ccwebdb-backups/ccwebdb_pre_release_YYYYMMDD.dump
+   "$PGBIN/pg_dump" -Fc -d ccwebdb -f "$DUMP"
+   "$PGBIN/createdb" ccwebdb_rehearsal
+   "$PGBIN/pg_restore" -d ccwebdb_rehearsal --no-owner "$DUMP"
+   python -m app.workbook_backup compare "postgresql+psycopg://ccwebdb:$PGPASSWORD@localhost:5432/ccwebdb_rehearsal"
    ```
 
    `PGBIN` is PostgreSQL's binaries inside the active `ccwebdb` environment,
