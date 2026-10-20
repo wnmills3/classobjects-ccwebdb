@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import { useMemo, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
@@ -47,6 +47,17 @@ async function renderShop(ui, options) {
   return result
 }
 
+/**
+ * Run the effects React has scheduled but not yet run.
+ *
+ * The footer appears once the mocked shop request resolves, outside act, so
+ * findByRole can return before the seal's useEffect has run. Asserting on
+ * what that effect does -- or that it did nothing -- needs it run first.
+ */
+async function settleEffects() {
+  await act(async () => {})
+}
+
 describe('shop shell', () => {
   it('renders the brand and the public navigation', async () => {
     await renderShop(<StoreApp />)
@@ -85,6 +96,7 @@ describe('shop shell', () => {
     vi.stubEnv('VITE_DIGICERT_SEAL_ID', '')
     try {
       await renderShop(<StoreApp />)
+      await settleEffects()
       const footer = screen.getByRole('contentinfo')
       expect(footer.querySelector('[id^="DigiCertClickID_"]')).toBeNull()
       expect(document.querySelectorAll(`script[src="${SEAL_SCRIPT}"]`)).toHaveLength(0)
@@ -98,6 +110,7 @@ describe('shop shell', () => {
     onTestFinished(() => vi.unstubAllEnvs())
     // StrictMode mounts the shell twice; a second script would draw a second seal.
     await renderShop(<StoreApp />, { strict: true })
+    await settleEffects()
     const footer = screen.getByRole('contentinfo')
     expect(footer.querySelector('#DigiCertClickID_kOj5Uc3j')).not.toBeNull()
     const scripts = document.querySelectorAll(`script[src="${SEAL_SCRIPT}"]`)
