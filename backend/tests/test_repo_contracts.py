@@ -305,7 +305,7 @@ _DOC_NAMED = re.compile(r"docs[\\/]([\w./-]+\.md)")
 
 @pytest.mark.xfail(strict=True, reason="the Linux documents are written next")
 def test_every_document_a_script_or_source_names_exists() -> None:
-    """A script's "see docs\\x.md" must name a document that is there."""
+    """A document a script tells its reader to see must be there to see."""
     sources = [*_tracked("scripts/*"), *_tracked("backend/app/*.py")]
     missing = sorted(
         f"{path.relative_to(REPO_ROOT).as_posix()}: docs/{name}"
