@@ -227,7 +227,7 @@ def test_the_same_location_twice_is_a_409(
     body = {
         "kind": "safe_deposit_box",
         "institution": "First Bank",
-        "identifier": "101",
+        "identifier": "102",
     }
     assert (
         client.post(

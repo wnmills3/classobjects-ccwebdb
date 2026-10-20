@@ -78,7 +78,7 @@ describe('LocationSelect', () => {
     const user = userEvent.setup()
     api.createStorageLocation.mockResolvedValue({
       id: 9,
-      label: 'First Bank 101',
+      label: 'First Bank 102',
       kind: 'safe_deposit_box',
     })
     const onValue = renderPicker()
@@ -90,19 +90,19 @@ describe('LocationSelect', () => {
       'safe_deposit_box',
     )
     await user.type(screen.getByPlaceholderText('Bank or place'), 'First Bank')
-    await user.type(screen.getByPlaceholderText('Box or number'), '101')
+    await user.type(screen.getByPlaceholderText('Box or number'), '102')
     await user.click(screen.getByRole('button', { name: 'Add location' }))
 
     await waitFor(() =>
       expect(api.createStorageLocation).toHaveBeenCalledWith({
         kind: 'safe_deposit_box',
         institution: 'First Bank',
-        identifier: '101',
+        identifier: '102',
       }),
     )
     expect(onValue).toHaveBeenLastCalledWith('9')
     expect(
-      await screen.findByRole('option', { name: 'First Bank 101' }),
+      await screen.findByRole('option', { name: 'First Bank 102' }),
     ).toBeInTheDocument()
   })
 
