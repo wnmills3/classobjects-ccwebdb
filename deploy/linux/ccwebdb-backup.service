@@ -1,0 +1,12 @@
+# The routine backup: export the collection, prove the workbook by restoring
+# it into a scratch database, check and prune the media copy.
+#
+# A template: `./scripts/ccweb_backup.sh --schedule` fills it from the
+# settings and installs it, with ccwebdb-backup.timer, as a systemd user
+# unit of the account that owns the repository.
+[Unit]
+Description=ccwebdb routine backup (export, prove, prune)
+
+[Service]
+Type=oneshot
+ExecStart=@CCWEB_REPO@/scripts/ccweb_backup.sh

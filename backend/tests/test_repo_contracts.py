@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 from app.config import Settings
-from app.runtime_settings import REPO_ROOT, RuntimeSettings
+from app.runtime_settings import REPO_ROOT, RuntimeSettings, assignments, render
 
 SCRIPTS = REPO_ROOT / "scripts"
 
@@ -171,13 +171,27 @@ def test_the_conda_default_is_the_same_in_both_env_scripts() -> None:
 _ONE_SHELL_ONLY: dict[str, str] = {}
 
 
-@pytest.mark.xfail(strict=True, reason="the remaining twins land in later commits")
 def test_every_script_has_a_twin_in_the_other_shell() -> None:
     """A step a Windows reader can script, a Linux reader can too."""
     cmd = {p.stem for p in SCRIPTS.glob("*.cmd")}
     sh = {p.stem for p in SCRIPTS.glob("*.sh")}
     assert sorted(cmd - sh - _ONE_SHELL_ONLY.keys()) == [], "no .sh twin"
     assert sorted(sh - cmd - _ONE_SHELL_ONLY.keys()) == [], "no .cmd twin"
+
+
+#: Every template, and the placeholders `render` must leave none of.
+_TEMPLATES = sorted(
+    [*(REPO_ROOT / "deploy").rglob("*.*"), SCRIPTS / "pgadmin-servers.json"]
+)
+_LEFT_OVER = re.compile(r"@[A-Z][A-Z0-9_]*@|\{\$[A-Z][A-Z0-9_]*\}")
+
+
+@pytest.mark.parametrize("template", _TEMPLATES, ids=lambda p: p.name)
+def test_every_template_renders_completely(template: Path) -> None:
+    """Every placeholder a template names is a setting: none survive render."""
+    values = {**assignments(RuntimeSettings()), "CCWEB_USER": "someone"}
+    rendered = render(template.read_text(encoding="utf-8"), values)
+    assert _LEFT_OVER.findall(rendered) == []
 
 
 def test_shell_scripts_are_lf_and_executable() -> None:

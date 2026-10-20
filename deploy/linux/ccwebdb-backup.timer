@@ -1,0 +1,13 @@
+# Runs ccwebdb-backup.service every day at CCWEB_BACKUP_TIME, local time.
+# Persistent: a run missed while the machine was off happens when it is
+# next up. With lingering enabled for the account (ccweb_backup.sh
+# --schedule does that) it runs whether or not anyone is signed in.
+[Unit]
+Description=ccwebdb routine backup, daily at @CCWEB_BACKUP_TIME@
+
+[Timer]
+OnCalendar=*-*-* @CCWEB_BACKUP_TIME@:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
