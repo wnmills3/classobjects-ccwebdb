@@ -116,7 +116,8 @@ then `\password ccwebdb` and `\password postgres`, the new `ccwebdb` one
 written into `DATABASE_URL` with `nano .env`, and the check:
 
 ```console
-cd ~/dev/classobjects-ccwebdb/backend && uv run alembic current
+cd ~/dev/classobjects-ccwebdb/backend
+uv run alembic current
 ```
 
 ## 5. Build the frontend
@@ -180,14 +181,22 @@ repository's template and the settings, check it, and load it:
 ```console
 cd ~/dev/classobjects-ccwebdb/backend
 conda activate ccwebdb
-python -m app.runtime_settings --render ../deploy/Caddyfile | sudo tee /etc/caddy/Caddyfile > /dev/null
-sudo caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl reload caddy
+python -m app.runtime_settings --render ../deploy/Caddyfile | sudo tee /etc/caddy/Caddyfile.new > /dev/null
+sudo caddy validate --config /etc/caddy/Caddyfile.new
 ```
 
 `validate` says `Valid configuration` (it runs as root because it reads the
-key, which only root and Caddy may). Render again after changing any of
-the site's settings, then reload. The rendered file is the one
+key, which only root and Caddy may). The file goes to `Caddyfile.new`
+first, so that a refused setting -- an empty `CCWEB_SITE_DOMAIN`, say,
+which it names -- never empties the one a running Caddy reads. Only when it
+is valid, put it in place and load it:
+
+```console
+sudo mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+Render, check and move again after changing any of the site's settings. The rendered file is the one
 [deployment-windows.md](deployment-windows.md) step 7 shows, with this
 server's paths.
 

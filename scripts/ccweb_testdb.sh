@@ -6,7 +6,8 @@
 #    ./scripts/ccweb_testdb.sh stop     stop it
 #    ./scripts/ccweb_testdb.sh status   say whether it exists and is running
 #    . scripts/ccweb_testdb.sh use      (sourced) start it if it exists, and
-#                                       set TEST_DATABASE_URL in the caller
+#                                       set TEST_DATABASE_URL in the caller,
+#                                       and nothing else
 #
 #  The bash twin of ccweb_testdb.cmd. The cluster (CCWEB_TEST_DB_CLUSTER_DIR,
 #  default .pgdata.test, on CCWEB_TEST_DB_PORT, default 5433) holds nothing
@@ -87,8 +88,10 @@ _ccweb_testdb_main() {
         fi
         # Its own session, so it outlives this shell; its output through the
         # log writer, as the development cluster's is.
+        # Not fd 3 either: under "use" that is the caller's pipe, held open
+        # for as long as the server runs.
         setsid nohup sh -c '"$1/pg_ctl" -D "$2" -o "-p $3 -c logging_collector=off" start 2>&1 | "$4/bin/python" "$5/backend/app/logpipe.py" "$6/postgres-test.log"' \
-            sh "$PGBIN" "$data" "$port" "$ENVDIR" "$CCWEB_REPO" "$LOGS" >/dev/null 2>&1 &
+            sh "$PGBIN" "$data" "$port" "$ENVDIR" "$CCWEB_REPO" "$LOGS" >/dev/null 2>&1 3>&- &
         local tries=0
         until ready; do
             tries=$((tries + 1))
@@ -110,7 +113,7 @@ _ccweb_testdb_main() {
     fi
 
     if [ "$mode" = "use" ]; then
-        export TEST_DATABASE_URL="$CCWEB_TEST_DB_URL"
+        printf '%s\n' "$CCWEB_TEST_DB_URL" >&3
         return 0
     fi
     echo "Test cluster RUNNING on localhost:$port ($data)"
@@ -124,10 +127,14 @@ if [ -z "$_ccweb_testdb_sourced" ]; then
     _ccweb_testdb_main "$@"
     exit $?
 fi
-_ccweb_testdb_main "$@"
+# Sourced, the work runs in a subshell: the settings, PGPASSWORD and LOGS it
+# sets stay there, so only the URL reaches the caller's shell, as from the
+# cmd twin. Its messages go to stderr; the URL comes back on fd 3.
+_ccweb_testdb_url="$(_ccweb_testdb_main "$@" 3>&1 1>&2)"
 _ccweb_testdb_rc=$?
-unset -f _ccweb_testdb_main ready
-unset _ccweb_testdb_sourced
+[ -n "$_ccweb_testdb_url" ] && export TEST_DATABASE_URL="$_ccweb_testdb_url"
+unset -f _ccweb_testdb_main
+unset _ccweb_testdb_sourced _ccweb_testdb_url
 # The file's status is its last command's: the function's, without a
 # top-level return that would read as ending the script that sourced this.
 (exit "$_ccweb_testdb_rc")

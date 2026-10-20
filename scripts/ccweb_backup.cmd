@@ -72,10 +72,11 @@ if "%RC%"=="0" (
 exit /b %RC%
 
 :schedule
+rem  A time given here is checked as the setting is, as in the bash twin.
+if not "%~2"=="" set "CCWEB_BACKUP_TIME=%~2"
 call "%~dp0ccweb_env.cmd" || exit /b 2
 call "%~dp0ccweb_settings.cmd" || exit /b 2
-set "AT=%~2"
-if "%AT%"=="" set "AT=%CCWEB_BACKUP_TIME%"
+set "AT=%CCWEB_BACKUP_TIME%"
 rem  /NP: the task runs as this user whether or not anyone is signed in,
 rem  and no password is stored -- in exchange it reaches only this machine,
 rem  which is all a backup needs. Windows allows that only from an

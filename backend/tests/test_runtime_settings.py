@@ -7,6 +7,7 @@ the literals the scripts used before they asked for settings.
 
 from __future__ import annotations
 
+import io
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ import pytest
 from app.config import Settings
 from app.runtime_settings import (
     REPO_ROOT,
+    EmptyPlaceholder,
     RuntimeSettings,
     UnknownPlaceholder,
     UnsafeValue,
@@ -200,6 +202,35 @@ def test_a_value_cmd_cannot_hold_exits_2_naming_the_key(
     assert "CCWEB_BACKUP_DIR" in capsys.readouterr().err
 
 
+def test_the_cmd_format_is_written_in_the_code_page_cmd_reads(
+    bare: pytest.MonkeyPatch, capsysbinary: pytest.CaptureFixture[bytes]
+) -> None:
+    """A batch file is read in its console's code page, not Python's ANSI one."""
+    bare.setattr("app.runtime_settings._cmd_encoding", lambda: "cp437")
+    bare.setenv("CCWEB_SITE_DOMAIN", "josé.example")
+    assert main(["--format", "cmd"]) == 0
+    out = capsysbinary.readouterr().out
+    assert 'set "CCWEB_SITE_DOMAIN=josé.example"'.encode("cp437") in out
+
+
+def test_the_cmd_format_refuses_what_its_code_page_cannot_hold() -> None:
+    """A character with no byte in that page would arrive as another one."""
+    with pytest.raises(UnsafeValue, match="CCWEB_SITE_DOMAIN"):
+        format_cmd({"CCWEB_SITE_DOMAIN": "日本.example"}, encoding="cp437")
+
+
+def test_a_database_url_that_is_no_address_exits_2_naming_it(
+    bare: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Refused by name like any other setting, not with a traceback."""
+    bare.setenv("DATABASE_URL", "not an address")
+    assert main(["--format", "sh"]) == 2
+    captured = capsys.readouterr()
+    assert "DATABASE_URL" in captured.err
+    assert "not an address" not in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_the_test_cluster_may_not_share_the_collections_port(
     bare: pytest.MonkeyPatch,
 ) -> None:
@@ -270,6 +301,33 @@ def test_an_unknown_placeholder_is_refused_by_name() -> None:
     """A misspelt placeholder must not reach a service's configuration empty."""
     with pytest.raises(UnknownPlaceholder, match="CCWEB_DB_PROT"):
         render("port @CCWEB_DB_PROT@", {"CCWEB_DB_PORT": "5432"})
+
+
+def test_an_empty_value_in_caddys_placeholder_is_refused_by_name() -> None:
+    """An empty site domain leaves Caddy a site with no address."""
+    with pytest.raises(EmptyPlaceholder, match="CCWEB_SITE_DOMAIN"):
+        render("{$CCWEB_SITE_DOMAIN} {", {"CCWEB_SITE_DOMAIN": ""})
+
+
+def test_a_caddy_value_with_a_space_is_one_quoted_token() -> None:
+    """Unquoted, Caddy would read a folder with a space as two arguments."""
+    values = {"CCWEB_SITE_ROOT": "C:\\Users\\A B\\dist"}
+    assert render("root * {$CCWEB_SITE_ROOT}", values) == 'root * "C:/Users/A B/dist"'
+
+
+def test_render_is_written_in_utf_8_whatever_the_console(
+    bare: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsysbinary: pytest.CaptureFixture[bytes],
+) -> None:
+    """Caddy, pgAdmin and systemd read UTF-8, not Windows' ANSI code page."""
+    assert isinstance(sys.stdout, io.TextIOWrapper)
+    sys.stdout.reconfigure(encoding="cp1252")
+    bare.setenv("CCWEB_SITE_DOMAIN", "josé.example")
+    template = tmp_path / "t.conf"
+    template.write_bytes(b"site @CCWEB_SITE_DOMAIN@\n")
+    assert main(["--render", str(template)]) == 0
+    assert "josé".encode() in capsysbinary.readouterr().out
 
 
 def test_render_prints_a_template_filled_from_settings(

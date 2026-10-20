@@ -53,7 +53,9 @@ def _code_lines(path: Path) -> list[tuple[int, str]]:
 
 #: Ports inside a container are the image's, not this machine's: SonarQube
 #: listens on 9000 and its database on 5432 whatever the host maps them to.
-_CONTAINER_PORTS = re.compile(r"sonarqube:9000|%SQPORT%:9000|%DBNAME%:5432")
+_CONTAINER_PORTS = re.compile(
+    r"sonarqube:9000|(%SQPORT%|\$SQPORT):9000|(%DBNAME%|\$DBNAME):5432"
+)
 
 #: More of the scripts, each with what it alone used to write out.
 _SETTLED_TOO = {
@@ -64,13 +66,14 @@ _SETTLED_TOO = {
 }
 
 
+@pytest.mark.parametrize("suffix", [".cmd", ".sh"])
 @pytest.mark.parametrize("name", sorted(_SETTLED_TOO))
-def test_the_other_scripts_name_no_literal_either(name: str) -> None:
+def test_the_other_scripts_name_no_literal_either(name: str, suffix: str) -> None:
     """Backup folder and time, pgAdmin's and SonarQube's ports: settings too."""
     forbidden = _LITERALS + _SETTLED_TOO[name]
     found = [
-        f"{name}.cmd:{number}: {literal}"
-        for number, line in _code_lines(SCRIPTS / f"{name}.cmd")
+        f"{name}{suffix}:{number}: {literal}"
+        for number, line in _code_lines(SCRIPTS / f"{name}{suffix}")
         for literal in forbidden
         if literal in _CONTAINER_PORTS.sub("", line)
     ]
@@ -85,12 +88,13 @@ def test_the_pgadmin_connection_is_a_template_of_settings() -> None:
     assert not [literal for literal in ("5432", "localhost") if literal in text]
 
 
+@pytest.mark.parametrize("suffix", [".cmd", ".sh"])
 @pytest.mark.parametrize("name", _SETTLED)
-def test_scripts_name_no_port_or_cluster_literal(name: str) -> None:
+def test_scripts_name_no_port_or_cluster_literal(name: str, suffix: str) -> None:
     """A port or folder written into a script is a second copy of a setting."""
     found = [
-        f"{name}.cmd:{number}: {literal}"
-        for number, line in _code_lines(SCRIPTS / f"{name}.cmd")
+        f"{name}{suffix}:{number}: {literal}"
+        for number, line in _code_lines(SCRIPTS / f"{name}{suffix}")
         for literal in _LITERALS
         if literal in line
     ]
@@ -180,6 +184,70 @@ def test_settings_ignore_the_arguments_of_the_script_that_sources_them(
     assert re.search(r"^port=\d+$", shown.stdout, re.MULTILINE), shown.stderr
 
 
+#: Stand-ins for what ccweb_testdb.sh calls, so its sourced path runs here:
+#: a cluster that answers on the second ask, a server that outlives the
+#: script, and settings holding a password the caller must never receive.
+_TESTDB_STUBS = {
+    "scripts/ccweb_env.sh": 'export ENVDIR="$ROOT/env" PGBIN="$ROOT/stubs"\n',
+    "scripts/ccweb_settings.sh": (
+        'export CCWEB_TEST_DB_CLUSTER_DIR="$ROOT/cluster" CCWEB_TEST_DB_PORT=5999\n'
+        "export CCWEB_TEST_DB_PASSWORD=sekrit CCWEB_TEST_DB_USER=tester\n"
+        "export CCWEB_TEST_DB_URL=postgresql://tester@localhost:5999/x_test\n"
+        'export CCWEB_REPO="$ROOT" CCWEB_LOG_DIR="$ROOT/logs"\n'
+    ),
+    "stubs/pg_isready": (
+        '[ -f "$ROOT/asked" ] && exit 0\ntouch "$ROOT/asked"\nexit 1\n'
+    ),
+    "stubs/pg_ctl": "sleep 8\n",
+    "stubs/setsid": 'exec "$@"\n',
+    "env/bin/python": "cat >/dev/null\n",
+    "cluster/PG_VERSION": "18\n",
+}
+
+
+def test_sourcing_testdb_use_hands_the_caller_only_the_url(tmp_path: Path) -> None:
+    """`. ccweb_testdb.sh use` sets TEST_DATABASE_URL and nothing else.
+
+    It runs in people's own shells: no setting may be left behind to outrank
+    a later .env edit, and no password for the next psql to sign in with.
+    """
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash here other than WSL's launcher")
+    for relative, text in _TESTDB_STUBS.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode())
+        path.chmod(0o755)
+    for name in ("ccweb_testdb.sh", "ccweb_logdir.sh"):
+        shutil.copy(SCRIPTS / name, tmp_path / "scripts" / name)
+    environment = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("CCWEB_", "PG", "TEST_DATABASE_URL", "LOGS"))
+    }
+    script = (
+        'cd "$1" && export ROOT="$PWD" PATH="$PWD/stubs:$PATH"; '
+        ". scripts/ccweb_testdb.sh use; echo rc=$?; env"
+    )
+    shown = subprocess.run(
+        [bash, "-c", script, "bash", tmp_path.as_posix()],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=6,
+        check=True,
+    ).stdout
+    assert "rc=0" in shown.splitlines()
+    assert "TEST_DATABASE_URL=postgresql://tester@localhost:5999/x_test" in shown
+    leaked = [
+        line
+        for line in shown.splitlines()
+        if line.startswith(("CCWEB_", "PGPASSWORD=", "LOGS=")) or "sekrit" in line
+    ]
+    assert leaked == []
+
+
 def test_the_conda_default_is_the_same_in_both_env_scripts() -> None:
     """The one default written in two places, because no Python runs yet."""
     cmd = (SCRIPTS / "ccweb_env.cmd").read_text(encoding="utf-8")
@@ -214,7 +282,14 @@ _LEFT_OVER = re.compile(r"@[A-Z][A-Z0-9_]*@|\{\$[A-Z][A-Z0-9_]*\}")
 @pytest.mark.parametrize("template", _TEMPLATES, ids=lambda p: p.name)
 def test_every_template_renders_completely(template: Path) -> None:
     """Every placeholder a template names is a setting: none survive render."""
-    values = {**assignments(RuntimeSettings()), "CCWEB_USER": "someone"}
+    values = {
+        **assignments(RuntimeSettings()),
+        # A development machine has no site; render refuses those empty.
+        "CCWEB_SITE_DOMAIN": "example.com",
+        "CCWEB_TLS_CERT": "/certs/fullchain.pem",
+        "CCWEB_TLS_KEY": "/certs/example.com.key",
+        "CCWEB_USER": "someone",
+    }
     rendered = render(template.read_text(encoding="utf-8"), values)
     assert _LEFT_OVER.findall(rendered) == []
 

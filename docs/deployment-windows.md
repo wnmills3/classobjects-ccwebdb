@@ -176,7 +176,9 @@ its photographs to a folder you can carry across -- the example uses
 `D:\to_server`:
 
 ```console
-pg_dump -Fc -f ccwebdb_to_server.dump ccwebdb
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+if not exist D:\to_server mkdir D:\to_server
+pg_dump -Fc -f D:\to_server\ccwebdb_to_server.dump ccwebdb
 python -m app.media_backup copy D:\to_server\media
 python -m app.media_backup check D:\to_server\media
 ```
@@ -276,7 +278,8 @@ schema revision, ending `(head)`; a `password authentication failed` means
 `.env` does not match what was typed in 3:
 
 ```console
-cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend && uv run alembic current
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+uv run alembic current
 ```
 
 An API already running read the old `.env` when it started: restart it
@@ -369,12 +372,14 @@ too. In a window where `conda activate ccwebdb` has been run:
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
-python -m app.runtime_settings --render ..\deploy\Caddyfile > C:\caddy\Caddyfile
+python -m app.runtime_settings --render ..\deploy\Caddyfile > C:\caddy\Caddyfile.new
 ```
 
-Render it again after changing any of those settings, then restart the
-service (below). For the example installation the result, comments left
-out, is:
+It goes to `Caddyfile.new` first, so that a refused setting -- an empty
+`CCWEB_SITE_DOMAIN`, say, which it names -- never empties the file a
+running Caddy reads. Render it again after changing any of those settings,
+check it and put it in place as below, then restart the service. For the
+example installation the result, comments left out, is:
 
 ```
 classobjects.com {
@@ -418,7 +423,13 @@ Check the file. It says `Valid configuration`, and that it is skipping
 automatic certificates because the files given are loaded:
 
 ```console
-C:\caddy\caddy.exe validate --config C:\caddy\Caddyfile
+C:\caddy\caddy.exe validate --config C:\caddy\Caddyfile.new
+```
+
+Only when it does, put it in place:
+
+```console
+move /y C:\caddy\Caddyfile.new C:\caddy\Caddyfile
 ```
 
 ### Caddy as a service

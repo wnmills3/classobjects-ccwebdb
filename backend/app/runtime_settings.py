@@ -20,7 +20,9 @@ settings when imported, which refuses to run without a signing key.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import getpass
+import io
 import json
 import re
 import sys
@@ -36,6 +38,7 @@ from pydantic import (
 from pydantic_core import PydanticUseDefault
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 from .logpipe import DEFAULT_KEEP, DEFAULT_MAX_BYTES
 
@@ -156,7 +159,10 @@ class RuntimeFields(BaseSettings):
             value = getattr(self, name)
             if isinstance(value, Path) and not value.is_absolute():
                 setattr(self, name, REPO_ROOT / value)
-        url = make_url(self.database_url)
+        try:
+            url = make_url(self.database_url)
+        except ArgumentError:
+            raise ValueError("DATABASE_URL is not a database address") from None
         if (url.host or "localhost") in _LOCAL_HOSTS and (
             url.port or _PG_DEFAULT_PORT
         ) == self.ccweb_test_db_port:
@@ -181,11 +187,9 @@ class RuntimeSettings(RuntimeFields):
 class UnsafeValue(ValueError):
     """A value the requested shell format cannot carry intact."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, which: str = '" % ! or a line break') -> None:
         """Name the setting, never its value: it may be a secret."""
-        super().__init__(
-            f'{name} holds a character cmd cannot carry: " % ! or a line break'
-        )
+        super().__init__(f"{name} holds a character cmd cannot carry: {which}")
         self.name = name
 
 
@@ -232,11 +236,27 @@ def assignments(s: RuntimeFields, *, include_password: bool = False) -> dict[str
     return values
 
 
-def format_cmd(values: dict[str, str]) -> str:
-    """`set "NAME=value"` lines, for a .cmd to `call`."""
+def _cmd_encoding() -> str:
+    """The code page cmd reads a batch file in: its console's, else OEM.
+
+    Not the ANSI page Python would write a redirected stdout in: a user
+    folder named like José would reach the script as another name.
+    """
+    if sys.platform != "win32":
+        return "utf-8"
+    page = ctypes.windll.kernel32.GetConsoleOutputCP()
+    return f"cp{page}" if page else "oem"
+
+
+def format_cmd(values: dict[str, str], encoding: str = "utf-8") -> str:
+    """`set "NAME=value"` lines, for a .cmd to `call`, all in `encoding`."""
     for name, value in values.items():
         if _CMD_UNSAFE.intersection(value):
             raise UnsafeValue(name)
+        try:
+            value.encode(encoding)
+        except UnicodeEncodeError:
+            raise UnsafeValue(name, f"one outside code page {encoding}") from None
     return "".join(f'set "{name}={value}"\n' for name, value in values.items())
 
 
@@ -265,6 +285,15 @@ class UnknownPlaceholder(ValueError):
         self.name = name
 
 
+class EmptyPlaceholder(ValueError):
+    """A Caddy placeholder whose setting is empty."""
+
+    def __init__(self, name: str) -> None:
+        """Name the setting, so the reader knows which line of .env to fill."""
+        super().__init__(f"{name} is empty: the Caddyfile needs it")
+        self.name = name
+
+
 def render(template: str, values: dict[str, str]) -> str:
     """`template` with every placeholder replaced by its value."""
 
@@ -273,8 +302,14 @@ def render(template: str, values: dict[str, str]) -> str:
         if name not in values:
             raise UnknownPlaceholder(name)
         if match.group(2):
-            # Caddy's own syntax: it wants forward slashes, on Windows too.
-            return values[name].replace("\\", "/")
+            # Caddy's own syntax: it wants forward slashes, on Windows too,
+            # and a value with a space quoted, to stay one argument.
+            value = values[name].replace("\\", "/")
+            if not value:
+                raise EmptyPlaceholder(name)
+            if any(char.isspace() for char in value):
+                return '"' + value.replace('"', '\\"') + '"'
+            return value
         return values[name]
 
     return _PLACEHOLDER.sub(fill, template)
@@ -299,6 +334,8 @@ def main(argv: list[str] | None = None) -> int:
         help="print TEMPLATE with its @NAME@ and {$NAME} placeholders filled",
     )
     args = parser.parse_args(argv)
+    # What reads the output: cmd its console's code page, the rest UTF-8.
+    encoding = "utf-8"
     try:
         values = assignments(RuntimeSettings(), include_password=args.include_password)
         if args.render:
@@ -306,7 +343,8 @@ def main(argv: list[str] | None = None) -> int:
             template = Path(args.render).read_text(encoding="utf-8")
             text = render(template, values)
         elif args.format == "cmd":
-            text = format_cmd(values)
+            encoding = _cmd_encoding()
+            text = format_cmd(values, encoding)
         elif args.format == "sh":
             text = format_sh(values)
         else:
@@ -319,9 +357,11 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
         return 2
-    except (UnsafeValue, UnknownPlaceholder) as refused:
+    except (UnsafeValue, UnknownPlaceholder, EmptyPlaceholder) as refused:
         print(f"runtime_settings: {refused}", file=sys.stderr)
         return 2
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding=encoding)
     sys.stdout.write(text)
     return 0
 
