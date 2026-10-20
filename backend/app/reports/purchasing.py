@@ -27,6 +27,7 @@ from sqlalchemy import ColumnElement, RowMapping, and_, case, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
+from ..clock import local_today
 from ..inventory_search import view_path
 from ..live import OUTSTANDING_STATUSES, live_item
 from ..models import (
@@ -116,8 +117,7 @@ def _pr_outstanding(db: Session, params: OutstandingParams) -> ReportResult:
 
     "Today" is computed once here, in Python, rather than as SQL
     `CURRENT_DATE` -- the database server's clock and timezone are not
-    necessarily the application's, and a test builds its dates relative to
-    `date.today()` too.
+    necessarily the application's (`clock.local_today()`).
     """
     is_outstanding = ItemStatus.code.in_(OUTSTANDING_STATUSES)
     outstanding = func.count(case((is_outstanding, InventoryItem.id)))
@@ -155,7 +155,7 @@ def _pr_outstanding(db: Session, params: OutstandingParams) -> ReportResult:
         .order_by(PurchaseOrder.ordered_on.asc().nulls_last(), PurchaseOrder.id.asc())
     )
 
-    today = date.today()
+    today = local_today()
     rows: list[dict[str, object]] = []
     drills: list[str | None] = []
     total_outstanding = 0
@@ -307,7 +307,7 @@ def _pr_outstanding_items(db: Session, _params: OutstandingItemsParams) -> Repor
         )
 
     identity = _item_identity(db, {row["id"] for row in found})
-    today = date.today()
+    today = local_today()
     rows: list[dict[str, object]] = []
     drills: list[str | None] = []
     total_cost = Decimal("0")

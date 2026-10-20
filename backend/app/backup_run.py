@@ -50,7 +50,6 @@ import re
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 
 from alembic import command
@@ -60,6 +59,7 @@ from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.orm import Session
 
 from . import media_backup, workbook_backup
+from .clock import local_now
 from .config import REPO_ROOT, settings
 from .storage import get_storage
 
@@ -183,7 +183,7 @@ def run(
     the workbook and the scratch database; `prove` is the proof,
     `prove_workbook` unless another is given.
     """
-    stamp = stamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = stamp or local_now().strftime("%Y%m%d_%H%M%S")
     folder.mkdir(parents=True, exist_ok=True)
     media = folder / "media"
     done = BackupRun(workbook=folder / f"ccwebdb_{stamp}.xlsx")

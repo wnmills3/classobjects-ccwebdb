@@ -14,7 +14,6 @@ detail.
 
 from __future__ import annotations
 
-from datetime import datetime
 from io import BytesIO
 from typing import Any
 
@@ -23,6 +22,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from starlette.datastructures import QueryParams
 
+from ..clock import local_now
 from ..deps import AdminUser, DbSession
 from ..reports.base import Report
 from ..reports.params import ParamError, resolve_params
@@ -88,7 +88,7 @@ def get_report(
     report = _report_or_404(report_id)
     params = _params_from_query(report, request.query_params)
     result = report.run(db, params)
-    run_at = datetime.now().astimezone()
+    run_at = local_now()
     return serialize_result(report, params, result, run_at)
 
 
@@ -100,7 +100,7 @@ def get_report_workbook(
     report = _report_or_404(report_id)
     params = _params_from_query(report, request.query_params)
     result = report.run(db, params)
-    run_at = datetime.now().astimezone()
+    run_at = local_now()
     book = write_workbook(report, params, result, run_at)
     buffer = BytesIO()
     book.save(buffer)

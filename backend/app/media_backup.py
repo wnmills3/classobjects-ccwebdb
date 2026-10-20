@@ -53,7 +53,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .config import REPO_ROOT
+from .config import settings
 from .database import SessionLocal
 from .models import Image, ImageDerivative
 from .storage import StorageBackend, get_storage
@@ -93,7 +93,7 @@ class MediaPrune:
 
 def default_folder() -> Path:
     """Beside the database backups, outside the repository."""
-    return REPO_ROOT.parent / "ccwebdb-backups" / "media"
+    return settings.ccweb_archive_dir / "media"
 
 
 def _files(db: Session) -> list[tuple[str, str | None, int | None]]:

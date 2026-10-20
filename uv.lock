@@ -188,6 +188,7 @@ dependencies = [
     { name = "pyjwt" },
     { name = "python-multipart" },
     { name = "sqlalchemy" },
+    { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -217,6 +218,7 @@ requires-dist = [
     { name = "pyjwt", specifier = ">=2.13.0" },
     { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "sqlalchemy", specifier = ">=2.0.52" },
+    { name = "tzdata", specifier = ">=2026.3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4" },
 ]
 

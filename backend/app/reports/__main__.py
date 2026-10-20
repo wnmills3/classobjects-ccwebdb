@@ -26,6 +26,7 @@ from typing import Any
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..clock import local_now
 from ..database import SessionLocal
 from .base import Column, ColumnKind, Report, ReportResult, is_date_field
 from .params import ParamError, resolve_params
@@ -180,7 +181,7 @@ def _run(
         return 2
 
     result = report.run(db, params)
-    run_at = datetime.now().astimezone()
+    run_at = local_now()
     print(format_report(report, params, result, run_at))
 
     if workbook_path is not None:

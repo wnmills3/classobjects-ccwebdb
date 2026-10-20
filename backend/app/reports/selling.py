@@ -61,6 +61,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session, aliased
 
+from ..clock import local_today
 from ..inventory_search import view_path
 from ..live import live_item
 from ..models import (
@@ -313,7 +314,7 @@ def _sl_offered(db: Session, _params: OfferedParams) -> ReportResult:
     than as SQL `CURRENT_DATE` -- the database server's clock and timezone
     are not necessarily the application's.
     """
-    today = date.today()
+    today = local_today()
     entries = _item_rows(db, today) + _lot_rows(db, today)
     entries.sort(key=lambda entry: entry[0])
 
@@ -719,7 +720,7 @@ def _sl_fulfilment(db: Session, _params: FulfilmentParams) -> ReportResult:
         .order_by(SalesOrder.placed_at.asc(), SalesOrder.id.asc())
     )
 
-    today = date.today()
+    today = local_today()
     rows: list[dict[str, object]] = []
     drills: list[str | None] = []
     total_items = 0
@@ -935,7 +936,7 @@ def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
     )
     receipts = _receipt_dates(db, lookup_ids)
 
-    today = date.today()
+    today = local_today()
     unknown = 0
     kind_sort: dict[str, int] = {}
     buckets: dict[tuple[str, str], list[object]] = {}

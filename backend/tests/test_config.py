@@ -51,6 +51,57 @@ def test_the_photograph_library_can_be_moved_by_environment(
     assert Settings().photo_library_root == Path("/tmp/elsewhere")
 
 
+def test_cors_follows_the_frontend_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Move the dev server and the API still accepts its pages' requests."""
+    from app.config import Settings
+
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    monkeypatch.setenv("CCWEB_FRONTEND_PORT", "6000")
+    assert Settings().cors_origins == [
+        "http://localhost:6000",
+        "http://127.0.0.1:6000",
+    ]
+
+
+def test_cors_defaults_to_the_dev_servers_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unset, the two addresses the dev server answers on, as before."""
+    from app.config import Settings
+
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("CCWEB_FRONTEND_PORT", raising=False)
+    assert Settings(_env_file=None, jwt_secret="k" * 32).cors_origins == [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+
+def test_the_archive_folder_defaults_beside_the_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Database dumps and media copies go next to the checkout, not in it."""
+    from app.config import REPO_ROOT, Settings
+
+    monkeypatch.delenv("CCWEB_ARCHIVE_DIR", raising=False)
+    assert (
+        Settings(_env_file=None, jwt_secret="k" * 32).ccweb_archive_dir
+        == REPO_ROOT.parent / "ccwebdb-backups"
+    )
+
+
+def test_the_backups_follow_the_archive_folder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Both default backup locations are under CCWEB_ARCHIVE_DIR."""
+    from app import media_backup, workbook_backup
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "ccweb_archive_dir", tmp_path)
+    assert media_backup.default_folder() == tmp_path / "media"
+    assert workbook_backup.default_path().parent == tmp_path
+
+
 @pytest.mark.parametrize(
     ("key", "problem"),
     [

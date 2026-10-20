@@ -82,7 +82,7 @@ import json
 import sys
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -127,7 +127,8 @@ from .backup import (
     stored_columns,
 )
 from .cell_text import keep_text
-from .config import REPO_ROOT, settings
+from .clock import assume_local, local_now
+from .config import settings
 from .storage import get_storage
 
 __all__ = [
@@ -282,7 +283,7 @@ def _as_moment(value: object, kind: DateTime) -> datetime:
         value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
     )
     if kind.timezone and moment.tzinfo is None:
-        moment = moment.astimezone()
+        moment = assume_local(moment)
     return moment
 
 
@@ -325,8 +326,8 @@ def _order(table: Table) -> list[Column[Any]]:
 
 def default_path() -> Path:
     """Beside the other backups, outside the repository, named by the time."""
-    folder = REPO_ROOT.parent / "ccwebdb-backups"
-    return folder / f"ccwebdb_{datetime.now(UTC).astimezone():%Y%m%d_%H%M%S}.xlsx"
+    folder = settings.ccweb_archive_dir
+    return folder / f"ccwebdb_{local_now():%Y%m%d_%H%M%S}.xlsx"
 
 
 def _as_read(column: Column[Any]) -> ColumnElement[Any]:
@@ -569,7 +570,7 @@ def _write_sheets(
                 n += 1
             counts[table.name] = n
         about.append(list(ABOUT_HEADER))
-        about.append(["exported", datetime.now(UTC).astimezone().isoformat()])
+        about.append(["exported", local_now().isoformat()])
         about.append(["database", make_url(str(engine.url)).database])
         about.append(["migration revision", revision])
         about.append(["tables", len(tables)])

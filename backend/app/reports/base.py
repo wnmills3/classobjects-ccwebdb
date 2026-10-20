@@ -18,6 +18,8 @@ from pydantic.fields import FieldInfo
 from sqlalchemy import ColumnElement, Date, DateTime, cast, func, literal
 from sqlalchemy.orm import QueryableAttribute, Session
 
+from ..clock import to_local
+
 #: How a column's values are formatted, everywhere a report is shown or
 #: exported. Never the query -- a report groups and filters however it
 #: needs to; this only tells a reader how to print what came back.
@@ -193,21 +195,20 @@ def period_label(period: Period, start: date) -> str:
 
 
 def local_date(moment: datetime) -> date:
-    """`moment`'s calendar date in the system's own local time zone.
+    """`moment`'s calendar date in the local zone (TIME_ZONE, or the host's).
 
     Shared by any report reading a `timestamptz` column that must be
     compared, as a calendar day, against a local date such as
-    `date.today()` or a `DateRange` bound: the driver hands a `timestamptz`
-    back tagged with whatever zone the *database session* is in, which need
-    not be the zone the application server itself runs in.
-    `astimezone()` with no argument converts to the local zone first -- the
-    same zone `date.today()` reads from -- so the two always agree about
+    `clock.local_today()` or a `DateRange` bound: the driver hands a
+    `timestamptz` back tagged with whatever zone the *database session* is
+    in, which need not be the application's. `clock.to_local` converts to
+    the same zone `local_today()` reads from, so the two always agree about
     which calendar day a moment falls on regardless of the session's own
     zone. Pinned by `test_reports_selling.py`'s
     `test_local_date_uses_the_local_zone_not_the_session_zone`, which forces
     the session to a different zone than the system's own.
     """
-    return moment.astimezone().date()
+    return to_local(moment).date()
 
 
 @dataclass(frozen=True)

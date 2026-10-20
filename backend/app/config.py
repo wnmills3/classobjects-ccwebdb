@@ -3,6 +3,8 @@
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import SettingsConfigDict
@@ -25,6 +27,15 @@ PUBLISHED_SECRETS = frozenset(
 _MAKE_A_SECRET = (
     'Put a new one in .env: python -c "import secrets; print(secrets.token_hex(32))"'
 )
+
+
+def _dev_server_origins(data: dict[str, Any]) -> list[str]:
+    """The dev server's two addresses, at the port already read."""
+    port = data.get("ccweb_frontend_port")
+    if port is None:
+        # The port itself was refused; that error is the one to report.
+        return []
+    return [f"http://localhost:{port}", f"http://127.0.0.1:{port}"]
 
 
 class Settings(RuntimeFields):
@@ -56,9 +67,24 @@ class Settings(RuntimeFields):
 
     # --- app ----------------------------------------------------------------
     api_prefix: str = "/api"
-    cors_origins: list[str] = Field(
-        default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
-    )
+    # Unset: the two addresses the dev server answers on, at its port.
+    cors_origins: list[str] = Field(default_factory=_dev_server_origins)
+
+    # The IANA zone "today" and every local date is in (America/New_York).
+    # Empty: the host's own zone. Stored times are UTC either way; this
+    # decides only which calendar day a moment falls on, in reports and in
+    # backup file names, so a server running on UTC can still keep its
+    # owner's days. See app/clock.py.
+    time_zone: str = ""
+
+    # Where database dumps, workbook exports and media copies go when a
+    # command is given no folder: beside the checkout, never inside it.
+    ccweb_archive_dir: Path = REPO_ROOT.parent / "ccwebdb-backups"
+
+    # DigiCert's seal for the certificate the shop is served under, read by
+    # the frontend build (VITE_ keys are the only ones Vite passes to the
+    # page). Empty: the shop shows no seal.
+    vite_digicert_seal_id: str = ""
 
     # Whether the public shop is open (SHOP_OPEN). Closed, the catalog
     # answers signed-in callers only, registration is refused, and the
@@ -117,6 +143,23 @@ class Settings(RuntimeFields):
                 f"{_MAKE_A_SECRET}"
             )
         return value
+
+    @field_validator("time_zone")
+    @classmethod
+    def _a_known_zone(cls, value: str) -> str:
+        """Refuse a zone name the zone database does not know."""
+        if value:
+            try:
+                ZoneInfo(value)
+            except (ValueError, ZoneInfoNotFoundError):
+                raise ValueError(f"{value!r} is not a known time zone") from None
+        return value
+
+    @field_validator("ccweb_archive_dir")
+    @classmethod
+    def _from_the_repository(cls, value: Path) -> Path:
+        """A relative folder is the repository's, as the scripts' folders are."""
+        return value if value.is_absolute() else REPO_ROOT / value
 
 
 @lru_cache
