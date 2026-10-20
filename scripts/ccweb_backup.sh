@@ -60,8 +60,10 @@ case "${1:-}" in
         exit "$rc" ;;
     --scheduled)
         systemctl --user list-timers --all --no-pager ccwebdb-backup.timer
-        systemctl --user is-enabled ccwebdb-backup.timer >/dev/null 2>&1
-        exit $? ;;
+        # 1 when there is none, as the cmd twin's schtasks query gives: not
+        # systemd's own codes (4 for a unit that does not exist).
+        systemctl --user is-enabled ccwebdb-backup.timer >/dev/null 2>&1 || exit 1
+        exit 0 ;;
     *)
         echo "ERROR: unknown argument $1"
         echo "       ./scripts/ccweb_backup.sh [--schedule [HH:MM] | --unschedule | --scheduled]"

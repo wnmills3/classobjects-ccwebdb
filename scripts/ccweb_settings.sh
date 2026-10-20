@@ -27,11 +27,16 @@ if [ -z "${ENVDIR:-}" ]; then
     echo "ERROR: ccweb_settings.sh needs ccweb_env.sh to have run first"
     return 2
 fi
+# Sourced without arguments, a file sees its caller's "$@" (--lan, --keepdb,
+# a session name), so nothing here is passed on but the one option meant for
+# it, and only when it comes first.
+_ccweb_password=""
+[ "${1:-}" = "--include-password" ] && _ccweb_password="--include-password"
 if ! _ccweb_settings="$(cd "$(dirname "${BASH_SOURCE[0]}")/../backend" \
-    && "$ENVDIR/bin/python" -m app.runtime_settings --format sh "$@")"; then
-    unset _ccweb_settings
+    && "$ENVDIR/bin/python" -m app.runtime_settings --format sh $_ccweb_password)"; then
+    unset _ccweb_settings _ccweb_password
     echo "ERROR: the settings above were refused - fix them in .env"
     return 2
 fi
 eval "$_ccweb_settings"
-unset _ccweb_settings
+unset _ccweb_settings _ccweb_password

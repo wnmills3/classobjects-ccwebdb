@@ -158,6 +158,28 @@ def test_the_bash_twin_reads_the_conda_env_name_like_pydantic(
     assert shown == f"CCWEB_CONDA_ENV={pydantic}"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="needs the environment's bin/python"
+)
+@pytest.mark.parametrize("arguments", ["--lan", "--keepdb", "--schedule 06:30", "use"])
+def test_settings_ignore_the_arguments_of_the_script_that_sources_them(
+    arguments: str,
+) -> None:
+    """`. file` hands the sourced file its caller's "$@": none may reach Python."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash")
+    script = (
+        f"set -- {arguments}; ENVDIR={sys.prefix}; "
+        f". {(SCRIPTS / 'ccweb_settings.sh').as_posix()} && echo port=$CCWEB_API_PORT"
+    )
+    shown = subprocess.run(
+        [bash, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert "unrecognized arguments" not in shown.stderr
+    assert re.search(r"^port=\d+$", shown.stdout, re.MULTILINE), shown.stderr
+
+
 def test_the_conda_default_is_the_same_in_both_env_scripts() -> None:
     """The one default written in two places, because no Python runs yet."""
     cmd = (SCRIPTS / "ccweb_env.cmd").read_text(encoding="utf-8")

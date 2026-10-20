@@ -166,9 +166,10 @@ been pre-releases. They land in `~/miniforge3/envs/ccwebdb/bin`, so they are
 on `PATH` only with the environment active. Sign in to GitHub once with
 `gh auth login`.
 
-Verify, with the environment active:
+Verify:
 
 ```console
+conda activate ccwebdb
 node --version
 psql --version
 gh --version
@@ -217,6 +218,7 @@ it stops before PostgreSQL unless the dependencies of step 7 are installed.
 
 ```console
 cd ~/dev/classobjects-ccwebdb
+conda activate ccwebdb
 mkdir -p logs
 pg_ctl -D .pgdata -l logs/postgres-by-hand.log start
 ```
@@ -224,6 +226,7 @@ pg_ctl -D .pgdata -l logs/postgres-by-hand.log start
 Wait until this says `accepting connections`:
 
 ```console
+conda activate ccwebdb
 pg_isready -h localhost -p 5432
 ```
 
@@ -231,6 +234,7 @@ Then create the application role and database:
 
 ```console
 cd ~/dev/classobjects-ccwebdb
+conda activate ccwebdb
 export PGPASSWORD=devpassword
 psql -h localhost -U postgres -d postgres -c "CREATE ROLE ccwebdb WITH LOGIN PASSWORD 'devpassword' CREATEDB;"
 psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ccwebdb OWNER ccwebdb ENCODING 'UTF8';"
@@ -264,7 +268,7 @@ machine from the committed template, `.env.example`.
 
 ```console
 cd ~/dev/classobjects-ccwebdb
-cp -n .env.example .env
+if [ -f .env ]; then echo ".env exists: keeping it"; else cp .env.example .env; fi
 ```
 
 **2. Make a sign-in secret.** This prints 64 random characters, different
@@ -312,6 +316,7 @@ reach the system.
 
 ```console
 cd ~/dev/classobjects-ccwebdb
+conda activate ccwebdb
 uv sync
 cd frontend
 npm install
@@ -325,6 +330,7 @@ Two cases, and they are **not interchangeable**. Both need the PostgreSQL
 server of step 5; first check that it answers:
 
 ```console
+conda activate ccwebdb
 pg_isready -h localhost -p 5432
 ```
 
@@ -363,6 +369,7 @@ BACKUP=/mnt/c/Users/wnmil/OneDrive/coins_backup
 
    ```console
    cd ~/dev/classobjects-ccwebdb/backend
+   conda activate ccwebdb
    export PGPASSWORD=devpassword
    psql -h localhost -U ccwebdb -d postgres -c "CREATE DATABASE ccwebdb_restored OWNER ccwebdb ENCODING 'UTF8';"
    DATABASE_URL=postgresql+psycopg://ccwebdb:devpassword@localhost:5432/ccwebdb_restored uv run alembic upgrade head
@@ -384,6 +391,7 @@ BACKUP=/mnt/c/Users/wnmil/OneDrive/coins_backup
    database with anything in it:
 
    ```console
+   conda activate ccwebdb
    export PGPASSWORD=devpassword
    if [ "$(psql -h localhost -U ccwebdb -d ccwebdb -tAc "select count(*) from information_schema.tables where table_schema = 'public'")" = "0" ]; then psql -h localhost -U ccwebdb -d postgres -c "DROP DATABASE ccwebdb;" && psql -h localhost -U ccwebdb -d postgres -c "ALTER DATABASE ccwebdb_restored RENAME TO ccwebdb;"; else echo "ccwebdb already holds tables: nothing was dropped"; fi
    ```
@@ -412,6 +420,7 @@ BACKUP=/mnt/c/Users/wnmil/OneDrive/coins_backup
 
    ```console
    cd ~/dev/classobjects-ccwebdb
+   conda activate ccwebdb
    pg_ctl -D .pgdata -m fast stop
    ```
 

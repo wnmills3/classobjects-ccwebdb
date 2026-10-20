@@ -45,11 +45,14 @@ sudo mkdir -p /etc/caddy/certs
 cat classobjects.com.pem GeoTrustTLSRSACAG1.pem | sudo tee /etc/caddy/certs/fullchain.pem > /dev/null
 sudo cp classobjects.com.key /etc/caddy/certs/
 sudo chown -R root:caddy /etc/caddy/certs
-sudo chmod 750 /etc/caddy/certs
 sudo chmod 640 /etc/caddy/certs/*
+sudo chmod 750 /etc/caddy/certs
 ```
 
-`grep -c BEGIN /etc/caddy/certs/fullchain.pem` should say `2`. Keep every
+(In that order: the `*` is expanded by your own shell, which can no longer
+list the folder once it is `750`.)
+
+`sudo grep -c BEGIN /etc/caddy/certs/fullchain.pem` should say `2`. Keep every
 certificate and key file out of the repository.
 
 ## 2. Install the system
@@ -105,6 +108,7 @@ same in bash, starting from the repository:
 
 ```console
 cd ~/dev/classobjects-ccwebdb
+conda activate ccwebdb
 psql -h localhost -U postgres -d postgres
 ```
 
@@ -119,6 +123,7 @@ cd ~/dev/classobjects-ccwebdb/backend && uv run alembic current
 
 ```console
 cd ~/dev/classobjects-ccwebdb/frontend
+conda activate ccwebdb
 npm ci
 npm run build
 ```
@@ -141,15 +146,17 @@ Render and install the API's unit. It runs as the repository's owner, reads
 
 ```console
 cd ~/dev/classobjects-ccwebdb/backend
+conda activate ccwebdb
 python -m app.runtime_settings --render ../deploy/linux/ccwebdb-api.service | sudo tee /etc/systemd/system/ccwebdb-api.service > /dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable --now ccwebdb-api
 ```
 
-Check it answers (the default address):
+Check it answers (the default address). It takes a few seconds to start,
+so this asks for up to ten:
 
 ```console
-curl -s -f -o /dev/null http://127.0.0.1:8000/docs && echo "The API answers" || echo "The API is not answering: journalctl -u ccwebdb-api"
+for try in 1 2 3 4 5 6 7 8 9 10; do curl -s -f -o /dev/null http://127.0.0.1:8000/docs && break; sleep 1; done; curl -s -f -o /dev/null http://127.0.0.1:8000/docs && echo "The API answers" || echo "The API is not answering: journalctl -u ccwebdb-api"
 ```
 
 ## 7. Caddy
@@ -172,6 +179,7 @@ repository's template and the settings, check it, and load it:
 
 ```console
 cd ~/dev/classobjects-ccwebdb/backend
+conda activate ccwebdb
 python -m app.runtime_settings --render ../deploy/Caddyfile | sudo tee /etc/caddy/Caddyfile > /dev/null
 sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl reload caddy
