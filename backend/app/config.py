@@ -5,11 +5,9 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 
-# backend/app/config.py -> backend/app -> backend -> repo root
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
+from .runtime_settings import REPO_ROOT, RuntimeFields
 
 #: The shortest signing key accepted: 32 characters, half the 64 hex
 #: characters `secrets.token_hex(32)` makes.
@@ -29,8 +27,12 @@ _MAKE_A_SECRET = (
 )
 
 
-class Settings(BaseSettings):
-    """Everything configurable, read from the environment and the repo .env."""
+class Settings(RuntimeFields):
+    """Everything configurable, read from the environment and the repo .env.
+
+    The fields the scripts read too, the database's among them, are
+    `RuntimeFields`'.
+    """
 
     model_config = SettingsConfigDict(
         env_file=REPO_ROOT / ".env",
@@ -41,12 +43,6 @@ class Settings(BaseSettings):
         extra="forbid",
         # A refusal must not print what it refused: the value is a secret.
         hide_input_in_errors=True,
-    )
-
-    # --- database -----------------------------------------------------------
-    database_url: str = Field(
-        default="postgresql+psycopg://ccwebdb:devpassword@localhost:5432/ccwebdb",
-        repr=False,
     )
 
     # --- auth ---------------------------------------------------------------
@@ -60,10 +56,9 @@ class Settings(BaseSettings):
 
     # --- app ----------------------------------------------------------------
     api_prefix: str = "/api"
-    cors_origins: list[str] = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ]
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
+    )
 
     # Whether the public shop is open (SHOP_OPEN). Closed, the catalog
     # answers signed-in callers only, registration is refused, and the

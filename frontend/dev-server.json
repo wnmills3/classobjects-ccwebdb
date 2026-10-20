@@ -1,0 +1,6 @@
+{
+  "frontendHost": "127.0.0.1",
+  "frontendPort": 5173,
+  "apiHost": "127.0.0.1",
+  "apiPort": 8000
+}
