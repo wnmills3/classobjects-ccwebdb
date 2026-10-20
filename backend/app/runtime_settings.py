@@ -25,7 +25,14 @@ import re
 import sys
 from pathlib import Path
 
-from pydantic import Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import PydanticUseDefault
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -111,6 +118,24 @@ class RuntimeFields(BaseSettings):
     # The built frontend Caddy serves; a copy where the web server's account
     # can read it, when the repository is somewhere it cannot.
     ccweb_site_root: Path = Path("frontend/dist")
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _empty_means_default(cls, value: object, info: ValidationInfo) -> object:
+        """Read `KEY=` as unset for anything but text.
+
+        An empty folder is ".", wherever the process stands -- a backup
+        written into the repository -- and an empty number is an error
+        about nothing. For text, empty is a value (TIME_ZONE=: the host's).
+        Inherited by the API's Settings, so it covers its fields too.
+        """
+        if (
+            value == ""
+            and info.field_name is not None
+            and cls.model_fields[info.field_name].annotation is not str
+        ):
+            raise PydanticUseDefault
+        return value
 
     @field_validator("ccweb_backup_time")
     @classmethod

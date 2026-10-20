@@ -88,6 +88,21 @@ def test_the_password_is_given_only_when_asked(bare: pytest.MonkeyPatch) -> None
     assert asked["CCWEB_DB_PASSWORD"] == "s3cret-pw"
 
 
+@pytest.mark.parametrize(
+    "name", ["CCWEB_BACKUP_DIR", "CCWEB_LOG_DIR", "CCWEB_API_PORT", "TEST_DATABASE_URL"]
+)
+def test_a_setting_left_empty_means_its_default(
+    bare: pytest.MonkeyPatch, tmp_path: Path, name: str
+) -> None:
+    """`CCWEB_BACKUP_DIR=` uncommented must not mean the current folder.
+
+    An empty path is ".", so the backup would land in the repository.
+    """
+    env = tmp_path / ".env"
+    env.write_bytes(f"{name}=\n".encode())
+    assert assignments(RuntimeSettings(_env_file=env)) == assignments(defaults())
+
+
 def test_a_relative_folder_is_taken_from_the_repository_root(
     bare: pytest.MonkeyPatch,
 ) -> None:

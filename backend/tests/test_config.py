@@ -90,6 +90,32 @@ def test_the_archive_folder_defaults_beside_the_repository(
     )
 
 
+@pytest.mark.parametrize(
+    "name", ["CCWEB_ARCHIVE_DIR", "MEDIA_ROOT", "PHOTO_LIBRARY_ROOT", "WEB_MAX_PX"]
+)
+def test_an_application_setting_left_empty_means_its_default(
+    tmp_path: Path, name: str
+) -> None:
+    """`MEDIA_ROOT=` must not mean the folder the API happened to start in."""
+    from app.config import Settings
+
+    env = tmp_path / ".env"
+    env.write_bytes(f"{name}=\n".encode())
+    field = name.lower()
+    assert getattr(Settings(_env_file=env, jwt_secret="k" * 32), field) == getattr(
+        Settings(_env_file=None, jwt_secret="k" * 32), field
+    )
+
+
+def test_an_empty_text_setting_stays_empty(tmp_path: Path) -> None:
+    """For text, empty is a value: TIME_ZONE= means the host's zone."""
+    from app.config import Settings
+
+    env = tmp_path / ".env"
+    env.write_bytes(b"FIRST_ADMIN_EMAIL=\n")
+    assert Settings(_env_file=env, jwt_secret="k" * 32).first_admin_email == ""
+
+
 def test_the_backups_follow_the_archive_folder(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
