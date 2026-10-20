@@ -502,4 +502,5 @@ are up; step 9 checks the whole site.
   (`.\scripts\ccweb_backup.cmd /schedule`), into
   `%USERPROFILE%\OneDrive\coins_backup`, which OneDrive carries off the
   machine ([system-administration.md](system-administration.md), *Backing
-  up and restoring*). The task runs only while the owner is signed in.
+  up and restoring*). It runs whether or not anyone is signed in; what it
+  writes leaves the machine at the owner's next sign-in, when OneDrive runs.

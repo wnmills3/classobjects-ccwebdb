@@ -1639,8 +1639,12 @@ The folder is `%USERPROFILE%\OneDrive\coins_backup`, or the one
 `CCWEB_BACKUP_DIR` names; `CCWEB_BACKUP_DIR` has to be a user environment
 variable for the scheduled task to see it. Every run is appended to `backup.log` in the logs
 folder under a line with its date and time: read it after a failure, and now
-and then to see that the daily runs say `proved`. `/schedule` makes a Windows
-scheduled task named `ccwebdb backup` that runs while you are signed in;
+and then to see that the daily runs say `proved`. `/schedule`, from an
+administrator cmd, makes a Windows scheduled task named `ccwebdb backup`
+that runs as you whether or not you are signed in, with no password stored
+-- so it reaches only this machine, which is all the backup needs. Signed
+out, OneDrive is not running, so `/schedule` pins the folder to stay on the
+device (`attrib +P`) and the run's files sync at the next sign-in.
 PostgreSQL has to be running, and a run the machine was off or asleep for is
 not made up later.
 

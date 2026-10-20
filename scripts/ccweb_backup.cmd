@@ -3,7 +3,8 @@ rem ---------------------------------------------------------------------------
 rem  One whole backup of the collection, proved before anything older goes.
 rem
 rem    .\scripts\ccweb_backup.cmd                    back up now, into the backup folder
-rem    .\scripts\ccweb_backup.cmd /schedule [HH:MM]  run it every day at that time (20:00)
+rem    .\scripts\ccweb_backup.cmd /schedule [HH:MM]  run it every day at that time (20:00),
+rem                                                  signed in or not (administrator cmd)
 rem    .\scripts\ccweb_backup.cmd /unschedule        stop running it every day
 rem    .\scripts\ccweb_backup.cmd /scheduled         show the daily task, if there is one
 rem
@@ -71,12 +72,23 @@ exit /b %RC%
 :schedule
 set "AT=%~2"
 if "%AT%"=="" set "AT=20:00"
-schtasks /Create /TN "%TASK%" /TR "\"%REPO%\scripts\ccweb_backup.cmd\"" /SC DAILY /ST %AT% /F
+if not defined CCWEB_BACKUP_DIR set "CCWEB_BACKUP_DIR=%USERPROFILE%\OneDrive\coins_backup"
+rem  /NP: the task runs as this user whether or not anyone is signed in,
+rem  and no password is stored -- in exchange it reaches only this machine,
+rem  which is all a backup needs. Windows allows that only from an
+rem  administrator cmd. Signed out, OneDrive is not running to fetch a file
+rem  kept only online, so the folder is pinned to stay on this device; it
+rem  syncs at the next sign-in. No /RU: the task is the current user's
+rem  either way, and with /RU schtasks asks for a password despite /NP.
+schtasks /Create /TN "%TASK%" /TR "\"%REPO%\scripts\ccweb_backup.cmd\"" /SC DAILY /ST %AT% /NP /F
 if errorlevel 1 (
-    echo ERROR: the daily backup could not be scheduled
+    echo ERROR: the daily backup could not be scheduled - run this from an administrator cmd
     exit /b 1
 )
-echo the backup runs every day at %AT%; .\scripts\ccweb_backup.cmd /unschedule stops it
+if not exist "%CCWEB_BACKUP_DIR%" mkdir "%CCWEB_BACKUP_DIR%"
+attrib +P -U "%CCWEB_BACKUP_DIR%"
+attrib +P -U /S /D "%CCWEB_BACKUP_DIR%\*"
+echo the backup runs every day at %AT%, signed in or not; .\scripts\ccweb_backup.cmd /unschedule stops it
 exit /b 0
 
 :unschedule
