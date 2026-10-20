@@ -1,0 +1,26 @@
+# The API, started at boot after the database, restarted if it fails.
+#
+# A template: render it from backend/ with
+#     python -m app.runtime_settings --render ../deploy/linux/ccwebdb-api.service
+# and install the result as /etc/systemd/system/ccwebdb-api.service
+# (docs/deployment-linux.md). The API reads the repository's .env itself,
+# so the unit names no environment file. It listens on CCWEB_API_HOST only,
+# behind Caddy: --proxy-headers with --forwarded-allow-ips set to that
+# address makes it see each visitor's address in Caddy's X-Forwarded-For,
+# which the sign-in limits count by, and believe no one else's. Its log
+# goes to the journal: journalctl -u ccwebdb-api.
+[Unit]
+Description=ccwebdb API (FastAPI under uvicorn)
+After=network.target ccwebdb-postgres.service
+Wants=ccwebdb-postgres.service
+
+[Service]
+User=@CCWEB_USER@
+WorkingDirectory=@CCWEB_REPO@/backend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@CCWEB_ENV_DIR@/bin/python -m uvicorn app.main:app --host @CCWEB_API_HOST@ --port @CCWEB_API_PORT@ --proxy-headers --forwarded-allow-ips @CCWEB_API_HOST@
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

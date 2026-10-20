@@ -181,7 +181,10 @@ def test_every_script_has_a_twin_in_the_other_shell() -> None:
 
 #: Every template, and the placeholders `render` must leave none of.
 _TEMPLATES = sorted(
-    [*(REPO_ROOT / "deploy").rglob("*.*"), SCRIPTS / "pgadmin-servers.json"]
+    [
+        *(p for p in (REPO_ROOT / "deploy").rglob("*") if p.is_file()),
+        SCRIPTS / "pgadmin-servers.json",
+    ]
 )
 _LEFT_OVER = re.compile(r"@[A-Z][A-Z0-9_]*@|\{\$[A-Z][A-Z0-9_]*\}")
 
@@ -192,6 +195,34 @@ def test_every_template_renders_completely(template: Path) -> None:
     values = {**assignments(RuntimeSettings()), "CCWEB_USER": "someone"}
     rendered = render(template.read_text(encoding="utf-8"), values)
     assert _LEFT_OVER.findall(rendered) == []
+
+
+def _documented_caddyfile() -> str:
+    """The Caddyfile the Windows deployment document shows for its example."""
+    doc = (REPO_ROOT / "docs" / "deployment.md").read_text(encoding="utf-8")
+    blocks = re.findall(r"```\n(classobjects\.com \{.*?)```", doc, re.DOTALL)
+    assert len(blocks) == 1, "the example Caddyfile is no longer one block"
+    return blocks[0]
+
+
+def test_the_rendered_caddyfile_is_the_documented_one() -> None:
+    """The template, filled with the example's values, is the file it shows."""
+    template = (REPO_ROOT / "deploy" / "Caddyfile").read_text(encoding="utf-8")
+    values = {
+        "CCWEB_SITE_DOMAIN": "classobjects.com",
+        "CCWEB_TLS_CERT": "C:\\caddy\\certs\\fullchain.pem",
+        "CCWEB_TLS_KEY": "C:\\caddy\\certs\\classobjects.com.key",
+        "CCWEB_SITE_ROOT": (
+            "C:\\Users\\wnmil\\dev\\classobjects-ccwebdb\\frontend\\dist"
+        ),
+        "CCWEB_API_HOST": "127.0.0.1",
+        "CCWEB_API_PORT": "8000",
+    }
+    rendered = render(template, values)
+    body = "\n".join(
+        line for line in rendered.splitlines() if not line.startswith("#")
+    ).strip()
+    assert body == _documented_caddyfile().strip()
 
 
 def test_shell_scripts_are_lf_and_executable() -> None:

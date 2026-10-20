@@ -252,6 +252,14 @@ def test_render_fills_both_placeholder_forms() -> None:
     )
 
 
+def test_caddys_placeholders_get_forward_slashes() -> None:
+    """Caddy wants forward slashes in a path, on Windows too; ours stay native."""
+    values = {"CCWEB_SITE_ROOT": "C:\\srv\\dist", "CCWEB_REPO": "C:\\repo"}
+    assert render("root * {$CCWEB_SITE_ROOT} @CCWEB_REPO@", values) == (
+        "root * C:/srv/dist C:\\repo"
+    )
+
+
 def test_render_leaves_other_braces_and_at_signs_alone() -> None:
     """A JSON body, a mail address and Caddy's {path} are not placeholders."""
     text = '{"to": "me@example.com"} try_files {path} /index.html'

@@ -272,6 +272,9 @@ def render(template: str, values: dict[str, str]) -> str:
         name = match.group(1) or match.group(2)
         if name not in values:
             raise UnknownPlaceholder(name)
+        if match.group(2):
+            # Caddy's own syntax: it wants forward slashes, on Windows too.
+            return values[name].replace("\\", "/")
         return values[name]
 
     return _PLACEHOLDER.sub(fill, template)

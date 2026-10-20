@@ -1,0 +1,25 @@
+# The collection's PostgreSQL cluster, started at boot.
+#
+# A template: render it from backend/ with
+#     python -m app.runtime_settings --render ../deploy/linux/ccwebdb-postgres.service
+# and install the result as /etc/systemd/system/ccwebdb-postgres.service
+# (docs/deployment-linux.md). It runs as the account that owns the
+# repository and the cluster, with the conda environment's PostgreSQL. The
+# server's own log goes to the journal: journalctl -u ccwebdb-postgres.
+[Unit]
+Description=ccwebdb PostgreSQL cluster
+After=network.target
+
+[Service]
+Type=forking
+User=@CCWEB_USER@
+PIDFile=@CCWEB_DB_CLUSTER_DIR@/postmaster.pid
+ExecStart=@CCWEB_ENV_DIR@/bin/pg_ctl start -D @CCWEB_DB_CLUSTER_DIR@ -w -t 300 -o "-c logging_collector=off"
+ExecStop=@CCWEB_ENV_DIR@/bin/pg_ctl stop -D @CCWEB_DB_CLUSTER_DIR@ -m fast -w
+ExecReload=@CCWEB_ENV_DIR@/bin/pg_ctl reload -D @CCWEB_DB_CLUSTER_DIR@
+# Crash recovery replaying a long WAL can take a while before it accepts
+# connections; that is progress, not failure.
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,41 @@
+# The public site: the API behind /api, the console under /management, the
+# shop everywhere else, over the certificate named below.
+#
+# A template for both systems. Fill it from the settings (CCWEB_SITE_DOMAIN,
+# CCWEB_TLS_CERT, CCWEB_TLS_KEY, CCWEB_SITE_ROOT, CCWEB_API_HOST and
+# CCWEB_API_PORT in .env) with
+#
+#     python -m app.runtime_settings --render ../deploy/Caddyfile
+#
+# run from backend/, and save the output where Caddy reads its
+# configuration; the deployment document for your system says where.
+# Render again after changing any of those settings.
+#
+# The two try_files rules are the server's half of the two applications: a
+# console address that is not a file is answered with management.html, any
+# other with the shop's index.html, as Vite's development fallback does.
+{$CCWEB_SITE_DOMAIN} {
+	tls {$CCWEB_TLS_CERT} {$CCWEB_TLS_KEY}
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy {$CCWEB_API_HOST}:{$CCWEB_API_PORT}
+	}
+
+	handle /management* {
+		root * {$CCWEB_SITE_ROOT}
+		try_files {path} /management.html
+		file_server
+	}
+
+	handle {
+		root * {$CCWEB_SITE_ROOT}
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+www.{$CCWEB_SITE_DOMAIN} {
+	tls {$CCWEB_TLS_CERT} {$CCWEB_TLS_KEY}
+	redir https://{$CCWEB_SITE_DOMAIN}{uri} permanent
+}
