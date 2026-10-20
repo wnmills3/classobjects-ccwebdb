@@ -66,12 +66,16 @@ if not defined SKIPDB (
         "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
         if errorlevel 1 (
             call "%REPO%\scripts\ccweb_pgstart.cmd"
-            call :waitpg 60
-            "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
             if errorlevel 1 (
-                set "DBSTATE=FAILED TO START - see %LOGS%\postgres.log"
+                set "DBSTATE=NOT STARTED - postmaster.pid: the other computer may be running it"
             ) else (
-                set "DBSTATE=started"
+                call :waitpg 60
+                "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+                if errorlevel 1 (
+                    set "DBSTATE=FAILED TO START - see %LOGS%\postgres.log"
+                ) else (
+                    set "DBSTATE=started"
+                )
             )
         ) else (
             set "DBSTATE=already running"

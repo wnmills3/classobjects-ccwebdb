@@ -494,6 +494,57 @@ The next start without `/lan` puts Vite back on loopback.
 
 ---
 
+## One database, two computers
+
+The collection's cluster lives in OneDrive, at
+`%USERPROFILE%\OneDrive\coins_db\pgdata`, so the server and the development
+machine work on the same database -- one at a time, never both. On each
+computer `.pgdata` is a junction to that folder, so the scripts and the
+server's `ccwebdb-postgres` service find it where they always did; the
+cluster each had before is set aside beside it (`.pgdata.local` here,
+`.pgdata.pre-onedrive` on the server). The folder is pinned to stay on the
+device (`attrib +P`), so OneDrive never swaps a file of a running cluster
+for a placeholder. To set a computer up, with PostgreSQL stopped there and
+PostgreSQL 18 in the `ccwebdb` environment on both:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+ren .pgdata .pgdata.local
+mklink /J .pgdata %USERPROFILE%\OneDrive\coins_db\pgdata
+attrib +P -U /S /D %USERPROFILE%\OneDrive\coins_db\*
+```
+
+and copy `DATABASE_URL` from the server's `.env`: both computers sign in to
+the one database with the same password.
+
+To move work from one computer to the other:
+
+1. Stop PostgreSQL where it runs: on the server, the API and then the
+   service (`schtasks /end /tn "ccwebdb api"`, `sc stop ccwebdb-postgres`);
+   here, `.\scripts\ccweb_shutdown.cmd`.
+2. Wait until OneDrive shows `coins_db` as up to date on **both** computers.
+   A running cluster writes all the time; only a stopped one syncs to a
+   whole, consistent copy.
+3. Start it on the other: `.\scripts\ccweb_startup.cmd` here, or on the
+   server `sc start ccwebdb-postgres` and then `schtasks /run /tn "ccwebdb
+   api"`.
+
+**Two servers on the one cluster would ruin it**, and PostgreSQL cannot see
+the other computer: finding a `postmaster.pid` with no server of its own
+behind it, it takes the file for a crash's leftover, deletes it and starts.
+So `ccweb_pgstart.cmd` refuses to start while `.pgdata\postmaster.pid`
+exists -- the file a running server keeps, synced from the other computer.
+When the other computer has certainly stopped and the file is still there
+(a crash leaves it too), delete it and start again. For the same reason the
+server's service starts only by hand (`sc config ccwebdb-postgres start=
+demand`): a reboot of the server never starts it under the other computer.
+
+The daily backup runs on the server ([system-administration.md](system-administration.md),
+*Backing up and restoring*), into `OneDrive\coins_backup`; `ccweb_backup.cmd`
+works from either computer, against whichever is running the database.
+
+---
+
 ## Running a service by hand
 
 For `--reload` during active backend work, or to watch output directly. Start

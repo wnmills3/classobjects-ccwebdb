@@ -16,6 +16,20 @@ rem  it keeps running while every process it spawns afterwards dies with
 rem  0xC0000142.
 rem ---------------------------------------------------------------------------
 
+rem  The cluster lives in OneDrive and either computer may run it, never both
+rem  (docs\runtime-operations.md, One database, two computers). The caller
+rem  has found no PostgreSQL here, so a postmaster.pid means the other
+rem  computer has it running -- or a crash here left it behind. PostgreSQL
+rem  itself would take the file for a crash's, delete it and start, with two
+rem  servers writing the same files; so this stops and lets the owner decide.
+if exist "%PGDATA%\postmaster.pid" (
+    echo ERROR: %PGDATA%\postmaster.pid exists, and PostgreSQL is not running here.
+    echo        The other computer is probably running this database: stop it there
+    echo        and let OneDrive finish syncing. If it is certainly stopped there,
+    echo        delete postmaster.pid and start again.
+    exit /b 1
+)
+
 if not exist "%LOGS%" mkdir "%LOGS%"
 set "LOGPIPE=%~dp0..\backend\app\logpipe.py"
 set "PYTHONUNBUFFERED=1"

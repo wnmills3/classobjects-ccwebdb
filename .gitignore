@@ -218,8 +218,14 @@ __marimo__/
 .streamlit/secrets.toml
 
 # --- ccwebdb project ---------------------------------------------------------
-# Local PostgreSQL cluster created by initdb (see docs/environment-setup.md)
-.pgdata/
+# Local PostgreSQL cluster created by initdb (see docs/environment-setup.md).
+# No trailing slash: .pgdata may be a junction into OneDrive, which git does
+# not see as a directory. .pgdata.* covers a cluster set aside beside it.
+.pgdata
+.pgdata.*
+# Copies of .env hold its secrets too; only the example is shared.
+.env.*
+!.env.example
 
 # Node / Vite frontend
 node_modules/

@@ -107,10 +107,11 @@ On the server, follow [environment-setup.md](environment-setup.md) steps 1
 to 7: Miniforge, the `ccwebdb` conda environment, uv, Node and PostgreSQL in
 the environment, the database cluster, `.env`, and the dependencies.
 
-PostgreSQL on a server has to start with the machine, not from a console.
-It becomes a Windows service, and a service cannot start while another
-server holds the cluster -- one started by `ccweb_startup.cmd` or by hand in
-environment-setup.md step 5. First stop any that is running (it prints
+PostgreSQL on a server has to run apart from any console. It becomes a
+Windows service, started by hand because its cluster is shared with the
+development machine (*Keeping it running*). A service cannot start while
+another server holds the cluster -- one started by `ccweb_startup.cmd` or by
+hand in environment-setup.md step 5. First stop any that is running (it prints
 `server stopped`, or `Is server running?` when none was):
 
 ```console
@@ -123,7 +124,7 @@ Then register the cluster as a service once, from an administrator cmd with
 `conda activate ccwebdb` run in it, and start it:
 
 ```console
-pg_ctl register -N ccwebdb-postgres -D "%USERPROFILE%\dev\classobjects-ccwebdb\.pgdata" -S auto
+pg_ctl register -N ccwebdb-postgres -D "%USERPROFILE%\dev\classobjects-ccwebdb\.pgdata" -S demand
 ```
 
 ```console
@@ -457,8 +458,13 @@ footer (it shows only on the domain the certificate names), and
 
 ## Keeping it running
 
-The server's three parts start with the machine and are controlled on
-their own, never with the `ccweb_` start-up and shut-down scripts. From an
+The server's three parts are controlled on their own, never with the
+`ccweb_` start-up and shut-down scripts. Caddy and the API start with the
+machine; PostgreSQL does not, because its cluster is shared with the
+development machine through OneDrive and only one of them may run it
+([runtime-operations.md](runtime-operations.md), *One database, two
+computers*). After a reboot, with the database not running elsewhere, start
+it and then restart the API (the steps below). From an
 administrator cmd, stop the site, API first:
 
 ```console
@@ -492,7 +498,8 @@ are up; step 9 checks the whole site.
   release*) when the update brings a migration, then `npm ci` and
   `npm run build` in `frontend`, then restart the API task. Caddy needs no
   restart for a new build.
-- **Backups:** `.\scripts\ccweb_backup.cmd /schedule` on the server, with
-  `CCWEB_BACKUP_DIR` naming a folder that leaves the machine
-  ([system-administration.md](system-administration.md), *Backing up and
-  restoring*).
+- **Backups:** the server runs `ccweb_backup.cmd` every day at 20:00
+  (`.\scripts\ccweb_backup.cmd /schedule`), into
+  `%USERPROFILE%\OneDrive\coins_backup`, which OneDrive carries off the
+  machine ([system-administration.md](system-administration.md), *Backing
+  up and restoring*). The task runs only while the owner is signed in.
