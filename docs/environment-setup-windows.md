@@ -8,7 +8,7 @@ developer setting up a machine, or rebuilding one. Everything is installed
 nothing lands machine-wide where another project could disturb it.
 
 All commands are **cmd**, not PowerShell. For day-to-day starting and stopping
-once set up, see [runtime-operations.md](runtime-operations.md).
+once set up, see [runtime-operations-windows.md](runtime-operations-windows.md).
 
 Versions in use; newer patch releases should be fine:
 
@@ -114,7 +114,7 @@ conda activate ccwebdb
 ```
 
 The project scripts activate it themselves (see
-[runtime-operations.md](runtime-operations.md)); activate it by hand only for
+[runtime-operations-windows.md](runtime-operations-windows.md)); activate it by hand only for
 commands you type yourself.
 
 ## 3. uv
@@ -264,7 +264,7 @@ The server runs until step 8 stops it, or until the machine restarts; after a
 restart, start it again with the `start` line above. From the end of step 8
 on, `.\scripts\ccweb_startup.cmd` starts it. Do not leave out the `start`: a
 server started straight from a setup window keeps the port when that window
-closes, but stops answering ([runtime-operations.md](runtime-operations.md),
+closes, but stops answering ([runtime-operations-windows.md](runtime-operations-windows.md),
 *Troubleshooting*).
 
 A command that needs the database and finds no server answering --
@@ -278,8 +278,8 @@ The application reads its settings from a file named `.env` in the
 repository folder. Each line is `NAME=value`, with no spaces around the `=`
 and no quotes; a line starting with `#` is a comment. The file holds this
 machine's secrets, so it is never committed (git ignores it), never copied
-into OneDrive, and made fresh on each machine from the committed template,
-`.env.example`.
+into a synced folder, and made fresh on each machine from the committed
+template, `.env.example`.
 
 **1. Make the file from the template.** An existing `.env` is kept: a plain
 `copy` would ask to overwrite it, and the next line pasted would be taken as
@@ -313,6 +313,7 @@ notepad .env
 | `DATABASE_URL` | Leave it: it names the `ccwebdb` database and the `devpassword` of step 5. Change it only if step 5 used another password. |
 | `SALES_TAX_RATE`, `SALES_TAX_INCLUDES_SHIPPING` | Your sales tax on purchases, as a fraction (`0.0635` is 6.35%), and whether shipping is taxed (`true` or `false`). Each new item takes them when it is entered. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS` | Leave them. |
+| Everything commented out (`# CCWEB_API_PORT=8000` and the rest) | Leave it: each line shows its setting's default, which is what a machine that leaves it out gets. Uncomment one only to change it -- another port, the cluster in another folder (`CCWEB_DB_CLUSTER_DIR`), the backup folder (`CCWEB_BACKUP_DIR`). Every script reads them. |
 
 Save the file and close Notepad. Keep the names exactly as the template
 spells them: a misspelt name stops the API from starting rather than being
@@ -357,15 +358,16 @@ pg_isready -h localhost -p 5432
 start it with the `start` line of step 5 and check again. If it still says
 `no response` and `netstat -ano | findstr ":5432"` shows the port LISTENING,
 the server was started from a window that has since closed: see
-[runtime-operations.md](runtime-operations.md) (*Troubleshooting*).
+[runtime-operations-windows.md](runtime-operations-windows.md) (*Troubleshooting*).
 
 ### This collection, on a new machine
 
-The collection moves as the backup workbook and its photographs, through
-the folder the backup writes to and OneDrive keeps on both machines:
-`%USERPROFILE%\OneDrive\coins_backup`. (A backup kept elsewhere, through
-`CCWEB_BACKUP_DIR` -- see `scripts\ccweb_backup.cmd` -- needs that folder in
-the commands below instead.)
+The collection moves as the backup workbook and its photographs: the folder
+the backup writes to, `CCWEB_BACKUP_DIR`. Carry that folder to the new
+machine, or keep it in a folder both machines sync. The example
+installation does the second: its backups go to
+`%USERPROFILE%\OneDrive\coins_backup`, which OneDrive keeps on both of its
+computers.
 
 **On the machine that holds the collection**, take a backup. It writes the
 workbook `ccwebdb_` and the date and time `.xlsx`, copies the photographs
@@ -376,19 +378,25 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_backup.cmd
 ```
 
-It ends `backup proved, in C:\Users\...\OneDrive\coins_backup`. Anything else
-is a failed backup; `logs\backup.log` says why.
+It ends `backup proved, in` and the folder. Anything else is a failed
+backup; `logs\backup.log` says why.
 
 **On the new machine**, with steps 1 to 7 done and the PostgreSQL server
 from step 5 answering, and with the same version of the
 code as the machine the backup came from (a workbook loads only into a
-database at its own migration revision):
+database at its own migration revision), open one cmd window for all of
+the steps below and name the folder the backup is in. This is the
+example's; put yours if it is elsewhere:
 
-1. **Wait for OneDrive to finish syncing** the folder -- the workbook and
-   all of `media`. This lists what has arrived:
+```console
+set "BACKUP=%USERPROFILE%\OneDrive\coins_backup"
+```
+
+1. **Make sure the whole folder has arrived** -- the workbook and all of
+   `media`; a synced folder must have finished syncing. This lists it:
 
    ```console
-   dir "%USERPROFILE%\OneDrive\coins_backup"
+   dir "%BACKUP%"
    ```
 
 2. **Make a new database for it and give it the schema.** The import never
@@ -410,7 +418,7 @@ database at its own migration revision):
 
    ```console
    cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
-   for /f "delims=" %F in ('dir /b /od "%USERPROFILE%\OneDrive\coins_backup\ccwebdb_*.xlsx"') do @set "WORKBOOK=%USERPROFILE%\OneDrive\coins_backup\%F"
+   for /f "delims=" %F in ('dir /b /od "%BACKUP%\ccwebdb_*.xlsx"') do @set "WORKBOOK=%BACKUP%\%F"
    echo %WORKBOOK%
    uv run python -m app.workbook_backup import "%WORKBOOK%" --to postgresql+psycopg://ccwebdb:devpassword@localhost:5432/ccwebdb_restored
    ```
@@ -434,7 +442,7 @@ database at its own migration revision):
    another), then check every one against its record:
 
    ```console
-   robocopy "%USERPROFILE%\OneDrive\coins_backup\media" "%USERPROFILE%\dev\classobjects-ccwebdb\media" /E
+   robocopy "%BACKUP%\media" "%USERPROFILE%\dev\classobjects-ccwebdb\media" /E
    ```
 
    ```console
@@ -492,14 +500,14 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_startup.cmd
 ```
 
-The addresses are in [runtime-operations.md](runtime-operations.md)
+The addresses are in [runtime-operations-windows.md](runtime-operations-windows.md)
 (*Quick reference*). Sign in to the management console with a manager
 account: on a trial installation, the administrator from `.env`; on a
 restored one, an account from the backup. Vite
 proxies `/api` to port 8000, so the browser talks to one origin and CORS is
 not involved during development. To use the console from another machine on
 the same network, start with `.\scripts\ccweb_startup.cmd /lan`;
-[runtime-operations.md](runtime-operations.md) (*Opening the console to the
+[runtime-operations-windows.md](runtime-operations-windows.md) (*Opening the console to the
 local network*) has the firewall rule it needs.
 
 ## Running the tests
@@ -516,8 +524,8 @@ Or run every gate at once with `.\scripts\ccweb_check.cmd`
 builds the schema, runs each test in a rolled-back transaction, and drops the
 database afterwards; point it elsewhere with `TEST_DATABASE_URL`. A
 computer without the collection's database running can test on a cluster of
-its own (`ccweb_testdb.cmd`, [runtime-operations.md](runtime-operations.md),
-*One database, two computers*). Never run
+its own (`ccweb_testdb.cmd`, [runtime-operations-windows.md](runtime-operations-windows.md),
+*A cluster for the tests*). Never run
 two pytest sessions at once: they share `ccwebdb_test`, and the resulting
 failures look like real bugs.
 
@@ -538,7 +546,7 @@ Two suites worth knowing about:
 **Setup is finished at step 8; nothing in this section is part of it.** It
 is for someone changing the program. Starting, stopping and checking the
 runtime, and the quality gate, are in
-[runtime-operations.md](runtime-operations.md) (*Quick reference*).
+[runtime-operations-windows.md](runtime-operations-windows.md) (*Quick reference*).
 
 These commands need a name only the person making the change knows, so
 they are written here as text rather than as commands to copy. A stand-in
@@ -571,11 +579,13 @@ uv and conda share `site-packages` through `UV_PROJECT_ENVIRONMENT`, and
 `uv sync` uninstalls anything not in `uv.lock`. Use conda only for non-Python
 tools.
 
-**A bare script name is not found, even in its own directory.** This machine
-sets `NoDefaultCurrentDirectoryInExePath=1`, so `ccweb_startup.cmd` alone
-fails with *"not recognized"*, and so does `cmd /c ccweb_startup.cmd`.
-Include a path: `.\scripts\ccweb_startup.cmd` from the repo root, or
-`.\ccweb_startup.cmd` inside `scripts\`.
+**A bare script name may not be found, even in its own directory.** A
+machine that sets `NoDefaultCurrentDirectoryInExePath=1` -- the example
+installation's development computer does -- answers `ccweb_startup.cmd`
+alone with *"not recognized"*, and `cmd /c ccweb_startup.cmd` too. The
+commands here always include a path, which works either way:
+`.\scripts\ccweb_startup.cmd` from the repo root, or `.\ccweb_startup.cmd`
+inside `scripts\`.
 
 **From Git Bash, run a `.cmd` as `cmd //c scripts\\ccweb_check.cmd`.** A
 single `/c` is rewritten into a path and cmd silently does nothing, which

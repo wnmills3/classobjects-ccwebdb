@@ -35,7 +35,7 @@ the failed stages. Gate on that exit code; do not pipe the output through a
 filter that replaces it.
 
 From Git Bash, see the `cmd //c` form in
-[environment-setup.md](environment-setup.md) (*Gotchas*): a single `/c` runs
+[environment-setup-windows.md](environment-setup-windows.md) (*Gotchas*): a single `/c` runs
 nothing and exits 0. Never run two gates at once: both pytest runs use the
 same `ccwebdb_test` database.
 

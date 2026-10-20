@@ -17,7 +17,7 @@ rem  0xC0000142.
 rem ---------------------------------------------------------------------------
 
 rem  The cluster lives in OneDrive and either computer may run it, never both
-rem  (docs\runtime-operations.md, One database, two computers). The caller
+rem  (docs\runtime-operations-windows.md, One database, two computers). The caller
 rem  has found no PostgreSQL here, so a postmaster.pid means the other
 rem  computer has it running -- or a crash here left it behind. PostgreSQL
 rem  itself would take the file for a crash's, delete it and start, with two

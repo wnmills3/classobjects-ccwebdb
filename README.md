@@ -35,7 +35,7 @@ database is backed up and restored as a workbook by `app.workbook_backup`
 ## Getting started
 
 First time on a machine, follow
-**[docs/environment-setup.md](docs/environment-setup.md)**. After that, one
+**[docs/environment-setup-windows.md](docs/environment-setup-windows.md)**. After that, one
 command starts the database, the API and both applications:
 
 ```console
@@ -44,7 +44,7 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 ```
 
 Stop with `.\scripts\ccweb_shutdown.cmd`; see what is running with
-`.\scripts\ccweb_status.cmd`. [docs/runtime-operations.md](docs/runtime-operations.md)
+`.\scripts\ccweb_status.cmd`. [docs/runtime-operations-windows.md](docs/runtime-operations-windows.md)
 covers every script, and its *Quick reference* lists the addresses of the
 shop, the console and the API.
 
@@ -55,8 +55,8 @@ shop, the console and the API.
 | [docs/project-purpose.md](docs/project-purpose.md) | Why the system exists; the rules every design follows |
 | [docs/workflow-new-collection.md](docs/workflow-new-collection.md) | An item's path from purchase to sale, in the console |
 | [docs/system-administration.md](docs/system-administration.md) | Every console screen, setting, pass, backup and release step |
-| [docs/environment-setup.md](docs/environment-setup.md) | Building the development environment on a clean machine |
-| [docs/runtime-operations.md](docs/runtime-operations.md) | Starting, stopping and checking the servers |
+| [docs/environment-setup-windows.md](docs/environment-setup-windows.md) | Building the development environment on a clean machine |
+| [docs/runtime-operations-windows.md](docs/runtime-operations-windows.md) | Starting, stopping and checking the servers |
 | [docs/database-design.md](docs/database-design.md) | The schema |
 | [docs/code-quality.md](docs/code-quality.md) | The quality gates and their exceptions |
 | [docs/reference-data.md](docs/reference-data.md) | What reference data may be shipped with the product |
@@ -277,4 +277,4 @@ justified lint exceptions. The Python suite builds and drops its own
 
 Python dependencies are managed **only** by uv (`uv add`, `uv sync`) and land
 in the conda `ccwebdb` environment. Never `conda install` or `pip install` a
-Python package there; see [docs/environment-setup.md](docs/environment-setup.md).
+Python package there; see [docs/environment-setup-windows.md](docs/environment-setup-windows.md).

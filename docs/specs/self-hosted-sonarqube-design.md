@@ -8,7 +8,7 @@ the developer runs it on this machine through four `scripts\ccweb_sonar_*.cmd`
 scripts, reads the dashboard at `http://localhost:9000`, and the development
 tool queries it through the SonarQube MCP tools. It runs locally in Podman
 containers, so code and analysis data never leave the machine. Day-to-day
-commands are in `docs/runtime-operations.md`, section "SonarQube (local
+commands are in `docs/runtime-operations-windows.md`, section "SonarQube (local
 server)".
 
 Out of scope: TLS, LAN or CI exposure, user management, auto-start on boot,
@@ -66,7 +66,7 @@ with `Connection refused`. `ccweb_sonar_mcp.cmd` joins `sonar-net` instead,
 and `.mcp.json` (gitignored, hand-edited) points at it.
 `sonar integrate claude` overwrites `.mcp.json` with the `sonar run mcp`
 launcher and breaks MCP again; the file's contents, to restore it, are in
-[runtime-operations.md](../runtime-operations.md) (*SonarQube (local
+[runtime-operations-windows.md](../runtime-operations-windows.md) (*SonarQube (local
 server)*).
 
 ## Configuration
@@ -120,7 +120,7 @@ The scanner and MCP containers cannot read the host keychain, so both take
 `SONAR_TOKEN` from the environment. SonarQube ships `admin` / `admin` and
 forces a password change at first login, a manual browser step. The steps to
 log in, generate a token and set it are in
-[runtime-operations.md](../runtime-operations.md) (*SonarQube (local server)*).
+[runtime-operations-windows.md](../runtime-operations-windows.md) (*SonarQube (local server)*).
 
 ## Verifying it works
 

@@ -14,7 +14,7 @@ the shell that started it, rotate the logs, and verify each step rather than
 assume it. Starting services another way works, but loses those guarantees
 (*Running a service by hand*).
 
-For first-time machine setup see [environment-setup.md](environment-setup.md);
+For first-time machine setup see [environment-setup-windows.md](environment-setup-windows.md);
 for backups and applying a schema release see
 [system-administration.md](system-administration.md). All commands here are
 **cmd**, not PowerShell.
@@ -106,19 +106,23 @@ and the call hangs. Check the result with `ccweb_status.cmd` instead.
 repository from their own path, so they work from any directory when called
 by full path.
 
-> A **bare** script name (`ccweb_status.cmd`) is not found, even in its own
-> directory, because `NoDefaultCurrentDirectoryInExePath` is set on this
-> machine: use `.\scripts\...` or the full path. From Git Bash, run a script
-> with `cmd //c` and write `--keepdb` for `/keepdb`; see
-> [environment-setup.md](environment-setup.md) (*Gotchas*).
+> On a machine with `NoDefaultCurrentDirectoryInExePath` set, a **bare**
+> script name (`ccweb_status.cmd`) is not found, even in its own directory:
+> use `.\scripts\...` or the full path, as every command here does. From
+> Git Bash, run a script with `cmd //c` and write `--keepdb` for `/keepdb`;
+> see [environment-setup-windows.md](environment-setup-windows.md)
+> (*Gotchas*).
+
+The addresses, at their defaults; the settings in brackets, in `.env`, move
+them, and the scripts and Vite follow:
 
 | | |
 |---|---|
-| Shop | http://127.0.0.1:5173 |
+| Shop | http://127.0.0.1:5173 (`CCWEB_FRONTEND_HOST`, `CCWEB_FRONTEND_PORT`) |
 | Management console | http://127.0.0.1:5173/management |
-| API | http://127.0.0.1:8000 |
+| API | http://127.0.0.1:8000 (`CCWEB_API_HOST`, `CCWEB_API_PORT`) |
 | API docs | http://127.0.0.1:8000/docs |
-| Database | localhost:5432/ccwebdb |
+| Database | localhost:5432/ccwebdb (`DATABASE_URL`; the cluster folder is `CCWEB_DB_CLUSTER_DIR`, default `.pgdata`) |
 | Sign in | a manager account: on a trial installation the one named by `FIRST_ADMIN_EMAIL` in `.env`, on a restored one an account from the backup |
 
 ### What is live
@@ -138,12 +142,15 @@ by full path.
 
 ---
 
-## The conda environment
+## The conda environment and the settings
 
 Every script that runs something from the environment calls
-`scripts\ccweb_env.cmd` before it starts anything; the SonarQube start, stop
-and MCP scripts use only podman and do not. It uses
-`ccwebdb` if that is already active and activates it if not; the activation
+`scripts\ccweb_env.cmd` before it starts anything; the SonarQube stop and
+MCP scripts use only podman and do not. The environment is
+`CCWEB_CONDA_ENV` (default `ccwebdb`), and conda is looked for first in
+`CCWEB_CONDA_ROOT` when that is set; both are read from the environment or
+from `.env` by the script itself, since Python is what it is finding. It uses
+that environment if it is already active and activates it if not; the activation
 lasts only as long as the script, so your own shell is left as it was. It
 also sets `ENVDIR` (the environment's folder) and `PGBIN` (PostgreSQL's
 binaries in it, `%ENVDIR%\Library\bin`) for the calling script. When the
@@ -166,7 +173,18 @@ The helper also fills in `USERPROFILE`, `APPDATA` and `LOCALAPPDATA` when a
 shell lacks them (from `HOMEDRIVE`+`HOMEPATH`, then
 `%SystemDrive%\Users\%USERNAME%`): without a home directory, `conda activate`
 stops with *Could not determine home directory*. Conda is found through
-`CONDA_EXE`, then `conda.bat` on `PATH`, then the home directory.
+`CCWEB_CONDA_ROOT`, then `CONDA_EXE`, then `conda.bat` on `PATH`, then the
+home directory.
+
+Then each script calls `scripts\ccweb_settings.cmd`, which asks the
+environment's Python for every port, host and folder it uses
+(`python -m app.runtime_settings`, in `backend`): from `.env`, then the
+defaults written there and in `.env.example`. No script writes a port or a
+folder of its own, so changing one in `.env` moves every script with it. A
+variable already set in the shell wins over `.env`, as it does for the API.
+A value `.env` gets wrong -- `CCWEB_API_PORT=80a` -- stops the script with
+exit 2 and a message naming the setting, never its value; `ccweb_status.cmd`
+reports it and carries on.
 
 ---
 
@@ -183,8 +201,11 @@ URLs or the command to start what is missing. It starts and stops nothing.
 
 The first line says whether `ccwebdb` was **active in this shell** or
 **activated for this check** -- the second is normal. **NOT AVAILABLE** means
-the environment could not be put in play; PostgreSQL is then *UNKNOWN*,
-because with no `pg_isready` a failed check looks exactly like "stopped".
+the environment could not be put in play. Every service is then *UNKNOWN*,
+with no address: without the environment's Python there are no settings to
+say which ports to look at, and with no `pg_isready` a failed check would
+look exactly like "stopped". A setting `.env` gets wrong gives the same
+*UNKNOWN*, saying so.
 
 Each service is checked **twice** where it can be: a listening port says only
 that something holds it. The backend is also asked for
@@ -193,8 +214,8 @@ means the API is up *and* talking to PostgreSQL; the frontend is asked for
 `/management`. A port held with no answer is reported as **LISTENING but not
 answering**, never rounded up to RUNNING.
 
-SonarQube (port 9000) is listed but never counted as down: it is inspected on
-demand, not part of the runtime.
+SonarQube (`CCWEB_SONAR_PORT`, default 9000) is listed but never counted as
+down: it is inspected on demand, not part of the runtime.
 
 | Exit code | Meaning |
 |---|---|
@@ -208,15 +229,17 @@ demand, not part of the runtime.
 
 `.\scripts\ccweb_startup.cmd` brings up whatever is not already running.
 
-1. **Preflight** -- the conda environment, the `.pgdata` cluster and
-   `frontend\node_modules` must exist; otherwise it stops (exit 1) with a
-   pointer to the setup doc or, for `node_modules`, the `npm install` to run.
-   An environment that cannot be activated exits 2.
+1. **Preflight** -- the conda environment, the cluster
+   (`CCWEB_DB_CLUSTER_DIR`) and `frontend\node_modules` must exist;
+   otherwise it stops (exit 1) with a pointer to the setup doc or, for
+   `node_modules`, the `npm install` to run. An environment that cannot be
+   activated, or a setting `.env` gets wrong, exits 2.
 2. **PostgreSQL** -- started in a console of its own
    (`scripts\ccweb_pgstart.cmd`) unless `pg_isready` says it is up.
-3. **Backend** -- `uvicorn app.main:app` on 127.0.0.1:8000, minimized window,
-   no `--reload`.
-4. **Frontend** -- Vite on 127.0.0.1:5173, minimized window.
+3. **Backend** -- `uvicorn app.main:app` on `CCWEB_API_HOST`:`CCWEB_API_PORT`
+   (127.0.0.1:8000), minimized window, no `--reload`.
+4. **Frontend** -- Vite on `CCWEB_FRONTEND_HOST`:`CCWEB_FRONTEND_PORT`
+   (127.0.0.1:5173), minimized window.
 5. **Waits** for PostgreSQL, the backend's `/health` and Vite to answer, up
    to 60 tries each, then reports. A try that gets no answer takes up to two
    seconds and a second passes before the next, so a service that never
@@ -238,17 +261,18 @@ reported as `already running`.
    while it is still that program (`python.exe` for the backend, `node.exe`
    for the frontend): the file outlives a reboot, and Windows gives a freed
    PID to whatever starts next.
-2. **Sweeps ports 8000 and 5173** for survivors -- the safety net when the PID
-   file is missing or stale, or a service was started by hand.
+2. **Sweeps the API and frontend ports** for survivors -- the safety net
+   when the PID file is missing or stale, or a service was started by hand.
 3. Stops PostgreSQL with `pg_ctl -m fast` (skipped with `/keepdb`).
 4. **Verifies**, and exits 1 if anything still holds a port or the database
    still accepts connections when it should not.
 
 An unrecognised argument is refused (exit 2) rather than ignored: Git Bash
 rewrites `/keepdb` into a path, and ignoring it would stop a database the
-caller asked to keep. If the conda environment cannot be activated, the
-servers are still stopped; PostgreSQL is reported as skipped, and the exit
-code is 1.
+caller asked to keep. If the conda environment cannot be activated, or
+`.env` holds a setting it refuses, the servers in the PID file are still
+stopped; the port sweep and PostgreSQL, whose addresses are then unknown,
+are reported as skipped, and the exit code is 1.
 
 ## Starting a Claude Code session
 
@@ -302,31 +326,34 @@ connection dies.
 ## The other scripts
 
 - **`ccweb_psql.cmd`** runs psql with every argument passed through
-  (`-c "select ..."`, `-f file.sql`). Unset `PG*` variables default to
-  localhost:5432, database and user `ccwebdb`, password `devpassword`,
-  matching `DATABASE_URL`'s default; set `PGDATABASE` (or any other) first to
-  point it elsewhere.
-- **`ccweb_backup.cmd`** takes one whole backup into
-  `%USERPROFILE%\OneDrive\coins_backup` (or `CCWEB_BACKUP_DIR`), proves it,
-  and only then removes what is obsolete; it appends what it did to
-  `backup.log` in the logs folder and exits 1 when the backup could not be
-  proved. `/schedule [HH:MM]` creates the daily scheduled task `ccwebdb
-  backup`, `/unschedule` deletes it, `/scheduled` shows it; any other
-  argument is refused with exit 2. See `system-administration.md`, *The
-  routine backup*.
-- **`ccweb_pgadmin.cmd`** starts pgAdmin 4 on http://127.0.0.1:5050 with the
-  `ccwebdb` connection registered and no login screen, and opens the browser;
+  (`-c "select ..."`, `-f file.sql`) against the database `DATABASE_URL`
+  names: unset `PG*` variables default to its host, port, database, user
+  and password. Set `PGDATABASE` (or any other) first to point it elsewhere.
+- **`ccweb_backup.cmd`** takes one whole backup into `CCWEB_BACKUP_DIR`
+  (unset: `OneDrive\coins_backup` in your home), proves it, and only then
+  removes what is obsolete; it appends what it did to `backup.log` in the
+  logs folder and exits 1 when the backup could not be proved.
+  `/schedule [HH:MM]` creates the daily scheduled task `ccwebdb backup`, at
+  `CCWEB_BACKUP_TIME` (20:00) when no time is given; `/unschedule` deletes
+  it, `/scheduled` shows it; any other argument is refused with exit 2. The
+  task reads `.env` like the script, so a folder set there reaches a run
+  made while signed out. See `system-administration.md`, *The routine
+  backup*.
+- **`ccweb_pgadmin.cmd`** starts pgAdmin 4 on http://127.0.0.1:5050
+  (`CCWEB_PGADMIN_PORT`) with the connection to `DATABASE_URL`'s database
+  registered (from the template `scripts\pgadmin-servers.json`) and no
+  login screen, and opens the browser;
   close the "pgAdmin 4" window to stop it. pgAdmin is not a project
   dependency: install it once with `uv tool install --python 3.13 pgadmin4`
   (3.13, because a dependency has no wheel for newer Pythons).
 - **`ccweb_check.cmd`** runs every quality gate; `fix` reformats and
   auto-fixes first. See [code-quality.md](code-quality.md).
-- **`ccweb_testdb.cmd`** creates and starts a cluster for the tests alone, on
-  port 5433 (`stop`, `status`); see *One database, two computers*.
+- **`ccweb_testdb.cmd`** creates and starts a cluster for the tests alone
+  (`stop`, `status`); see *A cluster for the tests*.
 - **Helpers**, called by the scripts above rather than run directly:
-  `ccweb_env.cmd` (the conda environment), `ccweb_logdir.cmd` (sets the log
-  folder from `CCWEB_LOG_DIR`) and `ccweb_pgstart.cmd` (starts PostgreSQL in
-  its own console).
+  `ccweb_env.cmd` (the conda environment), `ccweb_settings.cmd` (the
+  settings), `ccweb_logdir.cmd` (sets the log folder from `CCWEB_LOG_DIR`)
+  and `ccweb_pgstart.cmd` (starts PostgreSQL in its own console).
 
 ---
 
@@ -375,7 +402,8 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_sonar_stop.cmd
 ```
 
-Dashboard: http://localhost:9000, project `classobjects-ccwebdb`. The server
+Dashboard: http://localhost:9000 (`CCWEB_SONAR_PORT`), project
+`classobjects-ccwebdb`. The server
 and its database run as podman containers (`sonarqube`, `sonar-db`) on the
 `sonar-net` network; the server is bound to 127.0.0.1 and the database
 publishes no host port. The start script starts the podman machine if it is
@@ -472,7 +500,7 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 ```
 
 At the end it lists an address for each network adapter, such as
-`http://192.168.50.11:5173/management`. The address is `http`, not `https`:
+`http://192.168.1.20:5173/management`. The address is `http`, not `https`:
 Vite's dev server has no certificate.
 
 Windows blocks the port from other machines until a firewall rule allows it.
@@ -483,10 +511,11 @@ missing):
 netsh advfirewall firewall add rule name="ccweb frontend LAN" dir=in action=allow protocol=TCP localport=5173 remoteip=localsubnet
 ```
 
-`remoteip=localsubnet` admits only machines on the same network. Never
-forward 5173 on the router: the dev server serves the source tree and is not
+(5173 is the default; the rule the script prints names `CCWEB_FRONTEND_PORT`
+when `.env` sets another.) `remoteip=localsubnet` admits only machines on
+the same network. Never forward the port on the router: the dev server serves the source tree and is not
 built to face the internet. Reaching the system from outside is
-[deployment.md](deployment.md). To close the port again:
+[deployment-windows.md](deployment-windows.md). To close the port again:
 
 ```console
 netsh advfirewall firewall delete rule name="ccweb frontend LAN"
@@ -496,7 +525,35 @@ The next start without `/lan` puts Vite back on loopback.
 
 ---
 
-## One database, two computers
+## A cluster for the tests
+
+The test suite builds and drops its own databases. On a computer whose
+`DATABASE_URL` names a cluster it shares, or one it does not run, the tests
+should not build them there. `ccweb_testdb.cmd` gives the computer a
+cluster of its own for them, in `CCWEB_TEST_DB_CLUSTER_DIR` (default
+`.pgdata.test`) on `CCWEB_TEST_DB_PORT` (default 5433, which must not be
+`DATABASE_URL`'s). The first run creates it; later runs start it:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_testdb.cmd
+```
+
+Once it exists, `ccweb_check.cmd` and `ccweb_sonar_scan.cmd` start it when
+needed and run the tests there, so the tests never build their databases in
+the collection's cluster. It holds only what a test session builds and
+drops, under the development password. `.\scripts\ccweb_testdb.cmd stop`
+stops it and `status` reports it. For `pytest` on its own, set
+`TEST_DATABASE_URL` to the line it prints.
+
+---
+
+## One database, two computers (the example installation)
+
+The example installation runs one database on two computers -- its server
+and its development computer -- one at a time, never both. Nothing else in
+this document needs it; it is described here because the scripts guard
+against its one danger.
 
 The collection's cluster lives in OneDrive, at
 `%USERPROFILE%\OneDrive\coins_db\pgdata`, so the server and the development
@@ -542,25 +599,13 @@ server's service starts only by hand (`sc config ccwebdb-postgres start=
 demand`): a reboot of the server never starts it under the other computer.
 
 The daily backup runs on the server ([system-administration.md](system-administration.md),
-*Backing up and restoring*), into `OneDrive\coins_backup`; `ccweb_backup.cmd`
-works from either computer, against whichever is running the database.
+*Backing up and restoring*), into `OneDrive\coins_backup` (its
+`CCWEB_BACKUP_DIR`); `ccweb_backup.cmd` works from either computer, against
+whichever is running the database.
 
 The computer not running the database has no PostgreSQL, and so nothing to
-run the tests on. `ccweb_testdb.cmd` gives it a cluster of its own for them,
-in `.pgdata.test` on port 5433, outside OneDrive. The first run creates it;
-later runs start it:
-
-```console
-cd /d %USERPROFILE%\dev\classobjects-ccwebdb
-.\scripts\ccweb_testdb.cmd
-```
-
-Once `.pgdata.test` exists, `ccweb_check.cmd` and `ccweb_sonar_scan.cmd`
-start it when needed and run the tests there, whichever computer holds the
-collection, so the tests never build their databases in the shared cluster.
-It holds only what a test session builds and drops, under the development
-password. `.\scripts\ccweb_testdb.cmd stop` stops it and `status` reports
-it. For `pytest` on its own, set `TEST_DATABASE_URL` to the line it prints.
+run the tests on: each has a test cluster of its own, outside OneDrive (*A
+cluster for the tests*, above).
 
 ---
 

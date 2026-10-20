@@ -29,7 +29,7 @@ if not defined PGPASSWORD set "PGPASSWORD=%CCWEB_DB_PASSWORD%"
 
 if not exist "%PGBIN%\psql.exe" (
     echo ERROR: psql not found at %PGBIN%
-    echo        see docs\environment-setup.md
+    echo        see docs\environment-setup-windows.md
     exit /b 1
 )
 

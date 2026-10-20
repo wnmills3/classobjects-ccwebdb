@@ -118,7 +118,7 @@ if not defined CCWEB_CONDABAT (
     echo ERROR: conda not found
     echo        looked at CCWEB_CONDA_ROOT, CONDA_EXE, conda.bat on PATH, and
     echo        %USERPROFILE%\miniforge3\condabin\conda.bat
-    echo        see docs\environment-setup.md
+    echo        see docs\environment-setup-windows.md
     set "_CCWEB_ENVNAME="
     set "_CCWEB_CONDAROOT="
     exit /b 1

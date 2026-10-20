@@ -14,8 +14,8 @@ and its cost basis. Most of what follows is about keeping that record true:
 who may change it, which code paths are allowed to write each part, and how
 to take and prove a backup before anything risky.
 
-Related documents: [runtime-operations.md](runtime-operations.md) (starting
-and stopping the services), [environment-setup.md](environment-setup.md)
+Related documents: [runtime-operations-windows.md](runtime-operations-windows.md) (starting
+and stopping the services), [environment-setup-windows.md](environment-setup-windows.md)
 (installing them), [database-design.md](database-design.md) (how the record
 is structured).
 

@@ -42,7 +42,7 @@ set "NODE=%ENVDIR%\node.exe"
 
 if not exist "%PY%" (
     echo ERROR: conda environment not found: !ENVDIR!
-    echo        see docs\environment-setup.md
+    echo        see docs\environment-setup-windows.md
     popd
     exit /b 1
 )

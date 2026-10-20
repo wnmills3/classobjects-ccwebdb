@@ -5,7 +5,7 @@ server answers, and test addresses against registration -- whose 409 for a
 taken address says the address has an account -- by the thousand.
 
 Counted in this process's memory. The API runs as one uvicorn process
-behind Caddy (`docs/deployment.md`), so one count is every count; a restart
+behind Caddy (`docs/deployment-windows.md`), so one count is every count; a restart
 clears them, which costs an attacker nothing they could not get by waiting
 out the window. The address is the caller's as uvicorn sees it, which with
 `--proxy-headers` behind Caddy is the browser's, not Caddy's.

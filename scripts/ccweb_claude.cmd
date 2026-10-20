@@ -62,7 +62,7 @@ rem --- database -------------------------------------------------------------
 set "DBSTATE=skipped"
 if not defined SKIPDB (
     if not exist "%PGDATA%\PG_VERSION" (
-        set "DBSTATE=no cluster at %PGDATA% - see docs\environment-setup.md"
+        set "DBSTATE=no cluster at %PGDATA% - see docs\environment-setup-windows.md"
     ) else (
         "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
         if errorlevel 1 (

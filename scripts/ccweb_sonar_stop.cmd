@@ -7,7 +7,7 @@ rem  survive a stop. To discard everything, remove the volumes by hand:
 rem      podman volume rm sonar-db-data sonarqube-data sonarqube-extensions sonarqube-logs
 rem
 rem  Exits non-zero if either container is still listed by podman afterwards -
-rem  success is verified, not assumed (docs/runtime-operations.md, "Success is
+rem  success is verified, not assumed (docs/runtime-operations-windows.md, "Success is
 rem  verified, not assumed").
 rem
 rem  Contract: exits non-zero unless podman confirms both containers are gone.

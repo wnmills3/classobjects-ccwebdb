@@ -78,12 +78,12 @@ echo ============================================
 rem --- preflight ------------------------------------------------------------
 if not exist "%ENVDIR%\python.exe" (
     echo ERROR: conda environment not found: !ENVDIR!
-    echo        see docs\environment-setup.md
+    echo        see docs\environment-setup-windows.md
     exit /b 1
 )
 if not exist "%PGDATA%\PG_VERSION" (
     echo ERROR: no PostgreSQL cluster at !PGDATA!
-    echo        see docs\environment-setup.md
+    echo        see docs\environment-setup-windows.md
     exit /b 1
 )
 if not exist "%REPO%\frontend\node_modules\vite\bin\vite.js" (

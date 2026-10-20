@@ -199,7 +199,7 @@ def test_every_template_renders_completely(template: Path) -> None:
 
 def _documented_caddyfile() -> str:
     """The Caddyfile the Windows deployment document shows for its example."""
-    doc = (REPO_ROOT / "docs" / "deployment.md").read_text(encoding="utf-8")
+    doc = (REPO_ROOT / "docs" / "deployment-windows.md").read_text(encoding="utf-8")
     blocks = re.findall(r"```\n(classobjects\.com \{.*?)```", doc, re.DOTALL)
     assert len(blocks) == 1, "the example Caddyfile is no longer one block"
     return blocks[0]
@@ -264,6 +264,56 @@ def test_conda_env_name_read_like_pydantic(tmp_path: Path, dotenv: bytes) -> Non
     ).stdout.strip()
     pydantic = RuntimeSettings(_env_file=env_file).ccweb_conda_env or "ccwebdb"
     assert shown == f"CCWEB_CONDA_ENV={pydantic}"
+
+
+#: A Markdown link's target: `](target)` or `](target#anchor)`.
+_LINK = re.compile(r"\]\(([^)\s#]+)(?:#[^)]*)?\)")
+
+
+def _tracked(pattern: str) -> list[Path]:
+    """Tracked files matching a git pathspec."""
+    listing = subprocess.run(
+        ["git", "ls-files", "--", pattern],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    return [REPO_ROOT / line for line in listing]
+
+
+#: Inline code and fenced blocks, where `](x)` is text, not a link.
+_CODE = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
+
+
+def test_every_relative_markdown_link_resolves() -> None:
+    """A renamed or removed document must take its links with it."""
+    broken = [
+        f"{doc.relative_to(REPO_ROOT).as_posix()}: {target}"
+        for doc in _tracked("*.md")
+        for target in _LINK.findall(_CODE.sub("", doc.read_text(encoding="utf-8")))
+        if "://" not in target
+        and not target.startswith("mailto:")
+        and not (doc.parent / target).exists()
+    ]
+    assert broken == []
+
+
+#: A document a script or source file names, as `docs\x.md` or `docs/x.md`.
+_DOC_NAMED = re.compile(r"docs[\\/]([\w./-]+\.md)")
+
+
+@pytest.mark.xfail(strict=True, reason="the Linux documents are written next")
+def test_every_document_a_script_or_source_names_exists() -> None:
+    """A script's "see docs\\x.md" must name a document that is there."""
+    sources = [*_tracked("scripts/*"), *_tracked("backend/app/*.py")]
+    missing = sorted(
+        f"{path.relative_to(REPO_ROOT).as_posix()}: docs/{name}"
+        for path in sources
+        for name in _DOC_NAMED.findall(path.read_text(encoding="utf-8"))
+        if not (REPO_ROOT / "docs" / name).exists()
+    )
+    assert missing == []
 
 
 #: A key in .env.example, written out or commented out with its default.
