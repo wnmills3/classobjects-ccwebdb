@@ -220,7 +220,8 @@ __marimo__/
 # --- ccwebdb project ---------------------------------------------------------
 # Local PostgreSQL cluster created by initdb (see docs/environment-setup.md).
 # No trailing slash: .pgdata may be a junction into OneDrive, which git does
-# not see as a directory. .pgdata.* covers a cluster set aside beside it.
+# not see as a directory. .pgdata.* covers a cluster set aside beside it and
+# the tests' own cluster, .pgdata.test (scripts/ccweb_testdb.cmd).
 .pgdata
 .pgdata.*
 # Copies of .env hold its secrets too; only the example is shared.

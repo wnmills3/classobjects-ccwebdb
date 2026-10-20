@@ -52,6 +52,7 @@ rem  [tool.coverage.run] in pyproject.toml, running from the repository root
 rem  (this "pushd" above), and --cov=backend/app. Running from backend, the
 rem  way ccweb_check.cmd does, records paths like app/database.py, which sonar.sources
 rem  (backend/app) cannot map - a silent 0% that looks like clean code.
+call "%~dp0ccweb_testdb.cmd" use || (popd & exit /b 1)
 "%PY%" -m pytest --cov=backend/app --cov-report=xml:coverage.xml
 if errorlevel 1 (
     echo ERROR: tests failed - refusing to publish an analysis.

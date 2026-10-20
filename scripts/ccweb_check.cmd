@@ -80,6 +80,10 @@ rem one is the signal.
 if errorlevel 1 set "FAILED=!FAILED! types"
 
 echo === tests ===
+rem  Where this computer has a test cluster of its own, the tests run there
+rem  (ccweb_testdb.cmd); elsewhere TEST_DATABASE_URL is left as it was.
+call "%~dp0ccweb_testdb.cmd" use
+if errorlevel 1 set "FAILED=!FAILED! testdb"
 pushd backend
 "%PY%" -m pytest
 if errorlevel 1 set "FAILED=!FAILED! tests"

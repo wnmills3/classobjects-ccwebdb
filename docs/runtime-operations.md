@@ -321,6 +321,8 @@ connection dies.
   (3.13, because a dependency has no wheel for newer Pythons).
 - **`ccweb_check.cmd`** runs every quality gate; `fix` reformats and
   auto-fixes first. See [code-quality.md](code-quality.md).
+- **`ccweb_testdb.cmd`** creates and starts a cluster for the tests alone, on
+  port 5433 (`stop`, `status`); see *One database, two computers*.
 - **Helpers**, called by the scripts above rather than run directly:
   `ccweb_env.cmd` (the conda environment), `ccweb_logdir.cmd` (sets the log
   folder from `CCWEB_LOG_DIR`) and `ccweb_pgstart.cmd` (starts PostgreSQL in
@@ -501,8 +503,8 @@ The collection's cluster lives in OneDrive, at
 machine work on the same database -- one at a time, never both. On each
 computer `.pgdata` is a junction to that folder, so the scripts and the
 server's `ccwebdb-postgres` service find it where they always did; the
-cluster each had before is set aside beside it (`.pgdata.local` here,
-`.pgdata.pre-onedrive` on the server). The folder is pinned to stay on the
+server's earlier cluster is set aside beside it as `.pgdata.pre-onedrive`.
+The folder is pinned to stay on the
 device (`attrib +P`), so OneDrive never swaps a file of a running cluster
 for a placeholder. To set a computer up, with PostgreSQL stopped there and
 PostgreSQL 18 in the `ccwebdb` environment on both:
@@ -542,6 +544,23 @@ demand`): a reboot of the server never starts it under the other computer.
 The daily backup runs on the server ([system-administration.md](system-administration.md),
 *Backing up and restoring*), into `OneDrive\coins_backup`; `ccweb_backup.cmd`
 works from either computer, against whichever is running the database.
+
+The computer not running the database has no PostgreSQL, and so nothing to
+run the tests on. `ccweb_testdb.cmd` gives it a cluster of its own for them,
+in `.pgdata.test` on port 5433, outside OneDrive. The first run creates it;
+later runs start it:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+.\scripts\ccweb_testdb.cmd
+```
+
+Once `.pgdata.test` exists, `ccweb_check.cmd` and `ccweb_sonar_scan.cmd`
+start it when needed and run the tests there, whichever computer holds the
+collection, so the tests never build their databases in the shared cluster.
+It holds only what a test session builds and drops, under the development
+password. `.\scripts\ccweb_testdb.cmd stop` stops it and `status` reports
+it. For `pytest` on its own, set `TEST_DATABASE_URL` to the line it prints.
 
 ---
 

@@ -514,7 +514,10 @@ npm test
 Or run every gate at once with `.\scripts\ccweb_check.cmd`
 ([code-quality.md](code-quality.md)). The Python suite creates `ccwebdb_test`,
 builds the schema, runs each test in a rolled-back transaction, and drops the
-database afterwards; point it elsewhere with `TEST_DATABASE_URL`. Never run
+database afterwards; point it elsewhere with `TEST_DATABASE_URL`. A
+computer without the collection's database running can test on a cluster of
+its own (`ccweb_testdb.cmd`, [runtime-operations.md](runtime-operations.md),
+*One database, two computers*). Never run
 two pytest sessions at once: they share `ccwebdb_test`, and the resulting
 failures look like real bugs.
 
