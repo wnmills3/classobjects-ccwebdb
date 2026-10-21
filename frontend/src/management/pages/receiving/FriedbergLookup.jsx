@@ -225,6 +225,10 @@ export default function FriedbergLookup({
   const [correction, setCorrection] = useState(null)
 
   const [attachingKey, setAttachingKey] = useState(null)
+  // The match Use last put on the note (or chose, in the item editor), so
+  // its row says so: an attach that changed nothing near the button read
+  // as a press that did nothing.
+  const [usedId, setUsedId] = useState(null)
   const [attachError, setAttachError] = useState('')
   const [attachMessage, setAttachMessage] = useState('')
 
@@ -335,6 +339,7 @@ export default function FriedbergLookup({
     setSearchError('')
     setAttachError('')
     setAttachMessage('')
+    setUsedId(null)
     try {
       const rows = await api.searchFriedberg(currentFilters())
       if (cancelled) return
@@ -387,9 +392,22 @@ export default function FriedbergLookup({
    * second Save for a decision already made. A row only ever proposed, such
    * as an AI answer saved unchecked, stays proposed: Use never confirms a
    * guess on its own.
+   *
+   * Once it is on, the number is copied into the Fr. number box and its row
+   * marked, so what happened shows where the press was made. A failed
+   * attach copies and marks nothing: its error says what went wrong.
    */
-  function applyMatch(row) {
-    attach(row.id, row.verified ? 'confirmed' : 'proposed', row.fr_number)
+  async function applyMatch(row) {
+    setUsedId(null)
+    const done = await attach(
+      row.id,
+      row.verified ? 'confirmed' : 'proposed',
+      row.fr_number,
+    )
+    if (!done) return
+    setUsedId(row.id)
+    setRecordFrNumber(row.fr_number)
+    setCorrection(null)
   }
 
   /**
@@ -686,6 +704,9 @@ export default function FriedbergLookup({
                     >
                       Use
                     </button>
+                    {usedId === row.id && (
+                      <strong>{onChoose ? 'Chosen' : 'On this note'}</strong>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -738,7 +759,7 @@ export default function FriedbergLookup({
         )}
 
         {attachError && <p className="error">{attachError}</p>}
-        {attachMessage && <p className="muted">{attachMessage}</p>}
+        {attachMessage && <p className="notice">{attachMessage}</p>}
       </HelpScope>
     </div>
   )

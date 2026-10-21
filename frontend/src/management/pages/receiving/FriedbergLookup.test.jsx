@@ -307,6 +307,50 @@ describe('FriedbergLookup', () => {
     expect(api.createFriedbergNumber).not.toHaveBeenCalled()
   })
 
+  it('shows what Use did: the number in the box, its row marked, said plainly', async () => {
+    // Use attaches at once; with nothing on screen changing near the button
+    // it looked as though nothing had happened, and was pressed again.
+    api.searchFriedberg.mockResolvedValue([ROW_VERIFIED, ROW_UNVERIFIED])
+    api.attachFriedberg.mockResolvedValue({
+      fr_number: '9903',
+      friedberg_status: 'confirmed',
+    })
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use 9903' }))
+
+    const message = await screen.findByText('Attached 9903 to this item as confirmed.')
+    expect(message).toHaveClass('notice')
+    expect(screen.getByRole('textbox', { name: /fr\. number/i })).toHaveValue('9903')
+    const used = screen.getByText('9903').closest('li')
+    expect(used).toHaveTextContent('On this note')
+    expect(screen.getByText('9904').closest('li')).not.toHaveTextContent('On this note')
+  })
+
+  it('marks nothing and copies nothing when the attach fails', async () => {
+    api.searchFriedberg.mockResolvedValue([ROW_VERIFIED])
+    api.attachFriedberg.mockRejectedValue(new Error('The note was changed elsewhere.'))
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use 9903' }))
+
+    expect(
+      await screen.findByText('The note was changed elsewhere.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /fr\. number/i })).toHaveValue('')
+    expect(screen.queryByText('On this note')).toBeNull()
+  })
+
+  it('in the item editor, copies the chosen number and marks it chosen', async () => {
+    api.searchFriedberg.mockResolvedValue([ROW_UNVERIFIED])
+    renderWithProviders(<FriedbergLookup itemId={412} onChoose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use 9904' }))
+
+    expect(screen.getByRole('textbox', { name: /fr\. number/i })).toHaveValue('9904')
+    expect(screen.getByText('9904').closest('li')).toHaveTextContent('Chosen')
+  })
+
   it('in the item editor, hands the choice back instead of attaching it', async () => {
     const onChoose = vi.fn()
     api.searchFriedberg.mockResolvedValue([ROW_UNVERIFIED])
