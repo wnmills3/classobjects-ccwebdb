@@ -152,6 +152,45 @@ describe('Lists: Friedberg numbers', () => {
     await waitFor(() => expect(api.listFriedbergCatalog).toHaveBeenCalledTimes(2))
   })
 
+  it('puts the cursor in the number on Edit, and saves on Enter', async () => {
+    // Typing starts at once, with no click into the box first; Enter is the
+    // Save button.
+    const user = userEvent.setup()
+    api.updateFriedbergNumber.mockResolvedValue(fr({ fr_number: '9928-L' }))
+    open()
+    const row = (await screen.findByText('9928-')).closest('tr')
+
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    const number = within(row).getByRole('textbox', { name: 'Number' })
+    expect(number).toHaveFocus()
+    await user.keyboard('L{Enter}')
+
+    await waitFor(() =>
+      expect(api.updateFriedbergNumber).toHaveBeenCalledWith(14, {
+        fr_number: '9928-L',
+      }),
+    )
+  })
+
+  it('saves on Enter from any box of the row being edited', async () => {
+    const user = userEvent.setup()
+    api.updateFriedbergNumber.mockResolvedValue(fr({ description: 'A test note' }))
+    open()
+    const row = (await screen.findByText('9928-')).closest('tr')
+
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    await user.type(
+      within(row).getByRole('textbox', { name: 'Description' }),
+      'A test note{Enter}',
+    )
+
+    await waitFor(() =>
+      expect(api.updateFriedbergNumber).toHaveBeenCalledWith(14, {
+        description: 'A test note',
+      }),
+    )
+  })
+
   it('confirms a number and undoes a confirmation', async () => {
     const user = userEvent.setup()
     api.updateFriedbergNumber.mockResolvedValue(fr())
