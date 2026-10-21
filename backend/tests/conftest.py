@@ -183,6 +183,17 @@ def _stored_files_in_a_temporary_folder(
     monkeypatch.setattr(settings, "media_root", tmp_path / "media")
 
 
+@pytest.fixture(autouse=True)
+def _the_shop_is_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test starts with the shop open, whatever the checkout's `.env` says.
+
+    `SHOP_OPEN=false` is a real installation's setting before opening day, and a
+    checkout sharing that `.env` would otherwise fail every shop test. A test of
+    the closed shop closes it itself.
+    """
+    monkeypatch.setattr(settings, "shop_open", True)
+
+
 @pytest.fixture(scope="session")
 def engine() -> Iterator[Engine]:
     """Create a fresh test database for the session and tear it down after.
