@@ -80,7 +80,7 @@ export const COIN_VIEW = {
   ],
   detail: 'description',
   searchPlaceholder:
-    'Search title, description, rating, item code or a series, strike or mint name, e.g. mercury (tips below)',
+    'Search title, description, rating, item code, order number or a series, strike or mint name, e.g. mercury (tips below)',
   searchExamples: [
     // Found mostly through the series nickname, not the listing text.
     [
@@ -170,7 +170,7 @@ export const CURRENCY_VIEW = {
   // classes and serial features by name or alias. A note's series year is
   // its own dropdown.
   searchPlaceholder:
-    'Search title, description, rating or item code, e.g. funny%back (tips below)',
+    'Search title, description, rating, item code or order number, e.g. funny%back (tips below)',
   searchExamples: [
     // The word lives only in the Rating text, spelled "Funnyback" and
     // "Funny Back"; % is what finds both.

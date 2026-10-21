@@ -7,7 +7,7 @@ import { missingLabel } from './missingFields'
 import { SHARED_KEYS } from './specs'
 
 //: For a view that names no placeholder of its own.
-const DEFAULT_PLACEHOLDER = 'Search title, description or item code'
+const DEFAULT_PLACEHOLDER = 'Search title, description, item code or order number'
 
 /** A label with its underlined letter, or plain text when it has none. */
 function Label({ text, letter }) {
