@@ -51,7 +51,8 @@ travels through them. Why it is built this way is in
   Alembic from a squashed baseline (`backend/alembic/`).
 - **Photographs.** Bytes live on disk under `MEDIA_ROOT`, addressed by the
   SHA-256 of their cleansed content; the database holds rows that name
-  them.
+  them. The API checks at start-up that `MEDIA_ROOT` holds the newest of
+  them, and refuses to start when it holds none (`app/media_check.py`).
 - **Reverse proxy.** In production Caddy serves the built files, proxies
   `/api/*` to the API, terminates TLS and sets the security headers
   (`deploy/Caddyfile`, a template rendered from settings). The backend

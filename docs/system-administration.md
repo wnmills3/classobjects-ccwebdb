@@ -224,7 +224,7 @@ $0.35 where 6.35% of $5.40 is $0.34); those pennies stay as computed.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `MEDIA_ROOT` | `<repo>\media` | where image bytes live. **Bytes are never stored in the database**, so no database backup includes them: `python -m app.media_backup copy` backs them up (*Backing up and restoring*) |
+| `MEDIA_ROOT` | `<repo>\media` | where image bytes live. **Bytes are never stored in the database**, so no database backup includes them: `python -m app.media_backup copy` backs them up (*Backing up and restoring*). Leave it unset unless the photographs are elsewhere, and then give the folder holding `originals` and `derivatives` as a full path. The API refuses to start when the folder holds none of the five newest photographs the database names, and says so in `backend.log`: `MEDIA_ROOT is ..., which holds none of the 5 newest photographs`. If the database is not answering when the API starts, the API logs `photograph folder not checked` and starts anyway |
 | `THUMBNAIL_MAX_PX` | `320` | longest edge of the small rendition |
 | `WEB_MAX_PX` | `1600` | longest edge of the large rendition. Originals are never served |
 | `MAX_UPLOAD_BYTES` | 25 MB | refused before anything is decoded |

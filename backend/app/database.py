@@ -7,10 +7,18 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import settings
 
+#: Seconds to wait for PostgreSQL to accept a connection, per address tried.
+#: Without it a database that is down holds a connection attempt for the
+#: operating system's own limit -- over four minutes on Windows -- so the
+#: API's start-up check (`app.media_check`) and every request would wait that
+#: long before saying anything.
+CONNECT_TIMEOUT_SECONDS = 10
+
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
     future=True,
+    connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS},
 )
 
 SessionLocal = sessionmaker(
