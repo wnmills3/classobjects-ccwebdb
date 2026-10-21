@@ -101,6 +101,7 @@ def listing_loads() -> tuple[_AbstractLoad, ...]:
         selectinload(Listing.inventory_item),
         selectinload(Listing.sales_venue),
         selectinload(Listing.currency),
+        selectinload(Listing.auction_lot),
         selectinload(Listing.sales_lot)
         .selectinload(SalesLot.members)
         .selectinload(SalesLotItem.item),
@@ -194,6 +195,7 @@ def listing_out(listing: Listing) -> ListingOut:
         sales_lot_id=listing.sales_lot_id,
         member_count=member_count,
         cost_basis=cost_basis,
+        auction_id=listing.auction_lot.auction_id if listing.auction_lot else None,
         version=listing.version,
     )
 

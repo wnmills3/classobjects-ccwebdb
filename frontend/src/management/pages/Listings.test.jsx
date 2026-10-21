@@ -503,6 +503,26 @@ describe('Listings', () => {
     ).toBeInTheDocument()
   })
 
+  it("offers neither End nor Record sale on an auction's lot, and points to the auction", async () => {
+    // HERITAGE is the same shape as a lot of auction #7; the eBay row beside
+    // it is an ordinary active listing that keeps both buttons, so this is
+    // about `auction_id` and not about the buttons vanishing everywhere.
+    api.listListings.mockResolvedValue([EBAY, { ...HERITAGE, auction_id: 7 }])
+    renderPage()
+    const lot = await screen.findByRole('row', { name: /^Heritage/ })
+    expect(within(lot).queryByRole('button', { name: 'End' })).toBeNull()
+    expect(within(lot).queryByRole('button', { name: 'Record sale…' })).toBeNull()
+    expect(within(lot).getByRole('link', { name: 'Auction #7' })).toHaveAttribute(
+      'href',
+      '/auctions',
+    )
+    const ebay = rowFor('eBay')
+    expect(within(ebay).getByRole('button', { name: 'End' })).toBeInTheDocument()
+    expect(
+      within(ebay).getByRole('button', { name: 'Record sale…' }),
+    ).toBeInTheDocument()
+  })
+
   // Opens the dialog on an auction house row, the only shape that exercises
   // the `venues.find(...)?.kind === 'auction_house'` lookup this page does
   // for `RecordSaleDialog`.

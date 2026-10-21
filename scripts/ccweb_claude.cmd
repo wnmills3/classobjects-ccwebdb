@@ -8,9 +8,7 @@ rem  Usage:  scripts\ccweb_claude.cmd                  new session
 rem          scripts\ccweb_claude.cmd ccweb            resume, searching "ccweb"
 rem          scripts\ccweb_claude.cmd 01G7CtsF...      resume that session id
 rem          scripts\ccweb_claude.cmd ccweb --effort high   extra flags pass through
-rem          scripts\ccweb_claude.cmd /check           report state, do not start
-rem                                                    Claude Code (PostgreSQL is
-rem                                                    still started unless /nodb)
+rem          scripts\ccweb_claude.cmd /check           report state, start nothing
 rem          scripts\ccweb_claude.cmd /nodb ...        skip the database check
 rem
 rem  claude's -r/--resume takes a session id, or any other value as a search
@@ -66,16 +64,24 @@ if not defined SKIPDB (
     ) else (
         "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
         if errorlevel 1 (
-            call "%REPO%\scripts\ccweb_pgstart.cmd"
-            if errorlevel 1 (
-                set "DBSTATE=NOT STARTED - postmaster.pid: the other computer may be running it"
-            ) else (
-                call :waitpg 60
-                "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
-                if errorlevel 1 (
-                    set "DBSTATE=FAILED TO START - see %LOGS%\postgres.log"
+            if defined CHECKONLY (
+                if exist "%PGDATA%\postmaster.pid" (
+                    set "DBSTATE=not running here - postmaster.pid: the other computer may be running it"
                 ) else (
-                    set "DBSTATE=started"
+                    set "DBSTATE=not running - /check starts nothing"
+                )
+            ) else (
+                call "%REPO%\scripts\ccweb_pgstart.cmd"
+                if errorlevel 1 (
+                    set "DBSTATE=NOT STARTED - postmaster.pid: the other computer may be running it"
+                ) else (
+                    call :waitpg 60
+                    "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1
+                    if errorlevel 1 (
+                        set "DBSTATE=FAILED TO START - see %LOGS%\postgres.log"
+                    ) else (
+                        set "DBSTATE=started"
+                    )
                 )
             )
         ) else (

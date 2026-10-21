@@ -89,7 +89,7 @@ span for display, and `applies_to` (`coin` / `currency`). For classification:
 | Series letters (notes) | `series_year_range.letters` | Null means any letter; otherwise the allowed letters, `*` for none. `*A` is plain 1934 and 1934A. |
 | Needs evidence | `series.needs_evidence` | The design shares its denomination and years with a commoner one, so the facts alone do not decide. |
 | Seal color | `series.seal_color_id` | Evidence for a needs-evidence note design. |
-| Note class | `series.note_type_id` | A design belonging to one note class. |
+| Note type | `series.note_type_id` | A design belonging to one note class. |
 
 ## The pass: `python -m app.series_classify`
 

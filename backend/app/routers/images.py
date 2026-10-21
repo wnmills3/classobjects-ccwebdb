@@ -297,7 +297,9 @@ def attach_image(
                 sort_order=payload.sort_order,
             )
         except image_links.LinkRefused as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
         # A photograph unfiled from one item and filed here is named for here.
         image_links.name_for_place(db, link)
     db.refresh(link)
@@ -327,7 +329,7 @@ def list_images(
     """
     if (inventory_item_id is None) == (not unattached):
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Pass exactly one of inventory_item_id or unattached=true.",
         )
 

@@ -602,7 +602,7 @@ def create_storage_location(
     """
     if payload.kind in _MADE_ELSEWHERE:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"A {payload.kind} location is not made by hand: the auction "
             "code makes a consigned one, and sold is reserved",
         )
@@ -702,7 +702,7 @@ def update_storage_location(
     )
     if location.kind.code in _MADE_ELSEWHERE or payload.kind in _MADE_ELSEWHERE:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A consigned location is the auction code's, and sold is "
             "reserved: neither is edited or chosen by hand",
         )

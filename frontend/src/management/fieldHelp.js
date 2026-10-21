@@ -566,7 +566,7 @@ export const FIELD_HELP = {
     text:
       'Finds items whose title, description, rating, item code or purchase order ' +
       'number contain what you type, ignoring case, and items whose series, mint, ' +
-      'strike, designation, note class or attribute is called that. Several words ' +
+      'strike, designation, note type or attribute is called that. Several words ' +
       'are one phrase, in that order. % stands for any run of characters and _ for ' +
       'exactly one. Press Enter or leave the box to search.',
   },
@@ -929,8 +929,8 @@ export const FIELD_HELP = {
     text: 'The seal color that marks a note as this design: brown for Hawaii, yellow for North Africa.',
   },
   vocabulary_field_note_type: {
-    title: 'Note class',
-    text: 'The class every note of this design is, such as Silver Certificate. A note recorded as another class is never taken for it.',
+    title: 'Note type',
+    text: 'The note type every note of this design is, such as Silver Certificate. A note recorded as another type is never taken for it.',
   },
   vocabulary_field_metal: {
     title: 'Metal',

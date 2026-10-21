@@ -251,7 +251,7 @@ def search_inventory(
         Query(
             description="Free text over title, description, rating, item code "
             "and the purchase's order number, and over series, strike, "
-            "designation, attribute, mint and note class by name or alias"
+            "designation, attribute, mint and note type by name or alias"
         ),
     ] = None,
     sort: str | None = None,
@@ -741,7 +741,7 @@ def _refuse_already_received(
         f"{i.item_code} (received {_arrival_label(i.id)})" for i in already
     )
     raise HTTPException(
-        status_code=409,
+        status_code=status.HTTP_409_CONFLICT,
         detail=f"Already received: {detail_items}. "
         "Use PATCH to correct a receipt rather than repeating it.",
     )
@@ -815,7 +815,7 @@ def receive_items(
     """
     if payload.outcome not in RECEIVE_OUTCOMES:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown outcome {payload.outcome!r}. "
             f"Known: {sorted(RECEIVE_OUTCOMES)}",
         )
@@ -1014,7 +1014,7 @@ def _refuse_entered_denomination_of_the_other_kind(
     if (payload.item_kind == "currency") != is_note_denomination:
         side = "banknotes" if is_note_denomination else "coins"
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"denomination {payload.denomination} belongs to {side}: "
                 f"item_kind {payload.item_kind!r} cannot take it."
@@ -1086,7 +1086,9 @@ def _set_entered_attributes(
         item_attributes.set_attributes(db, item, codes, user_id=user_id)
     except item_attributes.AttributeRefused as exc:
         db.rollback()
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
 
 
 def _take_listing_as_the_purchase_s_address(
@@ -2263,7 +2265,9 @@ def _match_detail(db: Session, item: InventoryItem) -> None:
         item_kinds.match_detail_to_kind(db, item)
     except item_kinds.KindChangeRefused as exc:
         db.rollback()
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
 
 
 #: Fields a banknote does not have. `metal` is a coin-view column and filter
@@ -2321,7 +2325,7 @@ def _refuse_coin_only_fields(
     if sent_on:
         # A plain 422, as the attributes guard below uses.
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"{', '.join(sent_fields)} belongs to coins, not banknotes: "
                 f"{', '.join(sorted(set(sent_on)))}. Nothing was changed."
@@ -2331,7 +2335,7 @@ def _refuse_coin_only_fields(
         target = f" to {data['item_kind']!r}" if "item_kind" in data else ""
         fields = " and ".join(_COIN_ONLY_FIELDS)
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"{', '.join(sorted(set(carried_on)))} already carries a "
                 f"{fields}; clear it before changing item_kind{target}. "
@@ -2392,7 +2396,7 @@ def _refuse_coin_detail_on_a_note(
     currency_id = item_kinds.currency_kind_id(db)
     if _effective_is_currency(data, item, currency_id):
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"{', '.join(sent)} belongs to coins, not banknotes: "
                 f"{item.item_code}. Nothing was changed."
@@ -2498,7 +2502,7 @@ def _refuse_mismatched_designation(
             wrong.append(f"{item.item_code} ({mismatch})")
     if wrong:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "designation of the other kind: "
                 f"{', '.join(sorted(set(wrong)))}. Nothing was changed."
@@ -2632,7 +2636,7 @@ def _refuse_mismatched_denomination(
     if sending_denomination:
         side = "banknotes" if sent_kind == DenominationKind.note else "coins"
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"denomination {data['denomination']} belongs to {side}: "
                 f"{', '.join(sorted(set(split)))} cannot take it. Nothing "
@@ -2641,7 +2645,7 @@ def _refuse_mismatched_denomination(
         )
     target = f" to {data['item_kind']!r}" if "item_kind" in data else ""
     raise HTTPException(
-        status_code=422,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail=(
             f"{', '.join(sorted(set(split)))} already carries a "
             f"denomination for the other kind; clear it before changing "
@@ -2745,7 +2749,7 @@ def _refuse_single_edit_fields(data: dict[str, Any]) -> None:
         # A whole set, per item: the same set across many items would wipe
         # whatever each carried that the others do not.
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="attributes are set one item at a time. Nothing was changed.",
         )
     # Refused by name rather than dropped: nothing in a bulk edit writes any
@@ -3033,7 +3037,7 @@ def _refuse_null_set(
     """Raise a 422 if a whole-set field was sent as null; `[]` is what clears it."""
     if field in payload.model_fields_set and value is None:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{field} may not be null; send [] to clear them.",
         )
 
@@ -3235,7 +3239,9 @@ def _set_attributes_sent(
         changed = item_attributes.set_attributes(db, item, attributes, user_id=user_id)
     except item_attributes.AttributeRefused as exc:
         db.rollback()
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
     if changed:
         item.updated_at = datetime.now(UTC)
 

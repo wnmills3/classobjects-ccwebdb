@@ -28,6 +28,8 @@ describe('EnlargeableImage', () => {
     const large = within(dialog()).getByRole('img', { name: 'Obverse', hidden: true })
     // The large rendition, not the thumbnail scaled up.
     expect(large).toHaveAttribute('src', LARGE)
+    // A photograph has no field to explain, so no help band under it.
+    expect(within(dialog()).queryByRole('contentinfo', { hidden: true })).toBeNull()
   })
 
   it('closes on Cancel', async () => {

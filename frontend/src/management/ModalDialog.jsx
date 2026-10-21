@@ -30,8 +30,17 @@ import { HelpContext } from './help-context'
  * provides its own help context, the nearest one to every
  * `HelpScope` inside it, and renders the same `HelpBar` below a body that
  * scrolls on its own, so the explanation never scrolls out of sight.
+ *
+ * `help={false}` leaves the band out, for a dialog with no field to explain
+ * (a question, an enlarged photograph): there the band could only ever say
+ * "Click in a field", with no field to click in.
  */
-export default function ModalDialog({ label, onClose, children }) {
+export default function ModalDialog({
+  label,
+  onClose,
+  help: withHelp = true,
+  children,
+}) {
   const ref = useRef(null)
   const [field, setField] = useState(null)
   const help = useMemo(() => ({ field, setField }), [field])
@@ -58,7 +67,7 @@ export default function ModalDialog({ label, onClose, children }) {
     >
       <HelpContext.Provider value={help}>
         <div className="edit-dialog-body">{children}</div>
-        <HelpBar />
+        {withHelp && <HelpBar />}
       </HelpContext.Provider>
     </dialog>
   )

@@ -28,7 +28,7 @@ and `reference_merge` ask one module without importing each other.
 
 from __future__ import annotations
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -130,10 +130,13 @@ def code_to_id(
         select(model.id, model.is_active).where(model.code == code)
     ).one_or_none()
     if found is None:
-        raise HTTPException(status_code=422, detail=f"Unknown {field}: {code!r}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown {field}: {code!r}",
+        )
     if not found.is_active and found.id != keep:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Retired {field}: {code!r} can no longer be chosen",
         )
     return int(found.id)
@@ -151,7 +154,7 @@ def require_code(
     resolved = code_to_id(db, model, code, field, keep=keep)
     if resolved is None:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{field} is required",
         )
     return resolved

@@ -3,10 +3,10 @@ import { ReferenceSelect } from '../../../shared/reference'
 import { AccessLabel } from '../../AccessLabel'
 import { accel } from '../../shortcuts'
 
-//: A note's own classifiers. Letters are scarce by here: only these two
-//: labels hold one that is still free.
+//: A note's own classifiers. Letters are scarce by here: only Reserve
+//: Bank's label holds one that is still free.
 const NOTE_CLASSIFIERS = [
-  ['Note class', 'note_type', 'note_type', 'a'],
+  ['Note type', 'note_type', 'note_type', null],
   ['Seal', 'seal_color', 'seal_color', null],
   ['Signatures', 'signature_combination', 'signature_combination', null],
   ['Reserve Bank', 'fed_district', 'fed_district', 'b'],
@@ -25,7 +25,7 @@ const NOTE_TEXT_FIELDS = [
 /**
  * The item editor's rows for a banknote's own fields: what identifies it
  * first -- series, serial, plates, where it was printed -- then what follows
- * from those facts: its class, seal, signatures and Reserve Bank.
+ * from those facts: its note type, seal, signatures and Reserve Bank.
  *
  * `value(key)` is a field's value as the form shows it; `set(key)` is a text
  * box's change handler, `setNumber(key)` a number box's, and

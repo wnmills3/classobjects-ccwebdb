@@ -40,6 +40,7 @@ from .base import Base, ReferenceMixin, TimestampMixin, enum_column, utcnow
 
 if TYPE_CHECKING:  # relationship targets only -- importing them at
     # runtime would make core and sales import each other in a cycle.
+    from .auctions import AuctionLot
     from .core import InventoryItem, Vendor
     from .reference import Currency, SalesVenueKind
     from .scaffold import User
@@ -338,6 +339,9 @@ class Listing(TimestampMixin, Base):
         remote_side=lambda: [Listing.id],
         foreign_keys=lambda: [Listing.paused_by_listing_id],
     )
+    #: The auction lot this listing is, if any (`uq_auction_lot_listing_id`).
+    #: Read-only: `app.auctions` alone writes `auction_lot`.
+    auction_lot: Mapped[AuctionLot | None] = relationship(viewonly=True)
 
     __table_args__ = (
         CheckConstraint("price >= 0", name="ck_listing_price_non_negative"),

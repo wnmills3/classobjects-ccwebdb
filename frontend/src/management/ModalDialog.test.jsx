@@ -75,4 +75,19 @@ describe('ModalDialog help band', () => {
     expect(band.closest('.edit-dialog-body')).toBeNull()
     expect(dialog.querySelector('.edit-dialog-body')).not.toBeNull()
   })
+
+  it('has no band when told it has no field to explain', () => {
+    renderWithProviders(
+      <ModalDialog label="Edit item" onClose={vi.fn()}>
+        <ModalDialog label="Obverse" onClose={vi.fn()} help={false}>
+          <p>Enlarged</p>
+        </ModalDialog>
+      </ModalDialog>,
+    )
+    const outer = screen.getByRole('dialog', { name: 'Edit item', hidden: true })
+    const inner = screen.getByRole('dialog', { name: 'Obverse', hidden: true })
+    // The editor beneath keeps its band; the photograph on top has none.
+    expect(within(outer).getAllByRole('contentinfo', { hidden: true })).toHaveLength(1)
+    expect(within(inner).queryByRole('contentinfo', { hidden: true })).toBeNull()
+  })
 })

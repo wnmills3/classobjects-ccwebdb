@@ -37,6 +37,14 @@ describe('ConfirmDialog', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
+  it('has no help band: a question has no field to explain', () => {
+    confirm()
+    expect(
+      screen.getByRole('dialog', { name: 'End the listing?', hidden: true }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('contentinfo', { hidden: true })).toBeNull()
+  })
+
   it('keeps the confirm button live, so an incomplete answer is explained on press', () => {
     // A greyed-out button says nothing about why. The caller's `onConfirm`
     // names what is missing instead, so nothing here can switch it off.

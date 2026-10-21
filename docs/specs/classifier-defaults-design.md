@@ -301,10 +301,10 @@ it cannot be found in the console to be put right.
 
 For a banknote the item editor shows, after its kind and denomination, the
 note's own fields (`NoteFields.jsx`): first what identifies it -- series year and letter,
-serial, face and back plate, where it was printed -- then Note class, Seal,
+serial, face and back plate, where it was printed -- then Note type, Seal,
 Signatures and Reserve Bank. A derived value carries a *suggested* mark whose
-tooltip names the rule. Only "Note class" (Alt+A) and "Reserve Bank" (Alt+B)
-have accelerators: no other free letter is in their labels.
+tooltip names the rule. Only "Reserve Bank" (Alt+B) has an accelerator: no
+other free letter is in their labels.
 
 ## Out of scope
 

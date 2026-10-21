@@ -119,8 +119,8 @@ describe('ItemEditForm: entering an item', () => {
     expect(at('Series year')).toBeGreaterThan(at('Denomination'))
     expect(at('Serial number')).toBeGreaterThan(at('Series year'))
     // What the facts decide comes after them, and the description last.
-    expect(at('Note class')).toBeGreaterThan(at('Serial number'))
-    expect(at('Description')).toBeGreaterThan(at('Note class'))
+    expect(at('Note type')).toBeGreaterThan(at('Serial number'))
+    expect(at('Description')).toBeGreaterThan(at('Note type'))
   })
 
   it("fills the seller's item id from the listing's address", async () => {

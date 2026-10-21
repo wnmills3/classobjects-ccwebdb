@@ -4,7 +4,7 @@
 #
 #    ./scripts/ccweb_claude.sh                 a new session
 #    ./scripts/ccweb_claude.sh SESSION...      resume that session
-#    ./scripts/ccweb_claude.sh --check         say what would happen, start nothing
+#    ./scripts/ccweb_claude.sh --check         report state, start nothing
 #    ./scripts/ccweb_claude.sh --nodb          leave PostgreSQL alone
 #
 #  The bash twin of ccweb_claude.cmd: activates the conda environment, so
@@ -43,6 +43,12 @@ if [ -z "$SKIPDB" ]; then
         DBSTATE="no cluster at $PGDATA - see docs/environment-setup-linux.md"
     elif pgready; then
         DBSTATE="already running"
+    elif [ -n "$CHECKONLY" ]; then
+        if [ -f "$PGDATA/postmaster.pid" ]; then
+            DBSTATE="not running here - postmaster.pid: the other computer may be running it"
+        else
+            DBSTATE="not running - --check starts nothing"
+        fi
     elif ! "$here/ccweb_pgstart.sh"; then
         DBSTATE="NOT STARTED - postmaster.pid: another computer may be running it"
     else

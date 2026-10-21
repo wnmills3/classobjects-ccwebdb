@@ -500,6 +500,43 @@ def test_a_lost_race_adding_a_lot_is_not_blamed_on_the_lot_number(
     assert "'7'" not in detail
 
 
+def test_a_listing_names_the_auction_it_is_a_lot_of_while_it_is_one(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    draft_auction: Auction,
+    make_listing: ListingFactory,
+    make_item: ItemFactory,
+) -> None:
+    """`auction_id` is how the Listings page knows to offer no End or Record sale.
+
+    A plain listing beside it reads null, so the field is not merely always
+    filled; and once the lot is removed its listing -- ended, with the
+    `auction_lot` row deleted -- reads null again.
+    """
+    plain = make_listing()
+    added = client.post(
+        f"/api/auctions/{draft_auction.id}/lots",
+        headers=admin_headers,
+        json={"lot_number": "1", "item_id": make_item().id, "price": "10.00"},
+    )
+    assert added.status_code == 201, added.text
+    lot = added.json()["lots"][0]
+    assert lot["listing"]["auction_id"] == draft_auction.id
+
+    def auction_ids() -> dict[int, int | None]:
+        response = client.get("/api/listings?status=all", headers=admin_headers)
+        assert response.status_code == 200, response.text
+        return {row["id"]: row["auction_id"] for row in response.json()}
+
+    assert auction_ids() == {plain.id: None, lot["listing"]["id"]: draft_auction.id}
+
+    removed = client.delete(
+        f"/api/auctions/{draft_auction.id}/lots/{lot['id']}", headers=admin_headers
+    )
+    assert removed.status_code == 200, removed.text
+    assert auction_ids() == {plain.id: None, lot["listing"]["id"]: None}
+
+
 def test_removing_a_lot_resumes_a_paused_store_listing(
     client: TestClient,
     db: Session,

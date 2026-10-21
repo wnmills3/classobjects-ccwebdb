@@ -149,7 +149,8 @@ cd ~/dev/classobjects-ccwebdb
 ```
 
 A session name after it resumes that session; `--check` reports the
-environment without starting Claude Code; `--nodb` leaves PostgreSQL alone.
+environment and the database and starts nothing, PostgreSQL included;
+`--nodb` leaves PostgreSQL alone.
 It starts PostgreSQL when it is not running, as the Windows twin does.
 
 ## The other scripts

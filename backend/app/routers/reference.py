@@ -337,16 +337,21 @@ def create_value(
 
     label = " ".join(payload.label.split())
     if not label:
-        raise HTTPException(status_code=422, detail="A label needs some text.")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="A label needs some text.",
+        )
     try:
         values = column_values(db, model, payload.extra)
     except FieldError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
 
     code = payload.code or derived_code(db, model, label, values)
     if not code or len(code) > _CODE_LENGTH:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{label!r} gives no usable code; send one of at most "
             f"{_CODE_LENGTH} characters.",
         )
@@ -424,7 +429,10 @@ def rename_value(
 
     label = " ".join(payload.label.split())
     if not label:
-        raise HTTPException(status_code=422, detail="A label needs some text.")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="A label needs some text.",
+        )
     if payload.is_active is False and not retirable(table, code):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -435,7 +443,9 @@ def rename_value(
     try:
         changes = column_values(db, model, payload.extra or {}, changing=True)
     except FieldError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
     changed = {
         column: value
         for column, value in changes.items()
@@ -505,12 +515,14 @@ def add_alias(
         aliases.add_alias(db, model, row.id, payload.alias)
     except aliases.AliasError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except IntegrityError as exc:
         # Added by another request since `add_alias` looked, and refused at
         # its flush: the same refusal as the look gives.
         db.rollback()
-        raise HTTPException(status_code=409, detail=taken) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=taken) from exc
     commit_unique(db, taken)
     return _value_with_aliases(db, row, model)
 
@@ -600,7 +612,9 @@ def merge_value(
             )
     except reference_merge.NoSuchValue as exc:
         db.rollback()
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     except reference_merge.NoSuchTarget as exc:
         db.rollback()
         raise HTTPException(
@@ -608,13 +622,17 @@ def merge_value(
         ) from exc
     except reference_merge.MergeError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except IntegrityError as exc:
         # Another request merged this value, gave an item it, or gave the
         # kept value one of its names since this one read them: the database
         # refuses the second writer, and it reads as the refusal it is.
         db.rollback()
-        raise HTTPException(status_code=409, detail=_MERGED_MEANWHILE) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_MERGED_MEANWHILE
+        ) from exc
     if payload.dry_run:
         db.rollback()
     else:

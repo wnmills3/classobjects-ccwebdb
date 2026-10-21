@@ -27,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from dataclasses import dataclass
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.orm import Session
 
@@ -217,9 +217,9 @@ def orders_holding(db: Session, item_ids: Collection[int]) -> dict[int, list[Sal
         )
         .distinct()
     ).tuples()
-    for item_id, order_id, status in orders:
+    for item_id, order_id, order_status in orders:
         found.setdefault(item_id, []).append(
-            SaleUse("order", order_id, f"order #{order_id} ({status})")
+            SaleUse("order", order_id, f"order #{order_id} ({order_status})")
         )
     for uses in found.values():
         uses.sort(key=lambda use: use.id)
@@ -362,6 +362,6 @@ def guard(
     # `status` into this module would put a shadowed name one function away
     # from a live one. Both spellings are already used in this codebase.
     raise HTTPException(
-        status_code=409,
+        status_code=status.HTTP_409_CONFLICT,
         detail=refusal({codes[item_id]: uses for item_id, uses in found.items()}),
     )

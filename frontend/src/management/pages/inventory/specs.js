@@ -14,7 +14,7 @@
  * runs when clicked. The box has no field syntax: one term, matched anywhere
  * in the title, description, rating, item code or the purchase's order
  * number, ignoring case -- plus any item whose series, strike, designation,
- * mint, note class or serial feature is called that, by name or alias
+ * mint, note type or serial feature is called that, by name or alias
  * (app.aliases). Each example is chosen for what it teaches. The one most
  * worth showing is that several words are a single phrase in order:
  * "1921 morgan" finds items that "morgan 1921" does not.

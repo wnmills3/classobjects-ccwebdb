@@ -1599,7 +1599,9 @@ describe('a banknote in the editor', () => {
       'title',
       "Filled from the note's denomination and series",
     )
-    expect(screen.getByLabelText('note_type')).toHaveAttribute('accesskey', 'a')
+    // No letter of "Note type" is free in the editor (D/E/F are the browser's).
+    expect(screen.getByLabelText('note_type')).not.toHaveAttribute('accesskey')
+    expect(screen.getByLabelText('fed_district')).toHaveAttribute('accesskey', 'b')
   })
 
   it('explains the note field that has focus in the help area', async () => {

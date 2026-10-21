@@ -299,7 +299,7 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_claude.cmd ccweb --effort high
 ```
 
-Report the environment, do not start Claude Code:
+Report the environment and the database, starting nothing:
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
@@ -315,8 +315,8 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 
 It activates `ccwebdb`, starts PostgreSQL if it is not running (nearly any
 work here needs it), changes to the repository root and starts Claude Code.
-It does not start the API or Vite. `/check` stops after the report; it still
-starts PostgreSQL unless `/nodb` is given too. With an argument it runs
+It does not start the API or Vite. `/check` starts nothing, PostgreSQL
+included: it reports whether the database is running and stops. With an argument it runs
 `claude --resume` with every argument passed on; `--resume` takes a session
 id or any other value as a search term, so a session name works.
 

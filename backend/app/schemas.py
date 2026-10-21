@@ -2077,6 +2077,10 @@ class ListingOut(BaseModel):
     #: Staff-only, and never added to `CatalogItemOut`, which a customer
     #: reads.
     cost_basis: Decimal | None = None
+    #: The auction this listing is a lot of, else null. Such a listing is
+    #: ended and sold only through its auction, so the console offers
+    #: neither End nor Record sale on it.
+    auction_id: int | None = None
     #: Send this back on a PATCH to be told about a conflicting edit. An
     #: `int`, like `SalesVenueOut.version` and unlike `CatalogItemOut.version`
     #: -- that one is a composite token over two separately versioned rows,

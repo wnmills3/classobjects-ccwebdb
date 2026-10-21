@@ -22,7 +22,7 @@ export default function ConfirmDialog({
   children,
 }) {
   return (
-    <ModalDialog label={question} onClose={onCancel}>
+    <ModalDialog label={question} onClose={onCancel} help={false}>
       <h2>{question}</h2>
       {children}
       <div className="row">

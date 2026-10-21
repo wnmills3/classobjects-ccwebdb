@@ -41,7 +41,7 @@ export default function EnlargeableImage({ src, largeSrc, alt, sourceUrl }) {
         <img src={src} alt={alt} />
       </button>
       {open && (
-        <ModalDialog label={alt} onClose={() => setOpen(false)}>
+        <ModalDialog label={alt} onClose={() => setOpen(false)} help={false}>
           <div className="image-dialog">
             <img src={largeSrc} alt={alt} />
             <div className="row">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
@@ -394,9 +395,15 @@ export default function Listings() {
                       Edit
                     </button>
                   )}
+                  {/* An auction's lot is ended and sold only through its
+                      auction -- the API refuses End and Record sale on it --
+                      so the row points there instead of offering either. */}
+                  {l.auction_id != null && l.status !== 'ended' && (
+                    <Link to="/auctions">Auction #{l.auction_id}</Link>
+                  )}
                   {/* Ending is permanent: the question comes first, and it
                       names the listing and its platform. */}
-                  {l.status !== 'ended' && (
+                  {l.status !== 'ended' && l.auction_id == null && (
                     <button
                       className="link"
                       disabled={ending !== null}
@@ -426,7 +433,7 @@ export default function Listings() {
                       reads an unmatched one as "not an auction house":
                       guessing the other way would hide the button on every
                       row that legitimately has one. */}
-                  {l.status === 'active' && !isStore(l) && (
+                  {l.status === 'active' && !isStore(l) && l.auction_id == null && (
                     <button
                       className="link"
                       onClick={() => {
