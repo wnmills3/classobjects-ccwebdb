@@ -40,8 +40,13 @@ const STALE_MS = 60_000
  * with `load`, `refresh` and `invalidate` to fetch one, renew an old copy,
  * and drop one that has been changed, and `failed`, naming the tables whose
  * latest fetch did not succeed.
+ *
+ * `includeInactive` fetches retired values too. The console sets it -- it
+ * is a manager's, and a record may still use a retired value its picker has
+ * to show -- and the shop does not: the server refuses retired values to
+ * anyone else.
  */
-export function ReferenceProvider({ children }) {
+export function ReferenceProvider({ children, includeInactive = false }) {
   const [tables, setTables] = useState({})
   //: table -> true while its latest fetch failed. Such a table is held as
   //: an empty list, which on its own cannot be told from an empty vocabulary.
@@ -51,27 +56,30 @@ export function ReferenceProvider({ children }) {
   //: table -> when its values were last asked for, once they have arrived.
   const asked = useRef(new Map())
 
-  const load = useCallback(async (table) => {
-    if (requested.current.has(table)) return
-    const token = {}
-    requested.current.set(table, token)
-    let values
-    let missed = false
-    try {
-      values = (await api.getReference(table)).values
-    } catch {
-      // A missing vocabulary must not take the form down: the field falls
-      // back to a free-text input, and says the vocabulary did not load.
-      values = []
-      missed = true
-    }
-    // An answer to a request since invalidated is stale; the newer one wins.
-    if (requested.current.get(table) === token) {
-      asked.current.set(table, Date.now())
-      setTables((t) => ({ ...t, [table]: values }))
-      setFailed((f) => ({ ...f, [table]: missed }))
-    }
-  }, [])
+  const load = useCallback(
+    async (table) => {
+      if (requested.current.has(table)) return
+      const token = {}
+      requested.current.set(table, token)
+      let values
+      let missed = false
+      try {
+        values = (await api.getReference(table, { includeInactive })).values
+      } catch {
+        // A missing vocabulary must not take the form down: the field falls
+        // back to a free-text input, and says the vocabulary did not load.
+        values = []
+        missed = true
+      }
+      // An answer to a request since invalidated is stale; the newer one wins.
+      if (requested.current.get(table) === token) {
+        asked.current.set(table, Date.now())
+        setTables((t) => ({ ...t, [table]: values }))
+        setFailed((f) => ({ ...f, [table]: missed }))
+      }
+    },
+    [includeInactive],
+  )
 
   // A vocabulary is changed in other places than this page: another tab,
   // the Vocabularies page in another window, a merge. A copy kept for the
@@ -81,24 +89,27 @@ export function ReferenceProvider({ children }) {
   // window gets focus back. The values held stay in place until the
   // answer arrives -- a picker never falls back to a text box for this --
   // and stay if it fails.
-  const refresh = useCallback(async (table) => {
-    const at = asked.current.get(table)
-    // Never loaded, still loading, or fresh enough.
-    if (at === undefined || Date.now() - at < STALE_MS) return
-    asked.current.set(table, Date.now())
-    const token = {}
-    requested.current.set(table, token)
-    let values
-    try {
-      values = (await api.getReference(table)).values
-    } catch {
-      return
-    }
-    if (requested.current.get(table) === token) {
-      setTables((t) => ({ ...t, [table]: values }))
-      setFailed((f) => ({ ...f, [table]: false }))
-    }
-  }, [])
+  const refresh = useCallback(
+    async (table) => {
+      const at = asked.current.get(table)
+      // Never loaded, still loading, or fresh enough.
+      if (at === undefined || Date.now() - at < STALE_MS) return
+      asked.current.set(table, Date.now())
+      const token = {}
+      requested.current.set(table, token)
+      let values
+      try {
+        values = (await api.getReference(table, { includeInactive })).values
+      } catch {
+        return
+      }
+      if (requested.current.get(table) === token) {
+        setTables((t) => ({ ...t, [table]: values }))
+        setFailed((f) => ({ ...f, [table]: false }))
+      }
+    },
+    [includeInactive],
+  )
 
   useEffect(() => {
     const onFocus = () => {

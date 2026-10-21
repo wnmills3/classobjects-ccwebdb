@@ -9,11 +9,15 @@
 #                                       set TEST_DATABASE_URL in the caller,
 #                                       and nothing else
 #
-#  The bash twin of ccweb_testdb.cmd. The cluster (CCWEB_TEST_DB_CLUSTER_DIR,
-#  default .pgdata.test, on CCWEB_TEST_DB_PORT, default 5433) holds nothing
-#  but the databases a test session builds and drops, so the tests never
-#  build theirs inside the collection's cluster. "use" changes nothing
-#  where TEST_DATABASE_URL is already set or the cluster does not exist.
+#  The bash twin of ccweb_testdb.cmd. If another computer shares the
+#  collection's cluster folder, only one computer runs it at a time, so the
+#  other has no PostgreSQL to test against. This one
+#  (CCWEB_TEST_DB_CLUSTER_DIR, default .pgdata.test, on CCWEB_TEST_DB_PORT,
+#  default 5433) holds nothing but the databases a test session builds and
+#  drops, so the tests never build theirs inside the collection's cluster.
+#  It is never shared and never holds the collection, so its fixed
+#  development password protects nothing. "use" changes nothing where
+#  TEST_DATABASE_URL is already set or the cluster does not exist.
 # ---------------------------------------------------------------------------
 
 _ccweb_testdb_sourced=""

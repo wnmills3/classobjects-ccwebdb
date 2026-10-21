@@ -8,7 +8,9 @@ need two nullable foreign keys and a constraint saying exactly one is set.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -27,13 +29,14 @@ from ..models import (
     UserRole,
 )
 from ..order_writes import (
-    SHIPPED_STATUSES,
+    NO_STOCK_RETURN_STATUSES,
     Line,
     customer_for_user,
     ever_shipped,
     payment_adjustment_due,
     place_order,
     record_status_change,
+    refuse_too_many_pending,
     return_stock,
     revise_order,
 )
@@ -46,16 +49,14 @@ from ..schemas import (
     OrderRevision,
     OrderStatusUpdate,
 )
+from ._paging import DEFAULT_LIMIT, TOTAL_HEADER, Limit, Offset, page
 from ._resolve import found_or_404, get_or_404, get_or_422
 from ._tx import commit, committing
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
-#: Statuses a cancellation must not return stock from: the stock has left
-#: (`SHIPPED_STATUSES`), was already returned (`cancelled`), or the money went
-#: back (`refunded`) -- a status that does not say whether the coins came
-#: back, and whose ordinary case is a refund after shipping.
-NO_STOCK_RETURN_STATUSES = SHIPPED_STATUSES | {"cancelled", "refunded"}
+# `NO_STOCK_RETURN_STATUSES` (imported above) is defined in `order_writes`,
+# which also asks it when a listing is ended under an open order.
 
 #: Statuses that end an order and so return its stock when it has not
 #: shipped. A refund before shipping is a cancellation with the money gone
@@ -122,13 +123,21 @@ def _listing_title(listing: Listing | None) -> str | None:
     return lot.title if lot is not None else None
 
 
-def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> OrderOut:
+def _order_out(
+    order: SalesOrder,
+    status_code: str,
+    *,
+    for_admin: bool,
+    with_snapshot: bool = True,
+) -> OrderOut:
     """Build the API view of one order.
 
     `notes` (an administrator's internal remark) and `placed_by_email` (a
     staff address) are admin-only: a shopper's own order view carries
     neither, even though both fields stay in the response shape for every
-    caller.
+    caller. Each line's `snapshot` is admin-only too, and is left out of a
+    list (`with_snapshot=False`): it is the whole item as sold, and a page
+    of orders would carry one per line. `GET /orders/{id}` carries it.
     """
     placed_by_email: str | None = None
     if for_admin and order.placed_by:
@@ -150,7 +159,7 @@ def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> Order
                 "title": _sold_as(line),
                 "quantity": line.quantity,
                 "unit_price": line.unit_price,
-                "snapshot": line.item_snapshot if for_admin else None,
+                "snapshot": line.item_snapshot if for_admin and with_snapshot else None,
                 "listing_ended": line.listing is not None
                 and line.listing.status is ListingStatus.ended,
             }
@@ -211,37 +220,87 @@ def create_order(payload: OrderCreate, db: DbSession, user: CurrentUser) -> Orde
     against each other. This is verified by tests that drive the handler from
     real threads -- a test that serializes its requests would pass even with
     the lock removed.
+
+    A customer already holding `order_writes.MAX_PENDING_ORDERS` unpaid
+    orders is refused another, 409. Only here: an order a manager places on
+    a customer's behalf (`routers.customers`) is not capped.
+
+    A line's `expected_price`, when sent, is the price the buyer was shown;
+    a listing repriced since is refused, 409, rather than charged unseen.
     """
     customer = customer_for_user(db, user)
+    refuse_too_many_pending(db, customer)
     order = place_order(
         db,
         customer,
-        [Line(line.listing_id, line.quantity) for line in payload.items],
+        [
+            Line(line.listing_id, line.quantity, expected_price=line.expected_price)
+            for line in payload.items
+        ],
         placed_by=user,
     )
     db.commit()
     return order_out(db, order.id, for_admin=user.role is UserRole.manager)
 
 
+def _status_id(db: Session, code: str) -> int:
+    """The id of an order status, for a filter. An unknown code is a 422.
+
+    A retired status is still found: filtering by one is how its old orders
+    are read, which choosing it for an order would not be.
+    """
+    found = db.scalar(select(SalesOrderStatus.id).where(SalesOrderStatus.code == code))
+    if found is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown status: {code!r}",
+        )
+    return found
+
+
 @router.get("")
-def list_orders(db: DbSession, user: CurrentUser, mine: bool = False) -> list[OrderOut]:
+def list_orders(
+    db: DbSession,
+    user: CurrentUser,
+    response: Response,
+    mine: bool = False,
+    wanted_status: Annotated[
+        str | None, Query(alias="status", description="One order status code")
+    ] = None,
+    limit: Limit = DEFAULT_LIMIT,
+    offset: Offset = 0,
+) -> list[OrderOut]:
     """Customers see their own orders; administrators see every order.
 
     `mine=true` is the caller's own orders whatever their role. The shop's
     "Your orders" page asks for it: an administrator browsing the shop is a
     customer there, and everyone's orders belong in the console.
+
+    Newest first, one page at a time (`limit`, `offset`), with how many
+    match in the `X-Total-Count` header; `status` narrows to one status.
+    Lines carry no `snapshot` here -- `GET /orders/{id}` does.
     """
     is_admin = user.role is UserRole.manager
-    stmt = select(SalesOrder).options(*_ORDER_DETAIL).order_by(SalesOrder.id.desc())
+    stmt = select(SalesOrder)
+    if wanted_status is not None:
+        stmt = stmt.where(
+            SalesOrder.sales_order_status_id == _status_id(db, wanted_status)
+        )
     if mine or not is_admin:
         customer = db.scalar(select(Customer).where(Customer.user_id == user.id))
         if customer is None:
+            response.headers[TOTAL_HEADER] = "0"
             return []
         stmt = stmt.where(SalesOrder.customer_id == customer.id)
 
-    orders = list(db.scalars(stmt).unique().all())
+    paged = page(db, stmt, response, limit=limit, offset=offset)
+    orders = list(
+        db.scalars(paged.options(*_ORDER_DETAIL).order_by(SalesOrder.id.desc())).all()
+    )
     return [
-        _order_out(order, _status_code(db, order), for_admin=is_admin)
+        _order_out(
+            order, _status_code(db, order), for_admin=is_admin, with_snapshot=False
+        )
         for order in orders
     ]
 
@@ -349,7 +408,10 @@ def _no_stock_to_return(db: Session, order: SalesOrder) -> str | None:
     released rather than stay `offered` for ever. The second shape is reached
     by the most ordinary path there is -- buy a lot, cancel the order -- so it is asked
     about by listing status rather than left to the venue test, which a store
-    order passes.
+    order passes. An ended **item** listing is refused the same way, and its
+    message leaves the lot explanation out: `routers.offers.end_listing`
+    refuses to end one under such an order, so this answers for one ended
+    some other way.
 
     Venue first, so an outside order keeps the message naming its platform:
     its listing is ended too, and the platform is the more useful news.
@@ -368,22 +430,26 @@ def _no_stock_to_return(db: Session, order: SalesOrder) -> str | None:
             f"records a sale on {venue.name if venue else 'another platform'}, "
             "whose listing was ended by the sale"
         )
-    ended = list(
-        db.scalars(
-            select(Listing.id)
-            .where(
-                Listing.id.in_([item.listing_id for item in order.items]),
-                Listing.status == ListingStatus.ended,
-            )
-            .order_by(Listing.id)
-        ).all()
-    )
+    ended = db.execute(
+        select(Listing.id, Listing.sales_lot_id)
+        .where(
+            Listing.id.in_([item.listing_id for item in order.items]),
+            Listing.status == ListingStatus.ended,
+        )
+        .order_by(Listing.id)
+    ).all()
     if ended:
-        listings = ", ".join(f"#{listing_id}" for listing_id in ended)
+        listings = ", ".join(f"#{row.id}" for row in ended)
+        # The lot explanation only where a lot is among them: an item
+        # listing that ended was withdrawn, not sold as a group.
+        why = (
+            " -- a lot is sold as one group and its listing ends with the sale"
+            if any(row.sales_lot_id is not None for row in ended)
+            else ""
+        )
         return (
-            f"holds listing {listings}, which has ended -- a lot is sold as one "
-            "group and its listing ends with the sale, so its stock cannot be "
-            "put back on sale"
+            f"holds listing {listings}, which has ended{why}, so its stock "
+            "cannot be put back on sale"
         )
     return None
 

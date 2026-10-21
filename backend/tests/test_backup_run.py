@@ -16,7 +16,9 @@ from pathlib import Path
 import pytest
 from app import backup_run, media_backup, workbook_backup
 from app.backup_run import main, run
-from sqlalchemy import Engine
+from app.models import Image
+from sqlalchemy import Engine, delete
+from sqlalchemy.orm import Session
 
 
 @pytest.fixture(autouse=True)
@@ -163,7 +165,7 @@ def test_only_this_command_s_workbooks_are_ever_removed(
 ) -> None:
     folder = tmp_path / "backup"
     _older(folder, "20260101_000000")
-    (folder / "collection.xlsx").write_bytes(b"someone else's workbook")
+    (folder / "my_coins.xlsx").write_bytes(b"someone else's workbook")
     (folder / "notes.txt").write_text("keep me", encoding="utf-8")
     (folder / "media").mkdir()
     (folder / "media" / "ccwebdb_20200101_000000.xlsx").write_bytes(b"not at the top")
@@ -172,8 +174,8 @@ def test_only_this_command_s_workbooks_are_ever_removed(
 
     assert _names(folder) == [
         "ccwebdb_20261007_120000.xlsx",
+        "my_coins.xlsx",
         "notes.txt",
-        "collection.xlsx",
     ]
     assert (folder / "media" / "ccwebdb_20200101_000000.xlsx").is_file()
 
@@ -246,6 +248,62 @@ def test_photographs_are_not_pruned_while_older_workbooks_are_kept(
     assert done.pruned == 0
     assert done.not_pruned is not None
     assert "--keep 2" in done.not_pruned
+
+
+def test_photographs_are_not_pruned_when_their_rows_changed_after_the_export(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The prune reads live as it is now; the new workbook holds it as exported.
+
+    A photograph's row saved while the proof runs is one the workbook does
+    not hold: the run is still proved, and the prune waits for the next run.
+    """
+    pruned: list[Path] = []
+
+    def prune(_db: object, folder: Path, *, delete: bool) -> media_backup.MediaPrune:
+        """Note that a prune was asked for at all."""
+        pruned.append(folder)
+        return media_backup.MediaPrune(deleted=4)
+
+    sha = "0" * 63 + "1"
+
+    def prove_while_a_photograph_is_saved(
+        live: Engine, _workbook: Path, *, stamp: str
+    ) -> list[str]:
+        """Find the workbook right, while a photograph is saved to live."""
+        with Session(live) as db:
+            db.add(
+                Image(
+                    sha256=sha,
+                    storage_key=f"originals/00/{sha}.jpg",
+                    media_type="image/jpeg",
+                    byte_size=1,
+                )
+            )
+            db.commit()
+        return []
+
+    monkeypatch.setattr(media_backup, "prune_media", prune)
+    # The new row's file is not in the copy; that check is not what is tested.
+    monkeypatch.setattr(media_backup, "check_media", lambda _db, _folder: [])
+    folder = tmp_path / "backup"
+    try:
+        done = run(
+            engine,
+            folder,
+            stamp="20261007_120000",
+            prove=prove_while_a_photograph_is_saved,
+        )
+    finally:
+        with Session(engine) as db:
+            db.execute(delete(Image).where(Image.sha256 == sha))
+            db.commit()
+
+    assert done.proved
+    assert pruned == []
+    assert done.pruned == 0
+    assert done.not_pruned is not None
+    assert "changed after the export" in done.not_pruned
 
 
 def test_a_prune_that_was_refused_is_said_not_counted_as_none_found(

@@ -97,6 +97,7 @@ from .base import (
     DateRange,
     Report,
     ReportResult,
+    among,
     local_date,
     period_label,
 )
@@ -1063,7 +1064,7 @@ def _auction_fees(db: Session, auction_ids: set[int]) -> dict[int, Decimal]:
         .join(Listing, Listing.id == AuctionLot.listing_id)
         .join(SalesOrderItem, SalesOrderItem.listing_id == Listing.id)
         .where(
-            AuctionLot.auction_id.in_(auction_ids),
+            among(AuctionLot.auction_id, auction_ids),
             AuctionLot.result == AuctionLotResult.sold,
         )
         .distinct()

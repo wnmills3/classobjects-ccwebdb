@@ -18,11 +18,37 @@ from app.models import (
     ItemKind,
     Metal,
 )
+from app.reports.base import among
 from app.reports.id_numbers import CB_ID_NUMBERS
 from app.reports.live_params import NOTHING_MATCHES, LiveParams
+from sqlalchemy import select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, code_id
+
+
+def test_among_binds_one_parameter_however_many_values(db: Session) -> None:
+    """More values than a statement may carry parameters, matched all the same.
+
+    `IN (...)` binds one parameter per value, and psycopg refuses a statement
+    of more than 65,535; `among` binds the list as one array.
+    """
+    item = build_bare_item(db)
+    db.commit()
+    many = [item.id, *range(-70_000, 0)]
+
+    statement = select(InventoryItem.id).where(among(InventoryItem.id, many))
+    assert len(statement.compile(dialect=postgresql.dialect()).params) == 1
+    assert db.scalars(statement).all() == [item.id]
+
+    codes = [item.item_code, *(f"NONE-{n}" for n in range(70_000))]
+    by_code = select(InventoryItem.id).where(among(InventoryItem.item_code, codes))
+    assert db.scalars(by_code).all() == [item.id]
+    assert (
+        db.scalars(select(InventoryItem.id).where(among(InventoryItem.id, []))).all()
+        == []
+    )
 
 
 def _bullion(db: Session, serial: str | None, **over: object) -> InventoryItem:

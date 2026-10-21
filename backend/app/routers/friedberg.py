@@ -30,6 +30,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.sql.elements import ColumnElement
 
+from .. import field_changes
 from ..deps import AdminUser, DbSession
 from ..fr_format import (
     DISTRICT_SQL_PATTERN,
@@ -695,17 +696,55 @@ def _note_detail(db: Session, item_id: int) -> CurrencyDetail:
     return detail
 
 
+def _friedberg_fields(db: Session, detail: CurrencyDetail) -> dict[str, str | None]:
+    """The note's Friedberg number and status, as the item's history logs them."""
+    number = (
+        db.scalar(
+            select(FriedbergNumber.fr_number).where(
+                FriedbergNumber.id == detail.friedberg_id
+            )
+        )
+        if detail.friedberg_id is not None
+        else None
+    )
+    return {"friedberg": number, "friedberg_status": detail.friedberg_status}
+
+
+def _log_friedberg(
+    db: Session,
+    detail: CurrencyDetail,
+    before: dict[str, str | None],
+    user_id: int,
+) -> None:
+    """Log a change of the note's number in its history, and move its version.
+
+    `currency_detail` is another table: touching the item is what moves its
+    version, so an editor opened before the change is refused rather than
+    saving over it. The same number attached again moves nothing.
+    """
+    db.flush()
+    after = _friedberg_fields(db, detail)
+    if field_changes.record(
+        db, detail.inventory_item_id, before, after, list(before), user_id=user_id
+    ):
+        item = db.get_one(InventoryItem, detail.inventory_item_id)
+        item.updated_at = utcnow()
+
+
 @item_router.delete("/{item_id}/friedberg", status_code=status.HTTP_204_NO_CONTENT)
-def clear_friedberg(item_id: int, db: DbSession, _admin: AdminUser) -> None:
+def clear_friedberg(item_id: int, db: DbSession, admin: AdminUser) -> None:
     """Take the Friedberg number off a note, which goes back to `unknown`.
 
     The catalog row stays: it records a type that exists, whether or not
     this note turned out to be one. A row confirmed by an earlier attach stays
-    confirmed for the same reason.
+    confirmed for the same reason. The change is in the item's history, and
+    moves its version, as an edit of the item would.
     """
     detail = _note_detail(db, item_id)
+    before = _friedberg_fields(db, detail)
     detail.friedberg_id = None
     detail.friedberg_status = "unknown"
+    _log_friedberg(db, detail, before, admin.id)
     db.commit()
 
 
@@ -744,6 +783,7 @@ def attach_friedberg(
         _refuse_to_confirm_a_slip(friedberg)
     # What the note in hand shows is what the number must agree with.
     _refuse_shade_mismatch(db, friedberg.fr_number, detail.seal_color_id, "the note's")
+    before = _friedberg_fields(db, detail)
     detail.friedberg_id = friedberg.id
     detail.friedberg_status = payload.status
     if payload.status == "confirmed":
@@ -751,6 +791,7 @@ def attach_friedberg(
         friedberg.verified_at = utcnow()
 
     try:
+        _log_friedberg(db, detail, before, admin.id)
         db.commit()
     except (IntegrityError, StaleDataError) as exc:
         db.rollback()

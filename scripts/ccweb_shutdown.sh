@@ -8,7 +8,9 @@
 #  The bash twin of ccweb_shutdown.cmd. Stops the process groups
 #  ccweb_startup.sh recorded (TERM, then KILL after ten seconds), sweeps the
 #  API and frontend ports for survivors, then stops PostgreSQL with pg_ctl.
-#  Without the settings the recorded groups are still stopped; the port
+#  The sweep stops a port's listener only when it is the program startup
+#  runs there (uvicorn, vite); any other is named, left alone, and makes the
+#  exit code 1. Without the settings the recorded groups are still stopped; the port
 #  sweep and the database are left, since their addresses are not known.
 # ---------------------------------------------------------------------------
 set -u
@@ -63,17 +65,26 @@ killgroup() {
     kill -KILL -- "-$group" 2>/dev/null
     return 0
 }
+# Stop port $1's listener only if its command line includes $2, the program
+# startup runs there (uvicorn, vite). Any other is some other program that
+# happens to have the port: it is named and left alone, and the verify step
+# reports the port still held.
 killport() {
     local survivor
     survivor="$(portpid "$1")"
-    if [ -n "$survivor" ]; then
-        echo "      port $1 held by pid $survivor - stopping"
-        kill -TERM "$survivor" 2>/dev/null
-        sleep 1
-        kill -0 "$survivor" 2>/dev/null && kill -KILL "$survivor" 2>/dev/null
-    else
+    if [ -z "$survivor" ]; then
         echo "      port $1 free"
+        return 0
     fi
+    if ! ps -o args= -p "$survivor" 2>/dev/null | grep -q -- "$2"; then
+        echo "      WARNING: port $1 held by pid $survivor, which is not $2 - left alone"
+        return 0
+    fi
+    echo "      port $1 held by pid $survivor - stopping"
+    kill -TERM "$survivor" 2>/dev/null
+    sleep 1
+    kill -0 "$survivor" 2>/dev/null && kill -KILL "$survivor" 2>/dev/null
+    return 0
 }
 pgready() { "$PGBIN/pg_isready" -h "$CCWEB_DB_HOST" -p "$CCWEB_DB_PORT" >/dev/null 2>&1; }
 
@@ -96,8 +107,8 @@ fi
 # --- 2. sweep the ports -------------------------------------------------------
 if [ -n "$SETOK" ]; then
     echo "[2/3] sweeping ports $CCWEB_API_PORT and $CCWEB_FRONTEND_PORT..."
-    killport "$CCWEB_API_PORT"
-    killport "$CCWEB_FRONTEND_PORT"
+    killport "$CCWEB_API_PORT" uvicorn
+    killport "$CCWEB_FRONTEND_PORT" vite
 else
     echo "[2/3] port sweep   SKIPPED - without the settings the ports are not known"
 fi

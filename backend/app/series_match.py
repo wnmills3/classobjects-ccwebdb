@@ -427,13 +427,21 @@ def run(db: Session, *, commit: bool) -> Counter:
     return stats
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Report or apply the series classification."""
+def main(argv: list[str] | None = None, *, db: Session | None = None) -> int:
+    """Report or apply the series classification.
+
+    `db` is the session to work in; run as a module, the application's own
+    `SessionLocal` is opened. A caller that already has a session -- the
+    tests, which must never let this open the live database -- passes it.
+    """
     parser = argparse.ArgumentParser(prog="series_match", description=__doc__)
     parser.add_argument("--commit", action="store_true", help="write the matches")
     args = parser.parse_args(argv)
 
-    with SessionLocal() as db:
+    if db is None:
+        with SessionLocal() as own:
+            stats = run(own, commit=args.commit)
+    else:
         stats = run(db, commit=args.commit)
 
     outcomes = ("matched", "ambiguous", "contradicted", "no_match")

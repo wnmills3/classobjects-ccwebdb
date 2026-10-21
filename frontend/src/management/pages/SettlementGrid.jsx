@@ -93,6 +93,39 @@ function buyersOf(lots, lineFor, isAuctionHouse) {
 }
 
 /**
+ * Fees typed for a buyer who is no longer on a sold lot -- the name was
+ * corrected, or the lot did not sell after all -- as `{key, label, fees}`,
+ * where `fees` is each non-blank amount as `{label, amount}`.
+ *
+ * They are not sent, since the request is built over `buyers`; left
+ * unremarked, a buyer's premium typed under a misspelt name would simply
+ * vanish from the settlement.
+ */
+function strandedFees(feeAmounts, buyers, feeKinds) {
+  const current = new Set(buyers.map((buyer) => buyer.key))
+  const stranded = []
+  for (const [key, amounts] of Object.entries(feeAmounts)) {
+    if (current.has(key)) continue
+    const fees = feeKinds
+      .map((kind) => ({
+        label: kind.label,
+        amount: String(amounts?.[kind.code] ?? '').trim(),
+      }))
+      .filter(({ amount }) => amount !== '')
+    if (fees.length > 0) {
+      stranded.push({ key, label: key === '' ? 'Undisclosed buyer' : key, fees })
+    }
+  }
+  return stranded
+}
+
+/** One stranded buyer's fees as a sentence: `amy (Commission 24.00)`. */
+function describeStranded(group) {
+  const fees = group.fees.map((fee) => `${fee.label} ${fee.amount}`).join(', ')
+  return `${group.label} (${fees})`
+}
+
+/**
  * The server's refusals, split by whether they name one lot in particular:
  * `problemsByLot` holds each named lot's reasons by its lot number, and
  * `generalProblems` the rest.
@@ -198,10 +231,35 @@ export default function SettlementGrid({ auction, isAuctionHouse, onSettled }) {
     })
   const canSettle = !needsReturnLocation || returnedToLocationId !== ''
 
+  // Fees typed under a buyer the grid no longer has. Settle refuses while
+  // any are left, rather than settle without them: they are moved by typing
+  // them under the buyer as now named, or discarded on purpose.
+  const stranded = strandedFees(feeAmounts, buyers, feeKinds)
+  const strandedText =
+    stranded.length === 0
+      ? ''
+      : 'Fees are typed for a buyer no longer on a sold lot: ' +
+        `${stranded.map(describeStranded).join('; ')}. ` +
+        'They are not sent. Type them under the buyer as now named, or discard them.'
+
+  function discardStranded() {
+    const gone = new Set(stranded.map((group) => group.key))
+    setFeeAmounts((current) =>
+      Object.fromEntries(Object.entries(current).filter(([key]) => !gone.has(key))),
+    )
+    setError('')
+  }
+
   /** Open the confirmation, or say what is missing and open nothing. */
   function askToSettle() {
     if (!canSettle) {
       setError('Choose where unsold and withdrawn items come back to first.')
+      return
+    }
+    if (stranded.length > 0) {
+      setError(
+        'Move or discard the fees typed for a buyer no longer on a sold lot first.',
+      )
       return
     }
     setError('')
@@ -356,6 +414,14 @@ export default function SettlementGrid({ auction, isAuctionHouse, onSettled }) {
           </table>
         </fieldset>
       ))}
+      {strandedText && (
+        <div className="row">
+          <p className="error">{strandedText}</p>
+          <button type="button" onClick={discardStranded}>
+            Discard these fees
+          </button>
+        </div>
+      )}
 
       {isAuctionHouse && (
         <label>

@@ -15,6 +15,7 @@ import OfferDialog from './OfferDialog'
 import { date } from '../../../shared/format'
 import { useRequest } from '../../../shared/useRequest'
 import { useSalesVenues } from '../../useSalesVenues'
+import { isWebAddress } from '../../web-address'
 
 /**
  * Where this item is offered, where it has been, and the two things that may
@@ -181,7 +182,9 @@ export default function OffersPanel({ item, onChanged }) {
                 <td>{date(l.listed_at)}</td>
                 <td>{l.ended_at ? date(l.ended_at) : UNKNOWN}</td>
                 <td>
-                  {l.external_url && (
+                  {/* A stored address of another scheme -- `javascript:` --
+                      would run in the console when clicked. */}
+                  {isWebAddress(l.external_url) && (
                     <a href={l.external_url} target="_blank" rel="noreferrer">
                       {l.external_id ?? 'Listing'}
                     </a>

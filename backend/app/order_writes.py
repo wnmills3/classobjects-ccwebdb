@@ -36,7 +36,7 @@ from decimal import Decimal
 from typing import NoReturn
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
@@ -66,13 +66,31 @@ from .sales_venues import store_venue_id
 _CENTS = Decimal("0.01")
 
 
+#: How many `pending` orders one customer may hold before the shop refuses
+#: another, 409. Each pending order takes stock off sale until it is paid or
+#: cancelled, so without a ceiling one account could empty the shop by
+#: placing orders it never pays for. Asked by the shop's checkout
+#: (`routers.orders.create_order`) only: an order a manager places on a
+#: customer's behalf comes from the console, where the person placing it is
+#: the one who would cancel it. A soft ceiling -- two checkouts by the same
+#: account at the same instant may both pass the count -- because it bounds
+#: abuse rather than guarding stock, which the row locks already do.
+MAX_PENDING_ORDERS = 5
+
+
 @dataclass(frozen=True)
 class Line:
-    """One wanted line: a listing, how many, and optionally the price."""
+    """One wanted line: a listing, how many, and optionally the price.
+
+    `expected_price` is the price the buyer was shown, for a shop checkout:
+    `place_order` refuses the line when the listing's price, read under its
+    row lock, is no longer that. None asks nothing.
+    """
 
     listing_id: int
     quantity: int
     unit_price: Decimal | None = None
+    expected_price: Decimal | None = None
 
 
 def money(value: Decimal) -> str:
@@ -135,6 +153,31 @@ def customer_for_user(db: Session, user: User) -> Customer:
         except IntegrityError:
             customer = db.execute(by_user).scalar_one()
     return customer
+
+
+def refuse_too_many_pending(db: Session, customer: Customer) -> None:
+    """Refuse a shop order from a customer already holding `MAX_PENDING_ORDERS`. 409.
+
+    Rolls back before raising, as `_refuse` does, so nothing the caller
+    wrote before asking -- a customer row made for a first order -- is left
+    half-done.
+    """
+    pending = db.scalar(
+        select(func.count())
+        .select_from(SalesOrder)
+        .join(SalesOrderStatus, SalesOrderStatus.id == SalesOrder.sales_order_status_id)
+        .where(
+            SalesOrder.customer_id == customer.id,
+            SalesOrderStatus.code == "pending",
+        )
+    )
+    if pending is not None and pending >= MAX_PENDING_ORDERS:
+        _refuse(
+            db,
+            status.HTTP_409_CONFLICT,
+            f"You already have {pending} orders waiting for payment, the most "
+            "one account may hold. Pay for or cancel one before placing another.",
+        )
 
 
 def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
@@ -432,9 +475,11 @@ def place_order(
     `version` to 2 on a brand-new order.
 
     Raises `HTTPException`: 422 for a listing that does not exist, and 409
-    for one no longer sellable in the shop, one currently paused or ended, or
-    one without the stock asked for. Every one goes through `_refuse`, which
-    rolls the transaction back before raising -- so a caller that catches
+    for one no longer sellable in the shop, one currently paused or ended,
+    one without the stock asked for, or -- on a shop line that names an
+    `expected_price` -- one whose price is no longer that. Every one goes
+    through `_refuse`, which rolls the transaction back before raising --
+    so a caller that catches
     one holds a rolled-back session. There is no version check here: `place_order`
     takes no version from its caller, and the `FOR UPDATE` lock this function
     takes before any of the above makes a stale read impossible rather than
@@ -446,6 +491,16 @@ def place_order(
         listing = listings[line.listing_id]
         if venue is None:
             _refuse_unless_on_sale_in_shop(db, listing)
+            # Read under the row lock: a price changed after the buyer's page
+            # loaded would otherwise be charged without their having seen it.
+            if line.expected_price is not None and listing.price != line.expected_price:
+                _refuse(
+                    db,
+                    status.HTTP_409_CONFLICT,
+                    f"The price of listing {listing.id} is now "
+                    f"{money(listing.price)}, not the {money(line.expected_price)} "
+                    "you were shown. Review your cart and order again.",
+                )
         if listing.quantity_available < line.quantity:
             _refuse(
                 db,
@@ -560,6 +615,47 @@ def ever_shipped(db: Session, order_id: int, *, before: int | None = None) -> bo
     return db.scalar(shipped.limit(1)) is not None
 
 
+#: Statuses a cancellation must not return stock from: the stock has left
+#: (`SHIPPED_STATUSES`), was already returned (`cancelled`), or the money went
+#: back (`refunded`) -- a status that does not say whether the coins came
+#: back, and whose ordinary case is a refund after shipping.
+NO_STOCK_RETURN_STATUSES = SHIPPED_STATUSES | {"cancelled", "refunded"}
+
+
+def orders_holding_stock(db: Session, listing_id: int) -> list[int]:
+    """The ids of orders whose stock on this listing a cancellation would return.
+
+    The orders `routers.orders.update_order_status` would hand stock back
+    from: a line on this listing, a status outside
+    `NO_STOCK_RETURN_STATUSES`, and a history that never reached a shipped
+    status (`ever_shipped`). Ending the listing under such an order would
+    leave the stock nowhere to go back to, so `routers.offers.end_listing`
+    asks this first.
+    """
+    shipped = select(SalesOrderChange.id).where(
+        SalesOrderChange.sales_order_id == SalesOrder.id,
+        SalesOrderChange.change == SalesOrderChangeKind.status,
+        SalesOrderChange.to_value.in_(sorted(SHIPPED_STATUSES)),
+    )
+    return list(
+        db.scalars(
+            select(SalesOrder.id)
+            .join(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id)
+            .join(
+                SalesOrderStatus,
+                SalesOrderStatus.id == SalesOrder.sales_order_status_id,
+            )
+            .where(
+                SalesOrderItem.listing_id == listing_id,
+                SalesOrderStatus.code.not_in(sorted(NO_STOCK_RETURN_STATUSES)),
+                ~shipped.exists(),
+            )
+            .distinct()
+            .order_by(SalesOrder.id)
+        ).all()
+    )
+
+
 def _order_status_code(db: Session, order: SalesOrder) -> str:
     """The order's status code, read fresh from its (possibly just-locked) row.
 
@@ -612,8 +708,12 @@ def _revision_deltas(
                 db,
                 status.HTTP_409_CONFLICT,
                 f"Listing {listing_id} has ended, so the stock this order "
-                "holds cannot be put back on sale. A lot is sold as one "
-                "group and its listing ends with the sale.",
+                "holds cannot be put back on sale."
+                + (
+                    " A lot is sold as one group and its listing ends with the sale."
+                    if listing.sales_lot_id is not None
+                    else ""
+                ),
             )
     return deltas
 

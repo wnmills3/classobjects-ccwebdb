@@ -29,6 +29,11 @@ from app.photo_names import ParsedName, parse
             "CC-000412_17.jpeg",
             ParsedName("CC-000412", 17, "unassigned", False),
         ),
+        # Past CC-999999 the code grows a digit rather than wrapping.
+        (
+            "CC-1000000_01.jpg",
+            ParsedName("CC-1000000", 1, "obverse", True),
+        ),
         # A path, not a bare name: the pass walks a directory tree.
         (
             "box3/CC-000001_01.png",
@@ -51,7 +56,7 @@ def test_names_that_follow_the_convention(filename: str, expected: ParsedName) -
     [
         "cc-000412_01.jpg",  # lowercase prefix is a miss, not a correction
         "CC-00412_01.jpg",  # five digits
-        "CC-0004123_01.jpg",  # seven digits
+        "CC-0004123_01.jpg",  # seven digits padded: no code is padded past six
         "CC-000412.jpg",  # no sequence
         "CC-000412_1.jpg",  # sequence not zero-padded
         "CC-000412_00.jpg",  # sequence must start at 1

@@ -1,18 +1,43 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { onSignedOut } from '../shared/api'
 import { fromCents, isMoney, toCents } from '../shared/cents'
 import { CartContext } from './cart-context'
 
-const CART_KEY = 'ccwebdb.cart'
+// The version is in the key so a cart saved in an older shape is never read
+// as this one.
+const CART_KEY = 'ccwebdb.cart.v2'
+
+const isCount = (n) => Number.isInteger(n) && n >= 0
 
 /**
- * The cart lines kept in this browser, or an empty cart when there are
- * none, or storage cannot be read, or what it holds is not JSON.
+ * Whether a saved line has the shape every reader of the cart relies on:
+ * a listing with an id, a price and a stock, and a whole quantity of at
+ * least one.
+ */
+function isLine(line) {
+  const coin = line?.coin
+  return (
+    coin !== null &&
+    typeof coin === 'object' &&
+    Number.isInteger(coin.id) &&
+    typeof coin.price === 'string' &&
+    isCount(coin.quantity_available) &&
+    Number.isInteger(line.quantity) &&
+    line.quantity >= 1
+  )
+}
+
+/**
+ * The cart lines kept in this browser, less any line not in a line's shape;
+ * an empty cart when there are none, or storage cannot be read, or what it
+ * holds is not a list. Storage is anyone's to edit, and a malformed line
+ * would otherwise fail every render of the page that shows it.
  */
 function readCart() {
   try {
-    const raw = localStorage.getItem(CART_KEY)
-    return raw ? JSON.parse(raw) : []
+    const saved = JSON.parse(localStorage.getItem(CART_KEY) ?? '[]')
+    return Array.isArray(saved) ? saved.filter(isLine) : []
   } catch {
     return []
   }
@@ -27,9 +52,15 @@ function readCart() {
  * quantity of none drops the line. `count` is the items in the cart and
  * `total` their price as a decimal string; both are for display, and
  * checkout prices every line again.
+ *
+ * Signing out empties it, whether on purpose or because the server stopped
+ * accepting the session: what one account put in the cart is not left for
+ * the next person at the same browser.
  */
 export function CartProvider({ children }) {
   const [lines, setLines] = useState(readCart)
+
+  useEffect(() => onSignedOut(() => setLines([])), [])
 
   useEffect(() => {
     try {

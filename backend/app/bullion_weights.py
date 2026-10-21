@@ -118,6 +118,8 @@ _WORDS: tuple[tuple[re.Pattern[str], Decimal], ...] = tuple(
 )
 #: `.999` or `0.999`. A digit before that is a larger number's: `12.925`.
 _DECIMAL_FINENESS = re.compile(r"(?<![\d.])0?\.(\d{3,4})(?!\d)")
+#: A weight unit directly after a `.nnn`: "0.500 oz" is a weight, not 50% metal.
+_UNIT_AFTER = re.compile(r"\s*(?:oz|ozt|ounces?|g|gr|grams?|kg)\b", re.IGNORECASE)
 #: The finenesses metal is actually sold at. Any other `.nnn` in a title is
 #: something else -- a lot code, a price.
 _KNOWN_FINENESS = frozenset(
@@ -190,6 +192,8 @@ def fineness_in(text: str | None) -> Decimal | None:
     if _SURFACE.search(source):
         return None
     for match in _DECIMAL_FINENESS.finditer(source):
+        if _UNIT_AFTER.match(source, match.end()):
+            continue
         if match.group(1) in _KNOWN_FINENESS:
             found.add(Decimal(f"0.{match.group(1)}"))
     for match in _BARE_FINENESS.finditer(source):
@@ -477,20 +481,30 @@ def expected_fine(todo: Plan, db: Session) -> int:
     return count
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Report, or with --commit write, the guessed weights."""
+def main(argv: Sequence[str] | None = None, *, db: Session | None = None) -> int:
+    """Report, or with --commit write, the guessed weights.
+
+    `db` is the session to work in; run as a module, the application's own
+    `SessionLocal` is opened. A caller that already has a session -- the
+    tests, which must never let this open the live database -- passes it.
+    """
     parser = argparse.ArgumentParser(prog="bullion_weights", description=__doc__)
     pass_cli.add_commit_arguments(parser, "write the guesses")
     parser.add_argument("--list", action="store_true", help="name every item")
     args = pass_cli.parse_args(parser, argv)
 
-    with SessionLocal() as db:
-        todo = plan(db)
-        _print(todo, listed=args.list)
-        print(f"items that would end with a fine weight: {expected_fine(todo, db)}")
-        return pass_cli.commit_or_report(
-            db, args, lambda user_id: apply(db, todo, user_id)
-        )
+    if db is None:
+        with SessionLocal() as own:
+            return _run(own, args)
+    return _run(db, args)
+
+
+def _run(db: Session, args: argparse.Namespace) -> int:
+    """The report, and the guesses written when asked for, in one session."""
+    todo = plan(db)
+    _print(todo, listed=args.list)
+    print(f"items that would end with a fine weight: {expected_fine(todo, db)}")
+    return pass_cli.commit_or_report(db, args, lambda user_id: apply(db, todo, user_id))
 
 
 if __name__ == "__main__":

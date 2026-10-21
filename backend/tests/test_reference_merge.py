@@ -29,6 +29,7 @@ from app.models import (
     SeriesAlias,
     SeriesYearRange,
 )
+from app.models.base import utcnow
 from app.seeding import (
     _seed_reference_aliases,
     _seed_series_year_ranges,
@@ -495,7 +496,10 @@ def test_a_photographs_role_is_changed_by_the_one_writer_of_item_image(
 def test_an_item_with_both_errors_keeps_one(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """One error type per item: the row that would repeat is dropped, not moved."""
+    """One error type per item: the row that would repeat is dropped, not moved.
+
+    Its details are not lost with it: they follow the kept error's.
+    """
     slip = _added(
         client,
         admin_headers,
@@ -524,9 +528,174 @@ def test_an_item_with_both_errors_keeps_one(
         select(ItemError.inventory_item_id, ItemError.error_type_id, ItemError.details)
     ).all()
     assert sorted(rows, key=lambda row: row[0]) == sorted(
-        [(both.id, off_center, "b"), (only_slip.id, off_center, None)],
+        [(both.id, off_center, "b; a"), (only_slip.id, off_center, None)],
         key=lambda row: row[0],
     )
+
+
+def test_a_dropped_errors_details_are_added_only_when_they_say_something_new(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The same words, or none, leave the kept error's details as they were."""
+    slip = _added(
+        client,
+        admin_headers,
+        "error_type",
+        "Off Centre Same Test",
+        extra={"applies_to": "coin"},
+    )
+    slip_id = code_id(db, ErrorType, slip)
+    off_center = code_id(db, ErrorType, "off_center")
+    same = build_bare_item(db)
+    blank = build_bare_item(db)
+    unnoted = build_bare_item(db)
+    db.add_all(
+        [
+            ItemError(inventory_item_id=same.id, error_type_id=slip_id, details="10%"),
+            ItemError(
+                inventory_item_id=same.id, error_type_id=off_center, details="10%"
+            ),
+            ItemError(inventory_item_id=blank.id, error_type_id=slip_id, details=" "),
+            ItemError(
+                inventory_item_id=blank.id, error_type_id=off_center, details="kept"
+            ),
+            ItemError(inventory_item_id=unnoted.id, error_type_id=slip_id, details="x"),
+            ItemError(inventory_item_id=unnoted.id, error_type_id=off_center),
+        ]
+    )
+    db.commit()
+
+    response = _merge(client, admin_headers, "error_type", slip, "off_center")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["dropped"] == 3
+    db.expire_all()
+    rows = dict(
+        db.execute(
+            select(ItemError.inventory_item_id, ItemError.details).where(
+                ItemError.inventory_item_id.in_([same.id, blank.id, unnoted.id])
+            )
+        )
+        .tuples()
+        .all()
+    )
+    assert rows == {same.id: "10%", blank.id: "kept", unnoted.id: "x"}
+
+
+def _link(
+    db: Session, item: InventoryItem, attribute: int, *, removed: bool = False
+) -> None:
+    """Give the item this attribute, in force or removed by a person."""
+    db.add(
+        ItemAttributeLink(
+            inventory_item_id=item.id,
+            item_attribute_id=attribute,
+            source=ProvenanceSource.manual,
+            removed_at=utcnow() if removed else None,
+        )
+    )
+
+
+def test_a_removed_kept_attribute_gives_way_to_the_merged_one_in_force(
+    db: Session,
+    make_item: ItemFactory,
+    client: TestClient,
+    admin_headers: dict[str, str],
+) -> None:
+    """An item had the kept attribute removed and holds the merged one.
+
+    It holds the attribute, so it keeps holding it: the removed link is not
+    "already has the kept value", and dropping the link in force for it
+    would take the attribute away.
+    """
+    early = code_id(db, ItemAttribute, "early_releases")
+    first = code_id(db, ItemAttribute, "first_releases")
+    item = make_item()
+    _link(db, item, early)
+    _link(db, item, first, removed=True)
+    db.commit()
+
+    preview = _merge(
+        client,
+        admin_headers,
+        "item_attribute",
+        "early_releases",
+        "first_releases",
+        dry_run=True,
+    )
+    response = _merge(
+        client, admin_headers, "item_attribute", "early_releases", "first_releases"
+    )
+
+    assert preview.status_code == 200, preview.text
+    assert response.status_code == 200, response.text
+    assert preview.json()["dropped"] == response.json()["dropped"] == 0
+    db.expire_all()
+    links = db.execute(
+        select(ItemAttributeLink.item_attribute_id, ItemAttributeLink.removed_at).where(
+            ItemAttributeLink.inventory_item_id == item.id
+        )
+    ).all()
+    assert [tuple(link) for link in links] == [(first, None)]
+
+
+def test_a_removed_merged_attribute_is_dropped_for_a_kept_one_in_force(
+    db: Session,
+    make_item: ItemFactory,
+    client: TestClient,
+    admin_headers: dict[str, str],
+) -> None:
+    """The other way round: the kept link in force stays, and is what is counted."""
+    early = code_id(db, ItemAttribute, "early_releases")
+    first = code_id(db, ItemAttribute, "first_releases")
+    item = make_item()
+    _link(db, item, early, removed=True)
+    _link(db, item, first)
+    db.commit()
+
+    response = _merge(
+        client, admin_headers, "item_attribute", "early_releases", "first_releases"
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["dropped"] == 1
+    db.expire_all()
+    links = db.execute(
+        select(ItemAttributeLink.item_attribute_id, ItemAttributeLink.removed_at).where(
+            ItemAttributeLink.inventory_item_id == item.id
+        )
+    ).all()
+    assert [tuple(link) for link in links] == [(first, None)]
+
+
+def test_both_attributes_removed_merge_without_a_conflict(
+    db: Session,
+    make_item: ItemFactory,
+    client: TestClient,
+    admin_headers: dict[str, str],
+) -> None:
+    """One row per item and attribute: two removed links leave one, still removed."""
+    early = code_id(db, ItemAttribute, "early_releases")
+    first = code_id(db, ItemAttribute, "first_releases")
+    item = make_item()
+    _link(db, item, early, removed=True)
+    _link(db, item, first, removed=True)
+    db.commit()
+
+    response = _merge(
+        client, admin_headers, "item_attribute", "early_releases", "first_releases"
+    )
+
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    links = db.execute(
+        select(ItemAttributeLink.item_attribute_id, ItemAttributeLink.removed_at).where(
+            ItemAttributeLink.inventory_item_id == item.id
+        )
+    ).all()
+    assert len(links) == 1
+    assert links[0][0] == first
+    assert links[0][1] is not None
 
 
 def test_a_series_with_nicknames_and_no_year_ranges_merges(

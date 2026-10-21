@@ -13,6 +13,7 @@ import { marginPercent } from './platform-rates'
 import { date } from '../../shared/format'
 import { useGuardedSave } from '../useGuardedSave'
 import { useSalesVenues } from '../useSalesVenues'
+import { isWebAddress } from '../web-address'
 import { orNull } from '../../shared/text'
 import { SaveButton } from '../SaveButton'
 
@@ -49,6 +50,10 @@ const KEYS = {
   externalId: 'n',
 }
 
+//: Listings asked for at a time. The server pages the list (`limit`,
+//: `offset`) and says how many there are in all.
+const PAGE_SIZE = 100
+
 /**
  * The edit window for one offer: its price and its wording.
  *
@@ -57,14 +62,14 @@ const KEYS = {
  * offering it again -- two writes the claim table is built around, and not
  * something a field assignment can express.
  */
-function ListingForm({ listing, onSaved, onClose }) {
+function ListingForm({ listing, onSaved, onLateSaved, onClose }) {
   const [form, setForm] = useState({
     price: listing.price,
     title: listing.title,
     description: listing.description,
     external_id: listing.external_id ?? '',
   })
-  const { error, setError, saving, send } = useGuardedSave(onSaved)
+  const { error, setError, saving, send } = useGuardedSave(onSaved, onLateSaved)
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
   // `save` is a function declaration below, hoisted for the whole component
@@ -170,6 +175,10 @@ export default function Listings() {
   // action so it cannot outlive the row it described.
   const [notice, setNotice] = useState('')
   const [filters, setFilters] = useState({ venue: '', format: '', status: '' })
+  // Where the page on screen starts, and how many match in all (the
+  // server's count; null until the first answer).
+  const [offset, setOffset] = useState(0)
+  const [total, setTotal] = useState(null)
   const [open, setOpen] = useState(null)
   // The listing End was pressed on, waiting for the question to be answered,
   // and then the one whose request is in flight.
@@ -186,28 +195,39 @@ export default function Listings() {
   useEffect(() => {
     let cancelled = false
     api
-      .listListings({
+      .listListingsPage({
         venue: filters.venue,
         format: filters.format,
         status: filters.status,
+        limit: PAGE_SIZE,
+        offset,
       })
-      .then((rows) => {
+      .then(({ rows, total: count }) => {
         if (cancelled) return
         setListings(rows)
+        setTotal(count)
         setListingsError('')
       })
       .catch((err) => !cancelled && setListingsError(err.message))
     return () => {
       cancelled = true
     }
-  }, [filters, reloads])
+  }, [filters, offset, reloads])
 
-  const filter = (k) => (e) => setFilters({ ...filters, [k]: e.target.value })
+  // A new filter is a new list, read from its first page.
+  const filter = (k) => (e) => {
+    setFilters({ ...filters, [k]: e.target.value })
+    setOffset(0)
+  }
+
+  // A PATCH changes that row and nothing else -- it cannot touch a status
+  // or a claim -- so the row is replaced in place rather than refetched.
+  function replaceRow(listing) {
+    setListings((current) => current.map((l) => (l.id === listing.id ? listing : l)))
+  }
 
   function saved(listing) {
-    // A PATCH changes that row and nothing else -- it cannot touch a status
-    // or a claim -- so the row is replaced in place rather than refetched.
-    setListings((current) => current.map((l) => (l.id === listing.id ? listing : l)))
+    replaceRow(listing)
     setOpen(null)
     setNotice('')
   }
@@ -262,6 +282,13 @@ export default function Listings() {
   if (listings === null) return <p className="muted">Loading...</p>
 
   const byId = new Map(listings.map((l) => [l.id, l]))
+  // The header gives the count across every page; without it, this page's.
+  const matching = total ?? offset + listings.length
+  const first = listings.length === 0 ? 0 : offset + 1
+  const counted =
+    offset === 0 && listings.length === matching
+      ? `${matching} of ${matching}`
+      : `${first}-${offset + listings.length} of ${matching}`
 
   /** Whether a row's platform is the web store itself.
    *
@@ -333,6 +360,25 @@ export default function Listings() {
           </select>
         </label>
       </div>
+      <div className="row">
+        <span className="muted">{counted}</span>
+        {/* Shown only where there is a page to go to, rather than greyed
+            out where there is none. The server sends listings oldest first
+            (by id), so the pages are Previous and Next, not Newer and Older. */}
+        {offset > 0 && (
+          <button
+            className="link"
+            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+          >
+            Previous
+          </button>
+        )}
+        {offset + listings.length < matching && (
+          <button className="link" onClick={() => setOffset(offset + PAGE_SIZE)}>
+            Next
+          </button>
+        )}
+      </div>
       <table>
         <thead>
           <tr>
@@ -373,7 +419,10 @@ export default function Listings() {
                 </td>
                 <td>{date(l.listed_at)}</td>
                 <td>
-                  {l.external_url && (
+                  {/* Only a web address: the URL is typed by hand, and a
+                      `javascript:` one would run in the console when
+                      clicked. */}
+                  {isWebAddress(l.external_url) && (
                     <a href={l.external_url} target="_blank" rel="noreferrer">
                       {l.external_id ?? 'Listing'}
                     </a>
@@ -454,7 +503,14 @@ export default function Listings() {
         <p className="muted">Nothing is offered under those filters.</p>
       )}
       {open !== null && (
-        <ListingForm listing={open} onSaved={saved} onClose={() => setOpen(null)} />
+        <ListingForm
+          listing={open}
+          onSaved={saved}
+          // A save that lands after Cancel still happened: the row takes the
+          // saved version, or its next edit is refused as stale.
+          onLateSaved={replaceRow}
+          onClose={() => setOpen(null)}
+        />
       )}
       {confirming !== null && (
         <EndOfferConfirm

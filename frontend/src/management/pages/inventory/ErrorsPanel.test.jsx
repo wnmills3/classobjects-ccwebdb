@@ -268,6 +268,43 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     )
   })
 
+  it('saves nothing when a note box is left unchanged, and an edit only once', async () => {
+    const user = userEvent.setup()
+    api.getItemErrors.mockResolvedValue({
+      inventory_item_id: 12,
+      errors: [
+        { error_type: 'miscut', details: 'note a', source: 'manual', noted_at: '' },
+        {
+          error_type: 'inverted_overprint',
+          details: null,
+          source: 'manual',
+          noted_at: '',
+        },
+      ],
+    })
+    api.setItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: vocabularies,
+    })
+    const miscut = await screen.findByLabelText('Miscut details')
+    const overprint = screen.getByLabelText('Inverted Overprint details')
+
+    // Passed through, both boxes, nothing typed.
+    await user.click(miscut)
+    await user.click(overprint)
+    await user.click(miscut)
+    await user.tab()
+    expect(api.setItemErrors).not.toHaveBeenCalled()
+
+    await user.type(overprint, 'faint')
+    await user.click(miscut)
+    await vi.waitFor(() => expect(api.setItemErrors).toHaveBeenCalledTimes(1))
+    // Back through the edited box with nothing more typed: already sent.
+    await user.click(overprint)
+    await user.click(miscut)
+    expect(api.setItemErrors).toHaveBeenCalledTimes(1)
+  })
+
   it('names itself, so the picker is not a stray dropdown', async () => {
     api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
     renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {

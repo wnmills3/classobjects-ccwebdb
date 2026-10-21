@@ -128,8 +128,8 @@ describe('ItemEditForm: entering an item', () => {
     const listing = screen.getByRole('textbox', { name: 'Listing web address' })
     const seller = screen.getByRole('textbox', { name: "Seller's item id" })
 
-    await user.type(listing, 'https://www.ebay.com/itm/900000000005')
-    expect(seller).toHaveValue('900000000005')
+    await user.type(listing, 'https://www.ebay.com/itm/484848484848')
+    expect(seller).toHaveValue('484848484848')
 
     // Another listing: the id the address gave follows it.
     await user.clear(listing)
@@ -154,7 +154,7 @@ describe('ItemEditForm: entering an item', () => {
 
     await user.type(
       screen.getByRole('textbox', { name: 'Listing web address' }),
-      'https://www.ebay.com/itm/900000000005',
+      'https://www.ebay.com/itm/484848484848',
     )
 
     expect(screen.getByRole('textbox', { name: "Seller's item id" })).toHaveValue(
@@ -321,7 +321,8 @@ describe('ItemEditForm: the facts asked for, by kind', () => {
     expect(order.indexOf('strike_type')).toBeGreaterThan(order.indexOf('weight_note'))
     expect(order.indexOf('grade')).toBeGreaterThan(order.indexOf('strike_type'))
     // The description is written from the facts, so it follows them all.
-    expect(order.indexOf('description')).toBeGreaterThan(order.indexOf('status'))
+    expect(order).toContain('item_status')
+    expect(order.indexOf('description')).toBeGreaterThan(order.indexOf('item_status'))
   })
 
   it.each(['bullion', 'medal', 'token'])(
@@ -375,7 +376,7 @@ describe('ItemEditForm: the facts asked for, by kind', () => {
       'series',
       'set_form',
       'country',
-      'status',
+      'item_status',
       'strike_type',
       'grading_service',
       'grade_designation',

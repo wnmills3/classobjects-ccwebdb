@@ -22,7 +22,9 @@ rem
 rem  PIDs are written to .runtime\ccweb.pids for ccweb_shutdown.cmd.
 rem  Logs go to %CCWEB_LOG_DIR% (default .\logs), three files per type of
 rem  at most 1 GB each; logs\README.md lists the files and the settings.
-rem  Safe to re-run: anything already listening is left alone.
+rem  Safe to re-run: anything already listening is left alone. A listener on
+rem  the API's port counts as the API only if /health answers {"status":"ok"};
+rem  otherwise the port is reported as taken and the exit code is 1.
 rem
 rem  Pure cmd - no PowerShell. Uses netstat for PIDs and curl for readiness
 rem  (curl.exe ships with Windows 10 1803 and later).
@@ -116,7 +118,16 @@ if not errorlevel 1 (
 
 rem --- 2. FastAPI backend ---------------------------------------------------
 call :portpid %BPORT% BPID
+rem  A listener on the API's port is this backend only if it answers /health
+rem  as the API does; anything else is another program that has the port,
+rem  and the frontend would proxy /api to it.
 if defined BPID (
+    curl -s --max-time 2 "http://%BHOST%:%BPORT%/health" 2>nul | findstr /R /C:"status.:.ok" >nul
+    if errorlevel 1 (
+        echo [2/3] backend      FAILED - port %BPORT% is taken by another program ^(pid !BPID!^), not this API
+        echo       free the port, or set CCWEB_API_PORT in .env to another one
+        exit /b 1
+    )
     echo [2/3] backend      already running on %BPORT% ^(pid !BPID!^)
 ) else (
     echo [2/3] backend      starting on %BPORT%...

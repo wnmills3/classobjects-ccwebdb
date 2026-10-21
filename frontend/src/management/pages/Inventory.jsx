@@ -125,7 +125,9 @@ function InventoryView({ config }) {
 
       {error && <p className="error">{error}</p>}
       {linked.problem && <p className="error">{linked.problem}</p>}
-      {!busy && total === 0 && <p className="muted">Nothing matches those filters.</p>}
+      {!busy && !error && total === 0 && (
+        <p className="muted">Nothing matches those filters.</p>
+      )}
       <OtherViewSerial view={config.view} serial={current.serial_number} />
 
       {rows.length > 0 && (

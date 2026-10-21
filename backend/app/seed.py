@@ -46,7 +46,7 @@ from .models import (
     UserRole,
     ValuationBasis,
 )
-from .security import hash_password
+from .security import account_by_email, hash_password, normalize_email_if_valid
 
 #: A demo catalog. Classifiers are given as codes, matching how they cross
 #: the API -- see `app.references`.
@@ -205,17 +205,23 @@ MIN_ADMIN_PASSWORD_LENGTH = 12
 PUBLISHED_PASSWORDS = frozenset({"adminpassword", "customerpassword"})
 
 
-def _refuse_a_weak_admin_password(password: str) -> None:
-    """Exit unless the first administrator's password is long and unpublished.
+def weak_admin_password_problem(password: str) -> str | None:
+    """What is wrong with a manager's password, or None when it will do.
 
     The account is a manager's: whoever knows its password holds every cost,
-    customer and console write.
+    customer and console write. Shared with `app.create_admin`.
     """
     if password in PUBLISHED_PASSWORDS:
-        problem = "is published in this repository"
-    elif len(password) < MIN_ADMIN_PASSWORD_LENGTH:
-        problem = f"is shorter than {MIN_ADMIN_PASSWORD_LENGTH} characters"
-    else:
+        return "is published in this repository"
+    if len(password) < MIN_ADMIN_PASSWORD_LENGTH:
+        return f"is shorter than {MIN_ADMIN_PASSWORD_LENGTH} characters"
+    return None
+
+
+def refuse_a_weak_admin_password(password: str) -> None:
+    """Exit unless the first administrator's password is long and unpublished."""
+    problem = weak_admin_password_problem(password)
+    if problem is None:
         return
     raise SystemExit(
         f"FIRST_ADMIN_PASSWORD {problem}, so nothing was written. Set a "
@@ -269,19 +275,22 @@ def seed(db: Session | None = None, *, into_existing: bool = False) -> None:
     if not into_existing:
         _refuse_a_collection(db)
 
-    admin = db.scalar(select(User).where(User.email == settings.first_admin_email))
+    # In the form sign-in looks it up by, and found whatever the case of its
+    # letters, so a second run does not make a second account for one address.
+    email = normalize_email_if_valid(settings.first_admin_email)
+    admin = account_by_email(db, email)
     if admin is None:
-        _refuse_a_weak_admin_password(settings.first_admin_password)
+        refuse_a_weak_admin_password(settings.first_admin_password)
         admin = User(
-            email=settings.first_admin_email,
+            email=email,
             full_name="Site Administrator",
             hashed_password=hash_password(settings.first_admin_password),
             role=UserRole.manager,
         )
         db.add(admin)
-        print(f"created admin {settings.first_admin_email}")
+        print(f"created admin {email}")
     else:
-        print(f"admin {settings.first_admin_email} already exists")
+        print(f"admin {admin.email} already exists")
 
     created = 0
     for row in SAMPLE_CATALOG:

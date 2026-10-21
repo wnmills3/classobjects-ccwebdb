@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
+    DDL,
     Boolean,
     CheckConstraint,
     Computed,
@@ -28,6 +29,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -108,18 +110,29 @@ ITEM_CODE_PREFIX = "CC"
 #: `create_all` test database gets it too, not only a migrated one.
 item_code_sequence = Sequence("item_code_seq", start=1, metadata=Base.metadata)
 
+#: Formats a sequence value as an item code: at least six digits, more once
+#: the sequence passes 999999 -- `lpad` alone would cut a seventh digit off
+#: and issue a code already held. A function, because the default may call
+#: `nextval` only once and the width depends on the value it returns. The
+#: migration that introduced it creates the same text; `create_all` gets it
+#: from the listener after `InventoryItem`.
+ITEM_CODE_FORMAT_SQL = (
+    "CREATE OR REPLACE FUNCTION item_code_format(n bigint) RETURNS text\n"
+    "    LANGUAGE sql IMMUTABLE STRICT\n"
+    f"    AS $$SELECT '{ITEM_CODE_PREFIX}-' || "
+    "lpad(n::text, greatest(6, length(n::text)), '0')$$"
+)
+
 #: Assigned by the database, not by the application: two concurrent inserts
 #: must not be able to receive the same code, and a sequence is the only thing
 #: that guarantees it without a lock.
 #:
-#: Written exactly as PostgreSQL stores it, casts and parentheses included --
-#: the same reason as the full-text index below. PostgreSQL normalizes a
-#: default expression on creation, so the shorter form reflects back
-#: differently and autogenerate reports the column as changed on every run.
-ITEM_CODE_DEFAULT = (
-    f"('{ITEM_CODE_PREFIX}-'::text || "
-    "lpad((nextval('item_code_seq'::regclass))::text, 6, '0'::text))"
-)
+#: Written exactly as PostgreSQL stores it, casts and parentheses included.
+#: PostgreSQL normalizes an expression -- a default, an index's -- on
+#: creation, so a shorter form reflects back differently and autogenerate
+#: reports the column as changed on every run. Every expression index in the
+#: models is written that way for the same reason.
+ITEM_CODE_DEFAULT = "item_code_format(nextval('item_code_seq'::regclass))"
 
 
 # Foreign-key target: a string, so SQLAlchemy resolves it at
@@ -151,7 +164,7 @@ class Vendor(TimestampMixin, Base):
 
     # Unique whatever the case: "eBay" beside "ebay" is one source twice.
     # Written as PostgreSQL stores the expression (see the note on
-    # ix_inventory_item_fts), or the drift test reports it changed.
+    # ITEM_CODE_DEFAULT), or the drift test reports it changed.
     __table_args__ = (Index("uq_vendor_name", text("lower(name::text)"), unique=True),)
 
 
@@ -609,34 +622,21 @@ class InventoryItem(TimestampMixin, Base):
             "OR fine_weight_ozt <= gross_weight_ozt",
             name="ck_inventory_item_fine_within_gross",
         ),
+        CheckConstraint(
+            "numismatic_value IS NULL OR numismatic_value >= 0",
+            name="ck_inventory_item_numismatic_value_non_negative",
+        ),
         UniqueConstraint("item_code", name="uq_inventory_item_code"),
         # The primary browse path: "show me my coins that have arrived".
         Index("ix_inventory_item_kind_status", "item_kind_id", "status_id"),
-        # Full-text search over the free-text columns. The regconfig is named
-        # explicitly because to_tsvector() is only immutable -- and therefore
-        # only indexable -- in its two-argument form.
-        #
-        # Written exactly as PostgreSQL stores it, casts and all. PostgreSQL
-        # normalizes an index expression on creation, so the shorter form
-        # `to_tsvector('english', source_title || ' ' || description)` reflects
-        # differently from how it was written and autogenerate reports the
-        # index as changed on every single run -- a permanent false positive
-        # in the models-versus-migrations drift test.
-        Index(
-            "ix_inventory_item_fts",
-            text(
-                "to_tsvector('english'::regconfig, "
-                "(source_title::text || ' '::text) || description)"
-            ),
-            postgresql_using="gin",
-        ),
         # Partial indexes for the search panel's facet counts.
         #
-        # The plain foreign-key index on each of these already exists, but the
-        # planner will not use it for a GROUP BY over the whole table -- it
-        # sequential-scans and sorts. Restricting the index to live rows makes
-        # it an index-only scan with the grouping already in order: measured
-        # 0.91 ms -> 0.33 ms per facet, and the saving grows with the table.
+        # The plain foreign-key index on each of these already exists; these
+        # are smaller indexes over live rows only (`split_at IS NULL`). They
+        # do not make the default facet query index-only: that query also
+        # filters `deleted_at IS NULL`, which is not in the predicate, so the
+        # rows are still visited. What they save is the split lots, and the
+        # size of the index the planner walks.
         #
         # Worth the write cost here because inventory is written a few times a
         # day and searched constantly.
@@ -675,12 +675,24 @@ class InventoryItem(TimestampMixin, Base):
             "bullion_form_id",
             postgresql_where=text(_LIVE_ROWS_ONLY),
         ),
-        Index(
-            "ix_inventory_item_attributes",
-            "attributes",
-            postgresql_using="gin",
-        ),
     )
+
+
+# The function the item code's default calls, created before the table on
+# PostgreSQL. `create_all` builds the test database and backup copies; on
+# a real database the migrations create it from the same text.
+event.listen(
+    InventoryItem.__table__,
+    "before_create",
+    DDL(ITEM_CODE_FORMAT_SQL).execute_if(dialect="postgresql"),
+)
+event.listen(
+    InventoryItem.__table__,
+    "after_drop",
+    DDL("DROP FUNCTION IF EXISTS item_code_format(bigint)").execute_if(
+        dialect="postgresql"
+    ),
+)
 
 
 class CoinDetail(Base):

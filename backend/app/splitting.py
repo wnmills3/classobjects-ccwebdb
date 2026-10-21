@@ -39,7 +39,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import item_kinds, lot_writes, offering_writes, sale_state
+from . import field_changes, item_kinds, lot_writes, offering_writes, sale_state
 from .allocation import allocate
 from .lifecycle_writes import record_initial_status, set_location
 from .models import (
@@ -155,16 +155,16 @@ def split_item(
     """Break `parent` into `pieces`, dividing its cost between them.
 
     `user_id` is who split it: each piece's opening status and first move
-    name them.
+    name them, and so does the lot's change-log row for `split_at`.
 
     Raises `SplitError` for an unknown mode, fewer than two pieces, a lot
-    already split, a lot that is itself a piece, a piece holding less than
-    one item, a `relative` split with a value missing or negative, a lot
-    that appears in an order -- sold on its own or inside a sales lot -- or
-    **an open member of a sales lot that is currently offered**, and
-    `AllocationError` from `allocate` if the cost cannot be divided.
-    `routers.inventory`
-    catches only the first, so an `AllocationError` here is a 500.
+    deleted, a lot already split, a lot that is itself a piece, a piece
+    holding less than one item, a `relative` split with a value missing or
+    negative, a lot that appears in an order -- sold on its own or inside a
+    sales lot -- or **an open member of a sales lot that is currently
+    offered**, and `AllocationError` from `allocate` if the cost cannot be
+    divided. `routers.inventory` catches only the first, so an
+    `AllocationError` here is a 500.
 
     The last two are a pair -- sold inside a lot, and offered inside one --
     and neither is negotiable by `acknowledge_for_sale`, unlike the listing
@@ -197,6 +197,11 @@ def split_item(
     # session loaded before waiting for it -- which is precisely the race.
     db.refresh(parent, with_for_update=True)
 
+    if parent.deleted_at is not None:
+        # A deleted row is one that should never have existed; its pieces
+        # would come out live, and every view that excludes it would count
+        # them.
+        raise SplitError(f"{parent.item_code} has been deleted and cannot be split")
     if parent.split_at is not None:
         raise SplitError(f"{parent.item_code} has already been split")
     if parent.parent_item_id is not None:
@@ -350,6 +355,17 @@ def split_item(
     # `offering_writes`, the only writer of listing status and claims, so the
     # claims that held the lot are released with them.
     parent.split_at = now
+    # In the change log like an edit, so the lot's History says who split
+    # it and when.
+    field_changes.record(
+        db,
+        parent.id,
+        {"split_at": None},
+        {"split_at": now.isoformat()},
+        ["split_at"],
+        user_id=user_id,
+        at=now,
+    )
     # Flushed before the ending, not after. `end_offer` locks and re-reads the
     # items it affects with `populate_existing=True` (`offering_writes._lock_items`),
     # and the parent is one of them -- an assignment still sitting in the

@@ -1,14 +1,14 @@
 """Order numbers and listing ids from eBay's purchase history (`app.ebay_orders`).
 
 The history is a workbook of lines -- OrderNumber, OrderDate, ItemID, ... --
-built here in miniature. The purchases are made the way the collection's
-were: one per eBay listing, linking it, some with a number and most without.
+built here in miniature. Each purchase is of one eBay listing and links it;
+some carry an order number and most do not.
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -643,12 +643,12 @@ def test_a_listing_id_is_typed_in_and_changed(
             "purchase_order_id": order.id,
             "source_title": "t",
             "item_kind": "coin",
-            "sellers_item_id": " 900000000010 ",
+            "sellers_item_id": " 404040404040 ",
         },
         headers=admin_headers,
     )
     assert created.status_code == 201, created.text
-    assert created.json()["sellers_item_id"] == "900000000010"
+    assert created.json()["sellers_item_id"] == "404040404040"
     item_id = created.json()["id"]
     cleared = patch_current(
         client,
@@ -707,12 +707,60 @@ def test_a_workbook_without_the_columns_is_refused(tmp_path: Path) -> None:
         ebay_orders.read_history([path])
 
 
+def _typed_history(tmp_path: Path, rows: list[list[object]]) -> Path:
+    """A history whose cells are as a spreadsheet saves them: dates and numbers."""
+    book = Workbook()
+    sheet = book.active
+    assert sheet is not None
+    sheet.append(HEADER)
+    for row in rows:
+        sheet.append(row)
+    path = tmp_path / "Resaved_History.xlsx"
+    book.save(path)
+    return path
+
+
+def test_date_and_number_cells_are_read_as_ebay_text_is(tmp_path: Path) -> None:
+    """A history saved again by a spreadsheet holds real dates and numbers."""
+    path = _typed_history(
+        tmp_path,
+        [
+            ["11-11111-11111", datetime(2025, 3, 4), 100000000001, "s", "a", 10],
+            ["22-22222-22222", date(2025, 4, 9), 100000000002.0, "s", "b", 10],
+        ],
+    )
+    lines = ebay_orders.read_history([path])
+    assert [(x.ordered_on, x.item_id) for x in lines] == [
+        (DAY, "100000000001"),
+        (date(2025, 4, 9), "100000000002"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "cell", [100000000001, 100000000001.0, "100000000001", " 100000000001 "]
+)
+def test_an_item_id_cell_of_any_type_is_the_same_text(cell: object) -> None:
+    assert ebay_orders._item_id(cell) == "100000000001"
+
+
+def test_an_unreadable_order_date_names_the_file_and_row(tmp_path: Path) -> None:
+    path = _typed_history(
+        tmp_path,
+        [
+            ["11-11111-11111", "Mar 04, 2025", "100000000001", "s", "a", 10],
+            ["22-22222-22222", "sometime", "100000000002", "s", "b", 10],
+        ],
+    )
+    with pytest.raises(ValueError, match=r"Resaved_History\.xlsx: row 3: .*sometime"):
+        ebay_orders.read_history([path])
+
+
 @pytest.mark.parametrize(
     ("url", "item_id"),
     [
-        ("https://www.ebay.com/itm/900000000009", "900000000009"),
-        ("https://www.ebay.com/itm/Some-Title/900000000009?hash=x", "900000000009"),
-        ("https://order.ebay.com/ord/show?orderId=90-00006-00006", None),
+        ("https://www.ebay.com/itm/414141414141", "414141414141"),
+        ("https://www.ebay.com/itm/Some-Title/414141414141?hash=x", "414141414141"),
+        ("https://order.ebay.com/ord/show?orderId=41-41414-14141", None),
         ("Gift", None),
         (None, None),
     ],

@@ -354,8 +354,10 @@ def _value(body: dict, code: str) -> dict:
     return next(v for v in body["values"] if v["code"] == code)
 
 
-def test_a_vocabulary_lists_each_values_aliases(client: TestClient) -> None:
-    body = client.get("/api/reference/note_type").json()
+def test_a_vocabulary_lists_each_values_aliases(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    body = client.get("/api/reference/note_type", headers=admin_headers).json()
     assert _value(body, "us_note")["aliases"] == ["Legal Tender", "Legal Tender Note"]
     assert _value(body, "us_note")["retired_aliases"] == []
 
@@ -391,10 +393,12 @@ def test_a_removed_shipped_alias_is_listed_as_retired_for_editing(
     assert removed["aliases"] == ["Legal Tender Note"]
     assert removed["retired_aliases"] == ["Legal Tender"]
 
-    public = client.get("/api/reference/note_type").json()
-    assert _value(public, "us_note")["retired_aliases"] == []
+    in_use = client.get("/api/reference/note_type", headers=admin_headers).json()
+    assert _value(in_use, "us_note")["retired_aliases"] == []
     editing = client.get(
-        "/api/reference/note_type", params={"include_inactive": True}
+        "/api/reference/note_type",
+        params={"include_inactive": True},
+        headers=admin_headers,
     ).json()
     assert _value(editing, "us_note")["retired_aliases"] == ["Legal Tender"]
 
@@ -408,7 +412,9 @@ def test_a_retired_value_says_so_when_listed_for_editing(
         headers=admin_headers,
     )
     editing = client.get(
-        "/api/reference/note_type", params={"include_inactive": True}
+        "/api/reference/note_type",
+        params={"include_inactive": True},
+        headers=admin_headers,
     ).json()
     assert _value(editing, "us_note")["is_active"] is False
     assert _value(editing, "frn")["is_active"] is True

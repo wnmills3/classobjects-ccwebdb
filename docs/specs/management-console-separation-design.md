@@ -80,6 +80,19 @@ redirecting to the shop's; both wrap the shared `LoginForm`. **The shop never
 links to the console**: that link would reintroduce exactly the discovery this
 removes.
 
+Keeping the tokens in `localStorage` is a trade-off. Any script running in
+the page can read them, so a cross-site scripting flaw would hand over the
+session, refresh token included, where an `HttpOnly` cookie would keep it
+out of a script's reach. The bearer token in return needs no CSRF defence,
+since a browser never attaches it to a request on its own. What limits the
+exposure is everything that keeps a foreign script out of the page: React
+escapes what it renders, the pages load nothing from elsewhere but the
+DigiCert seal, and the public site's `Content-Security-Policy`
+(`deploy/Caddyfile`) allows scripts from the site itself and the seal only,
+and data to be sent back to the site alone. The access token lives
+`ACCESS_TOKEN_EXPIRE_MINUTES` (30 by default), and signing out or changing
+the password invalidates every token issued to the account.
+
 ### One guard at the router root
 
 `ManagementApp.jsx`'s `RequireAdmin` wraps every console route once; sign-in is the

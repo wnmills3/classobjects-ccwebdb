@@ -89,8 +89,9 @@ console and the import pass cannot drift about what a link means.
 
 Parsed by `photo_names.parse`, a pure function.
 
-- **`item_code`** matches `CC-\d{6}` exactly, case-sensitive -- the shape the
-  database generates. A lowercase `cc-` is a miss, not a correction: a parser
+- **`item_code`** matches `CC-` and six digits, or more with no leading zero
+  past `CC-999999`, exactly and case-sensitive -- the shape the database
+  generates. A lowercase `cc-` is a miss, not a correction: a parser
   that repairs input teaches the operator the convention does not matter.
   The code rather than the numeric id, because it is what appears in the
   console and on holders, and a mistyped id silently names a different coin.
@@ -102,8 +103,17 @@ Parsed by `photo_names.parse`, a pure function.
 
 ## The import pass
 
+Windows (cmd):
+
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.photo_import
+```
+
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
 python -m app.photo_import
 ```
 

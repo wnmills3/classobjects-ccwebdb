@@ -48,6 +48,7 @@ from .base import (
     Period,
     Report,
     ReportResult,
+    among,
 )
 from .live_purchases import (
     ALL_VENDORS,
@@ -695,7 +696,7 @@ def _received_children_totals(
                     "total_cost"
                 ),
             )
-            .where(InventoryItem.parent_item_id.in_(parent_ids), live_item())
+            .where(among(InventoryItem.parent_item_id, parent_ids), live_item())
             .group_by(InventoryItem.parent_item_id)
         )
         .mappings()
@@ -945,7 +946,7 @@ def _received_children(
             ItemKind.code.label("kind_code"),
         )
         .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
-        .where(InventoryItem.parent_item_id.in_(parent_ids), live_item())
+        .where(among(InventoryItem.parent_item_id, parent_ids), live_item())
     )
     for row in db.execute(stmt).mappings().all():
         children[row["parent_id"]].append(row)
@@ -996,7 +997,7 @@ def _item_identity(db: Session, item_ids: set[int]) -> dict[int, dict[str, str]]
         .outerjoin(CoinDetail, CoinDetail.inventory_item_id == InventoryItem.id)
         .outerjoin(Mint, Mint.id == CoinDetail.mint_id)
         .outerjoin(CurrencyDetail, CurrencyDetail.inventory_item_id == InventoryItem.id)
-        .where(InventoryItem.id.in_(item_ids))
+        .where(among(InventoryItem.id, item_ids))
     )
     return {
         row["id"]: {

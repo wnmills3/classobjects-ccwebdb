@@ -3,20 +3,44 @@
 from __future__ import annotations
 
 import json
+import logging
 from decimal import Decimal
+from typing import cast
 
 import pytest
 from app import references
 from app.models import REFERENCE_MODELS, Grade, ProvenanceSource, ReferenceMixin
+from app.routers import reference as reference_router
+from app.routers.reference import PUBLIC_TABLES
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 
-def test_the_available_vocabularies_are_listed(client: TestClient) -> None:
-    tables = client.get("/api/reference").json()
+def _values(client: TestClient, headers: dict[str, str], table: str) -> list[dict]:
+    """The vocabulary's values in use, as this caller reads them."""
+    response = client.get(f"/api/reference/{table}", headers=headers)
+    assert response.status_code == 200, response.text
+    return list(response.json()["values"])
+
+
+def test_the_available_vocabularies_are_listed(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    tables = client.get("/api/reference", headers=admin_headers).json()
     assert "grade" in tables
     assert "item_kind" in tables
     assert "denomination" in tables
+
+
+def test_a_signed_out_caller_is_listed_only_the_shops_vocabularies(
+    client: TestClient, customer_headers: dict[str, str]
+) -> None:
+    """The kinds of storage location and vendor are not the shop's to list."""
+    assert set(client.get("/api/reference").json()) == PUBLIC_TABLES
+    customer = client.get("/api/reference", headers=customer_headers).json()
+    assert set(customer) == PUBLIC_TABLES
 
 
 def test_a_vocabulary_comes_back_ready_for_a_picker(client: TestClient) -> None:
@@ -33,15 +57,17 @@ def test_a_vocabulary_comes_back_ready_for_a_picker(client: TestClient) -> None:
 
 
 def test_a_vocabulary_says_whether_its_order_means_anything(
-    client: TestClient,
+    client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     """Grades are in scale order; series are alphabetical.
 
     The Vocabularies page offers to change a value's position only where the
     position is what the pickers sort by.
     """
-    assert client.get("/api/reference/grade").json()["sequenced"] is True
-    assert client.get("/api/reference/series").json()["sequenced"] is False
+    grade = client.get("/api/reference/grade", headers=admin_headers).json()
+    series = client.get("/api/reference/series", headers=admin_headers).json()
+    assert grade["sequenced"] is True
+    assert series["sequenced"] is False
 
 
 def test_a_position_beyond_the_column_is_refused_not_a_500(
@@ -55,39 +81,126 @@ def test_a_position_beyond_the_column_is_refused_not_a_500(
     assert response.status_code == 422, response.text
 
 
-def test_the_endpoint_is_public(client: TestClient) -> None:
-    """Vocabularies are public; they reveal nothing held.
+def test_the_shops_vocabularies_are_public(
+    client: TestClient, customer_headers: dict[str, str]
+) -> None:
+    """The catalog names an item's kind to a signed-out browser."""
+    for table in PUBLIC_TABLES:
+        assert client.get(f"/api/reference/{table}").status_code == 200
+        assert (
+            client.get(f"/api/reference/{table}", headers=customer_headers).status_code
+            == 200
+        )
 
-    The catalog's own filters need it, and a vocabulary is not data:
-    knowing MS64 exists reveals nothing about what anyone owns.
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        "storage_location_kind",
+        "vendor_kind",
+        "sales_venue_kind",
+        "carrier",
+        "image_role",
+        "grade",
+    ],
+)
+def test_any_other_vocabulary_is_a_managers(
+    client: TestClient,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    table: str,
+) -> None:
+    """How the business is run is not the shop's to publish."""
+    assert table not in PUBLIC_TABLES
+    assert client.get(f"/api/reference/{table}").status_code == 403
+    assert (
+        client.get(f"/api/reference/{table}", headers=customer_headers).status_code
+        == 403
+    )
+    assert (
+        client.get(f"/api/reference/{table}", headers=admin_headers).status_code == 200
+    )
+
+
+def test_retired_values_are_a_managers_even_in_a_public_vocabulary(
+    client: TestClient,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """`include_inactive` carries retired values and retired aliases too."""
+    url = "/api/reference/item_kind?include_inactive=true"
+    assert client.get(url).status_code == 403
+    assert client.get(url, headers=customer_headers).status_code == 403
+    assert client.get(url, headers=admin_headers).status_code == 200
+
+
+def test_a_constraints_own_words_are_logged_not_returned(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A 422 says a constraint refused the write; the database's words are logged.
+
+    They name the schema's tables, columns and values, which are not the
+    caller's to read.
     """
-    assert client.get("/api/reference/grade").status_code == 200
+
+    class _Refusing:
+        """A session whose flush a check constraint refuses."""
+
+        def flush(self) -> None:
+            """Refuse, as the database would."""
+            raise IntegrityError(
+                "INSERT", {}, Exception('violates check constraint "ck_secret_rule"')
+            )
+
+        def rollback(self) -> None:
+            """Nothing to undo."""
+
+    with (
+        caplog.at_level(logging.WARNING, logger=reference_router.__name__),
+        pytest.raises(HTTPException) as refused,
+    ):
+        reference_router._flush_or_refuse(
+            cast(Session, _Refusing()), "grade", Grade, "the value"
+        )
+
+    assert refused.value.status_code == 422
+    assert "ck_secret_rule" not in str(refused.value.detail)
+    assert "database constraint" in str(refused.value.detail)
+    assert "ck_secret_rule" in caplog.text
 
 
-def test_table_specific_columns_come_through(client: TestClient) -> None:
+def test_table_specific_columns_come_through(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
     """Table-specific columns travel in `extra`.
 
     A denomination's face value and an error type's applies_to are what
     make those pickers usable, and they differ per table -- so they arrive in
     `extra` rather than forcing a response model per table.
     """
-    denominations = client.get("/api/reference/denomination").json()["values"]
+    denominations = client.get(
+        "/api/reference/denomination", headers=admin_headers
+    ).json()["values"]
     dollar = next(v for v in denominations if v["code"] == "usd_coin_1_00")
     assert dollar["extra"]["face_value"] == "1.0000"
     assert dollar["extra"]["kind"] == "coin"
 
-    errors = client.get("/api/reference/error_type").json()["values"]
+    errors = client.get("/api/reference/error_type", headers=admin_headers).json()[
+        "values"
+    ]
     doubled = next(v for v in errors if v["code"] == "doubled_die")
     assert doubled["extra"]["applies_to"] == "coin"
 
 
-def test_foreign_keys_come_through_as_codes_not_ids(client: TestClient) -> None:
+def test_foreign_keys_come_through_as_codes_not_ids(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
     """Foreign keys inside a vocabulary resolve to codes.
 
     The same rule the rest of the API follows: a client never has to know
     an id, because ids differ between installations.
     """
-    grades = client.get("/api/reference/grade").json()["values"]
+    grades = _values(client, admin_headers, "grade")
     ms65 = next(v for v in grades if v["code"] == "65")
 
     assert ms65["extra"]["grade_scale"] == "sheldon"
@@ -95,9 +208,9 @@ def test_foreign_keys_come_through_as_codes_not_ids(client: TestClient) -> None:
 
 
 def test_grades_carry_the_number_that_makes_them_sortable(
-    client: TestClient,
+    client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    grades = client.get("/api/reference/grade").json()["values"]
+    grades = _values(client, admin_headers, "grade")
     ms65 = next(v for v in grades if v["code"] == "65")
     circulated = next(v for v in grades if v["code"] == "CIRC")
 
@@ -106,7 +219,9 @@ def test_grades_carry_the_number_that_makes_them_sortable(
     assert "numeric_value" not in circulated["extra"]
 
 
-def test_provenance_is_visible(client: TestClient, db: Session) -> None:
+def test_provenance_is_visible(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
     """Provenance is visible on every value.
 
     A picker can distinguish shipped vocabulary from values derived locally,
@@ -115,7 +230,7 @@ def test_provenance_is_visible(client: TestClient, db: Session) -> None:
     db.add(Grade(code="LOCAL_X", label="Local", source=ProvenanceSource.derived))
     db.commit()
 
-    values = client.get("/api/reference/grade").json()["values"]
+    values = _values(client, admin_headers, "grade")
     local = next(v for v in values if v["code"] == "LOCAL_X")
     seeded = next(v for v in values if v["code"] == "65")
 
@@ -124,7 +239,7 @@ def test_provenance_is_visible(client: TestClient, db: Session) -> None:
 
 
 def test_retired_values_are_hidden_but_reachable(
-    client: TestClient, db: Session
+    client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Retired values are hidden but still fetchable.
 
@@ -141,10 +256,12 @@ def test_retired_values_are_hidden_but_reachable(
     )
     db.commit()
 
-    visible = {v["code"] for v in client.get("/api/reference/grade").json()["values"]}
+    visible = {v["code"] for v in _values(client, admin_headers, "grade")}
     assert "RETIRED_X" not in visible
 
-    everything = client.get("/api/reference/grade?include_inactive=true").json()
+    everything = client.get(
+        "/api/reference/grade?include_inactive=true", headers=admin_headers
+    ).json()
     assert "RETIRED_X" in {v["code"] for v in everything["values"]}
 
 
@@ -154,14 +271,16 @@ def test_an_unknown_vocabulary_is_a_404(client: TestClient) -> None:
     assert "not_a_table" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("signed_in", [False, True])
 def test_every_listed_vocabulary_can_actually_be_fetched(
-    client: TestClient,
+    client: TestClient, admin_headers: dict[str, str], signed_in: bool
 ) -> None:
-    """Guards against the index and the handler drifting apart."""
-    tables = client.get("/api/reference").json()
+    """Guards against the index and the handler drifting apart, for either caller."""
+    headers = admin_headers if signed_in else {}
+    tables = client.get("/api/reference", headers=headers).json()
     assert tables, "the index lists no vocabularies, so nothing here is checked"
     for table in tables:
-        response = client.get(f"/api/reference/{table}")
+        response = client.get(f"/api/reference/{table}", headers=headers)
         assert response.status_code == 200, f"{table} listed but not fetchable"
         assert response.json()["table"] == table
 
@@ -205,7 +324,9 @@ def test_every_reference_table_is_registered() -> None:
     )
 
 
-def test_the_fee_vocabulary_reaches_a_picker(client: TestClient) -> None:
+def test_the_fee_vocabulary_reaches_a_picker(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
     """The six seeded fee kinds come back in the migration's curated order.
 
     `RecordSaleDialog` builds one fee row per value this returns. A 404 here
@@ -220,7 +341,7 @@ def test_the_fee_vocabulary_reaches_a_picker(client: TestClient) -> None:
     By code and by label the six happen to sort alike; the curated order
     differs from both, which is what makes this assertion discriminate.
     """
-    response = client.get("/api/reference/sales_fee_kind")
+    response = client.get("/api/reference/sales_fee_kind", headers=admin_headers)
     assert response.status_code == 200
     body = response.json()
     assert body["table"] == "sales_fee_kind"
@@ -234,25 +355,29 @@ def test_the_fee_vocabulary_reaches_a_picker(client: TestClient) -> None:
     ]
 
 
-def test_the_catch_all_fee_kind_comes_last(client: TestClient) -> None:
+def test_the_catch_all_fee_kind_comes_last(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
     """The catch-all "other" last is the point of the curated order.
 
     The test above pins the whole sequence; this one names the property the
     curated order rests on, and fails on its own if `sales_fee_kind` ever drops out of
     `_SEQUENCED_TABLES` (alphabetical puts "Other" third).
     """
-    values = client.get("/api/reference/sales_fee_kind").json()["values"]
+    values = _values(client, admin_headers, "sales_fee_kind")
     assert values[-1]["code"] == "other"
 
 
-def test_a_fee_kind_cannot_be_retired(client: TestClient) -> None:
+def test_a_fee_kind_cannot_be_retired(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
     """Retiring one would 422 every sale that charges it.
 
     `record_sale` resolves a fee line's kind through `require_code`, which
     filters on `is_active` -- so a retired `commission` makes every sale
     charging a commission fail, naming a code the dialog had just offered.
     """
-    values = client.get("/api/reference/sales_fee_kind").json()["values"]
+    values = _values(client, admin_headers, "sales_fee_kind")
     commission = next(value for value in values if value["code"] == "commission")
     assert commission["retirable"] is False
 
@@ -267,22 +392,23 @@ def test_a_descriptive_vocabulary_comes_back_alphabetically(
 ) -> None:
     """Attributes are scanned by name; their seeded sort_order groups them."""
     labels = [
-        value["label"]
-        for value in client.get("/api/reference/item_attribute").json()["values"]
+        value["label"] for value in _values(client, admin_headers, "item_attribute")
     ]
 
     assert labels == sorted(labels, key=str.lower)
 
 
-def test_grades_keep_their_scale_order(client: TestClient) -> None:
+def test_grades_keep_their_scale_order(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
     """70, 69+, 69 ... is the scale's own order; alphabetical would be noise."""
-    codes = [v["code"] for v in client.get("/api/reference/grade").json()["values"]]
+    codes = [v["code"] for v in _values(client, admin_headers, "grade")]
 
     assert codes.index("70") < codes.index("65") < codes.index("50")
 
 
 def test_denominations_ascend_by_face_value_coins_then_notes(
-    client: TestClient,
+    client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     """A denomination is a value on a scale, like a grade.
 
@@ -292,7 +418,7 @@ def test_denominations_ascend_by_face_value_coins_then_notes(
     Alphabetical would open with "$1 Bill" ahead of "Cent". Within one
     currency: a 5 peso note and a $1000 bill are on different scales.
     """
-    values = client.get("/api/reference/denomination").json()["values"]
+    values = _values(client, admin_headers, "denomination")
     for kind in ("coin", "note"):
         for currency in {v["extra"]["currency"] for v in values}:
             faces = [
@@ -306,11 +432,11 @@ def test_denominations_ascend_by_face_value_coins_then_notes(
     assert kinds == sorted(kinds), "every coin precedes every note"
 
 
-def test_a_lifecycle_vocabulary_keeps_its_sequence(client: TestClient) -> None:
+def test_a_lifecycle_vocabulary_keeps_its_sequence(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
     """Ordered -> Received -> ... is read constantly; alphabetical scrambles it."""
-    codes = [
-        v["code"] for v in client.get("/api/reference/item_status").json()["values"]
-    ]
+    codes = [v["code"] for v in _values(client, admin_headers, "item_status")]
 
     assert codes.index("ordered") < codes.index("received") < codes.index("canceled")
 
@@ -327,17 +453,14 @@ def test_item_kind_keeps_its_curated_order(client: TestClient) -> None:
 
 
 def test_signature_combinations_keep_their_chronological_order(
-    client: TestClient,
+    client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     """Oldest first: the order the pairs held office in.
 
     Julian / Morgenthau (1934) before Clark / Snyder (1949): by label or by
     code the two sort the other way, so only the curated order passes.
     """
-    codes = [
-        v["code"]
-        for v in client.get("/api/reference/signature_combination").json()["values"]
-    ]
+    codes = [v["code"] for v in _values(client, admin_headers, "signature_combination")]
 
     assert codes.index("tate_mellon") < codes.index("woods_mellon")
     assert codes.index("julian_morgenthau") < codes.index("clark_snyder")
@@ -358,9 +481,7 @@ def test_a_value_added_late_still_sorts_alphabetically(
     )
     assert response.status_code == 201
 
-    labels = [
-        v["label"] for v in client.get("/api/reference/item_attribute").json()["values"]
-    ]
+    labels = [v["label"] for v in _values(client, admin_headers, "item_attribute")]
 
     assert labels[0] == "Aardvark Test"
 
@@ -391,7 +512,7 @@ def test_a_value_can_be_added_while_picking(
     # Marked as this installation's own, not shipped catalog.
     assert body["source"] == "manual"
 
-    values = client.get("/api/reference/grade").json()["values"]
+    values = _values(client, admin_headers, "grade")
     assert "MS64PL" in {v["code"] for v in values}
 
 
@@ -534,7 +655,7 @@ def test_renaming_does_not_change_the_code(
     client.patch(
         "/api/reference/grade/64", json={"label": "Renamed"}, headers=admin_headers
     )
-    values = client.get("/api/reference/grade").json()["values"]
+    values = _values(client, admin_headers, "grade")
     entry = next(v for v in values if v["code"] == "64")
     assert entry["label"] == "Renamed"
 
@@ -563,15 +684,19 @@ def test_a_value_can_be_retired_without_breaking_existing_records(
         headers=admin_headers,
     )
 
-    offered = {v["code"] for v in client.get("/api/reference/grade").json()["values"]}
+    offered = {v["code"] for v in _values(client, admin_headers, "grade")}
     assert "8" not in offered
-    everything = client.get("/api/reference/grade?include_inactive=true").json()
+    everything = client.get(
+        "/api/reference/grade?include_inactive=true", headers=admin_headers
+    ).json()
     assert "8" in {v["code"] for v in everything["values"]}
 
 
-def _value(client: TestClient, table: str, code: str) -> dict:
+def _value(client: TestClient, headers: dict[str, str], table: str, code: str) -> dict:
     """The value with this code as the vocabulary's route returns it, retired or not."""
-    body = client.get(f"/api/reference/{table}?include_inactive=true").json()
+    body = client.get(
+        f"/api/reference/{table}?include_inactive=true", headers=headers
+    ).json()
     return next(v for v in body["values"] if v["code"] == code)
 
 
@@ -595,8 +720,8 @@ def test_a_value_the_application_looks_up_cannot_be_retired(
     client: TestClient, admin_headers: dict[str, str], table: str, code: str
 ) -> None:
     """Retiring "received" would stop receiving; renaming it is only words."""
-    label = _value(client, table, code)["label"]
-    assert _value(client, table, code)["retirable"] is False
+    label = _value(client, admin_headers, table, code)["label"]
+    assert _value(client, admin_headers, table, code)["retirable"] is False
 
     refused = client.patch(
         f"/api/reference/{table}/{code}",
@@ -605,7 +730,7 @@ def test_a_value_the_application_looks_up_cannot_be_retired(
     )
     assert refused.status_code == 409
     assert "looks it up by its code" in refused.json()["detail"]
-    assert _value(client, table, code)["is_active"] is True
+    assert _value(client, admin_headers, table, code)["is_active"] is True
 
     renamed = client.patch(
         f"/api/reference/{table}/{code}",
@@ -659,7 +784,9 @@ def test_the_protected_vocabularies_are_the_ones_listed_here() -> None:
 def test_no_value_of_a_vocabulary_acted_on_by_code_is_retired_or_added(
     client: TestClient, admin_headers: dict[str, str], table: str
 ) -> None:
-    body = client.get(f"/api/reference/{table}?include_inactive=true").json()
+    body = client.get(
+        f"/api/reference/{table}?include_inactive=true", headers=admin_headers
+    ).json()
     assert body["values"], f"{table} has no values, so nothing here is checked"
     assert body["addable"] is False
     assert all(value["retirable"] is False for value in body["values"])
@@ -671,7 +798,7 @@ def test_no_value_of_a_vocabulary_acted_on_by_code_is_retired_or_added(
         headers=admin_headers,
     )
     assert refused.status_code == 409, refused.text
-    assert _value(client, table, value["code"])["is_active"] is True
+    assert _value(client, admin_headers, table, value["code"])["is_active"] is True
 
     added = client.post(
         f"/api/reference/{table}",
@@ -685,7 +812,7 @@ def test_no_value_of_a_vocabulary_acted_on_by_code_is_retired_or_added(
 def test_a_single_value_looked_up_by_code_is_not_retired_or_merged_away(
     client: TestClient, admin_headers: dict[str, str], table: str, code: str
 ) -> None:
-    value = _value(client, table, code)
+    value = _value(client, admin_headers, table, code)
     assert value["retirable"] is False
 
     refused = client.patch(
@@ -694,11 +821,11 @@ def test_a_single_value_looked_up_by_code_is_not_retired_or_merged_away(
         headers=admin_headers,
     )
     assert refused.status_code == 409, refused.text
-    assert _value(client, table, code)["is_active"] is True
+    assert _value(client, admin_headers, table, code)["is_active"] is True
 
     other = next(
         entry["code"]
-        for entry in client.get(f"/api/reference/{table}").json()["values"]
+        for entry in _values(client, admin_headers, table)
         if entry["code"] != code
     )
     merged = client.post(
@@ -719,15 +846,15 @@ def test_a_descriptive_image_role_is_still_retirable(
     table and nothing would notice. "slab" is a description a person chooses
     from a list; no code looks it up.
     """
-    assert _value(client, "image_role", "slab")["retirable"] is True
+    assert _value(client, admin_headers, "image_role", "slab")["retirable"] is True
 
 
 def test_a_descriptive_value_can_be_retired_and_restored(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    assert _value(client, "grade_designation", "FT")["retirable"] is True
+    assert _value(client, admin_headers, "grade_designation", "FT")["retirable"] is True
     url = "/api/reference/grade_designation/FT"
-    label = _value(client, "grade_designation", "FT")["label"]
+    label = _value(client, admin_headers, "grade_designation", "FT")["label"]
 
     retired = client.patch(
         url, json={"label": label, "is_active": False}, headers=admin_headers
@@ -759,7 +886,10 @@ def test_a_renamed_value_keeps_its_name_through_a_seed_load(
 
     shipped = [{"code": "DCAM", "label": "DCAM (Deep Cameo)", "sort_order": 10}]
     assert _seed_table(db, GradeDesignation, shipped) == {"skipped_manual": 1}
-    assert _value(client, "grade_designation", "DCAM")["label"] == "Deep Cameo"
+    assert (
+        _value(client, admin_headers, "grade_designation", "DCAM")["label"]
+        == "Deep Cameo"
+    )
 
 
 def test_a_blank_label_is_refused(
@@ -771,7 +901,10 @@ def test_a_blank_label_is_refused(
         headers=admin_headers,
     )
     assert response.status_code == 422
-    assert _value(client, "grade_designation", "DCAM")["label"] == "DCAM (Deep Cameo)"
+    assert (
+        _value(client, admin_headers, "grade_designation", "DCAM")["label"]
+        == "DCAM (Deep Cameo)"
+    )
 
 
 def test_only_staff_rename(

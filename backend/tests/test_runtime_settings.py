@@ -18,6 +18,7 @@ from app.config import Settings
 from app.runtime_settings import (
     REPO_ROOT,
     EmptyPlaceholder,
+    HalfATlsPair,
     RuntimeSettings,
     UnknownPlaceholder,
     UnsafeValue,
@@ -26,6 +27,7 @@ from app.runtime_settings import (
     format_sh,
     main,
     render,
+    render_values,
 )
 
 
@@ -46,11 +48,7 @@ def test_with_no_env_file_the_values_are_todays_literals(
     bare: pytest.MonkeyPatch,
 ) -> None:
     """The scripts' old literals, every one, and nothing else."""
-    backup = (
-        Path.home() / "OneDrive" / "coins_backup"
-        if sys.platform == "win32"
-        else Path.home() / "ccwebdb-backup"
-    )
+    backup = Path.home() / "ccwebdb-backup"
     assert assignments(defaults()) == {
         "CCWEB_REPO": str(REPO_ROOT),
         "CCWEB_ENV_DIR": sys.prefix,
@@ -323,6 +321,101 @@ def test_a_caddy_value_with_a_space_is_one_quoted_token() -> None:
     """Unquoted, Caddy would read a folder with a space as two arguments."""
     values = {"CCWEB_SITE_ROOT": "C:\\Users\\A B\\dist"}
     assert render("root * {$CCWEB_SITE_ROOT}", values) == 'root * "C:/Users/A B/dist"'
+
+
+def test_render_values_add_what_only_the_templates_use(
+    bare: pytest.MonkeyPatch,
+) -> None:
+    """The service templates' folders and account, beside the scripts' values."""
+    values = render_values(defaults(), "someone")
+    assert values == {
+        **assignments(defaults()),
+        "CCWEB_USER": "someone",
+        "MEDIA_ROOT": str(REPO_ROOT / "media"),
+        "CCWEB_RUNTIME_DIR": str(REPO_ROOT / ".runtime"),
+        "CCWEB_TLS_DIRECTIVE": "",
+    }
+
+
+def test_the_media_root_comes_from_the_environment(
+    bare: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """MEDIA_ROOT is what the API stores in, so the service must name the same."""
+    bare.setenv("MEDIA_ROOT", str(tmp_path / "media"))
+    values = render_values(defaults(), "someone")
+    assert values["MEDIA_ROOT"] == str(tmp_path / "media")
+
+
+def test_the_api_and_the_templates_agree_on_the_media_root(
+    bare: pytest.MonkeyPatch,
+) -> None:
+    """One field, read by both, so the service cannot guard another folder."""
+    bare.setenv("MEDIA_ROOT", "photos-store")
+    api = Settings(_env_file=None, jwt_secret="k" * 32).media_root
+    assert api == REPO_ROOT / "photos-store"
+    assert render_values(defaults(), "someone")["MEDIA_ROOT"] == str(api)
+
+
+def test_a_certificate_and_key_make_one_tls_line(bare: pytest.MonkeyPatch) -> None:
+    """Both set: Caddy is given them; slashes forward and a spaced path quoted."""
+    bare.setenv("CCWEB_TLS_CERT", "C:\\caddy\\certs\\full chain.pem")
+    bare.setenv("CCWEB_TLS_KEY", "/certs/site.key")
+    directive = render_values(defaults(), "someone")["CCWEB_TLS_DIRECTIVE"]
+    assert directive == 'tls "C:/caddy/certs/full chain.pem" /certs/site.key'
+
+
+@pytest.mark.parametrize("which", ["CCWEB_TLS_CERT", "CCWEB_TLS_KEY"])
+def test_half_a_certificate_is_refused_naming_both(
+    bare: pytest.MonkeyPatch, which: str
+) -> None:
+    """A certificate without its key is neither Caddy's own nor the owner's."""
+    bare.setenv(which, "/certs/x.pem")
+    with pytest.raises(HalfATlsPair) as refused:
+        render_values(defaults(), "someone")
+    assert "CCWEB_TLS_CERT" in str(refused.value)
+    assert "CCWEB_TLS_KEY" in str(refused.value)
+
+
+def test_half_a_certificate_exits_2_when_rendering(
+    bare: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Refused like any bad setting: named, exit 2, nothing on stdout."""
+    # Set in the environment, empty included, so `.env` cannot fill the half.
+    bare.setenv("CCWEB_TLS_CERT", "")
+    bare.setenv("CCWEB_TLS_KEY", "/certs/x.key")
+    template = tmp_path / "Caddyfile"
+    template.write_bytes(b"site {\n\t{$CCWEB_TLS_DIRECTIVE}\n}\n")
+    assert main(["--render", str(template)]) == 2
+    captured = capsys.readouterr()
+    assert "CCWEB_TLS_CERT" in captured.err
+    assert captured.out == ""
+
+
+def test_an_empty_tls_directive_renders_as_nothing() -> None:
+    """No certificate of the owner's: the line is empty and Caddy gets its own."""
+    values = {"CCWEB_TLS_DIRECTIVE": "", "CCWEB_SITE_DOMAIN": "example.com"}
+    assert render("{$CCWEB_SITE_DOMAIN} {\n\t{$CCWEB_TLS_DIRECTIVE}\n}", values) == (
+        "example.com {\n\t\n}"
+    )
+
+
+def test_the_tls_directive_is_written_as_it_stands() -> None:
+    """Already Caddy's syntax: not quoted whole for the spaces between its words."""
+    values = {"CCWEB_TLS_DIRECTIVE": "tls /a.pem /b.key"}
+    assert render("\t{$CCWEB_TLS_DIRECTIVE}", values) == "\ttls /a.pem /b.key"
+
+
+def test_render_fills_the_service_templates_folders(
+    bare: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--render` gives a systemd unit the media and runtime folders."""
+    bare.setenv("MEDIA_ROOT", str(tmp_path / "media"))
+    template = tmp_path / "unit.service"
+    template.write_bytes(b"ReadWritePaths=@MEDIA_ROOT@ @CCWEB_RUNTIME_DIR@\n")
+    assert main(["--render", str(template)]) == 0
+    assert capsys.readouterr().out == (
+        f"ReadWritePaths={tmp_path / 'media'} {REPO_ROOT / '.runtime'}\n"
+    )
 
 
 def test_render_is_written_in_utf_8_whatever_the_console(

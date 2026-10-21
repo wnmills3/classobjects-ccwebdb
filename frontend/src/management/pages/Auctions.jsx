@@ -23,9 +23,10 @@ import { SaveButton } from '../SaveButton'
  *
  * `GET /api/auctions` (`routers.auctions.list_auctions`) already returns
  * every auction with every lot it holds -- there is no `GET /auctions/{id}`
- * -- so this page loads the list once and every write replaces the one row
- * it touched in place, the same pattern `Listings.jsx` and `Lots.jsx` use
- * for their own single-list pages.
+ * -- so this page loads a page of the list (newest first, `PAGE_SIZE` at a
+ * time, with Newer and Older) and every write replaces the one row it
+ * touched in place, the same pattern `Listings.jsx` and `Lots.jsx` use for
+ * their own single-list pages.
  *
  * **Two rules the API enforces that this page does not let the owner walk
  * into blindly**: a lot's number and reserve can only be
@@ -69,6 +70,10 @@ const LOT_EDITABLE_STATUSES = new Set(['draft', 'scheduled', 'consigned'])
 //: `LOT_EDITABLE_STATUSES` above: a consigned auction's lots can still be
 //: renumbered or removed, but none can be added.
 const LOTS_ADDABLE_STATUSES = new Set(['draft', 'scheduled'])
+
+//: Auctions asked for at a time. The server pages the list (`limit`,
+//: `offset`) and says how many there are in all.
+const PAGE_SIZE = 100
 
 const CREATE_KEYS = { venue: 'p', title: 't', externalId: 'n' }
 
@@ -795,6 +800,9 @@ function AuctionDetail({ auction, venues, onChanged }) {
 /** The Auctions page: every sale event, and the one selected for detail. */
 export default function Auctions() {
   const [auctions, setAuctions] = useState(null)
+  // The count across every page, from the server; null when it gave none.
+  const [total, setTotal] = useState(null)
+  const [offset, setOffset] = useState(0)
   const { venues, error: venuesError } = useSalesVenues()
   const [auctionsError, setAuctionsError] = useState('')
   const [notice, setNotice] = useState('')
@@ -806,13 +814,18 @@ export default function Auctions() {
   useEffect(() => {
     let cancelled = false
     api
-      .listAuctions()
-      .then((page) => !cancelled && setAuctions(page?.auctions ?? []))
+      .listAuctions({ limit: PAGE_SIZE, offset })
+      .then((page) => {
+        if (cancelled) return
+        setAuctions(page?.auctions ?? [])
+        setTotal(page?.total ?? null)
+        setAuctionsError('')
+      })
       .catch((err) => !cancelled && setAuctionsError(err.message))
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [offset])
 
   function replace(saved) {
     setAuctions((current) =>
@@ -823,6 +836,7 @@ export default function Auctions() {
   function created(saved) {
     setCreating(false)
     setAuctions((current) => [saved, ...(current ?? [])])
+    setTotal((current) => (current === null ? null : current + 1))
     setSelectedId(saved.id)
     setNotice(`${saved.title} started as a draft.`)
   }
@@ -833,6 +847,13 @@ export default function Auctions() {
   // failure the owner still needs to see and react to.
   const error = auctionsError || venuesError
   const selected = (auctions ?? []).find((a) => a.id === selectedId) ?? null
+  const shown = auctions ?? []
+  // The header gives the count across every page; without it, this page's.
+  const count = total ?? offset + shown.length
+  const counted =
+    offset === 0 && shown.length === count
+      ? `${count} of ${count}`
+      : `${shown.length === 0 ? 0 : offset + 1}-${offset + shown.length} of ${count}`
 
   return (
     <section>
@@ -847,6 +868,27 @@ export default function Auctions() {
       <div className="row">
         <button onClick={() => setCreating(true)}>New auction...</button>
       </div>
+
+      {auctions !== null && (
+        <div className="row">
+          <span className="muted">{counted}</span>
+          {/* Shown only where there is a page to go to, rather than greyed
+              out where there is none. */}
+          {offset > 0 && (
+            <button
+              className="link"
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+            >
+              Newer
+            </button>
+          )}
+          {offset + shown.length < count && (
+            <button className="link" onClick={() => setOffset(offset + PAGE_SIZE)}>
+              Older
+            </button>
+          )}
+        </div>
+      )}
 
       {auctions === null && !error && <p className="muted">Loading...</p>}
 

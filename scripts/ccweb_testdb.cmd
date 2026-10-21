@@ -7,11 +7,14 @@ rem    .\scripts\ccweb_testdb.cmd          start it, creating it the first time
 rem    .\scripts\ccweb_testdb.cmd stop     stop it
 rem    .\scripts\ccweb_testdb.cmd status   say whether it exists and is running
 rem
-rem  The collection's cluster lives in OneDrive and only one computer runs it
-rem  at a time, so the other computer has no PostgreSQL to test against. This
-rem  one, in .pgdata.test on port 5433, holds nothing but the databases a test
-rem  session builds and drops: it is not in OneDrive and never holds the
-rem  collection, so its fixed development password protects nothing.
+rem  If another computer shares the collection's cluster folder, for example
+rem  through OneDrive, only one computer runs it at a time, so the other has
+rem  no PostgreSQL to test against. This one (CCWEB_TEST_DB_CLUSTER_DIR,
+rem  default .pgdata.test, on CCWEB_TEST_DB_PORT, default 5433) holds nothing
+rem  but the databases a test session builds and drops, so the tests never
+rem  build theirs inside the collection's cluster. It is never shared and
+rem  never holds the collection, so its fixed development password protects
+rem  nothing.
 rem
 rem  ccweb_check.cmd and ccweb_sonar_scan.cmd run
 rem

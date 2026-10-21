@@ -183,6 +183,71 @@ def test_a_long_unpublished_signing_key_is_accepted() -> None:
     assert Settings(jwt_secret="k" * 32).jwt_secret == "k" * 32
 
 
+def _with_database(url: str) -> Settings:
+    """Settings naming this database, the environment's and .env's ignored."""
+    from app.config import Settings
+
+    return Settings(_env_file=None, jwt_secret="k" * 32, database_url=url)
+
+
+@pytest.mark.parametrize(
+    "host", ["db.example.com", "192.0.2.10", "[2001:db8::1]", "ccwebdb-db"]
+)
+def test_the_published_database_password_is_refused_on_another_machine(
+    host: str,
+) -> None:
+    """The development password is in this repository: no password elsewhere.
+
+    And the refusal names the setting, not the address it refused.
+    """
+    url = f"postgresql+psycopg://ccwebdb:devpassword@{host}:5432/ccwebdb"
+    with pytest.raises(ValidationError, match="DATABASE_URL") as refused:
+        _with_database(url)
+    assert "devpassword" not in str(refused.value)
+    assert "real password" in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql+psycopg://ccwebdb:devpassword@localhost:5432/ccwebdb",
+        "postgresql+psycopg://ccwebdb:devpassword@127.0.0.1:5432/ccwebdb",
+        "postgresql+psycopg://ccwebdb:devpassword@[::1]:5432/ccwebdb",
+        "postgresql+psycopg://ccwebdb:devpassword@/ccwebdb",
+        "postgresql+psycopg://ccwebdb:devpassword@/ccwebdb?host=/var/run/postgresql",
+    ],
+)
+def test_the_published_database_password_is_accepted_on_this_machine(
+    url: str,
+) -> None:
+    """On the machine's own cluster it guards nothing a local user lacks."""
+    assert _with_database(url).database_url == url
+
+
+def test_a_real_database_password_is_accepted_anywhere() -> None:
+    """The other side of the refusal: a server with its own password starts."""
+    url = "postgresql+psycopg://ccwebdb:a-real-one-q7Kx2@db.example.com:5432/ccwebdb"
+    assert _with_database(url).database_url == url
+
+
+def test_the_shop_name_and_owner_are_empty_unless_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty is the frontend's own defaults; .env may name both."""
+    monkeypatch.delenv("VITE_SHOP_NAME", raising=False)
+    monkeypatch.delenv("VITE_SHOP_OWNER", raising=False)
+    plain = Settings(_env_file=None, jwt_secret="k" * 32)
+    assert (plain.vite_shop_name, plain.vite_shop_owner) == ("", "")
+
+    monkeypatch.setenv("VITE_SHOP_NAME", "Example Coins")
+    monkeypatch.setenv("VITE_SHOP_OWNER", "Example Coins LLC")
+    named = Settings(_env_file=None, jwt_secret="k" * 32)
+    assert (named.vite_shop_name, named.vite_shop_owner) == (
+        "Example Coins",
+        "Example Coins LLC",
+    )
+
+
 def test_a_misspelt_name_in_env_is_refused(tmp_path: Path) -> None:
     """A misspelt JWT_SECRET is an error, not a setting left at its default."""
     from app.config import Settings

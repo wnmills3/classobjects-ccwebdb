@@ -36,6 +36,7 @@ from app.models import (
 )
 from app.sales_venues import store_venue_id
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -331,6 +332,44 @@ def test_pagination_reports_total_not_page_size(
 def test_limit_is_bounded(client: TestClient) -> None:
     assert client.get("/api/catalog?limit=0").status_code == 422
     assert client.get("/api/catalog?limit=500").status_code == 422
+
+
+def _refused_as_invalid(response: Response, name: str) -> bool:
+    """Whether the request was refused for this query parameter's value.
+
+    A code no table holds is a 422 too, but with a sentence for its detail;
+    a parameter out of its bounds is FastAPI's list of errors naming it.
+    """
+    if response.status_code != 422:
+        return False
+    detail = response.json()["detail"]
+    return isinstance(detail, list) and detail[0]["loc"] == ["query", name]
+
+
+@pytest.mark.parametrize(
+    ("name", "at_bound", "past_bound"),
+    [
+        ("offset", "1000000", "1000001"),
+        ("q", "m" * 200, "m" * 201),
+        ("kind", "k" * 64, "k" * 65),
+        ("country", "c" * 64, "c" * 65),
+        ("metal", "s" * 64, "s" * 65),
+        ("year_min", "10000", "10001"),
+        ("year_max", "-10000", "-10001"),
+    ],
+)
+def test_a_public_query_is_bounded(
+    client: TestClient, name: str, at_bound: str, past_bound: str
+) -> None:
+    """A stranger cannot make the catalog walk, match or count without limit.
+
+    Each bound is shown from both sides, so the test fails if a bound is
+    missing and if it is set tighter than the value it is documented at.
+    """
+    at = client.get("/api/catalog", params={name: at_bound})
+    assert not _refused_as_invalid(at, name), at.text
+    past = client.get("/api/catalog", params={name: past_bound})
+    assert _refused_as_invalid(past, name), past.text
 
 
 #: Every key a catalog entry may carry. An **allow-list**, written out by

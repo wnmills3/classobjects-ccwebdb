@@ -7,7 +7,7 @@ vi.mock('../../api', () => ({
     listCustomers: vi.fn(),
     listUsers: vi.fn(),
     listCatalog: vi.fn(),
-    getCatalogItem: vi.fn(),
+    listListings: vi.fn(),
     createOrderFor: vi.fn(),
     reviseOrder: vi.fn(),
     customerForUser: vi.fn(),
@@ -38,11 +38,9 @@ beforeEach(() => {
     { id: 2, email: 'ada@example.com', full_name: 'Ada Lovelace' },
     { id: 9, email: 'new@example.com', full_name: 'New Person' },
   ])
-  api.getCatalogItem.mockResolvedValue({
-    id: 3,
-    price: '189.00',
-    quantity_available: 4,
-  })
+  api.listListings.mockResolvedValue([
+    { id: 3, price: '189.00', quantity_available: 4 },
+  ])
   api.listCatalog.mockResolvedValue({
     items: [{ id: 4, title: 'Dime', price: '10.00', quantity_available: 7 }],
   })
@@ -226,9 +224,50 @@ describe('OrderEditor', () => {
     }
   })
 
-  it('says why a line has no availability when its listing cannot be read', async () => {
-    api.getCatalogItem.mockRejectedValue(new Error('Listing not found'))
+  it('says why a line has no availability when the listings cannot be read', async () => {
+    api.listListings.mockRejectedValue(new Error('cannot reach the server'))
     await setup(ORDER)
-    expect(await screen.findByText('not known: Listing not found')).toBeInTheDocument()
+    expect(
+      await screen.findByText('not known: cannot reach the server'),
+    ).toBeInTheDocument()
+  })
+
+  it('says so for a line whose listing the answer leaves out', async () => {
+    api.listListings.mockResolvedValue([])
+    await setup(ORDER)
+    expect(await screen.findByText('not known: listing not found')).toBeInTheDocument()
+  })
+
+  it("reads every line's listing in one request, whatever its status", async () => {
+    const order = {
+      ...ORDER,
+      total_amount: '398.00',
+      items: [
+        ...ORDER.items,
+        { id: 2, listing_id: 8, title: 'Dime', quantity: 2, unit_price: '10.00' },
+      ],
+    }
+    api.listListings.mockResolvedValue([
+      { id: 3, price: '189.00', quantity_available: 4 },
+      // Ended on another platform since: still priced, not refused.
+      { id: 8, price: '12.00', quantity_available: 0, status: 'ended' },
+    ])
+    await setup(order)
+
+    expect(await screen.findByText('listing price $12.00')).toBeInTheDocument()
+    expect(api.listListings).toHaveBeenCalledTimes(1)
+    expect(api.listListings).toHaveBeenCalledWith({ ids: [3, 8], status: 'all' })
+    // The Available cell, the one before Remove.
+    const available = (title) => {
+      const price = screen.getByRole('textbox', { name: `Price of ${title}` })
+      return price.closest('tr').cells[3].textContent
+    }
+    expect(available('Morgan')).toBe('4')
+    expect(available('Dime')).toBe('0')
+  })
+
+  it('asks for no listings for a new order', async () => {
+    await setup()
+    expect(api.listListings).not.toHaveBeenCalled()
   })
 })

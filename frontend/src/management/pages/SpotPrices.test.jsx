@@ -166,29 +166,40 @@ describe('SpotPrices', () => {
     })
   })
 
-  it.each(['abc', '-5', '31.123456', '31.5.0', '$', '31 dollars', '.', '.45535'])(
-    'says why "%s" is not a price, and sends nothing',
-    async (typed) => {
-      const user = await open()
-      const box = screen.getByLabelText('New price for Silver')
-      await user.type(box, typed)
-      // The button answers: a greyed-out one explains nothing.
-      const button = within(row('Silver')).getByRole('button', { name: 'Record' })
-      expect(button).toBeEnabled()
+  it.each([
+    'abc',
+    '-5',
+    '31.123456',
+    '31.5.0',
+    '$',
+    '31 dollars',
+    '.',
+    '.45535',
+    // A comma that does not separate thousands: a decimal comma or a typo,
+    // never a price a hundred times what was meant.
+    '31,50',
+    '1,2',
+    '4,0,1',
+  ])('says why "%s" is not a price, and sends nothing', async (typed) => {
+    const user = await open()
+    const box = screen.getByLabelText('New price for Silver')
+    await user.type(box, typed)
+    // The button answers: a greyed-out one explains nothing.
+    const button = within(row('Silver')).getByRole('button', { name: 'Record' })
+    expect(button).toBeEnabled()
 
-      await user.click(button)
+    await user.click(button)
 
-      expect(
-        screen.getByText(
-          'Silver: enter the price of one troy ounce as an amount, like 31.50 ' +
-            'or 4,012.50 -- up to four decimal places.',
-        ),
-      ).toBeVisible()
-      expect(api.recordMetalPrice).not.toHaveBeenCalled()
-      // What was typed stays, to be corrected.
-      expect(box).toHaveValue(typed)
-    },
-  )
+    expect(
+      screen.getByText(
+        'Silver: enter the price of one troy ounce as an amount, like 31.50 ' +
+          'or 4,012.50 -- up to four decimal places.',
+      ),
+    ).toBeVisible()
+    expect(api.recordMetalPrice).not.toHaveBeenCalled()
+    // What was typed stays, to be corrected.
+    expect(box).toHaveValue(typed)
+  })
 
   it('says why with Enter too, and clears it once a price is recorded', async () => {
     const user = await open()

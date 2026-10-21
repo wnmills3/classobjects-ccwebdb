@@ -7,7 +7,7 @@ the console -- reads anything but these shapes.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -15,7 +15,17 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, model_validator
 from pydantic.fields import FieldInfo
-from sqlalchemy import ColumnElement, Date, DateTime, cast, func, literal
+from sqlalchemy import (
+    ARRAY,
+    ColumnElement,
+    Date,
+    DateTime,
+    any_,
+    bindparam,
+    cast,
+    func,
+    literal,
+)
 from sqlalchemy.orm import QueryableAttribute, Session
 
 from ..clock import to_local
@@ -211,6 +221,20 @@ def local_date(moment: datetime) -> date:
     return to_local(moment).date()
 
 
+def among(
+    column: ColumnElement[Any] | QueryableAttribute[Any], values: Collection[Any]
+) -> ColumnElement[bool]:
+    """`column = ANY(:values)`: one array parameter, however many values.
+
+    For a list of keys a report gathered from an earlier query, which grows
+    with the collection: `IN (...)` binds one parameter per value, and a
+    long enough list exceeds the driver's limit on parameters in a statement.
+    An empty list matches nothing, as an empty `IN` does.
+    """
+    element = column.expression if isinstance(column, QueryableAttribute) else column
+    return element == any_(bindparam(None, list(values), type_=ARRAY(element.type)))
+
+
 @dataclass(frozen=True)
 class Report[P: BaseModel]:
     """One entry in the catalog, generic in its own parameters model.
@@ -244,6 +268,7 @@ __all__ = [
     "Period",
     "Report",
     "ReportResult",
+    "among",
     "is_date_field",
     "local_date",
     "period_label",

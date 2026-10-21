@@ -228,7 +228,7 @@ and an item that says nothing is taken for the common design:
 | Indian Princess Small Head Gold Dollar | $1: 1854-1856 | Type 2 Gold Dollar, Small Head Princess; "Type 2 $1" |
 | Indian Princess Large Head Gold Dollar | $1: 1856-1889 | Type 3 Gold Dollar, Large Head Princess; "Type 3 $1" |
 | Trade Dollar | $1: 1873-1885 | (its label) |
-| American Innovation Dollar | $1: 2018-2032 | American Innovation, Innovation Dollar |
+| American Innovation Dollar | $1: 2018-2032 (2032 is the program's statutory end, Public Law 115-197) | American Innovation, Innovation Dollar |
 | American Women Quarters | 25c: 2022-2025 | American Women, American Women Quarter |
 | Flowing Hair Cent | 1c: 1793 | Chain Cent, Wreath Cent |
 | Liberty Cap, Draped Bust, Classic Head, Coronet Head and Braided Hair Cent | 1c: 1793-1796, 1796-1807, 1808-1814, 1816-1839, 1839-1857 | Matron Head (Coronet Head) |

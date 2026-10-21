@@ -284,6 +284,16 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
     )
 
 
+#: Bounds on what a stranger may ask the public catalog. Each is far past
+#: any real use; without them a search the length of a request line is run
+#: four times over as a pattern, a deep offset makes the database walk every
+#: row before it, and a year beyond a database integer is a 500.
+_MAX_SEARCH_LENGTH = 200
+_MAX_CODE_LENGTH = 64
+_MAX_YEAR = 10_000
+_MAX_OFFSET = 1_000_000
+
+
 @router.get("")
 def list_catalog(
     db: DbSession,
@@ -292,20 +302,27 @@ def list_catalog(
         str | None,
         Query(
             description="Text to find in the title or description of the "
-            "listing or of its item"
+            "listing or of its item",
+            max_length=_MAX_SEARCH_LENGTH,
         ),
     ] = None,
-    kind: Annotated[str | None, Query(description="item_kind code")] = None,
-    country: Annotated[str | None, Query(description="country code")] = None,
-    metal: Annotated[str | None, Query(description="metal code")] = None,
-    year_min: int | None = None,
-    year_max: int | None = None,
+    kind: Annotated[
+        str | None, Query(description="item_kind code", max_length=_MAX_CODE_LENGTH)
+    ] = None,
+    country: Annotated[
+        str | None, Query(description="country code", max_length=_MAX_CODE_LENGTH)
+    ] = None,
+    metal: Annotated[
+        str | None, Query(description="metal code", max_length=_MAX_CODE_LENGTH)
+    ] = None,
+    year_min: Annotated[int | None, Query(ge=-_MAX_YEAR, le=_MAX_YEAR)] = None,
+    year_max: Annotated[int | None, Query(ge=-_MAX_YEAR, le=_MAX_YEAR)] = None,
     in_stock: Annotated[bool, Query(description="Only listings with stock")] = False,
     include_inactive: Annotated[
         bool, Query(description="Admin preview of withdrawn listings")
     ] = False,
     limit: Annotated[int, Query(ge=1, le=200)] = 24,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=_MAX_OFFSET)] = 0,
 ) -> CatalogPage:
     """Browse the catalog. Withdrawn listings are for administrators only.
 

@@ -70,8 +70,8 @@ def test_a_number_of_its_own_is_kept_and_not_counted(
 ) -> None:
     vendor = _vendor(db, "Own Number Vendor")
     high = _generated_high(db)
-    own = _create(client, admin_headers, vendor, order_number="90-00014-00014")
-    assert own["order_number"] == "90-00014-00014"
+    own = _create(client, admin_headers, vendor, order_number="46-46464-64646")
+    assert own["order_number"] == "46-46464-64646"
     # Only Order-NNNN counts: "Order-9x" or a vendor's own number does not.
     _create(client, admin_headers, vendor, order_number="Order-9x")
     assert _create(client, admin_headers, vendor)["order_number"] == (

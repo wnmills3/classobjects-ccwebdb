@@ -9,9 +9,9 @@ rem    .\scripts\ccweb_psql.cmd -c "select * from metal;"    run one statement
 rem    .\scripts\ccweb_psql.cmd -f query.sql                 run a file
 rem    .\scripts\ccweb_psql.cmd -c "\d inventory_item"       describe a table
 rem
-rem  Defaults (localhost:5432, ccwebdb/ccwebdb, devpassword) match
-rem  backend\app\config.py's DATABASE_URL. Override any of them by setting
-rem  the standard PG* variables before calling, e.g. set PGDATABASE=ccwebdb_test
+rem  Host, port, database, user and password default to .env's DATABASE_URL,
+rem  read through ccweb_settings. Override any of them by setting the
+rem  standard PG* variables before calling, e.g. set PGDATABASE=ccwebdb_test
 rem ---------------------------------------------------------------------------
 setlocal
 

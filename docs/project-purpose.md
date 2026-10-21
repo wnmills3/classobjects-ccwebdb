@@ -8,12 +8,16 @@ looks arbitrary, because most of them follow from a rule stated here.
 
 ## The goal
 
-Turn a personal coin and currency collection into a running business.
+Let a coin and paper-money collector or small dealer run a business from
+their collection: record what was bought and what it cost, describe each
+item correctly, and sell it -- in their own shop and on outside platforms --
+without ever selling it twice.
 
-The collection is real -- several thousand items, kept for years. Recording
-what was bought is not enough: the business has to sell from the record, and
-the record has to answer the questions a tax return asks. (For current
-totals, query the database; the figures move with every entry and pass.)
+It was built for one real collection of several thousand items, kept for
+years and being turned into a business, and that collection is the measure
+every feature was tested against. Recording what was bought is not enough:
+the business has to sell from the record, and the record has to answer the
+questions a tax return asks.
 
 Three things have to be true for a sale:
 
@@ -125,13 +129,19 @@ stored items.
 - **Nothing with a history is deleted.** Items are soft deleted, split,
   ended or withdrawn; vocabulary values are retired or merged; an item that
   has ever been offered, a sales lot that has been offered, and any order
-  stay for good. The only rows removed outright are ones nothing refers to:
-  an unused vendor, seller, storage location or Friedberg row, a sales lot
-  never offered, and a vocabulary value merged into another.
+  stay for good. Rows are removed outright only where nothing of the
+  history depends on them: an unused vendor, seller, storage location or
+  Friedberg row; a sales lot never offered, and a member taken out of a lot
+  still being assembled; a lot taken out of an auction (its listing is ended
+  and kept); a vocabulary value merged into another; a photograph deleted or
+  taken off an item; and a certificate or error removed from an item, which
+  the item's History records.
 - **Only facts are shipped as reference data.** The catalog is sold, so
   anything seeded is redistributed with it: design series, office holders and
   mint specifications may be; a publisher's numbering or price guide may not.
 - **The owner is not a customer.** The console shows cost basis, margin,
-  storage location and inventory photographs. The shop must not, and that is
-  enforced where each public response is built (`routers/catalog.py`), field
-  by field, and tested.
+  storage location, history and every photograph of an item. The shop shows
+  only what a buyer needs -- the listing's wording and price and the item's
+  primary photograph, as generated renditions -- and that is enforced where
+  each public response is built (`routers/catalog.py`), field by field, and
+  tested.

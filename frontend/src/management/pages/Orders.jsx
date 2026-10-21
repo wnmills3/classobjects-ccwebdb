@@ -1,8 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { date, money } from '../../shared/format'
-import { useRequest } from '../../shared/useRequest'
 import ModalDialog from '../ModalDialog'
 import OrderEditor from './orders/OrderEditor'
 import OrderHistory from './orders/OrderHistory'
@@ -33,6 +32,10 @@ const STATUSES = [
 //: nothing is put back and nothing can be stranded. Kept in the same order
 //: as STATUSES above for reading, not because anything here depends on it.
 const NO_STOCK_RETURN_STATUSES = new Set(['packed', 'shipped', 'delivered', 'refunded'])
+
+//: Orders asked for at a time. The server pages the list (`limit`, `offset`)
+//: and says how many there are in all.
+const PAGE_SIZE = 100
 
 /**
  * Why the server would refuse moving `order` to `status`, or null when it
@@ -76,26 +79,51 @@ function refusal(order, status) {
 }
 
 /**
- * The Sales page: every order in a table, filtered by status, each with a
- * status picker, its history, and an editor while it is pending or paid.
+ * The Sales page: the orders a page at a time, newest first, filtered by
+ * status on the server, each with a status picker, its history, and an
+ * editor while it is pending or paid.
  *
- * A status is saved as it is chosen. A change that would put stock back on
- * sale -- a cancellation, or a refund before shipping -- is asked about
- * first, and is refused with its reason where there is no listing to return
- * it to. The list is read again after every write.
+ * A status is saved as it is chosen, and the order the server answers with
+ * takes its row's place. A change that would put stock back on sale -- a
+ * cancellation, or a refund before shipping -- is asked about first, and is
+ * refused with its reason where there is no listing to return it to. A
+ * refused change, and a placed or revised order, read the page again.
  */
 export default function Orders() {
-  // Read again after every write; this is the only place the list is set.
-  const list = useRequest('orders', () => api.listOrders())
-  const orders = list.data ?? null
+  // `{rows, total}` for the page on screen; null until the first answer.
+  const [page, setPage] = useState(null)
+  // The latest load failed. Cleared by the next one that succeeds.
+  const [loadError, setLoadError] = useState('')
   // A failed status change, which stays said while the list reloads.
   const [actionError, setActionError] = useState('')
-  const error = actionError || list.error
+  const error = actionError || loadError
   const [show, setShow] = useState('')
+  const [offset, setOffset] = useState(0)
+  // Bumped to read the page again after a write.
+  const [reloads, setReloads] = useState(0)
   // 'new' or an order being placed or revised; null when the editor is closed.
   const [editing, setEditing] = useState(null)
   // The order whose history dialog is open; null when it is closed.
   const [historyOf, setHistoryOf] = useState(null)
+
+  // Held here rather than in a `useRequest`, which would own the list: a
+  // status change puts its one order back in place without asking again.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .listOrders({ status: show, limit: PAGE_SIZE, offset })
+      .then((answer) => {
+        if (cancelled) return
+        setPage(answer)
+        setLoadError('')
+      })
+      .catch((err) => !cancelled && setLoadError(err.message))
+    return () => {
+      cancelled = true
+    }
+  }, [show, offset, reloads])
+
+  const reload = () => setReloads((n) => n + 1)
 
   async function changeStatus(order, status) {
     const refused = refusal(order, status)
@@ -128,18 +156,34 @@ export default function Orders() {
     try {
       // The version the list was read at, so a status chosen from a page
       // someone else has since moved on is refused rather than applied.
-      await api.setOrderStatus(order.id, status, order.version)
+      const saved = await api.setOrderStatus(order.id, status, order.version)
       setActionError('')
+      // A status change touches that order and no other, so its row takes
+      // the answer -- new status and version -- and the page is not read
+      // again. It stays on screen under a status filter it no longer
+      // matches, showing what was just done, until the next load.
+      setPage((current) => ({
+        ...current,
+        rows: current.rows.map((o) => (o.id === saved.id ? saved : o)),
+      }))
     } catch (err) {
       setActionError(err.message)
+      // Refused, often because someone else moved the order on: read the
+      // page again to show where it stands now.
+      reload()
     }
-    list.reload()
   }
 
-  if (!orders && error) return <p className="error">{error}</p>
-  if (!orders) return <p className="muted">Loading...</p>
+  if (!page && error) return <p className="error">{error}</p>
+  if (!page) return <p className="muted">Loading...</p>
 
-  const shown = show ? orders.filter((o) => o.status === show) : orders
+  const shown = page.rows
+  // The header gives the count across every page; without it, this page's.
+  const total = page.total ?? offset + shown.length
+  const counted =
+    offset === 0 && shown.length === total
+      ? `${total} of ${total}`
+      : `${shown.length === 0 ? 0 : offset + 1}-${offset + shown.length} of ${total}`
 
   return (
     <section>
@@ -152,7 +196,13 @@ export default function Orders() {
       <div className="row">
         <label>
           Show{/* */}
-          <select value={show} onChange={(e) => setShow(e.target.value)}>
+          <select
+            value={show}
+            onChange={(e) => {
+              setShow(e.target.value)
+              setOffset(0)
+            }}
+          >
             <option value="">every status</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -161,9 +211,22 @@ export default function Orders() {
             ))}
           </select>
         </label>
-        <span className="muted">
-          {shown.length} of {orders.length}
-        </span>
+        <span className="muted">{counted}</span>
+        {/* Shown only where there is a page to go to, rather than greyed
+            out where there is none. */}
+        {offset > 0 && (
+          <button
+            className="link"
+            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+          >
+            Newer
+          </button>
+        )}
+        {offset + shown.length < total && (
+          <button className="link" onClick={() => setOffset(offset + PAGE_SIZE)}>
+            Older
+          </button>
+        )}
       </div>
 
       {error && <p className="error">{error}</p>}
@@ -249,7 +312,7 @@ export default function Orders() {
             onClose={() => setEditing(null)}
             onSaved={() => {
               setEditing(null)
-              list.reload()
+              reload()
             }}
           />
         </ModalDialog>

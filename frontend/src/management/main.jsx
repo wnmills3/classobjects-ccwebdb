@@ -14,7 +14,9 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter basename="/management">
       <AuthProvider>
-        <ReferenceProvider>
+        {/* Retired values too: the console is a manager's, and a record that
+            still uses one has to show it. */}
+        <ReferenceProvider includeInactive>
           <ManagementApp />
         </ReferenceProvider>
       </AuthProvider>

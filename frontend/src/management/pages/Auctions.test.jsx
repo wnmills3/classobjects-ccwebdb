@@ -111,6 +111,43 @@ describe('Auctions', () => {
     expect(screen.getByText('2')).toBeVisible()
   })
 
+  it('pages the list, saying where it is, with Newer and Older only where they lead', async () => {
+    // Past one page, the rest is reached by Older: a list loaded unpaged
+    // would show the first page alone and say nothing of the others.
+    const user = userEvent.setup()
+    const firstPage = Array.from({ length: 100 }, (_, n) =>
+      auction({ id: 250 - n, title: `Sale ${250 - n}` }),
+    )
+    const lastPage = Array.from({ length: 50 }, (_, n) =>
+      auction({ id: 150 - n, title: `Sale ${150 - n}` }),
+    )
+    api.listAuctions.mockImplementation(({ offset }) =>
+      Promise.resolve({ auctions: offset ? lastPage : firstPage, total: 150 }),
+    )
+    renderWithProviders(<Auctions />, { strict: true })
+
+    expect(await screen.findByText('1-100 of 150')).toBeVisible()
+    expect(api.listAuctions).toHaveBeenCalledWith({ limit: 100, offset: 0 })
+    expect(screen.queryByRole('button', { name: 'Newer' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Older' }))
+    expect(await screen.findByText('101-150 of 150')).toBeVisible()
+    expect(api.listAuctions).toHaveBeenLastCalledWith({ limit: 100, offset: 100 })
+    expect(screen.getByText('Sale 101')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Older' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Newer' }))
+    expect(await screen.findByText('1-100 of 150')).toBeVisible()
+  })
+
+  it('counts a list that fits on one page as all of it, with nowhere to go', async () => {
+    api.listAuctions.mockResolvedValue({ auctions: [auction()], total: 1 })
+    renderWithProviders(<Auctions />, { strict: true })
+    expect(await screen.findByText('1 of 1')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Newer' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Older' })).toBeNull()
+  })
+
   it('shows a load failure without blanking the page', async () => {
     // A load failure must show an error, not take the page down. The page's
     // own shell (its heading) has to survive too -- a render that replaced

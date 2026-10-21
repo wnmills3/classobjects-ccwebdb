@@ -106,6 +106,10 @@ class Composition(TimestampMixin, Base):
             "year_to IS NULL OR year_to >= year_from",
             name="ck_composition_year_range",
         ),
+        # Strictly positive, so a row for a base-metal coin whose fineness is
+        # not a meaningful figure -- the manganese-brass dollars in
+        # `composition.json` -- carries a token 0.0001 and a fine weight of
+        # 0: it names the metal, and melt reads the fine weight, which is 0.
         CheckConstraint(
             "fineness > 0 AND fineness <= 1", name="ck_composition_fineness_fraction"
         ),

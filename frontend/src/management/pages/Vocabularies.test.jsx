@@ -88,7 +88,8 @@ describe('Vocabularies', () => {
   it('opens on the series and lists each value with its aliases', async () => {
     renderWithProviders(<Vocabularies />, { auth: adminAuth(), reference })
     expect(await screen.findByText('Walker')).toBeInTheDocument()
-    expect(api.getReference).toHaveBeenCalledWith('series')
+    // Retired values and aliases are a manager's, asked for by name.
+    expect(api.getReference).toHaveBeenCalledWith('series', { includeInactive: true })
   })
 
   it('marks an alias two values share, and a retired value', async () => {

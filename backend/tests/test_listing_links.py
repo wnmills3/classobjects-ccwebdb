@@ -27,8 +27,8 @@ LOT = "https://hibid.com/lot/280623476/1986-2024-american-eagle--5-00-gold-coin"
 @pytest.mark.parametrize(
     ("url", "found"),
     [
-        ("https://www.ebay.com/itm/900000000003", "900000000003"),
-        ("https://www.ebay.com/itm/1878-Morgan/900000000006?x=1", "900000000006"),
+        ("https://www.ebay.com/itm/434343434343", "434343434343"),
+        ("https://www.ebay.com/itm/1878-Morgan/444444444444?x=1", "444444444444"),
         (LOT, "280623476"),
         ("https://exampleauctions.hibid.com/lot/218761505/x", "218761505"),
         ("https://www.liveauctioneers.com/item/194045322_1880-s-morgan", "194045322"),
@@ -45,7 +45,7 @@ def test_the_listing_id_a_web_address_carries(
 
 
 def test_an_ebay_id_rebuilds_its_listing_address() -> None:
-    assert ebay_listing_url("900000000003") == "https://www.ebay.com/itm/900000000003"
+    assert ebay_listing_url("434343434343") == "https://www.ebay.com/itm/434343434343"
 
 
 def _item(
@@ -65,7 +65,7 @@ def test_the_pass_fills_each_from_the_other(
         db, vendor_name="whatnot.com", source_url="https://www.whatnot.com/order/A"
     )
 
-    by_id = _item(db, make_item, ebay, sellers_item_id="900000000003")
+    by_id = _item(db, make_item, ebay, sellers_item_id="434343434343")
     by_url = _item(db, make_item, lot_order, listing_url=LOT)
     from_order = _item(db, make_item, lot_order)
     to_order = _item(
@@ -87,7 +87,7 @@ def test_the_pass_fills_each_from_the_other(
         from_order.id: "280623476",
     }
     assert todo.listing_urls == {
-        by_id.id: "https://www.ebay.com/itm/900000000003",
+        by_id.id: "https://www.ebay.com/itm/434343434343",
         from_order.id: LOT,
     }
     assert todo.order_urls == {
@@ -138,7 +138,7 @@ def test_a_dealer_whose_name_holds_the_letters_ebay_is_no_marketplace(
 ) -> None:
     # Its lot page is its purchase's, as at any dealer or auction house.
     order = build_purchase_order(db, vendor_name="thebaycoins.com", source_url=LOT)
-    item = _item(db, make_item, order, sellers_item_id="900000000003")
+    item = _item(db, make_item, order, sellers_item_id="434343434343")
     db.commit()
 
     todo = plan(db)
@@ -197,7 +197,7 @@ def test_applying_logs_each_items_change_under_the_person(
     assert item.id not in again.listing_ids
 
 
-LISTING = "https://www.ebay.com/itm/900000000003"
+LISTING = "https://www.ebay.com/itm/434343434343"
 
 
 def _ebay_order(
@@ -211,7 +211,7 @@ def _ebay_order(
         db.flush()
     if order_number is None:
         held = len(db.scalars(select(PurchaseOrder.id)).all())
-        order_number = f"02-15255-{15698 + held:05d}"
+        order_number = f"45-45454-{54548 + held:05d}"
     order = PurchaseOrder(
         vendor_id=vendor.id, source_url=source_url, order_number=order_number
     )
@@ -237,7 +237,7 @@ def test_an_ebay_purchase_takes_its_order_page(
     db.commit()
 
     assert plan(db).order_pages == {
-        bare.id: "https://order.ebay.com/ord/show?orderId=90-00002-00002"
+        bare.id: "https://order.ebay.com/ord/show?orderId=45-45454-54549"
     }
 
 
@@ -246,8 +246,8 @@ def test_a_listing_page_on_an_ebay_purchase_gives_way_once_an_item_carries_it(
 ) -> None:
     by_address = _ebay_order(db, LISTING)
     _item(db, make_item, by_address, listing_url=LISTING)
-    by_id = _ebay_order(db, "https://www.ebay.com/itm/Morgan/900000000003?hash=1")
-    _item(db, make_item, by_id, sellers_item_id="900000000003")
+    by_id = _ebay_order(db, "https://www.ebay.com/itm/Morgan/434343434343?hash=1")
+    _item(db, make_item, by_id, sellers_item_id="434343434343")
     # No item carries this listing: replacing it would lose the only copy.
     only_copy = _ebay_order(db, LISTING)
     _item(db, make_item, only_copy, sellers_item_id="999999999999")
@@ -269,7 +269,7 @@ def test_a_listing_page_on_an_ebay_purchase_gives_way_once_an_item_carries_it(
         ("https://www.ebay.com/mye/myebay/purchase", True),
         # A seller's page says something the order page does not.
         ("https://www.ebay.com/usr/numis_fan_7", False),
-        ("https://order.ebay.com/ord/show?orderId=90-00001-00001#/", False),
+        ("https://order.ebay.com/ord/show?orderId=45-45454-54548#/", False),
     ],
 )
 def test_which_other_addresses_an_ebay_purchase_gives_up(
@@ -288,7 +288,7 @@ def test_only_an_ebay_order_number_makes_an_order_page(
     typed = _ebay_order(db, None, "Order-0001")
     _item(db, make_item, typed)
     whatnot = build_purchase_order(
-        db, vendor_name="whatnot.com", order_number="90-00001-00001"
+        db, vendor_name="whatnot.com", order_number="45-45454-54548"
     )
     _item(db, make_item, whatnot)
     db.commit()
@@ -329,7 +329,7 @@ def _lot_page(client: TestClient, headers: dict[str, str], order_id: int) -> obj
         # The letters inside another site's name make it no marketplace.
         ("thebaycoins.com", LOT, LOT),
         # A marketplace's address names an order or a listing, never a lot.
-        ("ebay.com", "https://www.ebay.com/itm/900000000003", None),
+        ("ebay.com", "https://www.ebay.com/itm/434343434343", None),
         ("whatnot.com", "https://www.whatnot.com/order/A", None),
         # A shop's location page carries no lot id: it is no listing.
         ("silasdeanepawn.com", "https://silasdeanepawn.com/locations/x/", None),
@@ -399,7 +399,7 @@ def test_entering_an_ebay_item_leaves_the_order_address_alone(
             "purchase_order_id": order.id,
             "item_kind": "coin",
             "source_title": "A dime",
-            "listing_url": "https://www.ebay.com/itm/900000000003",
+            "listing_url": "https://www.ebay.com/itm/434343434343",
         },
         headers=admin_headers,
     )

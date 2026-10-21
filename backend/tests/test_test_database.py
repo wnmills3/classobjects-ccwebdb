@@ -27,9 +27,40 @@ def test_the_default_is_the_configured_database_with_test_appended(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("TEST_DATABASE_URL", raising=False)
+    monkeypatch.setattr(settings, "test_database_url", None)
     configured = make_url(settings.database_url).database
 
     assert _test_database_url().database == f"{configured}_test"
+
+
+def test_the_test_database_env_names_is_taken_when_the_process_has_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`.env`'s TEST_DATABASE_URL -- the test cluster -- counts as well."""
+    monkeypatch.delenv("TEST_DATABASE_URL", raising=False)
+    monkeypatch.setattr(settings, "test_database_url", _elsewhere("cluster_test"))
+
+    assert _test_database_url().database == "cluster_test"
+
+
+def test_the_process_environment_comes_before_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "test_database_url", _elsewhere("cluster_test"))
+    monkeypatch.setenv("TEST_DATABASE_URL", _elsewhere("scratch_test"))
+
+    assert _test_database_url().database == "scratch_test"
+
+
+def test_the_test_database_env_names_is_refused_like_any_other(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `.env` value pointing at the application's database never reaches DROP."""
+    monkeypatch.delenv("TEST_DATABASE_URL", raising=False)
+    monkeypatch.setattr(settings, "test_database_url", settings.database_url)
+
+    with pytest.raises(RuntimeError, match="would drop"):
+        _test_database_url()
 
 
 def test_an_override_naming_a_test_database_is_taken(

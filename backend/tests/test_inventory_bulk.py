@@ -13,6 +13,7 @@ import pytest
 from app import offering_writes
 from app.models import (
     Denomination,
+    InventoryItem,
     ItemFieldChange,
     ItemKind,
     Listing,
@@ -443,6 +444,45 @@ def test_a_move_is_kept_in_the_location_history_and_not_in_the_field_log(
     assert "storage_location_id" not in logged
     assert "year_start" in logged
     assert len(_moves(db, item.id)) == 1
+
+
+def test_a_refusal_for_items_for_sale_names_them_as_codes(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The 409 carries `for_sale`, so the console need not read the message.
+
+    Only the item that is offered is named; the other in the selection is
+    not, and nothing is changed on either.
+    """
+    offered = build_item(db)
+    other = build_bare_item(db, year_start=None)
+    venue = db.scalars(select(SalesVenue).where(SalesVenue.is_own_store)).one()
+    offering_writes.offer(
+        db,
+        item=offered,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("50.00"),
+        title="",
+        description="",
+        external_id=None,
+        quantity=1,
+    )
+    db.commit()
+
+    refused = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [offered.id, other.id], "changes": {"year_start": 1964}},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 409, refused.text
+    body = refused.json()
+    assert body["for_sale"] == [offered.item_code]
+    assert body["detail"].startswith("For sale")
+    assert offered.item_code in body["detail"]
+    db.expire_all()
+    assert db.get_one(InventoryItem, other.id).year_start is None
 
 
 def test_moving_an_item_that_is_for_sale_asks_for_no_acknowledgement(

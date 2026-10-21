@@ -48,6 +48,15 @@ const FR_NUMBER = {
 }
 const FR_DESCRIPTION = { key: 'description', label: 'Description' }
 
+/**
+ * A link as the server takes it, on an add and on a correction alike: it
+ * accepts only an http(s) address, and `ebay.com` is meant as one
+ * (`withScheme`). '' for nothing typed, as `clean` gives every blank.
+ */
+function webLink(text) {
+  return withScheme(text) ?? ''
+}
+
 /** The label `options` gives `code`, or the code itself when it has none. */
 function labelIn(options, code) {
   return options.find((entry) => entry.code === code)?.label ?? code ?? ''
@@ -82,9 +91,9 @@ function lists(vendorKinds, locationKinds) {
   // Every kind names a row; only the ones made by hand are offered.
   const offeredKinds = locationKinds.filter((entry) => !MADE_ELSEWHERE.has(entry.code))
   const sellerName = { key: 'name', label: 'Name', required: true }
-  const storeLink = { key: 'store_url', label: 'Store link' }
+  const storeLink = { key: 'store_url', label: 'Store link', clean: webLink }
   const vendorName = { key: 'name', label: 'Name', required: true }
-  const vendorLink = { key: 'url', label: 'Link' }
+  const vendorLink = { key: 'url', label: 'Link', clean: webLink }
   const vendorKind = { key: 'vendor_kind', label: 'Kind', options: vendorKinds }
   const locationKind = {
     key: 'kind',
@@ -164,9 +173,7 @@ function lists(vendorKinds, locationKinds) {
     vendors: {
       noun: 'vendor',
       load: api.listVendors,
-      // The address as the purchase screen's vendor form sends it: the
-      // server takes only an http(s) one, and `ebay.com` is meant as one.
-      create: (body) => api.createVendor({ ...body, url: withScheme(body.url) }),
+      create: api.createVendor,
       adds: [vendorName, vendorLink, vendorKind],
       update: api.updateVendor,
       remove: api.deleteVendor,

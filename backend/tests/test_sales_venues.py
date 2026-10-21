@@ -146,6 +146,34 @@ def test_platforms_are_admin_only(
     assert client.get(URL, headers=customer_headers).status_code == 403
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("POST", URL, {"code": "ebay", "name": "eBay", "kind": "marketplace"}),
+        ("PATCH", f"{URL}/ebay", {"name": "eBay US", "version": 1}),
+    ],
+)
+def test_changing_a_platform_is_admin_only(
+    method: str,
+    path: str,
+    body: dict[str, object],
+    client: TestClient,
+    customer_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """401 signed out, 403 for a customer, on the writes as well as the list.
+
+    Each body is schema-valid, so a 422 cannot stand in for the gate, and
+    nothing is written either way.
+    """
+    assert client.request(method, path, json=body).status_code == 401
+    assert (
+        client.request(method, path, json=body, headers=customer_headers).status_code
+        == 403
+    )
+    assert db.scalar(select(SalesVenue).where(SalesVenue.code == "ebay")) is None
+
+
 def test_the_store_is_listed_first(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

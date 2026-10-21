@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
   api: {
-    listListings: vi.fn(),
+    listListingsPage: vi.fn(),
     updateListing: vi.fn(),
     endListing: vi.fn(),
     listSalesVenues: vi.fn(),
@@ -143,6 +143,9 @@ const STALE = 'This offer was changed by someone else. Reload and reapply your c
 const rowFor = (platform) =>
   screen.getByRole('row', { name: new RegExp(`^${platform}`) })
 
+/** One page as `api.listListingsPage` answers it: the rows, and how many in all. */
+const page = (rows, total = rows.length) => ({ rows, total })
+
 const feeKindsReference = emptyReference({
   tables: { sales_fee_kind: FEE_KINDS },
 })
@@ -174,7 +177,7 @@ async function endOffer(user, row) {
 // whose first load then silently returns the wrong rows.
 beforeEach(() => {
   vi.resetAllMocks()
-  api.listListings.mockResolvedValue([EBAY, STORE])
+  api.listListingsPage.mockResolvedValue(page([EBAY, STORE]))
   api.listSalesVenues.mockResolvedValue(VENUES)
 })
 
@@ -199,7 +202,7 @@ describe('Listings', () => {
   })
 
   it('names an auction listing as one, so it is not mistaken for a price', async () => {
-    api.listListings.mockResolvedValue([{ ...EBAY, format: 'auction' }])
+    api.listListingsPage.mockResolvedValue(page([{ ...EBAY, format: 'auction' }]))
     renderPage()
     const row = await screen.findByRole('row', { name: /^eBay/ })
     expect(within(row).getByText('Auction')).toBeInTheDocument()
@@ -208,7 +211,7 @@ describe('Listings', () => {
   // An item whose cost nobody has recorded has no margin, and saying "0%"
   // would read as a sale at cost -- a different fact entirely.
   it('shows no cost or margin when the cost basis is unknown', async () => {
-    api.listListings.mockResolvedValue([{ ...EBAY, cost_basis: null }])
+    api.listListingsPage.mockResolvedValue(page([{ ...EBAY, cost_basis: null }]))
     renderPage()
     const row = await screen.findByRole('row', { name: /^eBay/ })
     expect(within(row).getAllByText('--')).toHaveLength(2)
@@ -225,7 +228,7 @@ describe('Listings', () => {
   // exclude it. Naming the listing without its platform is the honest answer;
   // guessing a platform would be a silent default.
   it('still names the listing that paused a row when that row is filtered out', async () => {
-    api.listListings.mockResolvedValue([STORE])
+    api.listListingsPage.mockResolvedValue(page([STORE]))
     renderPage()
     const row = await screen.findByRole('row', { name: /^Web store/ })
     expect(within(row).getByText('paused for listing #14')).toBeInTheDocument()
@@ -235,12 +238,14 @@ describe('Listings', () => {
     const user = userEvent.setup()
     renderPage()
     await screen.findByRole('row', { name: /^eBay/ })
-    // Exact: `withQuery` drops empty values, so these three keys
+    // Exact: `withQuery` drops empty values, so the filters and the page
     // are the whole query string the API is asked for.
-    expect(api.listListings).toHaveBeenCalledWith({
+    expect(api.listListingsPage).toHaveBeenCalledWith({
       venue: '',
       format: '',
       status: '',
+      limit: 100,
+      offset: 0,
     })
 
     await user.selectOptions(screen.getByLabelText('Platform'), 'ebay')
@@ -248,10 +253,12 @@ describe('Listings', () => {
     await user.selectOptions(screen.getByLabelText('Status'), 'all')
 
     await waitFor(() =>
-      expect(api.listListings).toHaveBeenLastCalledWith({
+      expect(api.listListingsPage).toHaveBeenLastCalledWith({
         venue: 'ebay',
         format: 'auction',
         status: 'all',
+        limit: 100,
+        offset: 0,
       }),
     )
   })
@@ -363,7 +370,7 @@ describe('Listings', () => {
     renderPage()
     await screen.findByRole('row', { name: /^eBay/ })
 
-    api.listListings.mockRejectedValueOnce(new Error('cannot load listings'))
+    api.listListingsPage.mockRejectedValueOnce(new Error('cannot load listings'))
     await user.selectOptions(screen.getByLabelText('Status'), 'all')
     expect(await screen.findByText('cannot load listings')).toBeInTheDocument()
 
@@ -452,9 +459,11 @@ describe('Listings', () => {
     api.endListing.mockResolvedValue({ ...EBAY, status: 'ended' })
     // The last arm is not `...Once`: a queued value that this test fails
     // before consuming would outlive it and answer the next test's first load.
-    api.listListings
-      .mockResolvedValueOnce([EBAY, STORE])
-      .mockResolvedValue([{ ...STORE, status: 'active', paused_by_listing_id: null }])
+    api.listListingsPage
+      .mockResolvedValueOnce(page([EBAY, STORE]))
+      .mockResolvedValue(
+        page([{ ...STORE, status: 'active', paused_by_listing_id: null }]),
+      )
     renderPage()
     const row = await screen.findByRole('row', { name: /^eBay/ })
     await endOffer(user, row)
@@ -462,7 +471,7 @@ describe('Listings', () => {
     expect(api.endListing).toHaveBeenCalledWith(14)
     // The reload is the point: the store listing's status changed on the
     // server, and no edit to the ended row could have shown that.
-    await waitFor(() => expect(api.listListings).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(api.listListingsPage).toHaveBeenCalledTimes(2))
     await waitFor(() =>
       expect(within(rowFor('Web store')).getByText('Active')).toBeVisible(),
     )
@@ -492,7 +501,7 @@ describe('Listings', () => {
   // in-person sale of a shop item is an order on the customer's behalf, from
   // the Sales page (`docs/specs/selling-design.md`, *Rules*).
   it('does not offer Record sale on the store platform', async () => {
-    api.listListings.mockResolvedValue([EBAY, ACTIVE_STORE])
+    api.listListingsPage.mockResolvedValue(page([EBAY, ACTIVE_STORE]))
     renderPage()
     const store = await screen.findByRole('row', { name: /^Web store/ })
     expect(within(store).queryByRole('button', { name: 'Record sale…' })).toBeNull()
@@ -507,7 +516,7 @@ describe('Listings', () => {
     // HERITAGE is the same shape as a lot of auction #7; the eBay row beside
     // it is an ordinary active listing that keeps both buttons, so this is
     // about `auction_id` and not about the buttons vanishing everywhere.
-    api.listListings.mockResolvedValue([EBAY, { ...HERITAGE, auction_id: 7 }])
+    api.listListingsPage.mockResolvedValue(page([EBAY, { ...HERITAGE, auction_id: 7 }]))
     renderPage()
     const lot = await screen.findByRole('row', { name: /^Heritage/ })
     expect(within(lot).queryByRole('button', { name: 'End' })).toBeNull()
@@ -528,7 +537,7 @@ describe('Listings', () => {
   // for `RecordSaleDialog`.
   it('tells an auction house row that a blank buyer is the undisclosed one', async () => {
     const user = userEvent.setup()
-    api.listListings.mockResolvedValue([HERITAGE])
+    api.listListingsPage.mockResolvedValue(page([HERITAGE]))
     renderPage()
     const row = await screen.findByRole('row', { name: /^Heritage/ })
     await user.click(within(row).getByRole('button', { name: 'Record sale…' }))
@@ -569,9 +578,9 @@ describe('Listings', () => {
     // The last arm is not `...Once`, for the same reason `end`'s test
     // avoids it: a queued value a failed test never consumed would outlive
     // it and answer the next test's first load.
-    api.listListings
-      .mockResolvedValueOnce([EBAY, STORE])
-      .mockResolvedValue([{ ...EBAY, status: 'ended' }, STORE])
+    api.listListingsPage
+      .mockResolvedValueOnce(page([EBAY, STORE]))
+      .mockResolvedValue(page([{ ...EBAY, status: 'ended' }, STORE]))
     renderPage()
     const row = await screen.findByRole('row', { name: /^eBay/ })
     await user.click(within(row).getByRole('button', { name: 'Record sale…' }))
@@ -591,7 +600,7 @@ describe('Listings', () => {
     // The reload is the point, exactly as it is for End: `record_sale` also
     // ends the listing on the server, and no patch to the one row could show
     // that on its own.
-    await waitFor(() => expect(api.listListings).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(api.listListingsPage).toHaveBeenCalledTimes(2))
     expect(
       await screen.findByText('Recorded C-0007 sold to coinfan88 for 94.65 net.'),
     ).toBeVisible()
@@ -606,7 +615,7 @@ describe('Listings', () => {
 
     expect(await screen.findByText(/changed by someone else/)).toBeVisible()
     expect(rowFor('eBay')).toBeInTheDocument()
-    expect(api.listListings).toHaveBeenCalledTimes(1)
+    expect(api.listListingsPage).toHaveBeenCalledTimes(1)
   })
 
   // In StrictMode, which is how the console really runs (`management/main.jsx`),
@@ -626,10 +635,13 @@ describe('Listings', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('does not apply a save the user cancelled before it resolved', async () => {
+  // Cancel closes the window but cannot take back a request already sent: the
+  // server saved it. The row takes the saved version, or the next edit would
+  // send version 3 and be refused as changed by someone else.
+  it('puts a save that resolves after Cancel into the row, at its new version', async () => {
     const user = userEvent.setup()
     let resolveSave
-    api.updateListing.mockReturnValue(
+    api.updateListing.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveSave = resolve
       }),
@@ -645,7 +657,143 @@ describe('Listings', () => {
       resolveSave({ ...EBAY, price: '175.00', version: 4 })
     })
 
-    expect(screen.queryByText('175.00 USD')).toBeNull()
+    expect(within(rowFor('eBay')).getByText('175.00 USD')).toBeInTheDocument()
+    // The next edit starts from the saved version.
+    api.updateListing.mockResolvedValue({ ...EBAY, price: '175.00', version: 5 })
+    const again = await openEditor(user)
+    expect(within(again).getByLabelText('Price')).toHaveValue('175.00')
+    await user.click(within(again).getByRole('button', { name: 'Save' }))
+    expect(api.updateListing).toHaveBeenLastCalledWith(
+      14,
+      expect.objectContaining({ version: 4 }),
+    )
+  })
+
+  it('opens a window for another row untouched by a late save', async () => {
+    const user = userEvent.setup()
+    let resolveSave
+    api.listListingsPage.mockResolvedValue(page([EBAY, HERITAGE]))
+    api.updateListing.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSave = resolve
+      }),
+    )
+    renderPage()
+    const dialog = await openEditor(user)
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await user.click(within(rowFor('Heritage')).getByRole('button', { name: 'Edit' }))
+
+    await act(async () => {
+      resolveSave({ ...EBAY, price: '175.00', version: 4 })
+    })
+
+    // The late answer fixes its own row and leaves the open window alone.
+    expect(within(rowFor('eBay')).getByText('175.00 USD')).toBeInTheDocument()
+    expect(
+      screen.getByRole('dialog', { name: 'Edit C-0009 on Heritage' }),
+    ).toBeVisible()
+  })
+
+  it.each([
+    ['javascript:alert(1)'],
+    ['JavaScript:alert(1)'],
+    ['data:text/html,<script>alert(1)</script>'],
+    ['www.ebay.com/itm/1234567'],
+  ])('shows no link for an address that is not http or https: %s', async (url) => {
+    api.listListingsPage.mockResolvedValue(page([{ ...EBAY, external_url: url }]))
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    expect(within(row).queryByRole('link')).toBeNull()
+  })
+
+  it('links an http address as well as an https one', async () => {
+    api.listListingsPage.mockResolvedValue(
+      page([{ ...EBAY, external_url: 'HTTP://www.ebay.com/itm/1234567' }]),
+    )
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    expect(within(row).getByRole('link', { name: '1234567' })).toHaveAttribute(
+      'href',
+      'HTTP://www.ebay.com/itm/1234567',
+    )
+  })
+})
+
+describe('Listings a page at a time', () => {
+  //: 250 offers on eBay, in the server's order: by id, 1 to 250.
+  const ALL = Array.from({ length: 250 }, (_, i) => ({
+    ...EBAY,
+    id: i + 1,
+    item_code: `C-${String(i + 1).padStart(4, '0')}`,
+  }))
+
+  beforeEach(() => {
+    api.listListingsPage.mockImplementation(({ format, limit, offset }) => {
+      const matching = format ? ALL.filter((l) => l.format === format) : ALL
+      return Promise.resolve(
+        page(matching.slice(offset, offset + limit), matching.length),
+      )
+    })
+  })
+
+  it('says how many of how many are shown, and pages through them', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('C-0001')
+    expect(screen.getByText('1-100 of 250')).toBeInTheDocument()
+    // No page before the first: no button for one.
+    expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    expect(await screen.findByText('101-200 of 250')).toBeInTheDocument()
+    expect(api.listListingsPage).toHaveBeenLastCalledWith({
+      venue: '',
+      format: '',
+      status: '',
+      limit: 100,
+      offset: 100,
+    })
+    expect(screen.getByText('C-0150')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    expect(await screen.findByText('201-250 of 250')).toBeInTheDocument()
+    // The last page: nothing after it.
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Previous' }))
+    expect(await screen.findByText('101-200 of 250')).toBeInTheDocument()
+  })
+
+  it('reads a new filter from its first page', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('C-0001')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('101-200 of 250')
+
+    await user.selectOptions(screen.getByLabelText('Format'), 'auction')
+
+    await waitFor(() =>
+      expect(api.listListingsPage).toHaveBeenLastCalledWith({
+        venue: '',
+        format: 'auction',
+        status: '',
+        limit: 100,
+        offset: 0,
+      }),
+    )
+    expect(
+      await screen.findByText('Nothing is offered under those filters.'),
+    ).toBeVisible()
+  })
+
+  it('shows everything on one page without paging buttons', async () => {
+    api.listListingsPage.mockResolvedValue(page([EBAY, STORE]))
+    renderPage()
+    expect(await screen.findByText('2 of 2')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull()
   })
 })
 
@@ -654,7 +802,7 @@ describe('a lot listing', () => {
   // (`ck_listing_item_xor_lot`). The row and the edit window must name the
   // lot instead of printing the null.
   beforeEach(() => {
-    api.listListings.mockResolvedValue([LOT])
+    api.listListingsPage.mockResolvedValue(page([LOT]))
   })
 
   it('names a lot row by the lot, not by a null item code', async () => {
@@ -679,7 +827,7 @@ describe('a lot listing', () => {
   it('says how many coins a lot holds, so it does not read as one coin', async () => {
     // The count is the whole point of naming the lot rather than the
     // listing: "Three Morgans" at 1000.00 is a plausible single coin.
-    api.listListings.mockResolvedValue([{ ...LOT, member_count: 1 }])
+    api.listListingsPage.mockResolvedValue(page([{ ...LOT, member_count: 1 }]))
     renderPage()
     const row = await screen.findByRole('row', { name: /^eBay/ })
     expect(within(row).getByText('Three Morgans (1 item)')).toBeInTheDocument()

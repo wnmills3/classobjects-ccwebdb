@@ -22,7 +22,7 @@
     "A span has a row only where every coin of it shares one composition. A",
     "dollar of 1971-1976 was struck in copper-nickel clad for circulation and in",
     "40% silver for collectors, and a five-cent piece of 1942 and a cent of",
-    "1982 in two alloys each, so none of them has a row: the weight of such a",
+    "1864 or 1982 in two alloys each, so none of them has a row: the weight of such a",
     "coin is entered by hand. For the",
     "same reason the years a standard changed in -- 1837, 1853, 1873 -- are",
     "left out where both standards were struck, and a commemorative dollar",
@@ -350,11 +350,11 @@
 
     {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1859, "year_to": 1863,
      "metal": "copper", "fineness": "0.8800", "fine_weight_ozt": "0.000000",
-     "note": "88% copper, 12% nickel Indian Head cent. 1864 was struck in this alloy and in bronze."},
+     "note": "88% copper, 12% nickel Indian Head cent. 1864 was struck in this alloy and in bronze, so it has no row."},
 
-    {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1864, "year_to": 1942,
+    {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1865, "year_to": 1942,
      "metal": "copper", "fineness": "0.9500", "fine_weight_ozt": "0.000000",
-     "note": "Bronze cent, 3.11 g. Copper is not quoted per troy ounce for melt."},
+     "note": "Bronze cent, 3.11 g. Copper is not quoted per troy ounce for melt. 1864 was struck in this alloy and in copper-nickel, so it has no row."},
 
     {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1944, "year_to": 1981,
      "metal": "copper", "fineness": "0.9500", "fine_weight_ozt": "0.000000",
@@ -423,19 +423,19 @@
      "note": "One-ounce Gold Eagle, 22 karat."},
 
     {"denomination": "usd_coin_5_00", "series": "american_gold_buffalo", "country": "US",
-     "year_from": 2006,
+     "year_from": 2008, "year_to": 2008,
      "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "0.100000",
-     "note": "Tenth-ounce Gold Buffalo."},
+     "note": "Tenth-ounce Gold Buffalo, struck in 2008 only."},
 
     {"denomination": "usd_coin_10_00", "series": "american_gold_buffalo", "country": "US",
-     "year_from": 2006,
+     "year_from": 2008, "year_to": 2008,
      "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "0.250000",
-     "note": "Quarter-ounce Gold Buffalo."},
+     "note": "Quarter-ounce Gold Buffalo, struck in 2008 only."},
 
     {"denomination": "usd_coin_25_00", "series": "american_gold_buffalo", "country": "US",
-     "year_from": 2006,
+     "year_from": 2008, "year_to": 2008,
      "metal": "gold", "fineness": "0.9999", "fine_weight_ozt": "0.500000",
-     "note": "Half-ounce Gold Buffalo."},
+     "note": "Half-ounce Gold Buffalo, struck in 2008 only."},
 
     {"denomination": "usd_coin_50_00", "series": "american_gold_buffalo", "country": "US",
      "year_from": 2006,

@@ -10,6 +10,7 @@ from app.models import (
     CoinDetail,
     CurrencyDetail,
     InventoryItem,
+    ItemFieldChange,
     ItemKind,
     ItemStatus,
     ItemStatusHistory,
@@ -24,7 +25,7 @@ from app.models import (
     User,
 )
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
@@ -302,6 +303,49 @@ def test_a_lot_cannot_be_split_twice(
     assert "already been split" in again.json()["detail"]
 
 
+def test_a_deleted_lot_cannot_be_split(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Its pieces would come out live from a row that should never have existed."""
+    parent = build_split_lot(db)
+    deleted = client.delete(f"/api/inventory/{parent.id}", headers=admin_headers)
+    assert deleted.status_code == 204
+
+    response = do_split(client, admin_headers, parent.id, TUBE)
+
+    assert response.status_code == 409
+    assert "deleted" in response.json()["detail"]
+    db.expire_all()
+    assert db.get_one(InventoryItem, parent.id).split_at is None
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(InventoryItem)
+            .where(InventoryItem.parent_item_id == parent.id)
+        )
+        == 0
+    )
+
+
+def test_a_split_is_logged_on_the_lot_with_who_made_it(
+    client: TestClient, admin_headers: dict[str, str], db: Session, admin_user: User
+) -> None:
+    """The lot's History says who split it, and when."""
+    parent = build_split_lot(db)
+    assert do_split(client, admin_headers, parent.id, TUBE).status_code == 200
+
+    db.expire_all()
+    [row] = db.scalars(
+        select(ItemFieldChange).where(
+            ItemFieldChange.inventory_item_id == parent.id,
+            ItemFieldChange.field_name == "split_at",
+        )
+    ).all()
+    assert row.old_value is None
+    assert row.changed_by_id == admin_user.id
+    assert row.changed_at == db.get_one(InventoryItem, parent.id).split_at
+
+
 def test_a_piece_cannot_itself_be_split(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
@@ -490,8 +534,8 @@ def test_pieces_keep_the_listing_they_were_bought_from(
     """EBay's item id traces a piece to its listing, so every piece keeps it."""
     parent = build_split_lot(
         db,
-        sellers_item_id="900000000006",
-        listing_url="https://www.ebay.com/itm/900000000006",
+        sellers_item_id="444444444444",
+        listing_url="https://www.ebay.com/itm/444444444444",
     )
     body = do_split(client, admin_headers, parent.id, TUBE).json()
 
@@ -502,7 +546,7 @@ def test_pieces_keep_the_listing_they_were_bought_from(
         )
     ).all()
     assert len(kept) == 4
-    assert set(kept) == {("900000000006", "https://www.ebay.com/itm/900000000006")}
+    assert set(kept) == {("444444444444", "https://www.ebay.com/itm/444444444444")}
 
 
 def test_a_split_lot_names_its_pieces(

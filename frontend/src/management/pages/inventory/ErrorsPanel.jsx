@@ -47,6 +47,10 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   // as `base` so a save over someone else's change since is refused. Not
   // `rows`: a change that failed to save is in `rows` and not on the server.
   const saved = useRef(null)
+  // The set the server will hold once the saves still out land: `saved`,
+  // or the last set sent. A save that fails puts it back to `saved`, so
+  // leaving a note box sends that set again.
+  const sent = useRef(null)
   // The saves, one after another. A save asked for while another is out
   // waits for it, so its base is what that one left on the server: sent at
   // once, it would carry the set read before, and the server would refuse
@@ -87,6 +91,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
           details: e.details ?? '',
         }))
         saved.current = withNoEmptyDetails(read)
+        sent.current = saved.current
         setRows(read)
         setError('')
       })
@@ -125,6 +130,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   function save(next) {
     if (controlled) return
     const sending = withNoEmptyDetails(next)
+    sent.current = sending
     saving.current = saving.current.then(() =>
       api
         .setItemErrors(itemId, sending, {
@@ -135,7 +141,10 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
           saved.current = sending
           setError('')
         })
-        .catch((err) => setError(err.message)),
+        .catch((err) => {
+          if (sent.current === sending) sent.current = saved.current
+          setError(err.message)
+        }),
     )
   }
 
@@ -169,6 +178,18 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
     setList(
       list.map((row) => (row.error_type === code ? { ...row, details: text } : row)),
     )
+  }
+
+  /**
+   * Save on leaving a note box, when the set differs from what was last read
+   * or sent. Tabbing through the boxes changes nothing, and a PUT per box
+   * passed through would be a write per press of Tab.
+   */
+  function saveIfEdited() {
+    if (JSON.stringify(withNoEmptyDetails(list)) === JSON.stringify(sent.current)) {
+      return
+    }
+    save(list)
   }
 
   const loading = !controlled && rows === null && !unread
@@ -220,7 +241,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
                     data-help="error_details"
                     value={row.details ?? ''}
                     onChange={(e) => editDetails(row.error_type, e.target.value)}
-                    onBlur={() => save(list)}
+                    onBlur={saveIfEdited}
                   />
                   <button type="button" onClick={() => removeRow(row.error_type)}>
                     Remove {label}

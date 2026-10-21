@@ -9,6 +9,15 @@
 # address makes it see each visitor's address in Caddy's X-Forwarded-For,
 # which the sign-in limits count by, and believe no one else's. Its log
 # goes to the journal: journalctl -u ccwebdb-api.
+#
+# Hardening: the whole file system is read-only to the API but the
+# photographs' folder, the log folder and .runtime, each of which must
+# exist before the unit starts; it gets a private /tmp, can gain no
+# privilege or capability, and can open only network and local sockets.
+# ProtectHome is left off: true would hide the repository and the conda
+# environment, which live in the owner's home folder and which the API must
+# read, and read-only would add nothing ProtectSystem=strict does not
+# already do.
 [Unit]
 Description=ccwebdb API (FastAPI under uvicorn)
 After=network.target ccwebdb-postgres.service
@@ -21,6 +30,18 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=@CCWEB_ENV_DIR@/bin/python -m uvicorn app.main:app --host @CCWEB_API_HOST@ --port @CCWEB_API_PORT@ --proxy-headers --forwarded-allow-ips @CCWEB_API_HOST@
 Restart=on-failure
 RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=@MEDIA_ROOT@ @CCWEB_LOG_DIR@ @CCWEB_RUNTIME_DIR@
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+RestrictRealtime=true
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target

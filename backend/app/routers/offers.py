@@ -21,8 +21,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Annotated, Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
@@ -30,7 +31,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.orm.strategy_options import _AbstractLoad
 
-from .. import lot_writes, offering_writes, sales_writes
+from .. import lot_writes, offering_writes, order_writes, sales_writes
 from .. import offer_titles as offer_titles_module
 from ..auction_holding import auction_ids_by_listing
 from ..deps import AdminUser, DbSession
@@ -60,6 +61,7 @@ from ..schemas import (
     RecordSaleIn,
     SaleRecordedOut,
 )
+from ._paging import DEFAULT_LIMIT, MAX_LIMIT, Limit, Offset, page
 from ._resolve import (
     enum_member,
     found_or_404,
@@ -124,11 +126,20 @@ def external_url(listing: Listing, venue: SalesVenue) -> str | None:
     Nothing in this application writes `listing.external_url`: neither
     `OfferIn` nor `ListingUpdate` carries it, so the stored branch answers
     only for a row given one directly in the database.
+
+    The listing number is percent-encoded whole (`safe=""`) before it goes
+    into the template, so a `/`, `?` or `#` in it cannot reach another path
+    or add a query. Either way the result is a link only if it is `http` or
+    `https`: the console renders it as an `href`, where a `javascript:` URL
+    would run.
     """
-    if listing.external_url:
-        return listing.external_url
-    if listing.external_id and venue.listing_url_template:
-        return venue.listing_url_template.replace("{external_id}", listing.external_id)
+    url = listing.external_url
+    if not url and listing.external_id and venue.listing_url_template:
+        url = venue.listing_url_template.replace(
+            "{external_id}", quote(listing.external_id, safe="")
+        )
+    if url and url.lower().startswith(("http://", "https://")):
+        return url
     return None
 
 
@@ -540,15 +551,31 @@ def create_offers(
 def list_listings(
     db: DbSession,
     _admin: AdminUser,
+    response: Response,
     venue: Annotated[str | None, Query(description="A sales_venue code")] = None,
     listing_format: Annotated[str | None, Query(alias="format")] = None,
     wanted_status: Annotated[
         str | None, Query(alias="status", description="One status, or `all`")
     ] = None,
     item_id: int | None = None,
+    ids: Annotated[
+        list[int] | None,
+        Query(max_length=MAX_LIMIT, description="Listing ids; any status"),
+    ] = None,
+    limit: Limit = DEFAULT_LIMIT,
+    offset: Offset = 0,
 ) -> list[ListingOut]:
-    """What is offered. Active and paused by default; `status=all` adds ended."""
+    """What is offered. Active and paused by default; `status=all` adds ended.
+
+    `ids` (repeated: `?ids=1&ids=2`) answers those listings whatever their
+    status, unless `status` is also given -- what the order editor reads to
+    price the lines of an order, ended listings included. One page at a time
+    (`limit`, `offset`), oldest first, with how many match in the
+    `X-Total-Count` header.
+    """
     stmt = select(Listing)
+    if ids is not None:
+        stmt = stmt.where(Listing.id.in_(ids))
     if venue is not None:
         stmt = stmt.where(Listing.sales_venue_id == venue_by_code(db, venue).id)
     if listing_format is not None:
@@ -572,15 +599,19 @@ def list_listings(
     if wanted_status is None:
         # The two statuses that mean the item is spoken for -- the same pair
         # `offering_writes.ON_OFFER` names, so the list and the writer agree
-        # about what "offered" means.
-        stmt = stmt.where(Listing.status.in_(offering_writes.ON_OFFER))
+        # about what "offered" means. Not for named ids: an order's line
+        # may be on a listing that has since ended, and it still needs a
+        # price.
+        if ids is None:
+            stmt = stmt.where(Listing.status.in_(offering_writes.ON_OFFER))
     elif wanted_status != _ALL:
         stmt = stmt.where(
             Listing.status
             == enum_member(ListingStatus, wanted_status, "status", also=[_ALL])
         )
 
-    rows = db.scalars(_eager(stmt).order_by(Listing.id)).all()
+    paged = page(db, stmt, response, limit=limit, offset=offset)
+    rows = db.scalars(_eager(paged).order_by(Listing.id)).all()
     return [listing_out(row) for row in rows]
 
 
@@ -704,13 +735,48 @@ def end_listing(listing_id: int, db: DbSession, _admin: AdminUser) -> ListingOut
     Withdrawal, not a sale: `sold=True` belongs to the record-a-sale path,
     which has a buyer and a price to record alongside the ending.
 
-    Refuses a listing that is a lot of an auction -- see `_refuse_auction_lot`.
+    Refuses a listing that is a lot of an auction -- see `_refuse_auction_lot`
+    -- and one whose stock an open order holds (`_refuse_held_by_an_order`).
     """
     listing = _get_listing(db, listing_id)
     _refuse_auction_lot(db, listing)
+    already_ended = listing.status is ListingStatus.ended
     with committing(db, _STALE):
         offering_writes.end_offer(db, listing, sold=False)
+        if not already_ended:
+            _refuse_held_by_an_order(db, listing_id)
     return listing_out(_get_listing(db, listing_id))
+
+
+def _refuse_held_by_an_order(db: Session, listing_id: int) -> None:
+    """409 if an order holds stock of this listing that it could still return.
+
+    Cancelling or refunding such an order puts its stock back on the
+    listing (`order_writes.return_stock`), and an ended listing has nowhere
+    to put it: the cancellation would be refused for good
+    (`routers.orders._no_stock_to_return`), stranding the order. So the
+    order is dealt with first -- shipped, or cancelled -- and the listing
+    ended after.
+
+    Asked after `end_offer`, inside the same transaction, because that call
+    holds the listing's row lock: a checkout taking the last unit either
+    committed before the lock was granted, and its order is found here, or
+    waits on the lock and is refused the ended listing. Asked before it,
+    the check could miss an order placed in between. A refusal raised here
+    rolls the ending back with everything else in the block. An ending of a
+    listing already ended changes nothing, so it is not asked then.
+    """
+    holding = order_writes.orders_holding_stock(db, listing_id)
+    if holding:
+        orders = ", ".join(f"#{order_id}" for order_id in holding)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"listing #{listing_id} cannot be ended while order {orders} "
+                "holds its stock: ending it would leave that order unable to "
+                "be cancelled. Ship or cancel the order first."
+            ),
+        )
 
 
 # --------------------------------------------------------------------------

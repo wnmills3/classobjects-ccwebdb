@@ -13,8 +13,8 @@ const COUNTRY_ENDING = /\.(co|com|org|net|gov|ac|edu)\.[a-z]{2}$/
  * - a site of their own under the marketplace's -- `exampleauctions` of
  *   `https://exampleauctions.hibid.com/lots`: the first part of the
  *   site, whatever page follows;
- * - a page on the marketplace's site -- `coinbuyer42` of
- *   `https://www.ebay.com/usr/coinbuyer42`: the last part of the page, written
+ * - a page on the marketplace's site -- `example_seller` of
+ *   `https://www.ebay.com/usr/example_seller`: the last part of the page, written
  *   as the address writes it.
  *
  * An address that is only a site is named for it, without `www.`:

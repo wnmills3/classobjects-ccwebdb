@@ -1,7 +1,8 @@
 # Acquiring, cataloging and selling an item
 
 How an item goes from a purchase to a sale in the management console
-(`http://127.0.0.1:5173/management`). This is the path **every acquisition
+(`/management` on your site; in development, the console address that
+`ccweb_status` lists). This is the path **every acquisition
 takes**, whether it is the first item in a new installation or one more
 purchase added to an established collection. It is written for the person
 running the business: each step says what it is for, then which screen does

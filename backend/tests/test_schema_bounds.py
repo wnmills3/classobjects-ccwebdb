@@ -3,7 +3,8 @@
 A value the database would refuse or round, and a key the route does not
 read, are refused at validation: the first would otherwise surface as a
 server error or be stored as something else, the second would answer 200
-for a change never made. Nothing here opens a connection.
+for a change never made. A stored address a response offers as a link is
+withheld unless it is a safe one. Nothing here opens a connection.
 """
 
 from __future__ import annotations
@@ -17,7 +18,9 @@ from app.schemas import (
     FriedbergAttachIn,
     FriedbergNumberCreate,
     ImageLinkIn,
+    ImageLinkOut,
     ImageLinkUpdate,
+    ImageOut,
     InventoryItemUpdate,
     ItemCreate,
     ItemErrorIn,
@@ -25,6 +28,7 @@ from app.schemas import (
     OfferIn,
     OrderStatusUpdate,
     PurchaseOrderCreate,
+    PurchaseOrderDetailOut,
     ReceiveRequest,
     ReferenceAliasIn,
     ReferenceMergeIn,
@@ -263,6 +267,115 @@ def test_a_vendors_link_is_a_web_address_on_a_correction_as_when_added(
         VendorCreate.model_validate({"name": "A vendor", "url": url})
     with pytest.raises(ValidationError, match="http"):
         VendorUpdate.model_validate({"url": url})
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "javascript:alert('{external_id}')",
+        "JavaScript:alert('{external_id}')",
+        "data:text/html,{external_id}",
+        "//example.com/itm/{external_id}",
+    ],
+)
+def test_a_platform_s_listing_link_template_is_a_web_address(template: str) -> None:
+    """It becomes a listing's link, so it is held to http(s) like every other."""
+    with pytest.raises(ValidationError, match="http"):
+        SalesVenueCreate.model_validate(
+            {
+                "code": "test",
+                "name": "Test",
+                "kind": "marketplace",
+                "listing_url_template": template,
+            }
+        )
+    with pytest.raises(ValidationError, match="http"):
+        SalesVenueUpdate.model_validate(
+            {"listing_url_template": template, "version": 1}
+        )
+
+
+def test_a_platform_s_listing_link_template_on_the_web_is_taken() -> None:
+    for template in (
+        "https://www.example.com/itm/{external_id}",
+        "HTTP://example.com/lot/{external_id}",
+    ):
+        made = SalesVenueUpdate.model_validate(
+            {"listing_url_template": template, "version": 1}
+        )
+        assert made.listing_url_template == template
+    with pytest.raises(ValidationError, match="external_id"):
+        SalesVenueUpdate.model_validate(
+            {"listing_url_template": "https://example.com/itm", "version": 1}
+        )
+
+
+_PURCHASE = {
+    "id": 1,
+    "order_number": "A-1",
+    "vendor": "A vendor",
+    "ordered_on": None,
+    "lines": [],
+}
+
+
+@pytest.mark.parametrize(
+    ("sent", "offered"),
+    [
+        ("javascript:alert(1)", None),
+        ("data:text/html,x", None),
+        ("Gift", None),
+        ("https://example.com/store", "https://example.com/store"),
+        ("MAILTO:coins@example.com", "MAILTO:coins@example.com"),
+    ],
+)
+def test_a_seller_s_address_is_offered_only_as_a_link_that_is_safe(
+    sent: str, offered: str | None
+) -> None:
+    """A row written around the entry rule must not reach an `href`."""
+    purchase = PurchaseOrderDetailOut.model_validate({**_PURCHASE, "seller_url": sent})
+    assert purchase.seller_url == offered
+
+
+@pytest.mark.parametrize("field", ["source_url", "lot_page"])
+def test_a_purchase_s_page_is_offered_only_on_the_web(field: str) -> None:
+    for sent in ("javascript:alert(1)", "mailto:coins@example.com"):
+        purchase = PurchaseOrderDetailOut.model_validate({**_PURCHASE, field: sent})
+        assert getattr(purchase, field) is None, sent
+    kept = PurchaseOrderDetailOut.model_validate(
+        {**_PURCHASE, field: "https://example.com/lot/1"}
+    )
+    assert getattr(kept, field) == "https://example.com/lot/1"
+
+
+def test_a_photograph_s_source_is_offered_only_on_the_web() -> None:
+    body = {
+        "id": 1,
+        "sha256": "0" * 64,
+        "media_type": "image/jpeg",
+        "byte_size": 1,
+        "thumbnail_url": "/t",
+        "image_url": "/i",
+    }
+    assert (
+        ImageOut.model_validate({**body, "source_url": "javascript:x"}).source_url
+        is None
+    )
+    assert (
+        ImageOut.model_validate(
+            {**body, "source_url": "https://example.com/a.jpg"}
+        ).source_url
+        == "https://example.com/a.jpg"
+    )
+    link = ImageLinkOut.model_validate(
+        {
+            "image_id": 1,
+            "thumbnail_url": "/t",
+            "image_url": "/i",
+            "source_url": "data:x",
+        }
+    )
+    assert link.source_url is None
 
 
 def test_a_vendors_link_is_trimmed_and_a_blank_one_clears_it() -> None:

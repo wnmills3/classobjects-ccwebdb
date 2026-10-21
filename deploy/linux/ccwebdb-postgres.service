@@ -6,6 +6,13 @@
 # (docs/deployment-linux.md). It runs as the account that owns the
 # repository and the cluster, with the conda environment's PostgreSQL. The
 # server's own log goes to the journal: journalctl -u ccwebdb-postgres.
+#
+# Hardening, the part pg_ctl and its clients allow: the whole file system
+# is read-only to the server but the cluster folder, the log folder and
+# /tmp, and it can gain no privilege. /tmp stays writable and shared, not
+# private: the server makes its local socket there, where psql and the
+# backup find it, and a private /tmp would hide it from them. ProtectHome is left off: the cluster and the conda
+# environment live in the owner's home folder.
 [Unit]
 Description=ccwebdb PostgreSQL cluster
 After=network.target
@@ -20,6 +27,12 @@ ExecReload=@CCWEB_ENV_DIR@/bin/pg_ctl reload -D @CCWEB_DB_CLUSTER_DIR@
 # Crash recovery replaying a long WAL can take a while before it accepts
 # connections; that is progress, not failure.
 TimeoutSec=300
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=@CCWEB_DB_CLUSTER_DIR@ @CCWEB_LOG_DIR@ /tmp
+ProtectKernelTunables=true
+ProtectKernelModules=true
 
 [Install]
 WantedBy=multi-user.target

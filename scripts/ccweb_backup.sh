@@ -13,6 +13,12 @@
 #  workbook only once the new one is proved (python -m app.backup_run).
 #  Its log is backup.log in CCWEB_LOG_DIR.
 #
+#  The folder is CCWEB_BACKUP_DIR, read from .env through ccweb_settings
+#  (unset: ccwebdb-backup in your home folder). Set it in .env, which the
+#  daily timer reads too; a variable set only in this shell it never sees.
+#  The cmd twin pins a folder inside OneDrive to stay on the device; Linux
+#  has no OneDrive client, so there is nothing to pin here.
+#
 #  --schedule installs deploy/linux/ccwebdb-backup.service and .timer as
 #  systemd user units, filled from the settings, and enables lingering so
 #  the timer runs whether or not you are signed in -- the counterpart of

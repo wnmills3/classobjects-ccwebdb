@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -47,6 +48,7 @@ from ..field_sources import (
 )
 from ..inventory_search import (
     MISSING_FIELDS,
+    SPECIAL_PARAMS,
     VIEWS,
     UnknownIssue,
     UnknownMissingField,
@@ -116,6 +118,7 @@ from ..schemas import (
     RECEIVE_OUTCOMES,
     BulkEditRequest,
     FieldChangeOut,
+    ForSaleRefusedOut,
     InventoryItemOut,
     InventoryItemUpdate,
     InventoryPageOut,
@@ -294,7 +297,7 @@ def search_inventory(
         )
 
     # Text pasted from an order page or a table cell brings a space or a tab
-    # with it, and the match is a substring: `%51877 %` finds nothing.
+    # with it, and the match is a substring: `%13579 %` finds nothing.
     q = q.strip() if q else q
     # Read once for the page, the facets and the issue counts alike.
     names = names_matching(db, spec, q)
@@ -326,7 +329,7 @@ def search_inventory(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown filter {exc.args[0]!r} for {view}. Available: "
-            f"{sorted(spec.filters)}",
+            f"{sorted({*spec.filters, *SPECIAL_PARAMS})}",
         ) from exc
     except ValueError as exc:
         # Different failures reach here: an unsortable column, an
@@ -1022,6 +1025,26 @@ def _refuse_entered_denomination_of_the_other_kind(
         )
 
 
+def _refuse_entered_fields_of_the_other_kind(db: Session, payload: ItemCreate) -> None:
+    """Raise a 422 if a new item is given a metal, series or designation it cannot hold.
+
+    The same refusals an edit makes (`_refuse_coin_only_fields`,
+    `_refuse_mismatched_series`, `_refuse_mismatched_designation`), asked of
+    an unsaved stand-in that holds nothing yet: what the item would carry is
+    exactly what the payload sends. There is no item code to name yet, so
+    the title given stands in for it, as in `_entered_years`.
+    """
+    data: dict[str, object] = {"item_kind": payload.item_kind}
+    for field in ("metal", "series", "grade_designation"):
+        value = getattr(payload, field)
+        if value is not None:
+            data[field] = value
+    entered = [InventoryItem(item_code=payload.source_title)]
+    _refuse_coin_only_fields(data, entered, db)
+    _refuse_mismatched_designation(data, entered, db)
+    _refuse_mismatched_series(data, entered, db)
+
+
 def _detail_code_id(
     db: Session,
     model: type[ReferenceMixin],
@@ -1143,6 +1166,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     country_id = code_to_id(db, Country, payload.country, "country")
     denomination_id = code_to_id(db, Denomination, payload.denomination, "denomination")
     _refuse_entered_denomination_of_the_other_kind(db, payload)
+    _refuse_entered_fields_of_the_other_kind(db, payload)
     grade_code, strike_code = grades.split_fields(payload.grade, payload.strike_type)
     grade_id = code_to_id(db, Grade, grade_code, "grade")
     strike_type_id = code_to_id(db, StrikeType, strike_code, "strike_type")
@@ -2912,10 +2936,42 @@ def _log_bulk_changes(
         )
 
 
-@router.post("/bulk", responses={422: unprocessable(_REFUSED_ITEM)})
+def _for_sale_refusal(
+    db: Session, items: Sequence[InventoryItem]
+) -> JSONResponse | None:
+    """The 409 a bulk edit answers for items for sale it has not acknowledged.
+
+    `sale_state.guard`'s refusal and message, with the items' codes beside it
+    as `for_sale` (`ForSaleRefusedOut`). Nothing has been written; the
+    transaction is rolled back so the offers locked above are let go.
+    """
+    found = sale_state.for_sale(db, [item.id for item in items])
+    if not found:
+        return None
+    codes = {item.id: item.item_code for item in items}
+    body = ForSaleRefusedOut(
+        detail=sale_state.refusal(
+            {codes[item_id]: uses for item_id, uses in found.items()}
+        ),
+        for_sale=sorted(codes[item_id] for item_id in found),
+    )
+    db.rollback()
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT, content=body.model_dump(mode="json")
+    )
+
+
+@router.post(
+    "/bulk",
+    response_model=dict[str, int],
+    responses={
+        422: unprocessable(_REFUSED_ITEM),
+        status.HTTP_409_CONFLICT: {"model": ForSaleRefusedOut},
+    },
+)
 def bulk_edit(
     payload: BulkEditRequest, db: DbSession, admin: AdminUser
-) -> dict[str, int]:
+) -> dict[str, int] | JSONResponse:
     """Set the same fields across many items, all or nothing.
 
     One transaction on purpose. A partial bulk edit across 50 coins leaves a
@@ -2980,7 +3036,9 @@ def bulk_edit(
     _refuse_mismatched_series(data, list(items), db)
     worked_out = _refuse_fine_above_gross(db, items, data)
     if data and not acknowledged:
-        sale_state.guard(db, list(items), acknowledged=False)
+        refused = _for_sale_refusal(db, items)
+        if refused is not None:
+            return refused
 
     # Every code resolved before anything is set, so a typo in the last field
     # does not leave the first three applied.
@@ -3684,7 +3742,7 @@ def set_item_errors(
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
+def delete_item(item_id: int, db: DbSession, admin: AdminUser) -> None:
     """Soft delete: this row should never have existed.
 
     Guarded three times, because every failure is silent. A lot with pieces
@@ -3779,11 +3837,23 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
         )
 
     with committing(db, _STALE_ITEMS):
-        item.deleted_at = datetime.now(UTC)
+        now = datetime.now(UTC)
+        item.deleted_at = now
+        # In the change log like an edit, so the item's History says who
+        # deleted it and when.
+        field_changes.record(
+            db,
+            item.id,
+            {"deleted_at": None},
+            {"deleted_at": now.isoformat()},
+            ["deleted_at"],
+            user_id=admin.id,
+            at=now,
+        )
 
 
 @router.delete("/{item_id}/parent", response_model=InventoryItemOut)
-def detach_item(item_id: int, db: DbSession, _admin: AdminUser) -> InventoryItem:
+def detach_item(item_id: int, db: DbSession, admin: AdminUser) -> InventoryItem:
     """Set an item's `parent_item_id` back to null.
 
     An item with no parent is complete, not orphaned: only a split lot's
@@ -3791,10 +3861,29 @@ def detach_item(item_id: int, db: DbSession, _admin: AdminUser) -> InventoryItem
     keeps the cost it was allocated, and simply stops recording where it
     came from.
 
-    Idempotent, because the end state is exactly what was asked for.
+    Idempotent, because the end state is exactly what was asked for. A
+    detach that moves something is logged under `parent_item_id`, the lot
+    named by its item code; one that finds no parent logs nothing.
     """
     item = _get_item(db, item_id)
     with committing(db, _STALE_ITEMS):
+        parent_code = (
+            None
+            if item.parent_item_id is None
+            else db.scalar(
+                select(InventoryItem.item_code).where(
+                    InventoryItem.id == item.parent_item_id
+                )
+            )
+        )
         item.parent_item_id = None
+        field_changes.record(
+            db,
+            item.id,
+            {"parent_item_id": parent_code},
+            {"parent_item_id": None},
+            ["parent_item_id"],
+            user_id=admin.id,
+        )
     db.refresh(item)
     return item

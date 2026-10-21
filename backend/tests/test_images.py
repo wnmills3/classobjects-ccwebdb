@@ -9,6 +9,8 @@ are the checks that make it a guarantee.
 from __future__ import annotations
 
 import io
+import struct
+from collections.abc import Callable
 from pathlib import Path
 
 # piexif ships neither stubs nor a py.typed marker, so there is nothing for the
@@ -19,8 +21,10 @@ import pytest
 from app.config import settings
 from app.imaging import MetadataRemainsError, cleanse, make_derivative
 from app.models import DerivativeKind, Image, ImageRole, ItemImage, Listing
+from app.storage import LocalStorage
 from fastapi.testclient import TestClient
 from PIL import Image as PILImage
+from PIL import ImageFile
 from sqlalchemy.orm import Session
 
 from tests.builders import make_jpeg
@@ -278,6 +282,35 @@ def test_a_format_no_photograph_arrives_in_is_refused() -> None:
         cleanse(raw)
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ValueError("bad tile"),
+        SyntaxError("not a PNG chunk"),
+        EOFError(),
+        struct.error("unpack requires a buffer of 4 bytes"),
+        ZeroDivisionError("division by zero"),
+    ],
+)
+def test_a_damaged_picture_is_refused_whatever_its_decoder_raises(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    """A decoder reading a damaged file raises more than OSError.
+
+    Each is a picture that cannot be read, so a refusal the uploader is
+    told about -- not a server error.
+    """
+    from app.imaging import ImageRejected
+
+    def fail(_self: object) -> None:
+        """Fail as a decoder reading a damaged file does."""
+        raise failure
+
+    monkeypatch.setattr(ImageFile.ImageFile, "load", fail)
+    with pytest.raises(ImageRejected, match="not a readable image"):
+        cleanse(_encoded("PNG"))
+
+
 def test_a_file_over_the_upload_limit_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -306,6 +339,78 @@ def test_a_picture_over_the_pixel_limit_is_refused(
     PILImage.new("RGB", (15, 10), "navy").save(over, format="PNG")
     with pytest.raises(ImageRejected, match="implausibly large"):
         cleanse(over.getvalue())
+
+
+# ---------------------------------------------------------------------------
+# Storage keys stay under the media root
+# ---------------------------------------------------------------------------
+
+
+def _every_operation(storage: LocalStorage, key: str) -> list[Callable[[], object]]:
+    """Each of the backend's four operations on `key`, ready to call."""
+    return [
+        lambda: storage.put(key, b"x"),
+        lambda: storage.get(key),
+        lambda: storage.delete(key),
+        lambda: storage.exists(key),
+    ]
+
+
+def test_a_key_climbing_out_of_the_root_is_refused(tmp_path: Path) -> None:
+    """A key comes from a row, and a row could hold `../`: nothing outside moves."""
+    root = tmp_path / "media"
+    root.mkdir()
+    outside = tmp_path / "x"
+    outside.write_bytes(b"kept")
+    storage = LocalStorage(root)
+
+    for operation in _every_operation(storage, "../x"):
+        with pytest.raises(ValueError, match="escapes the media root"):
+            operation()
+    assert outside.read_bytes() == b"kept"
+
+
+def test_an_absolute_key_is_refused(tmp_path: Path) -> None:
+    """`root / "/elsewhere"` is `/elsewhere`: an absolute key leaves the root."""
+    root = tmp_path / "media"
+    root.mkdir()
+    outside = tmp_path / "elsewhere.jpg"
+    outside.write_bytes(b"kept")
+    storage = LocalStorage(root)
+
+    for operation in _every_operation(storage, str(outside.resolve())):
+        with pytest.raises(ValueError, match="escapes the media root"):
+            operation()
+    assert outside.read_bytes() == b"kept"
+
+
+def test_a_key_through_a_link_out_of_the_root_is_refused(tmp_path: Path) -> None:
+    """The key is checked where it leads, not as written."""
+    root = tmp_path / "media"
+    root.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "a.jpg").write_bytes(b"kept")
+    try:
+        (root / "orig").symlink_to(elsewhere, target_is_directory=True)
+    except OSError:
+        pytest.skip("this account may not create symbolic links")
+    storage = LocalStorage(root)
+
+    for operation in _every_operation(storage, "orig/a.jpg"):
+        with pytest.raises(ValueError, match="escapes the media root"):
+            operation()
+    assert (elsewhere / "a.jpg").read_bytes() == b"kept"
+
+
+def test_a_key_inside_the_root_is_stored(tmp_path: Path) -> None:
+    """The refusals above refuse escapes, not storage."""
+    storage = LocalStorage(tmp_path)
+    storage.put("orig/ab/cd.jpg", b"bytes")
+    assert storage.exists("orig/ab/cd.jpg")
+    assert storage.get("orig/ab/cd.jpg") == b"bytes"
+    storage.delete("orig/ab/cd.jpg")
+    assert not storage.exists("orig/ab/cd.jpg")
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +508,7 @@ def test_photographs_cannot_be_found_by_counting(
     The route is public and has to be: an `<img>` tag carries no bearer
     token, so a listed coin's photograph must load for a signed-out buyer.
     That makes the URL itself the only thing standing between a stranger and
-    a photograph of every valuable the owner keeps in a safe-deposit box.
+    a photograph of every item in the collection, listed or not.
     Keyed by row id, `/api/images/1/web`, `/2/web`, `/3/web` would walk the
     whole collection.
 

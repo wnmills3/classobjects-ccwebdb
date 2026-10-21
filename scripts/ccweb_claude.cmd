@@ -66,14 +66,14 @@ if not defined SKIPDB (
         if errorlevel 1 (
             if defined CHECKONLY (
                 if exist "%PGDATA%\postmaster.pid" (
-                    set "DBSTATE=not running here - postmaster.pid: the other computer may be running it"
+                    set "DBSTATE=not running here - postmaster.pid: another computer may be running it"
                 ) else (
                     set "DBSTATE=not running - /check starts nothing"
                 )
             ) else (
                 call "%REPO%\scripts\ccweb_pgstart.cmd"
                 if errorlevel 1 (
-                    set "DBSTATE=NOT STARTED - postmaster.pid: the other computer may be running it"
+                    set "DBSTATE=NOT STARTED - postmaster.pid: another computer may be running it"
                 ) else (
                     call :waitpg 60
                     "%PGBIN%\pg_isready.exe" -h %CCWEB_DB_HOST% -p %CCWEB_DB_PORT% >nul 2>&1

@@ -8,6 +8,7 @@ import {
   onSignedOut,
   saveTokens,
   send,
+  signOut,
   withQuery,
 } from './api'
 
@@ -35,6 +36,7 @@ describe("the shop's api object", () => {
       'listCatalog',
       'listMyOrders',
       'login',
+      'logout',
       'me',
       'register',
     ])
@@ -91,6 +93,112 @@ describe('token storage', () => {
       throw new Error('storage disabled')
     })
     expect(() => saveTokens({ access_token: 'a' })).not.toThrow()
+  })
+
+  it('signs out by dropping the tokens and telling every listener', () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const heard = vi.fn()
+    const stop = onSignedOut(heard)
+    try {
+      signOut()
+    } finally {
+      stop()
+    }
+    expect(loadTokens()).toBeNull()
+    expect(heard).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('logout', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('posts to the logout endpoint with the session it ends', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = vi.fn().mockResolvedValue({ status: 204, ok: true })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.logout()).resolves.toBeNull()
+
+    const [path, init] = fetchMock.mock.calls[0]
+    expect(path).toBe('/api/auth/logout')
+    expect(init.method).toBe('POST')
+    expect(init.headers.Authorization).toBe('Bearer a')
+  })
+})
+
+describe('getReference', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  function answer() {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      text: () => Promise.resolve('{"values":[]}'),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('asks for the active values only, with the session when there is one', async () => {
+    // Most vocabularies are served to staff only, so the token goes along.
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = answer()
+
+    await api.getReference('series')
+
+    const [path, init] = fetchMock.mock.calls[0]
+    expect(path).toBe('/api/reference/series')
+    expect(init.headers.Authorization).toBe('Bearer a')
+  })
+
+  it('asks for retired values too only when told to', async () => {
+    const fetchMock = answer()
+    await api.getReference('series', { includeInactive: true })
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      '/api/reference/series?include_inactive=true',
+    )
+  })
+})
+
+describe('send withTotal', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  /** A 200 with `rows` as its body and `headers` as its headers. */
+  function answer(rows, headers = {}) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        headers: new Headers(headers),
+        text: () => Promise.resolve(JSON.stringify(rows)),
+      }),
+    )
+  }
+
+  it('answers the rows with the count the header reports', async () => {
+    answer([{ id: 1 }], { 'X-Total-Count': '250' })
+    await expect(send('/api/sales', { withTotal: true })).resolves.toEqual({
+      rows: [{ id: 1 }],
+      total: 250,
+    })
+  })
+
+  it.each([
+    ['absent', {}],
+    ['not a number', { 'X-Total-Count': 'many' }],
+    ['blank', { 'X-Total-Count': '' }],
+  ])('has a null total when the header is %s', async (_case, headers) => {
+    answer([{ id: 1 }], headers)
+    await expect(send('/api/sales', { withTotal: true })).resolves.toEqual({
+      rows: [{ id: 1 }],
+      total: null,
+    })
+  })
+
+  it('answers the body alone without it', async () => {
+    answer([{ id: 1 }], { 'X-Total-Count': '250' })
+    await expect(send('/api/sales')).resolves.toEqual([{ id: 1 }])
   })
 })
 

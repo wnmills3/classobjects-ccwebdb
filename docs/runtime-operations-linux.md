@@ -130,8 +130,13 @@ cd ~/dev/classobjects-ccwebdb
 - **Stopping.** Shutdown stops a recorded group only while `pgrep` still
   finds `uvicorn` or `vite` in it -- a process group number is reused after
   a reboot -- with `TERM`, then `KILL` after ten seconds, so the log writer
-  goes with its server. It then sweeps the API and frontend ports, then
-  stops PostgreSQL with `pg_ctl -m fast`.
+  goes with its server. It then sweeps the API and frontend ports, stopping
+  a listener only when its command line names `uvicorn` (the API's port) or
+  `vite` (the frontend's) and naming any other as left alone, then stops
+  PostgreSQL with `pg_ctl -m fast`.
+- **Starting again.** A listener already on the API's port counts as the
+  API only when `/health` answers `{"status":"ok"}`; any other program
+  there is reported as taking the port, and startup exits 1.
 - **Ports.** `ss` says which process holds a port. A port held by another
   user's process shows its pid as `?`: `ss` may not show it, and the port is
   still reported as held, never as free.

@@ -51,6 +51,7 @@ __all__ = [
     "COIN_VIEW",
     "CURRENCY_VIEW",
     "MISSING_FIELDS",
+    "SPECIAL_PARAMS",
     "VIEWS",
     "MissingField",
     "UnknownIssue",
@@ -815,6 +816,20 @@ def _item_codes_clause(params: dict[str, Any], bound: dict[str, Any]) -> str | N
 #: The grade parameters, read as search terms rather than codes.
 GRADE_PARAMS = ("grade", "grade_min", "grade_max")
 
+#: Parameters every view takes beside its filter table, each read by its own
+#: clause in `_conditions`. Named here so a refusal of an unknown filter can
+#: list them with the rest.
+SPECIAL_PARAMS: tuple[str, ...] = (
+    "deleted",
+    "lot",
+    "issue",
+    "missing",
+    "error_type",
+    "attribute",
+    "item_codes",
+    *GRADE_PARAMS,
+)
+
 
 def _grade_term(key: str, value: str) -> grades.GradeTerm:
     """The grade a search parameter names, or a ValueError saying what is read."""
@@ -904,6 +919,16 @@ def _issue_clause(
     return f"({issue.sql})"
 
 
+def _contains(value: object) -> str:
+    """An ILIKE pattern matching `value` anywhere, its backslashes literal.
+
+    `%` and `_` keep their meaning as wildcards. A backslash is ILIKE's
+    escape character, so left alone it would escape the next character, or
+    at the end of the term make the pattern match nothing.
+    """
+    return "%" + str(value).replace("\\", "\\\\") + "%"
+
+
 def _value_clause(key: str, value: object, f: Filt, bound: dict[str, Any]) -> str:
     """One column-to-value comparison from the view's filter table.
 
@@ -922,7 +947,7 @@ def _value_clause(key: str, value: object, f: Filt, bound: dict[str, Any]) -> st
             value = date.fromisoformat(str(value).strip())
         except ValueError:
             raise ValueError(f"{key}={value!r} is not a date, YYYY-MM-DD.") from None
-    bound[placeholder] = f"%{value}%" if f.op == "ilike" else value
+    bound[placeholder] = _contains(value) if f.op == "ilike" else value
     return template.format(sql=f.sql, placeholder=placeholder)
 
 
@@ -958,12 +983,12 @@ def _query_clause(
             " AND regexp_replace(po_b.order_number, '[^0-9A-Za-z]', '', 'g')"
             " ILIKE :p_q_bare)"
         )
-        bound["p_q_bare"] = f"%{bare}%"
+        bound["p_q_bare"] = _contains(bare)
     for named, ids in names:
         placeholder = f"p_named_{named.key}"
         parts.append(named.match.format(p=placeholder))
         bound[placeholder] = list(ids)
-    bound["p_q"] = f"%{query}%"
+    bound["p_q"] = _contains(query)
     return "(" + " OR ".join(parts) + ")"
 
 
@@ -1109,7 +1134,9 @@ def count_facets(
     A panel over thousands of items is close to useless without this: the
     vocabulary defines fifty-odd grades and a real collection uses a dozen, so
     offering all of them buries the ones present. Counted against the current
-    filters, so the numbers describe what narrowing further would do.
+    filters, so the numbers describe what narrowing further would do. Every
+    value present is returned, most common first; the vocabulary bounds how
+    many there can be, and a cut-off would hide a value that is there.
 
     **A facet is counted without its own filter.** With Status set to
     Received, the status counts are still those of every status under the
@@ -1145,7 +1172,7 @@ def count_facets(
                 f"SELECT {column} AS fid, count(*) AS n "
                 f"FROM {spec.base} {spec.joins_for(facet_joins)}{where} "
                 f"AND {column} IS NOT NULL "
-                f"GROUP BY {column} ORDER BY n DESC LIMIT 60"
+                f"GROUP BY {column} ORDER BY n DESC"
             ),
             bound,
         ).all()

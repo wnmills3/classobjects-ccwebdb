@@ -28,8 +28,8 @@ const purchase = (id, fields) => ({
 //: sort passes by leaving them as they came.
 const ORDERS = [
   purchase(3, {
-    order_number: '90-00013-00013',
-    seller: 'coinbuyer42',
+    order_number: '11-11111-11117',
+    seller: 'example_seller',
     ordered_on: '2026-03-10',
     total: 2,
     total_cost: '55.25',
@@ -44,8 +44,8 @@ const ORDERS = [
   }),
   purchase(1, { vendor: 'Coin show', total_cost: '9.00' }),
   purchase(5, {
-    order_number: '90-00005-00005',
-    seller: 'GoldStandard',
+    order_number: '22-22222-22222',
+    seller: 'ExampleAuctions',
     ordered_on: '2025-12-24',
     outstanding: 1,
     total_cost: '120.00',
@@ -85,16 +85,16 @@ describe('OrderLookup', () => {
 
   it('shows what each purchase is: number, date, vendor, seller, items, cost', async () => {
     await open()
-    const row = screen.getByRole('row', { name: /90-00013-00013/ })
+    const row = screen.getByRole('row', { name: /11-11111-11117/ })
     expect(
       within(row)
         .getAllByRole('cell')
         .map((cell) => cell.textContent),
     ).toEqual([
-      '90-00013-00013',
+      '11-11111-11117',
       'Mar 10, 2026',
       'ebay.com',
-      'coinbuyer42',
+      'example_seller',
       '2',
       // Nothing still to arrive is left empty, not shown as a nought.
       '',
@@ -105,16 +105,16 @@ describe('OrderLookup', () => {
 
   it.each([
     // Part of an order number, from its middle.
-    ['15205', ['#5']],
+    ['22222', ['#5']],
     // Part of a vendor's name, capitals aside.
     ['EBAY', ['#3', '#5']],
     ['a.j', ['#7']],
     // A seller's name.
-    ['goldstand', ['#5']],
+    ['exampleauc', ['#5']],
     // A purchase number, exactly: #1 is not also #7's "51084".
     ['#1', ['#1']],
     // Bare digits are a purchase number and part of an order number alike:
-    // purchase 7, and the order numbered 90-00013-00013.
+    // purchase 7, and the order numbered 11-11111-11117.
     ['7', ['#7', '#3']],
     ['nothing like this', []],
   ])('narrows to what "%s" matches', async (typed, numbers) => {
@@ -200,7 +200,7 @@ describe('OrderLookup', () => {
 
   it('opens a purchase from its order number, on the Purchases page', async () => {
     await open()
-    expect(screen.getByRole('link', { name: '90-00005-00005' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '22-22222-22222' })).toHaveAttribute(
       'href',
       '/purchases?order=5',
     )

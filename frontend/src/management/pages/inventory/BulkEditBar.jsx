@@ -21,7 +21,8 @@ import { ASSEMBLING_LOTS } from '../assembling-lots'
  * nothing and there is never a half-applied selection to report.
  *
  * A selection holding items that are up for sale is refused, naming them; a
- * box then appears to change them anyway.
+ * box then appears to change them anyway. The refusal is told from any other
+ * 409 by the `for_sale` its body carries, not by the wording of its message.
  *
  * "Offer for sale..." works on the same selection but needs more than its
  * ids: a price, a title and a cost basis per item. Those come from `rows`,
@@ -36,9 +37,6 @@ import { ASSEMBLING_LOTS } from '../assembling-lots'
  * ids to match the offer path would silently build a smaller lot than the one
  * that was selected.
  */
-
-//: The refusal the server gives a change to items that are for sale.
-const FOR_SALE = 'For sale'
 
 //: The help topic for a field where it is not the field's own name: the
 //: bar's Year is the one-year box the item editor explains as `year`.
@@ -267,7 +265,7 @@ export default function BulkEditBar({
       onApplied?.()
     } catch (err) {
       setError(err.message)
-      if (err.message.startsWith(FOR_SALE)) setForSaleIn(selection)
+      if (err.body?.for_sale) setForSaleIn(selection)
     } finally {
       setBusy(false)
     }

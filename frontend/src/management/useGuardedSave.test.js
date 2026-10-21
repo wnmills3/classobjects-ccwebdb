@@ -101,6 +101,52 @@ describe('useGuardedSave', () => {
     expect(onSaved).not.toHaveBeenCalled()
   })
 
+  it('hands a late answer to onLateSaved, and only a late one', async () => {
+    // The server saved it whether or not the dialog stayed: the parent puts
+    // the row right, without closing whatever dialog is open by then.
+    const onSaved = vi.fn()
+    const onLateSaved = vi.fn()
+    const { result, unmount } = renderHook(() => useGuardedSave(onSaved, onLateSaved))
+
+    // In time: onSaved alone.
+    await act(async () => {
+      await result.current.send(() => Promise.resolve({ id: 6 }))
+    })
+    expect(onSaved).toHaveBeenCalledWith({ id: 6 })
+    expect(onLateSaved).not.toHaveBeenCalled()
+
+    // Late: onLateSaved alone.
+    const { request, resolve } = pending()
+    let sent
+    act(() => {
+      sent = result.current.send(request)
+    })
+    unmount()
+    await act(async () => {
+      resolve({ id: 7, version: 2 })
+      await sent
+    })
+    expect(onLateSaved).toHaveBeenCalledTimes(1)
+    expect(onLateSaved).toHaveBeenCalledWith({ id: 7, version: 2 })
+    expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it('tells onLateSaved nothing of a refusal after the dialog closed', async () => {
+    const onLateSaved = vi.fn()
+    const { result, unmount } = renderHook(() => useGuardedSave(vi.fn(), onLateSaved))
+    const { request, reject } = pending()
+    let sent
+    act(() => {
+      sent = result.current.send(request)
+    })
+    unmount()
+    await act(async () => {
+      reject(new Error('too late'))
+      await sent
+    })
+    expect(onLateSaved).not.toHaveBeenCalled()
+  })
+
   it('does nothing with a refusal that arrives after the dialog closed', async () => {
     const onSaved = vi.fn()
     const { result, unmount } = renderHook(() => useGuardedSave(onSaved))

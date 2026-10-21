@@ -196,6 +196,41 @@ def test_login_finds_an_address_registered_with_capitals_in_its_domain(
     assert stored.status_code == 200, stored.text
 
 
+def test_login_finds_an_account_whatever_the_case_of_its_local_part(
+    client: TestClient,
+) -> None:
+    """`Bob@` and `bob@` are one mailbox in practice, so one account."""
+    registered = client.post(
+        "/api/auth/register",
+        json={"email": "Bob.Case@example.com", "password": "longenough"},
+    )
+    assert registered.status_code == 201, registered.text
+
+    response = client.post(
+        "/api/auth/login",
+        data={"username": "bob.case@EXAMPLE.com", "password": "longenough"},
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_register_refuses_an_address_taken_in_another_case(
+    client: TestClient, db: Session
+) -> None:
+    """A second spelling of a taken address is the same 409 as the first."""
+    first = client.post(
+        "/api/auth/register",
+        json={"email": "carol@example.com", "password": "longenough"},
+    )
+    assert first.status_code == 201, first.text
+
+    second = client.post(
+        "/api/auth/register",
+        json={"email": "Carol@Example.com", "password": "longenough"},
+    )
+    assert second.status_code == 409, second.text
+    assert db.query(User).filter(User.email.ilike("carol@example.com")).count() == 1
+
+
 def test_an_unknown_address_costs_one_password_verification_like_a_wrong_password(
     client: TestClient, customer_user: User, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -367,6 +402,54 @@ def test_a_token_carrying_an_earlier_version_is_rejected(
     claims = _access_claims(customer_user, expires_in=timedelta(minutes=5))
     claims["tv"] = customer_user.token_version - 1
     assert _me(client, claims, settings.jwt_secret) == 401
+
+
+def test_logout_ends_every_token_the_account_was_given(
+    client: TestClient, customer_user: User
+) -> None:
+    """Signing out leaves nothing a copied token could still use.
+
+    Two sign-ins, as from two browsers: the second's tokens die with the
+    first's, and each is shown working before, so a refusal afterwards is
+    the sign-out's doing.
+    """
+    tokens = [
+        client.post(
+            "/api/auth/login",
+            data={"username": customer_user.email, "password": CUSTOMER_PASSWORD},
+        ).json()
+        for _ in range(2)
+    ]
+    headers = [{"Authorization": f"Bearer {t['access_token']}"} for t in tokens]
+    assert [client.get("/api/auth/me", headers=h).status_code for h in headers] == [
+        200,
+        200,
+    ]
+
+    out = client.post("/api/auth/logout", headers=headers[0])
+    assert out.status_code == 204, out.text
+
+    assert [client.get("/api/auth/me", headers=h).status_code for h in headers] == [
+        401,
+        401,
+    ]
+    for pair in tokens:
+        again = client.post(
+            "/api/auth/refresh", json={"refresh_token": pair["refresh_token"]}
+        )
+        assert again.status_code == 401
+
+    # A new sign-in is not affected.
+    after = client.post(
+        "/api/auth/login",
+        data={"username": customer_user.email, "password": CUSTOMER_PASSWORD},
+    ).json()
+    fresh = {"Authorization": f"Bearer {after['access_token']}"}
+    assert client.get("/api/auth/me", headers=fresh).status_code == 200
+
+
+def test_logout_needs_a_signed_in_caller(client: TestClient) -> None:
+    assert client.post("/api/auth/logout").status_code == 401
 
 
 def test_token_for_deleted_user_is_rejected(

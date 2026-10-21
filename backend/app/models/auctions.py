@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -164,4 +165,12 @@ class AuctionLot(Base):
             "auction_id", "lot_number", name="uq_auction_lot_auction_lot_number"
         ),
         UniqueConstraint("listing_id", name="uq_auction_lot_listing_id"),
+        CheckConstraint(
+            "reserve IS NULL OR reserve >= 0",
+            name="ck_auction_lot_reserve_non_negative",
+        ),
+        CheckConstraint(
+            "hammer_price IS NULL OR hammer_price >= 0",
+            name="ck_auction_lot_hammer_price_non_negative",
+        ),
     )

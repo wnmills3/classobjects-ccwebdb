@@ -15,10 +15,11 @@ function Label({ text, letter }) {
 }
 
 //: A filter's help topic where it differs from its parameter: a kind is
-//: the item's kind, and the typed filters and the error and attribute
-//: pickers have topics of their own that explain what they match.
+//: the item's kind, and the typed filters and the status, error and
+//: attribute pickers have topics of their own that explain what they match.
 const HELP_FOR = {
   kind: 'item_kind',
+  status: 'status_filter',
   grade: 'grade_filter',
   serial_number: 'serial_filter',
   item_code: 'item_code_filter',

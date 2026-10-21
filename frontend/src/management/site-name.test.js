@@ -9,7 +9,10 @@ describe('withScheme', () => {
     ['  hibid.com/lots  ', 'https://hibid.com/lots'],
     ['WWW.APMEX.com', 'https://WWW.APMEX.com'],
     // It has one already.
-    ['https://www.ebay.com/usr/coinbuyer42', 'https://www.ebay.com/usr/coinbuyer42'],
+    [
+      'https://www.ebay.com/usr/example_seller',
+      'https://www.ebay.com/usr/example_seller',
+    ],
     ['http://usmint.gov', 'http://usmint.gov'],
     // A mailbox is not a site.
     ['coins@example.com', 'coins@example.com'],
@@ -29,14 +32,11 @@ describe('siteName', () => {
   it.each([
     // A site of their own under the marketplace's: its first part.
     ['https://exampleauctions.hibid.com/lots', 'exampleauctions'],
-    ['https://memauctionhouse.hibid.com/', 'memauctionhouse'],
+    ['https://coinhound.hibid.com/', 'coinhound'],
     // A page on the marketplace's site: its last part, as written.
-    ['https://www.ebay.com/usr/coinbuyer42', 'coinbuyer42'],
+    ['https://www.ebay.com/usr/coinhound42', 'coinhound42'],
     ['https://www.ebay.com/str/examplecoins/', 'examplecoins'],
-    [
-      'https://www.etsy.com/shop/ExampleCoinShop?ref=view_receipt',
-      'ExampleCoinShop',
-    ],
+    ['https://www.etsy.com/shop/ExampleCoinShop?ref=view_receipt', 'ExampleCoinShop'],
     ['https://www.whatnot.com/user/example_seller#shop', 'example_seller'],
     // Only a site: the site, without www.
     ['https://usmint.gov/', 'usmint.gov'],

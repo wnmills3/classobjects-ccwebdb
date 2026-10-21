@@ -1,11 +1,7 @@
 import { useState } from 'react'
 
 import ModalDialog from './ModalDialog'
-
-//: Only a web address is ever made a link. The address is stored data, and
-//: an `href` of any other scheme -- `javascript:` above all -- would run in
-//: the console when clicked.
-const WEB_ADDRESS = /^https?:\/\//i
+import { isWebAddress } from './web-address'
 
 /**
  * A thumbnail that opens its large rendition in a dialog when clicked.
@@ -27,7 +23,7 @@ const WEB_ADDRESS = /^https?:\/\//i
  */
 export default function EnlargeableImage({ src, largeSrc, alt, sourceUrl }) {
   const [open, setOpen] = useState(false)
-  const from = WEB_ADDRESS.test(sourceUrl ?? '') ? sourceUrl : null
+  const from = isWebAddress(sourceUrl) ? sourceUrl : null
   if (!largeSrc) return <img src={src} alt={alt} />
   return (
     <>

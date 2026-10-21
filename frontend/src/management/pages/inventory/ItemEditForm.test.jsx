@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -122,7 +122,7 @@ describe('ItemEditForm', () => {
       purchase_order_id: 127,
       order_number: null,
       vendor: 'ebay.com',
-      sellers_item_id: '900000000007',
+      sellers_item_id: '474747474747',
     })
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
     const purchase = await screen.findByRole('link', {
@@ -131,8 +131,22 @@ describe('ItemEditForm', () => {
     expect(purchase).toHaveTextContent('Purchase: no order number · ebay.com -- edit')
     expect(purchase).toHaveAttribute('href', '/management/purchases?order=127')
     expect(
-      screen.getByRole('link', { name: /eBay item 900000000007/ }),
-    ).toHaveAttribute('href', 'https://www.ebay.com/itm/900000000007')
+      screen.getByRole('link', { name: /eBay item 474747474747/ }),
+    ).toHaveAttribute('href', 'https://www.ebay.com/itm/474747474747')
+  })
+
+  it("keeps a seller's item id inside the eBay link's path", async () => {
+    // Typed by hand, so it can hold anything: a slash or a `?` would
+    // otherwise send the link to another page of eBay's.
+    api.getInventoryItem.mockResolvedValue({
+      ...item,
+      vendor: 'ebay.com',
+      sellers_item_id: '27641/../usr?x=1',
+    })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    expect(
+      await screen.findByRole('link', { name: /eBay item 27641/ }),
+    ).toHaveAttribute('href', 'https://www.ebay.com/itm/27641%2F..%2Fusr%3Fx%3D1')
   })
 
   it('splits a lot, says what it made, and refreshes what is behind it', async () => {
@@ -339,6 +353,41 @@ describe('Changes made elsewhere while the form is open', () => {
     expect(screen.getByDisplayValue('Mercury dime, cleaned')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).toBeNull()
     await expectSaveRefused(NOTHING_TO_SAVE) // nothing left to save
+  })
+
+  it("never goes back to an older item when a check answers after a save's read-back", async () => {
+    const user = userEvent.setup()
+    let answerCheck
+    const saved = { ...opened, version: 3, description: 'Winged Liberty dime' }
+    api.getInventoryItem
+      .mockResolvedValueOnce(opened)
+      // The check, sent before the save and answered after it.
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerCheck = resolve
+        }),
+      )
+      // The save's read-back.
+      .mockResolvedValue(saved)
+    api.updateInventoryItem.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    const description = await screen.findByDisplayValue('Mercury Dime')
+    fireEvent.focus(window)
+    await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledTimes(2))
+
+    await user.clear(description)
+    await user.type(description, 'Winged Liberty dime')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledTimes(3))
+    await screen.findByDisplayValue('Winged Liberty dime')
+
+    // Newer than the item opened, older than the one saved.
+    await act(async () => {
+      answerCheck({ ...opened, version: 2, description: 'Mercury dime, cleaned' })
+    })
+    expect(screen.getByDisplayValue('Winged Liberty dime')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('Mercury dime, cleaned')).toBeNull()
+    expect(screen.queryByText(/updated with changes made elsewhere/i)).toBeNull()
   })
 
   it('shows the conflict when the server finds it at save time', async () => {

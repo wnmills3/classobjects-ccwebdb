@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { useAuth } from '../shared/auth-context'
+import { SHOP_NAME } from '../shared/site'
 import ConsoleMenu from './ConsoleMenu'
 import { HelpBar, HelpProvider } from './HelpBar'
 import AdminPeople from './pages/AdminPeople'
@@ -56,7 +57,7 @@ function Console() {
       <div className="app console-app">
         <header className="topbar">
           <span className="brand">
-            ClassObjects{/* */}
+            {SHOP_NAME}
             <span className="brand-sub">Console</span>
           </span>
 

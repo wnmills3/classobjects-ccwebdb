@@ -33,6 +33,38 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+describe('listAuctions', () => {
+  it('asks for one page and answers its auctions with the count of all', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers({ 'X-Total-Count': '250' }),
+      text: () => Promise.resolve('{"auctions": [{"id": 7}]}'),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const page = await api.listAuctions({ limit: 100, offset: 200 })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/auctions?limit=100&offset=200')
+    expect(page).toEqual({ auctions: [{ id: 7 }], total: 250 })
+  })
+
+  it('answers a null total when the server gives no count', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        headers: new Headers(),
+        text: () => Promise.resolve('{"auctions": []}'),
+      }),
+    )
+    expect(await api.listAuctions()).toEqual({ auctions: [], total: null })
+  })
+})
+
 describe('updateImageLink', () => {
   // The endpoint distinguishes an omitted field from an explicit null, so
   // what is *absent* from the body is as meaningful as what is present.

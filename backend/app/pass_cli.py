@@ -5,6 +5,12 @@ A pass that writes History reports by default and writes only with
 commit with nobody named is refused before anything is read. The passes
 differ in what they plan and print; what is the same -- the two arguments,
 that refusal, finding the person, and the commit -- is here.
+
+Exit status of a pass finished by `commit_or_report`: 0 for a dry run or a
+commit, 1 when `--by` names no account, and argparse's 2 for a usage error
+(`--commit` without `--by` among them). `app.ebay_orders` finishes on its
+own and differs: 1 is its refusal when no vendor is eBay, so an unknown
+`--by` is 2 there.
 """
 
 from __future__ import annotations

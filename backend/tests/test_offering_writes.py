@@ -23,7 +23,6 @@ from app.models import (
     SalesVenue,
     SalesVenueKind,
     User,
-    utcnow,
 )
 from app.offering_writes import OfferRefused
 from app.sales_venues import store_venue_id
@@ -753,53 +752,6 @@ def test_a_paused_store_listing_is_the_shops_but_not_sellable(
 
 
 # --- what must not happen --------------------------------------------------
-
-
-def test_a_withdrawn_store_listing_is_not_resurrected(
-    db: Session, listing: Listing
-) -> None:
-    """Ending the offer must not undo an administrator's withdrawal.
-
-    Nothing forbids an `ended` row that still carries `paused_by_listing_id`:
-    `offering_writes._end` clears the pointer, but a row ended any other way
-    keeps it, and stored rows can have that shape. Resuming on the pointer
-    alone would put a listing someone deliberately took down back in the
-    public shop, claiming the item again with it.
-
-    No `claim_invariant_waiver` here even though `listing.status` is set to
-    `ended` below through `_set_status`, bypassing `_end`, mid-test: the claim
-    it leaves behind reads `paused` against an `ended` listing for exactly
-    the middle of this test, but `end_offer` (below) releases that stray
-    claim itself once it decides nothing holds the item any more -- see the
-    comment beside `stray_claims` in `offering_writes.end_offer`. So by the
-    time the autouse invariant checks run, at teardown, nothing disagrees;
-    a waiver would be stale the moment it was written.
-    """
-    item = item_of(listing)
-    ebay = _venue(db, "ebay-withdrawn")
-    elsewhere = _offer_on(db, item, ebay)
-    db.commit()
-
-    # Ended without clearing the pointer, through `_set_status` so the
-    # listing's history records it -- the shape being built is the stale
-    # pointer, not a history written around.
-    offering_writes._set_status(db, listing, ListingStatus.ended, "withdrawn")
-    listing.ended_at = utcnow()
-    db.commit()
-
-    offering_writes.end_offer(db, elsewhere)
-    db.commit()
-    db.refresh(listing)
-
-    assert listing.status is ListingStatus.ended
-    assert listing.paused_by_listing_id == elsewhere.id  # untouched, not resumed
-    assert item.disposition.code == "held"
-    stale_claim = db.scalars(
-        select(OfferClaim).where(OfferClaim.listing_id == listing.id)
-    ).one()
-    # The stray claim `listing.status = ended` (above) left disagreeing with
-    # its own listing is released, not left `paused` forever.
-    assert stale_claim.state is ClaimState.released
 
 
 def test_a_sold_item_is_not_put_back_to_held(

@@ -2,6 +2,7 @@ import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-route
 
 import { api } from '../shared/api'
 import { useAuth } from '../shared/auth-context'
+import { SHOP_NAME, SHOP_OWNER } from '../shared/site'
 import { useRequest } from '../shared/useRequest'
 import { useCart } from './cart-context'
 import DigiCertSeal from './DigiCertSeal'
@@ -31,17 +32,20 @@ function RequireAuth({ children }) {
 function Brand() {
   return (
     <Link to="/" className="brand">
-      ClassObjects{/* */}
-      <span className="brand-sub">Numismatics &amp; Currency</span>
+      {SHOP_NAME}
+      <span className="brand-sub">Coins &amp; Currency</span>
     </Link>
   )
 }
 
-/** The footer every page of the shop ends with. */
+/**
+ * The footer every page of the shop ends with: the copyright line when the
+ * owner's legal name is set (VITE_SHOP_OWNER), else just the shop's name.
+ */
 function Footer() {
   return (
     <footer className="footer muted">
-      &copy; {new Date().getFullYear()} ClassObjects LLC
+      {SHOP_OWNER ? `© ${new Date().getFullYear()} ${SHOP_OWNER}` : SHOP_NAME}
       <DigiCertSeal />
     </footer>
   )
@@ -52,7 +56,7 @@ function ComingSoon() {
   return (
     <section className="narrow">
       <h1>Coming soon</h1>
-      <p>ClassObjects is getting ready to open its shop of coins and currency.</p>
+      <p>{SHOP_NAME} is getting ready to open its shop of coins and currency.</p>
       <p className="muted">
         Have an account? <Link to="/login">Sign in</Link>.
       </p>

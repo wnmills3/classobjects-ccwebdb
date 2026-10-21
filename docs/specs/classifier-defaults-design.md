@@ -278,17 +278,35 @@ it cannot be found in the console to be put right.
   /api/inventory` takes `suggested`, the fields a client filled from a
   lookup and the person left alone; each one that holds a value is recorded
   as `suggestion`.
-- **In batch**, run from `backend`. Report, touching nothing:
+- **In batch**, run from `backend`. Report, touching nothing.
+
+  Windows (cmd):
 
   ```console
   cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
   python -m app.classifier_defaults
   ```
 
-  Write the defaults:
+  Linux (bash):
+
+  ```console
+  cd ~/dev/classobjects-ccwebdb/backend
+  python -m app.classifier_defaults
+  ```
+
+  Write the defaults.
+
+  Windows (cmd):
 
   ```console
   cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+  python -m app.classifier_defaults --commit
+  ```
+
+  Linux (bash):
+
+  ```console
+  cd ~/dev/classobjects-ccwebdb/backend
   python -m app.classifier_defaults --commit
   ```
 

@@ -8,8 +8,7 @@ skill specifies a different path, format, or workflow, this file wins.
 - Specs go in **`docs/specs/<topic>-design.md`** — flat, alongside the other docs.
 - Plans go in **`docs/plans/`**, and are **temporary**: a plan is the
   step-by-step build of a feature, and it is deleted once that work is merged.
-  What was built is described by its spec, which is kept current. (All plans
-  were removed on 2026-09-23, at the owner's request; they remain in git.)
+  What was built is described by its spec, which is kept current.
 - **Documentation describes the current state, not its history.** When
   something changes, edit the doc in place and drop what no longer holds;
   no revision logs, amendment lists or "originally" narratives. The history
@@ -64,9 +63,10 @@ skill specifies a different path, format, or workflow, this file wins.
   redirected, which is exactly how an automated or scheduled caller runs a
   script; `taskkill /PID <pid> /T /F` to kill a tree; `setlocal
   EnableDelayedExpansion` with `!var!` inside blocks.
-- **Machine trap:** `NoDefaultCurrentDirectoryInExePath=1` is set, so
-  `cmd /c script.cmd` fails with "not recognized" even in the current
-  directory. Always invoke as `.\script.cmd` or with a full path.
+- **Machine trap:** where `NoDefaultCurrentDirectoryInExePath=1` is set (it
+  is on the maintainer's machine), `cmd /c script.cmd` fails with "not
+  recognized" even in the current directory. Always invoke as
+  `.\script.cmd` or with a full path, which works everywhere.
 - In bash: `ccweb_env.sh`, `ccweb_settings.sh`, `ccweb_logdir.sh` and
   `ccweb_testdb.sh use` are sourced and must not `set -u` or end in a
   top-level `return`/`exit`; `shellcheck -x` must report no warning or error.
@@ -75,6 +75,10 @@ skill specifies a different path, format, or workflow, this file wins.
   `$variables`.
 
 ## Git workflow
+
+The maintainer's own workflow, for an assistant working in the maintainer's
+checkout. Outside contributors work from a fork and open a pull request
+([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 - **Never commit directly to `main`.** Create a topic branch and commit there,
   then wait — the user says "merge it into main and push" when ready.

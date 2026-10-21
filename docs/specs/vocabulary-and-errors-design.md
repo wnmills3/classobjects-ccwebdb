@@ -34,8 +34,15 @@ vocabularies.
 The response says `sequenced` so clients can tell. Ordering is decided by the
 API so that the shop's filters, the console's forms and the entry panels
 cannot disagree. A value added mid-entry appears in its alphabetical place at
-once. The endpoint is public: a vocabulary reveals nothing about what anyone
-owns. `?year=` narrows a term-bounded table (signature combinations) to the
+once. Only the vocabularies the shop reads (`PUBLIC_TABLES` in
+`routers/reference.py`: `item_kind`) are public; every other one, and
+`include_inactive=true` on any of them, is a manager's, and anyone else is
+answered 403. `GET /api/reference` lists a caller only the vocabularies they
+may read. The kinds of storage location and vendor, the platforms, carriers
+and photo roles describe how the business is run, not what it sells, and a
+retired value or alias is needed only by a form editing an old record. A
+write a database constraint refuses, other than a uniqueness rule, is a 422
+that says so; the database's own message goes to the log. `?year=` narrows a term-bounded table (signature combinations) to the
 values in office that year; it is not the pairs a note of that *series* can
 carry, which `GET /api/friedberg/signatures` answers from the issue facts.
 
@@ -55,7 +62,7 @@ dependency order, which no reader can predict -- and the page opens on
 | **Edit details...** (a vocabulary with columns of its own) | same, with `extra` | Changes the vocabulary's own columns -- which items a series is offered for, its years, a mint's mark -- keyed and read as when a value is added. Only the columns sent change; a blank empties one, and is a 422 where the column cannot be empty. A change that breaks a uniqueness rule is a 409 naming its columns. The form (`VocabularyDetailsForm.jsx`) sends only what was changed. |
 | **Move** (sequenced tables only) | same, with `sort_order` | Changes the value's position; the page shows a Position column for a sequenced vocabulary. |
 | **Retire / restore** | same, with `is_active` | Takes the value out of the pickers; every record using it stays as it is. Refused (409) for a value the application looks up by code: the tables in `_CODE_KEYED_TABLES` (statuses, dispositions, strike type, item kind, fee kind and other lifecycles) and the single values in `_CODE_KEYED_VALUES` (country `US`, note class `frn`, the photo roles a photograph's filename names, the storage location kind `consigned` the auction code makes, and a few more), both in `app/references.py`. Each value carries `retirable`, so pressing Retire or Merge into... on such a value says why at once, without asking the server. Such a value can still be renamed. |
-| **Merge into...** | `POST /api/reference/{table}/{code}/merge` | Moves every item holding the value to another, makes its names that value's aliases, and deletes it. A `dry_run` preview is shown first. Refused for a value another vocabulary or facts table uses, a code-keyed value, or a retired target; items on sale need `acknowledge_for_sale`. |
+| **Merge into...** | `POST /api/reference/{table}/{code}/merge` | Moves every item holding the value to another, makes its names that value's aliases, and deletes it. An item already holding the kept value keeps that row and the old one is dropped (`dropped` counts them): an error's differing details are added to the kept error's, after `; `, and an attribute counts as held only while in force -- a removed kept link gives way to the old link in force. A `dry_run` preview is shown first. Refused for a value another vocabulary or facts table uses, a code-keyed value, or a retired target; items on sale need `acknowledge_for_sale`. |
 | **Aliases** | `POST` / `DELETE .../{code}/aliases` | See `item-attributes-design.md`. |
 
 A renamed, moved or otherwise changed value becomes `manual`, so the next

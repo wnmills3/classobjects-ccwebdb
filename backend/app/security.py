@@ -10,8 +10,11 @@ import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from pydantic import validate_email
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from .config import settings
+from .models import User
 
 _hasher = PasswordHasher()
 
@@ -29,6 +32,35 @@ def normalize_email(address: str) -> str:
     text that is not an address at all.
     """
     return validate_email(address)[1]
+
+
+def normalize_email_if_valid(address: str) -> str:
+    """`normalize_email`, or the text as typed when it is not an address.
+
+    For looking an account up: one made outside registration -- the first
+    administrator is -- may hold an address registration would not accept,
+    and must still be found.
+    """
+    try:
+        return normalize_email(address)
+    except ValueError:
+        return address
+
+
+def account_by_email(db: Session, address: str) -> User | None:
+    """The account this address names, whatever the case of its letters.
+
+    `Bob@example.com` and `bob@example.com` reach one mailbox in practice,
+    so they are one account: sign-in finds it either way, and registration
+    refuses the second spelling as taken. The oldest wins should two
+    spellings predate this rule.
+    """
+    return db.scalar(
+        select(User)
+        .where(func.lower(User.email) == address.lower())
+        .order_by(User.id)
+        .limit(1)
+    )
 
 
 def hash_password(plain: str) -> str:

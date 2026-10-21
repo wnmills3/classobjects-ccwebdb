@@ -67,7 +67,7 @@ from ..models import (
 )
 from ..purchases import GENERATED, WEB_ADDRESS
 from ..series_classify import classify
-from .base import ZERO_MONEY, Column, Report, ReportResult, local_date
+from .base import ZERO_MONEY, Column, Report, ReportResult, among, local_date
 from .registry import register
 from .tables import ITEM as _I
 from .tables import KIND as _K
@@ -718,7 +718,7 @@ def _dq_locations(db: Session, _params: DqLocationsParams) -> ReportResult:
     if location_ids:
         locations = db.scalars(
             select(StorageLocation)
-            .where(StorageLocation.id.in_(location_ids))
+            .where(among(StorageLocation.id, location_ids))
             .options(selectinload(StorageLocation.kind))
         ).all()
         labels_by_id = {loc.id: location_label(loc) for loc in locations}
@@ -941,7 +941,7 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
         .join(Series, Series.id == _I.c.series_id, isouter=True)
         .join(CurrencyDetail, CurrencyDetail.inventory_item_id == _I.c.id, isouter=True)
         .where(
-            _LIVE, _I.c.item_code.in_([found_case.item_code for found_case in cases])
+            _LIVE, among(_I.c.item_code, [found_case.item_code for found_case in cases])
         )
     )
     found = {row["item_code"]: row for row in db.execute(stmt).mappings().all()}

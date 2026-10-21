@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { sealWarning } from './seal-warning.js'
+import { siteHtml } from './site-html.js'
 
 /**
  * The development server's defaults, shared with the scripts: they read the
@@ -108,7 +109,8 @@ function bundleGraph() {
 
 export default defineConfig(({ command, mode }) => {
   const dev = devServerSettings(mode)
-  const warning = sealWarning(command, mode, loadEnv(mode, '..', 'VITE_'))
+  const viteEnv = loadEnv(mode, '..', 'VITE_')
+  const warning = sealWarning(command, mode, viteEnv)
   if (warning) console.warn(`\n  WARNING: ${warning}\n`)
   return {
     // The repository's .env, so a VITE_ key there (VITE_DIGICERT_SEAL_ID)
@@ -118,7 +120,7 @@ export default defineConfig(({ command, mode }) => {
     // /management/inventory/coins to the shop. twoAppDevFallback replaces it with one
     // that knows about both entries.
     appType: 'mpa',
-    plugins: [react(), twoAppDevFallback(), bundleGraph()],
+    plugins: [react(), twoAppDevFallback(), bundleGraph(), siteHtml(viteEnv)],
     server: {
       // An IPv4 loopback address by default (CCWEB_FRONTEND_HOST). Left unset,
       // Vite binds only [::1] on some machines, and every documented URL says

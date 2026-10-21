@@ -9,6 +9,7 @@ is built from those, so a difference would pass every other test.
 
 from __future__ import annotations
 
+import importlib.util
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -54,6 +55,72 @@ def test_a_configured_url_with_a_percent_sign_reaches_alembic_intact(
     assert config.get_main_option("sqlalchemy.url", None) is None
     current(config)
     assert config.get_main_option("sqlalchemy.url") == rendered
+
+
+def test_offline_mode_is_refused_with_the_reason() -> None:
+    """`alembic upgrade --sql` stops with a message, not a half-written script.
+
+    The baseline and the data migrations read the database as they run, so
+    there is no SQL to emit without one. Offline mode connects to nothing,
+    so this touches no database.
+    """
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.set_main_option(
+        "sqlalchemy.url", TEST_URL.render_as_string(hide_password=False)
+    )
+    with pytest.raises(RuntimeError, match="migrations run online only"):
+        upgrade(config, "head", sql=True)
+
+
+class _VersionOnly:
+    """A stand-in bind that answers the version query and records the rest."""
+
+    def __init__(self, version: str) -> None:
+        """Answer `SHOW server_version_num` with `version`."""
+        self.version = version
+        self.executed: list[str] = []
+
+    def exec_driver_sql(self, statement: str) -> _VersionOnly:
+        """Record the statement; this object is its own result."""
+        self.executed.append(statement)
+        return self
+
+    def scalar_one(self) -> str:
+        """The version, as PostgreSQL reports it: text."""
+        return self.version
+
+
+@pytest.mark.parametrize(
+    ("version", "refused"), [("160004", True), ("170000", False), ("180001", False)]
+)
+def test_the_baseline_refuses_a_server_older_than_17(
+    monkeypatch: pytest.MonkeyPatch, version: str, refused: bool
+) -> None:
+    """Below PostgreSQL 17 the baseline stops before creating anything.
+
+    The revision is loaded from its file and given a stand-in bind, so no
+    database is involved: what is asserted is the order -- the version is
+    asked first, and the frozen SQL is run only when the server is new enough.
+    """
+    path = BACKEND_DIR / "alembic" / "versions" / "3f9d1c7a2b64_baseline.py"
+    spec = importlib.util.spec_from_file_location("baseline_revision", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    bind = _VersionOnly(version)
+    monkeypatch.setattr(module.op, "get_bind", lambda: bind)
+
+    if refused:
+        with pytest.raises(RuntimeError, match="PostgreSQL 17 or later"):
+            module.upgrade()
+        assert bind.executed == ["SHOW server_version_num"]
+    else:
+        module.upgrade()
+        assert bind.executed[0] == "SHOW server_version_num"
+        assert len(bind.executed) == 2
+        assert "CREATE TABLE" in bind.executed[1]
 
 
 @pytest.fixture(scope="module")
@@ -304,8 +371,140 @@ def test_the_migrations_carry_every_partial_index_predicate(
     )
 
 
+#: Every CHECK constraint, keyed by table and name, and every generated
+#: column's expression, keyed by table and column, with the column's type
+#: (empty for a check) so the expression can be re-created to normalize it.
+#: `compare_metadata` sees neither expression: a check's predicate is never
+#: compared (see `_CHECKS_THE_SELLING_WORK_ADDED`), and a generated column is
+#: compared by type alone.
+_EXPRESSIONS = (
+    "SELECT 'check ' || rel.relname || '.' || con.conname, rel.relname, '', "
+    "pg_get_constraintdef(con.oid) FROM pg_constraint con "
+    "JOIN pg_class rel ON rel.oid = con.conrelid "
+    "JOIN pg_namespace n ON n.oid = rel.relnamespace "
+    "WHERE n.nspname = 'public' AND con.contype = 'c' "
+    "UNION ALL "
+    "SELECT 'generated ' || rel.relname || '.' || a.attname, rel.relname, "
+    "format_type(a.atttypid, a.atttypmod), pg_get_expr(d.adbin, d.adrelid) "
+    "FROM pg_attribute a "
+    "JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum "
+    "JOIN pg_class rel ON rel.oid = a.attrelid "
+    "JOIN pg_namespace n ON n.oid = rel.relnamespace "
+    "WHERE n.nspname = 'public' AND a.attgenerated = 's' AND NOT a.attisdropped"
+)
+
+
+def _expressions(url: str) -> dict[str, tuple[str, str, str]]:
+    """Each check's and generated column's (table, type, definition) at `url`."""
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            return {
+                str(key): (str(table), str(type_), str(definition))
+                for key, table, type_, definition in connection.execute(
+                    text(_EXPRESSIONS)
+                ).all()
+            }
+    finally:
+        engine.dispose()
+
+
+def _normalised_expressions(
+    url: str, found: dict[str, tuple[str, str, str]]
+) -> dict[str, str]:
+    """`found`'s definitions, each re-created once in `url` and rendered again.
+
+    The same round trip `_normalised` gives a view, for the same reason: the
+    baseline holds `IN ('a', 'b')` on a varchar as printed text, which reads
+    back as `ARRAY[('a'::varchar)::text, ...]`, while the test database holds
+    it as parsed from the model -- one predicate, rendered two ways. A check
+    is re-added `NOT VALID` (nothing is scanned) and a generated column re-added
+    beside the original, inside a transaction that is rolled back.
+    """
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            out = {}
+            for key, (table, type_, definition) in found.items():
+                if key.startswith("check "):
+                    connection.execute(
+                        text(
+                            f'ALTER TABLE "{table}" ADD CONSTRAINT _normalised '
+                            f"{definition} NOT VALID"
+                        )
+                    )
+                    rendered = connection.execute(
+                        text(
+                            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                            "WHERE conname = '_normalised' "
+                            "AND conrelid = CAST(:t AS regclass)"
+                        ),
+                        {"t": table},
+                    ).scalar_one()
+                    connection.execute(
+                        text(f'ALTER TABLE "{table}" DROP CONSTRAINT _normalised')
+                    )
+                    out[key] = str(rendered).removesuffix(" NOT VALID")
+                else:
+                    connection.execute(
+                        text(
+                            f'ALTER TABLE "{table}" ADD COLUMN _normalised {type_} '
+                            f"GENERATED ALWAYS AS ({definition}) STORED"
+                        )
+                    )
+                    rendered = connection.execute(
+                        text(
+                            "SELECT pg_get_expr(d.adbin, d.adrelid) "
+                            "FROM pg_attrdef d JOIN pg_attribute a "
+                            "ON a.attrelid = d.adrelid AND a.attnum = d.adnum "
+                            "WHERE a.attname = '_normalised' "
+                            "AND a.attrelid = CAST(:t AS regclass)"
+                        ),
+                        {"t": table},
+                    ).scalar_one()
+                    connection.execute(
+                        text(f'ALTER TABLE "{table}" DROP COLUMN _normalised')
+                    )
+                    out[key] = str(rendered)
+            connection.rollback()
+            return out
+    finally:
+        engine.dispose()
+
+
+def test_the_migrations_carry_every_check_and_generated_expression(
+    migrated_url: str, engine: Engine
+) -> None:
+    """Each CHECK and generated column the migrations build is the model's.
+
+    `engine` is the session's test database, built from the models by
+    `create_all`; the other is built by the migrations alone. Both sides are
+    normalized in the migrated database, whose tables are the same. A name
+    or column present on one side only is reported too, though
+    `test_migrations_match_models` would also catch it.
+    """
+    built = _normalised_expressions(migrated_url, _expressions(migrated_url))
+    expected = _normalised_expressions(
+        migrated_url,
+        _expressions(engine.url.render_as_string(hide_password=False)),
+    )
+
+    assert "check listing.ck_listing_item_xor_lot" in expected
+    assert "generated inventory_item.total_cost" in expected
+    differing = sorted(
+        key
+        for key in built.keys() | expected.keys()
+        if built.get(key) != expected.get(key)
+    )
+    assert differing == [], (
+        "the migrations and the models give these expressions differently: "
+        f"{[(key, built.get(key), expected.get(key)) for key in differing]}"
+    )
+
+
 #: The database objects outside `Base.metadata` whose definitions matter:
-#: the four views, and `grade_display()`, which two of them call.
+#: the four views, `grade_display()`, which two of them call, and
+#: `item_code_format()`, which the item code's default calls.
 _DEFINITIONS = (
     "SELECT 'view ' || c.relname, pg_get_viewdef(c.oid) FROM pg_class c "
     "JOIN pg_namespace n ON n.oid = c.relnamespace "

@@ -1087,7 +1087,10 @@ def _digest(conn: Connection, table: Table) -> tuple[int, str]:
     # orders, and `t::text` would call identical rows different.
     ordered = sorted(table.columns, key=lambda c: c.name)
     fields = ", ".join(f"t.{quote(c.name)}" for c in ordered)
-    joined = f"string_agg(ROW({fields})::text, E'\\n' ORDER BY {order})"
+    # Each row is hashed first and the fixed-width hashes joined, so the
+    # string the server builds grows by 32 bytes a row however wide the row
+    # is -- a table of long notes or JSON does not become one huge value.
+    joined = f"string_agg(md5(ROW({fields})::text), '' ORDER BY {order})"
     row = conn.execute(
         text(f"SELECT count(*), md5(coalesce({joined}, '')) FROM {quoted} t")
     ).one()

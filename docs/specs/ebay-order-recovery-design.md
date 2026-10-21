@@ -24,7 +24,7 @@ Downloader** (README, *Useful tools*): one workbook per year
 | Column | Used for |
 |---|---|
 | `OrderNumber` | the order number filled in |
-| `OrderDate` | `Mon DD, YYYY`; breaks a tie when one listing was bought twice, and fills an empty order date |
+| `OrderDate` | `Mon DD, YYYY`, or a date cell; breaks a tie when one listing was bought twice, and fills an empty order date |
 | `ItemID` | **the key**: eBay's item number for the listing |
 | `Seller`, `ItemName`, `ItemPrice` | shown in the review workbook |
 
@@ -68,40 +68,73 @@ the seller's id for the listing the item was bought from. The pass fills it
 from the item's own listing link, else its purchase's, only where empty; a
 lot's pieces share it. **It is not unique and does not name an order**: a
 seller lists many of one coin under one id, and it is bought in several
-orders -- CC-000684 and CC-000685 share `900000000002` across orders
-`90-00009-00009` and `90-00008-00008`. So its index is plain, and the pass,
+orders -- CC-000101 and CC-000102 may share `100000000001` across orders
+`11-11111-11111` and `22-22222-22222`. So its index is plain, and the pass,
 meeting an id bought more than once, prefers the order dated as the purchase
 is and leaves any remaining tie for a person.
 
 ## The pass
 
-The dry run, over one or more order workbooks:
+The dry run, over one or more order workbooks.
+
+Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.ebay_orders FILE.xlsx
 ```
 
-The same, writing the review workbook:
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+python -m app.ebay_orders FILE.xlsx
+```
+
+The same, writing the review workbook.
+
+Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.ebay_orders FILE.xlsx --review OUT.xlsx
 ```
 
-Writes:
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+python -m app.ebay_orders FILE.xlsx --review OUT.xlsx
+```
+
+Writes.
+
+Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.ebay_orders FILE.xlsx --commit --by EMAIL
 ```
 
-Run from `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`).
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+python -m app.ebay_orders FILE.xlsx --commit --by EMAIL
+```
 
 **Dry run by default**: it prints what it would do and writes nothing.
 `--commit` writes, in one transaction, and requires `--by`, the email of the
-account the History rows name, capitals aside (an unknown account is
-refused, exit 2).
+account the History rows name, capitals aside.
+
+Exit status: 0 for a dry run or a commit; 1 when no vendor is eBay (below);
+2 when `--by` names no account, or for a usage error such as `--commit`
+without `--by`. The other passes, which finish through `app.pass_cli`, exit
+1 for an unknown `--by`; this one keeps 1 for its eBay refusal.
+
+An `OrderDate` cell may be eBay's text or a real date (a workbook saved
+again by a spreadsheet), and an `ItemID` cell text or a number; an
+`OrderDate` that is neither is refused naming the file and row.
 
 The eBay vendor is known by its host name -- `ebay.com`, `www.ebay.co.uk` --
 read from the vendor's host, else its name, the rule `app.listing_links`

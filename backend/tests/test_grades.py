@@ -12,7 +12,14 @@ from decimal import Decimal
 
 import pytest
 from app import grades
-from app.models import Grade, GradeScale, ItemKind, Listing, StrikeType
+from app.models import (
+    Grade,
+    GradeScale,
+    InventoryItem,
+    ItemKind,
+    Listing,
+    StrikeType,
+)
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -67,7 +74,9 @@ def test_a_grade_is_taken_apart(text_: str, strike: str | None, grade: str) -> N
     assert grades.split(text_) == grades.Split(strike, grade)
 
 
-@pytest.mark.parametrize("text_", ["", "Blue Seal", "MS", "BU+++X", "NOT_A_GRADE"])
+@pytest.mark.parametrize(
+    "text_", ["", "Blue Seal", "MS", "BU+++X", "NOT_A_GRADE", "MS65++", "PR-69++"]
+)
 def test_what_is_not_a_grade_is_not_split(text_: str) -> None:
     assert grades.split(text_) is None
 
@@ -207,6 +216,23 @@ def test_a_compound_grade_sent_to_an_item_is_split(
     body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
     assert (body["grade"], body["strike_type"]) == ("69+", "proof")
     assert body["grade_display"] == "PR69+"
+
+
+def test_a_compound_grade_with_two_pluses_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """No grade on the scale has two pluses; MS65++ is not stored as 65+."""
+    item = build_bare_item(db)
+    response = patch_current(
+        client,
+        f"/api/inventory/{item.id}",
+        json={"grade": "MS65++"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422, response.text
+    assert "grade" in response.text
+    db.expire_all()
+    assert db.get_one(InventoryItem, item.id).grade_id is None
 
 
 def test_a_number_alone_leaves_the_strike_type(

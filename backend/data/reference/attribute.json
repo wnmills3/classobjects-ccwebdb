@@ -15,7 +15,11 @@
     "star, not a star note. 'Godless' is the collectors' word for the No",
     "Motto $1 Silver Certificates (Series 1928-1935G).",
     "",
-    "reference_alias: other names, as in banknote.json."
+    "reference_alias: other names, as in banknote.json.",
+    "",
+    "Source: the terms the grading and verification services (PCGS, NGC, PMG,",
+    "CAC) print on their holders and labels, and collectors' names in common",
+    "use. Terms only; no catalog's numbering."
   ],
   "item_attribute": [
     {

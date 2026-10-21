@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Any
 
-from app.models import ItemKind, ItemStatus, PurchaseOrder, Seller
+from app.models import (
+    ItemKind,
+    ItemStatus,
+    PurchaseOrder,
+    Seller,
+    StorageLocation,
+    StorageLocationKind,
+    Vendor,
+    VendorKind,
+)
 from app.models.base import utcnow
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, build_purchase_order, code_id
@@ -315,3 +325,75 @@ def test_the_list_names_each_purchase_s_seller_and_what_it_cost(
     # A purchase with nothing on it yet is still listed, at no cost.
     assert Decimal(rows[empty.id]["total_cost"]) == Decimal("0")
     assert rows[empty.id]["total"] == 0
+
+
+def _selects_for(
+    db: Session, client: TestClient, headers: dict[str, str], url: str
+) -> tuple[int, list[dict[str, Any]]]:
+    """How many SELECTs a GET of `url` sends, and what it answers."""
+    sent: list[str] = []
+
+    def record(_conn: object, _cursor: object, statement: str, *_: object) -> None:
+        """Keep each SELECT."""
+        if statement.lstrip().upper().startswith("SELECT"):
+            sent.append(statement)
+
+    connection = db.connection()
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        response = client.get(url, headers=headers)
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+    assert response.status_code == 200, response.text
+    return len(sent), response.json()
+
+
+def test_the_vendor_list_does_not_query_once_per_vendor(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Each vendor's kind and uses come from grouped queries, not one per row."""
+    unknown = code_id(db, VendorKind, "unknown")
+    db.add(Vendor(name="Query Count First", vendor_kind_id=unknown))
+    db.commit()
+    few, _ = _selects_for(db, client, admin_headers, "/api/vendors")
+
+    db.add_all(
+        Vendor(name=f"Query Count More {n}", vendor_kind_id=unknown) for n in range(5)
+    )
+    build_purchase_order(db, vendor_name="Query Count Buyer")
+    many, body = _selects_for(db, client, admin_headers, "/api/vendors")
+
+    assert many == few
+    by_name = {vendor["name"]: vendor for vendor in body}
+    assert by_name["Query Count First"]["vendor_kind"] == "unknown"
+    assert by_name["Query Count First"]["order_count"] == 0
+    assert by_name["Query Count Buyer"]["vendor_kind"] is None
+    assert by_name["Query Count Buyer"]["order_count"] == 1
+
+
+def test_the_location_list_does_not_query_once_per_location(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Each location's item count comes from grouped queries, not one per row."""
+    home = code_id(db, StorageLocationKind, "home")
+    first = StorageLocation(
+        storage_location_kind_id=home, institution="Query Count", identifier="0"
+    )
+    db.add(first)
+    db.commit()
+    few, _ = _selects_for(db, client, admin_headers, "/api/storage-locations")
+
+    db.add_all(
+        StorageLocation(
+            storage_location_kind_id=home, institution="Query Count", identifier=str(n)
+        )
+        for n in range(1, 6)
+    )
+    build_bare_item(db, storage_location_id=first.id)
+    db.commit()
+    many, body = _selects_for(db, client, admin_headers, "/api/storage-locations")
+
+    assert many == few
+    counts = {row["label"]: row["item_count"] for row in body}
+    assert counts["Query Count 0"] == 1
+    assert counts["Query Count 1"] == 0

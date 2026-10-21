@@ -4,8 +4,8 @@ import { listingIdFrom } from './listing'
 
 describe('listingIdFrom', () => {
   it.each([
-    ['https://www.ebay.com/itm/900000000003', '900000000003'],
-    ['https://www.ebay.com/itm/1878-Morgan-Dollar/900000000006?hash=x', '900000000006'],
+    ['https://www.ebay.com/itm/434343434343', '434343434343'],
+    ['https://www.ebay.com/itm/1878-Morgan-Dollar/444444444444?hash=x', '444444444444'],
     [
       'https://hibid.com/lot/280623476/1986-2024-american-eagle--5-00-gold-coin',
       '280623476',

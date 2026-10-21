@@ -20,6 +20,12 @@ vi.mock('./api', () => ({
   },
 }))
 
+// A name no default or literal could match: the header shows the setting.
+vi.mock('../shared/site', async (importOriginal) => ({
+  ...(await importOriginal()),
+  SHOP_NAME: 'Example Numismatics',
+}))
+
 import ManagementApp from './ManagementApp'
 import { AuthContext } from '../shared/auth-context'
 import {
@@ -85,12 +91,16 @@ describe('management console shell', () => {
     const heading = screen.getByRole('heading', { name: 'Sign in' })
     // `.app` carries the side padding; outside it the form meets the edge.
     expect(heading.closest('.app')).not.toBeNull()
-    expect(screen.getByRole('banner')).toHaveTextContent(/^ClassObjects\s*Console/)
+    expect(screen.getByRole('banner')).toHaveTextContent(
+      /^Example Numismatics\s*Console/,
+    )
   })
 
-  it('names the business in the console header', () => {
+  it('names the shop, as the installation sets it, in the console header', () => {
     renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
-    expect(screen.getByRole('banner')).toHaveTextContent(/^ClassObjects\s*Console/)
+    expect(screen.getByRole('banner')).toHaveTextContent(
+      /^Example Numismatics\s*Console/,
+    )
     expect(screen.queryByText(/ccwebdb/i)).not.toBeInTheDocument()
   })
 

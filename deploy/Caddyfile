@@ -1,5 +1,5 @@
 # The public site: the API behind /api, the console under /management, the
-# shop everywhere else, over the certificate named below.
+# shop everywhere else, over HTTPS.
 #
 # A template for both systems. Fill it from the settings (CCWEB_SITE_DOMAIN,
 # CCWEB_TLS_CERT, CCWEB_TLS_KEY, CCWEB_SITE_ROOT, CCWEB_API_HOST and
@@ -11,18 +11,43 @@
 # configuration; the deployment document for your system says where.
 # Render again after changing any of those settings.
 #
+# The certificate: with CCWEB_TLS_CERT and CCWEB_TLS_KEY set, the rendered
+# file says `tls CERT KEY` and Caddy uses those files; with both empty it
+# says nothing, and Caddy obtains and renews a certificate for the domain
+# itself.
+#
 # The two try_files rules are the server's half of the two applications: a
 # console address that is not a file is answered with management.html, any
 # other with the shop's index.html, as Vite's development fallback does.
+# The console matcher names /management and what is under it, and nothing
+# else that happens to start with those letters.
+#
+# The headers, the same on both names: HTTPS only for a year, no content sniffing, never inside
+# another site's frame, the address sent elsewhere without its path, and
+# no Server line. The content policy allows the site's own scripts, styles,
+# pictures and API, plus the DigiCert seal's script and badge (an image,
+# or an SVG it embeds as an <object>). The
+# application's own pages set no inline style; 'unsafe-inline' in style-src
+# is for the seal script, whose markup is DigiCert's.
 {$CCWEB_SITE_DOMAIN} {
-	tls {$CCWEB_TLS_CERT} {$CCWEB_TLS_KEY}
+	{$CCWEB_TLS_DIRECTIVE}
 	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://seal.digicert.com; img-src 'self' data: https://seal.digicert.com https://*.digicert.com; style-src 'self' 'unsafe-inline'; object-src https://seal.digicert.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
 
 	handle /api/* {
 		reverse_proxy {$CCWEB_API_HOST}:{$CCWEB_API_PORT}
 	}
 
-	handle /management* {
+	@console path /management /management/*
+	handle @console {
 		root * {$CCWEB_SITE_ROOT}
 		try_files {path} /management.html
 		file_server
@@ -36,6 +61,16 @@
 }
 
 www.{$CCWEB_SITE_DOMAIN} {
-	tls {$CCWEB_TLS_CERT} {$CCWEB_TLS_KEY}
+	{$CCWEB_TLS_DIRECTIVE}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://seal.digicert.com; img-src 'self' data: https://seal.digicert.com https://*.digicert.com; style-src 'self' 'unsafe-inline'; object-src https://seal.digicert.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
 	redir https://{$CCWEB_SITE_DOMAIN}{uri} permanent
 }

@@ -93,6 +93,40 @@ def test_backup_names_sort_chronologically() -> None:
     assert stamp.replace("_", "").isdigit(), "no day names -- they do not sort"
 
 
+@pytest.mark.parametrize(
+    "name",
+    ['bak"; DROP DATABASE ccwebdb; --', "bak-1", "", "a" * 64, "bak copy"],
+)
+def test_a_database_name_that_would_need_quoting_is_refused(
+    name: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--name` reaches `CREATE DATABASE`, so only a plain identifier passes.
+
+    Refused before any connection is made: the server is never asked.
+    """
+
+    def no_server(url: str) -> Engine:
+        raise AssertionError("a refused name must not reach the server")
+
+    monkeypatch.setattr(backup, "admin_engine", no_server)
+
+    with pytest.raises(ValueError, match="not a usable database name"):
+        backup.create_database("postgresql+psycopg://u:p@localhost/ccwebdb", name)
+
+    with pytest.raises(SystemExit) as exited:
+        backup.main(["--name", name])
+    assert exited.value.code == 2
+    assert "not a usable database name" in capsys.readouterr().err
+
+
+def test_a_plain_database_name_is_accepted() -> None:
+    """The refusal above is not a refusal of everything."""
+    assert backup.check_database_name("ccwebdb_bak_20261021_101500") == (
+        "ccwebdb_bak_20261021_101500"
+    )
+    assert backup.check_database_name("a" * 63) == "a" * 63
+
+
 class _FakeDialect:
     """Just enough dialect for `_resync_sequences` to branch on."""
 

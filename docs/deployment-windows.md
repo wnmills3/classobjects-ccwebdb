@@ -16,7 +16,7 @@ folder. Put your own domain, certificate files and folders where those
 appear; the settings they belong to are named alongside.
 
 **On the server, do not use `ccweb_startup.cmd` or `ccweb_shutdown.cmd`
-once step 6 is done.** The shutdown script kills whatever listens on the
+once step 6 is done.** The shutdown script stops the API listening on the
 API's port -- there, the live API -- and stops PostgreSQL, taking the site
 down. The startup script finds the API and PostgreSQL already running and
 leaves them, but starts Vite as well, which the server has no use for. The
@@ -71,12 +71,13 @@ new key and request on the server, then use *Reissue* on the order in the
 certificate authority's portal and paste in the request; DigiCert reissues
 at no charge and sends a new zip, and the key never travels. The example's
 commands follow: put your own domain where `classobjects.com` appears, and
-your organisation's country, state, town and name in `-subj`.
+your organisation's country, state, town and name in `-subj`, which shows
+example values (`YourState`, `YourTown`, `Your Business`, `example.com`).
 
 ```console
-mkdir C:\caddy\certs
+if not exist C:\caddy\certs mkdir C:\caddy\certs
 cd /d C:\caddy\certs
-openssl req -new -newkey rsa:2048 -nodes -keyout classobjects.com.key -out classobjects.com.csr -subj "/C=US/ST=Connecticut/L=Coventry/O=ClassObjects LLC/CN=classobjects.com"
+openssl req -new -newkey rsa:2048 -nodes -keyout classobjects.com.key -out classobjects.com.csr -subj "/C=US/ST=YourState/L=YourTown/O=Your Business/CN=example.com"
 type classobjects.com.csr
 ```
 
@@ -119,11 +120,28 @@ Keep every certificate and key file out of the repository. The certificate
 and key files are named to Caddy by two settings, `CCWEB_TLS_CERT` and
 `CCWEB_TLS_KEY` (step 4).
 
+### No certificate to buy
+
+A bought certificate is optional. Leave `CCWEB_TLS_CERT` and `CCWEB_TLS_KEY`
+both empty in `.env`, and the Caddyfile rendered in step 7 has no `tls`
+line: Caddy then obtains a free certificate for the domain and its `www.`
+name from a public authority (Let's Encrypt or ZeroSSL) when it starts, and
+renews it by itself before it expires. Nothing in this step is needed, and
+nothing has to be done at expiry. Setting only one of the two is refused
+when the Caddyfile is rendered.
+
+The authority checks that the domain is the server's by connecting to it,
+so before Caddy starts, the DNS records must point at the server and ports
+80 and 443 must reach it (step 8). Until they do, Caddy logs a failed
+attempt and tries again. Such a certificate carries no organisation's name
+and comes with no site seal: leave `VITE_DIGICERT_SEAL_ID` unset.
+
 ## 2. Install the system
 
-On the server, follow [environment-setup-windows.md](environment-setup-windows.md) steps 1
-to 7: Miniforge, the `ccwebdb` conda environment, uv, Node and PostgreSQL in
-the environment, the database cluster, `.env`, and the dependencies.
+On the server, follow [environment-setup-windows.md](environment-setup-windows.md) steps 0
+to 7: Git, Miniforge, the `ccwebdb` conda environment, uv, Node and
+PostgreSQL in the environment, the code and the database cluster, `.env`,
+and the dependencies.
 
 PostgreSQL on a server has to run apart from any console, so it becomes a
 Windows service. A service cannot start while another server holds the
@@ -164,13 +182,50 @@ runs `pg_ctl.exe` from the conda environment by its full path: re-creating
 the `ccwebdb` environment breaks it until the service is registered again
 (`pg_ctl unregister -N ccwebdb-postgres`, then the `register` line above).
 
-## 3. Move the collection across
+## 3. The collection
 
-Skip this step if the collection is already on the server: restored from
+Two paths: a new installation starts with an empty collection and one
+manager; an existing collection is restored from the machine that holds
+it. Never run `app.seed` on the server: it adds demo items.
+
+### A new installation
+
+The schema, the reference vocabularies, and the first manager account; no
+demo data. `.env` must exist with its own `JWT_SECRET` first
+(environment-setup-windows.md step 6), because every command here reads it:
+
+```console
+conda activate ccwebdb
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+uv run alembic upgrade head
+uv run python -m app.seeding load
+```
+
+Then the manager's sign-in address, asked for on its own:
+
+```console
+set /p ADMIN_EMAIL=Manager's email address:
+```
+
+and the account. It asks for a password twice (12 characters or more),
+showing nothing as it is typed, so it is given alone:
+
+```console
+cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend && uv run python -m app.create_admin --email %ADMIN_EMAIL%
+```
+
+It refuses a password under 12 characters or one published in this
+repository, and refuses to run at all once a manager exists. Sign in to
+the console with that account after step 7, and make the other accounts
+there.
+
+### Restore an existing collection
+
+Skip this if the collection is already on the server: restored from
 the backup workbook by environment-setup-windows.md step 8 (*This collection, on a
 new machine*), it is complete.
 
-Restore the current collection; never run `app.seed` on the server. On the
+Restore the current collection. On the
 development machine, with nothing writing to the database, dump it and copy
 its photographs to a folder you can carry across -- the example uses
 `D:\to_server`:
@@ -212,15 +267,18 @@ with its default; [system-administration.md](system-administration.md),
 | `SALES_TAX_RATE`, `SALES_TAX_INCLUDES_SHIPPING` | as on the development machine |
 | `SHOP_OPEN` | `false` until opening day: visitors who are not signed in see a coming-soon page, and the API refuses them the catalog and registration. Set it to `true` and restart the API to open the shop |
 | `CCWEB_SITE_DOMAIN` | the domain, without `https://` or `www.` (the example: `classobjects.com`) |
-| `CCWEB_TLS_CERT`, `CCWEB_TLS_KEY` | the full paths of `fullchain.pem` and the key from step 1 (the example: `C:\caddy\certs\fullchain.pem`, `C:\caddy\certs\classobjects.com.key`) |
+| `CCWEB_TLS_CERT`, `CCWEB_TLS_KEY` | the full paths of `fullchain.pem` and the key from step 1 (the example: `C:\caddy\certs\fullchain.pem`, `C:\caddy\certs\classobjects.com.key`); both empty when Caddy is to obtain the certificate (*No certificate to buy*) |
 | `CCWEB_SITE_ROOT` | unset: the repository's `frontend\dist`, which Caddy, running as `SYSTEM`, can read |
 | `VITE_DIGICERT_SEAL_ID` | DigiCert's seal for the certificate, the eight characters after `DigiCertClickID_` in DigiCert's seal code; unset, the shop shows no seal. Read when the frontend is built (step 5) |
-| `CCWEB_BACKUP_DIR`, `CCWEB_BACKUP_TIME` | where and when the daily backup runs (*Keeping it running*); the example: its OneDrive folder, 20:00 |
+| `VITE_SHOP_NAME`, `VITE_SHOP_OWNER` | the shop's name, shown in its header, page titles and coming-soon page (unset: `Coin Shop`), and the legal name the footer's copyright line names (unset: none). Read when the frontend is built (step 5) |
+| `CCWEB_BACKUP_DIR`, `CCWEB_BACKUP_TIME` | where and when the daily backup runs (*Keeping it running*); unset, `ccwebdb-backup` in the home folder at 20:00. The example: its OneDrive folder, 20:00 |
 | `TIME_ZONE` | unset keeps the server's own zone; set it (`America/New_York`) if the server's clock runs on another zone than the business's |
 
-`FIRST_ADMIN_EMAIL` and `FIRST_ADMIN_PASSWORD` are read only by `app.seed`,
-which is never run on the server: the restored database already holds its
-accounts. Sign in with one of them, and change the password of any account
+`FIRST_ADMIN_EMAIL` and `FIRST_ADMIN_PASSWORD` are read by `app.seed`, which
+is never run on the server, and `FIRST_ADMIN_PASSWORD`, when set, by
+`app.create_admin` (step 3, *A new installation*). Leave the password empty
+once the first manager exists. A restored database already holds its
+accounts: sign in with one of them, and change the password of any account
 still using a development password.
 
 ### The database passwords
@@ -317,8 +375,15 @@ repository's own scripts do:
 cd /d "%USERPROFILE%\dev\classobjects-ccwebdb\backend"
 call ..\scripts\ccweb_env.cmd || exit /b 2
 call ..\scripts\ccweb_settings.cmd || exit /b 2
-"%ENVDIR%\python.exe" -m uvicorn app.main:app --host %CCWEB_API_HOST% --port %CCWEB_API_PORT% --proxy-headers --forwarded-allow-ips %CCWEB_API_HOST% >> "%CCWEB_LOG_DIR%\backend.log" 2>&1
+if not exist "%CCWEB_LOG_DIR%" mkdir "%CCWEB_LOG_DIR%"
+"%ENVDIR%\python.exe" -m uvicorn app.main:app --host %CCWEB_API_HOST% --port %CCWEB_API_PORT% --proxy-headers --forwarded-allow-ips %CCWEB_API_HOST% 2>&1 | "%ENVDIR%\python.exe" "%CCWEB_REPO%\backend\app\logpipe.py" "%CCWEB_LOG_DIR%\backend.log"
 ```
+
+The API's output goes through `backend\app\logpipe.py`, as
+`ccweb_startup.cmd` sends it on the development machine, so `backend.log`
+starts afresh each time the task starts and never grows past
+`CCWEB_LOG_MAX_BYTES`, with `CCWEB_LOG_KEEP` files kept
+([logs/README.md](../logs/README.md)).
 
 `--proxy-headers` with `--forwarded-allow-ips` set to the API's own address
 makes the API see the visitor's address and `https` from Caddy's headers,
@@ -354,7 +419,7 @@ which saves the same file as `caddy_windows_amd64.exe`; renamed to
 `caddy.exe`, that one does as well):
 
 ```console
-mkdir C:\caddy
+if not exist C:\caddy mkdir C:\caddy
 curl -L -o C:\caddy\caddy.exe "https://caddyserver.com/api/download?os=windows&arch=amd64"
 C:\caddy\caddy.exe version
 ```
@@ -380,25 +445,36 @@ It goes to `Caddyfile.new` first, so that a refused setting -- an empty
 `CCWEB_SITE_DOMAIN`, say, which it names -- never empties the file a
 running Caddy reads. Render it again after changing any of those settings,
 check it and put it in place as below, then restart the service. For the
-example installation the result, comments left out, is:
+example installation, with the repository under an account named `YOU`, the
+result, comments left out, is:
 
 ```
 classobjects.com {
 	tls C:/caddy/certs/fullchain.pem C:/caddy/certs/classobjects.com.key
 	encode gzip
 
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://seal.digicert.com; img-src 'self' data: https://seal.digicert.com https://*.digicert.com; style-src 'self' 'unsafe-inline'; object-src https://seal.digicert.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
 	handle /api/* {
 		reverse_proxy 127.0.0.1:8000
 	}
 
-	handle /management* {
-		root * C:/Users/wnmil/dev/classobjects-ccwebdb/frontend/dist
+	@console path /management /management/*
+	handle @console {
+		root * C:/Users/YOU/dev/classobjects-ccwebdb/frontend/dist
 		try_files {path} /management.html
 		file_server
 	}
 
 	handle {
-		root * C:/Users/wnmil/dev/classobjects-ccwebdb/frontend/dist
+		root * C:/Users/YOU/dev/classobjects-ccwebdb/frontend/dist
 		try_files {path} /index.html
 		file_server
 	}
@@ -406,6 +482,16 @@ classobjects.com {
 
 www.classobjects.com {
 	tls C:/caddy/certs/fullchain.pem C:/caddy/certs/classobjects.com.key
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://seal.digicert.com; img-src 'self' data: https://seal.digicert.com https://*.digicert.com; style-src 'self' 'unsafe-inline'; object-src https://seal.digicert.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
 	redir https://classobjects.com{uri} permanent
 }
 ```
@@ -413,15 +499,29 @@ www.classobjects.com {
 The two `try_files` rules are the server's half of the two applications: a
 console address that is not a file is answered with `management.html`, any
 other with the shop's `index.html`, as Vite's development fallback does.
+The `@console` rule names `/management` and the addresses under it, and no
+other address that merely starts with those letters.
+
+The `header` block is sent with every answer: HTTPS only for a year
+(`Strict-Transport-Security`), no guessing at a file's type, never shown
+inside another site's frame, the address passed to other sites without its
+path, no `Server` line, and a content policy that lets a page load only the
+site's own scripts, styles, pictures and API, plus the DigiCert seal's
+script and badge. A script injected into a page could not send what it read
+anywhere but this site. The policy names DigiCert because the seal is the
+one thing the shop loads from elsewhere; a site using another authority's
+seal names that one instead.
+
 Given its own certificate, Caddy asks no one else for one; it still answers
-port 80 by sending visitors to `https://`.
+port 80 by sending visitors to `https://`. The two `tls` lines must name the
+key file Caddy is really to use, and that is the copy to lock down with
+`icacls` (step 1). Keep one copy of the key in `C:\caddy\certs`, not several
+under different names. With `CCWEB_TLS_CERT` and `CCWEB_TLS_KEY` both empty
+the file has no `tls` lines at all: see *No certificate to buy*, below.
 
-The two `tls` lines must name the key file Caddy is really to use, and that
-is the copy to lock down with `icacls` (step 1). Keep one copy of the key in
-`C:\caddy\certs`, not several under different names.
-
-Check the file. It says `Valid configuration`, and that it is skipping
-automatic certificates because the files given are loaded:
+Check the file. It says `Valid configuration`, and, with the certificate
+files given, that it is skipping automatic certificates because they are
+loaded:
 
 ```console
 C:\caddy\caddy.exe validate --config C:\caddy\Caddyfile.new
@@ -455,12 +555,13 @@ sc.exe create caddy start= auto binPath= "C:\caddy\caddy.exe run --config C:\cad
 
 It prints `[SC] CreateService SUCCESS`. `sc` wants a space after each `=`
 and nothing else there: `start= auto`, exactly; a misspelt value is refused
-as an `Invalid start= field`. Start it and check it (the example's domain):
+as an `Invalid start= field`. Start it and check it, with your domain in
+place of `YOUR_DOMAIN`:
 
 ```console
 sc.exe start caddy
 sc query caddy
-curl -s -o nul -w "%{http_code}\n" https://classobjects.com/
+curl -s -o nul -w "%{http_code}\n" https://YOUR_DOMAIN/
 ```
 
 `RUNNING` and `200`. Caddy reads the Caddyfile only when it starts, so after
@@ -509,12 +610,12 @@ the site up.
 
 ## 9. Check it
 
-With the example's domain:
+With your domain, `CCWEB_SITE_DOMAIN`, in place of `YOUR_DOMAIN`:
 
 ```console
-curl -sI https://classobjects.com/
-curl -s -o nul -w "%{http_code}\n" "https://classobjects.com/api/catalog?limit=1"
-curl -sI http://classobjects.com/
+curl -sI https://YOUR_DOMAIN/
+curl -s -o nul -w "%{http_code}\n" "https://YOUR_DOMAIN/api/catalog?limit=1"
+curl -sI http://YOUR_DOMAIN/
 ```
 
 Expect `200`, `200`, and a redirect to `https://`. Then in a browser: the
@@ -546,7 +647,9 @@ sc start caddy
 `sc query ccwebdb-postgres` and `sc query caddy` say `RUNNING` when they
 are up; step 9 checks the whole site.
 
-- **The certificate expires** on the date it carries
+- **A certificate Caddy obtained itself** (*No certificate to buy*) is
+  renewed by Caddy; nothing below applies to it.
+- **A bought certificate expires** on the date it carries
   (`openssl x509 -in classobjects.com.pem -noout -enddate`, with your
   certificate's file name). A public certificate may now last no more than
   200 days, so a multi-year purchase is a subscription: the authority issues

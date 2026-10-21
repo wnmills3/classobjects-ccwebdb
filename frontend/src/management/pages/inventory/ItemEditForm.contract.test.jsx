@@ -265,12 +265,12 @@ describe("ItemEditForm: the seller's item id in the heading", () => {
   it('links it to eBay when the listing is an eBay one', async () => {
     await open({
       ...COIN,
-      sellers_item_id: '900000000007',
-      listing_url: 'https://www.ebay.com/itm/900000000007',
+      sellers_item_id: '474747474747',
+      listing_url: 'https://www.ebay.com/itm/474747474747',
     })
     expect(
-      screen.getByRole('link', { name: 'eBay item 900000000007' }),
-    ).toHaveAttribute('href', 'https://www.ebay.com/itm/900000000007')
+      screen.getByRole('link', { name: 'eBay item 474747474747' }),
+    ).toHaveAttribute('href', 'https://www.ebay.com/itm/474747474747')
   })
 
   it('names it without an eBay link when it was bought elsewhere', async () => {

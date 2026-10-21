@@ -73,7 +73,7 @@ of one.
 |---|---|
 | **Offer** an item or lot (platform, format, price, public text, external id) | Refused if any affected item is deleted, split, or not `received`; is already sold (`sold`, `shipped`, `delivered`) or held by an unshipped order; is a member of an offered lot; is on offer on a **non-store** platform ("end it first"); or the platform is retired. An active **store** listing of an affected item is **paused**, with `paused_by_listing_id` set -- except that offering an item on the store while it is already there is refused. The new listing and its claims are `active`; items become `listed`; a lot becomes `offered`. A batch is all or nothing, lists every refused item with its reason, and refuses an item named twice. |
 | **Edit** a listing | Price, public title and description, external id. A web-store lot's title cannot be blanked: it is the only name a buyer sees. Once a listing has ended only its external id may change (through the API; the console edits active rows only): its terms are part of the sale's record. |
-| **End** a listing | `ended`, claims `released`. Store listings it paused **resume**. A lot listing's lot **dissolves** (members released). Items nothing else offers go back to `held`. Ending an ended listing changes nothing. A listing that is a lot of an auction is refused: it ends only through its auction. |
+| **End** a listing | `ended`, claims `released`. Store listings it paused **resume**. A lot listing's lot **dissolves** (members released). Items nothing else offers go back to `held`. Ending an ended listing changes nothing. A listing that is a lot of an auction is refused: it ends only through its auction. A listing whose stock an unshipped, uncancelled order still holds is refused, naming the order: ending it would leave nothing to return that stock to, so the order could never be cancelled. Ship or cancel the order first. |
 | **Record a sale** on an outside listing | One order on that platform: buyer (matched case-insensitively, or created; blank is the platform's undisclosed buyer), price, `external_order_id`, fee lines, shares, snapshot. The listing ends **sold**: claims released, the lot `sold`, members' paused store listings **ended** rather than resumed, items `sold`. Refused for a store listing and for a listing that is a lot of an auction, which sells through settlement. |
 | **Add to an auction** (`draft` or `scheduled`) | Offers the lot, or wraps one item in a new lot of one titled by the item's source title, with `format = auction`, and creates its `auction_lot`. Same refusals and pausing as Offer. |
 | **Remove from an auction** (`draft`, `scheduled` or `consigned`) | Ends the listing as for End and deletes the `auction_lot` row; if the house holds coins, they return to the chosen location first. |
@@ -284,7 +284,7 @@ locations are never shown to customers.
 |---|---|
 | `offering_writes` | `listing.status`, `listing_status_history`, `offer_claim`, `sales_lot.status`, `sales_lot_item.released_at`, and the `inventory_item.disposition` changes these cause |
 | `lot_writes` | assembling a lot: create, edit, delete, add and remove members |
-| `order_writes` | `sales_order`, its lines, stock, and share rows with their `amount` |
+| `order_writes` | `sales_order` (placing and revising), its lines, stock, share rows with their `amount`, and `sales_order_change` |
 | `sales_writes` | `sales_order_fee` and the `fee_amount` half of shares; orchestrates a sale through `order_writes.place_order` and `offering_writes.end_offer(sold=True)` |
 | `auctions` | auction transitions, which `auction_lot` rows exist, and the consigned `storage_location` |
 
@@ -292,6 +292,11 @@ locations are never shown to customers.
 dates, and a lot's number and reserve (after
 `auctions.refuse_unless_lot_editable`): fields with no consequence for the
 writers above.
+
+`routers.orders.update_order_status` writes `sales_order.sales_order_status_id`
+itself; `order_writes.record_status_change` records the change row beside it,
+and `order_writes.return_stock` puts the stock back when the change cancels
+or refunds an unshipped order.
 
 `sales_writes` has one implementation with two doors: `record_sale` (one
 listing; the Listings page's Record sale) and `record_sale_lines` (several
@@ -372,12 +377,12 @@ Admin-only unless noted; the console's calls live in `management/api.js`.
 | `GET/POST /api/sales-venues`, `PATCH /api/sales-venues/{code}` | platforms; the list puts the store first and includes retired ones |
 | `GET /api/offers/titles?item_ids=...` | suggested public titles for items about to be offered |
 | `POST /api/offers` | offer one or many items (`items`), or one lot (`lot_id`); all or nothing |
-| `GET /api/listings` | listings by `venue`, `format`, `status` (default active and paused; `all` adds ended) and `item_id` (lot memberships and ended offers included) |
+| `GET /api/listings` | listings by `venue`, `format`, `status` (default active and paused; `all` adds ended), `item_id` (lot memberships and ended offers included) and `ids` (repeated, `?ids=1&ids=2`: those listings in any status unless `status` is given); paged (`limit` ≤ 1000, default 200; `offset`), the body a JSON array and the match count in the `X-Total-Count` header |
 | `PATCH /api/listings/{id}` | price, title, description, external id; `version` |
 | `POST /api/listings/{id}/end` | end (withdraw) |
 | `POST /api/listings/{id}/sale` | record an outside sale: price, buyer username, order number, fees, `equal_shares` |
 | `GET/POST /api/sales-lots`, `GET/PATCH/DELETE /api/sales-lots/{id}` | lots; `PATCH` changes wording and membership (`add_item_ids`, `remove_item_ids`) together while assembling; the list is paged (`limit` ≤ 500, default 200; `offset`; `total`) and filterable by `status` |
-| `GET/POST /api/auctions`, `PATCH /api/auctions/{id}` | auctions; the list filters by `venue` and `status`; `PATCH` never changes platform or status |
+| `GET/POST /api/auctions`, `PATCH /api/auctions/{id}` | auctions; the list filters by `venue` and `status` and is paged (`limit` ≤ 1000, default 200; `offset`; the match count in the `X-Total-Count` header); `PATCH` never changes platform or status |
 | `POST /api/auctions/{id}/lots`, `PATCH`/`DELETE .../lots/{lot_id}` | add, renumber or re-reserve (`version`: the auction's), remove (`returned_to_location_id` as a query parameter) |
 | `POST /api/auctions/{id}/{schedule\|consign\|close\|cancel\|settle}` | transitions; `consign` takes `on_date`, `cancel` and `settle` take `returned_to_location_id` |
 
@@ -461,7 +466,9 @@ unit marks the item `sold` while its store listing stays active.
   refunded** -- an outside sale, or a lot bought in the shop. There is nothing
   to return the stock to. Once shipped it can be cancelled (no stock moves),
   which is how a refund is recorded. The Sales page disables both options
-  where the server would refuse them (`listing_ended`).
+  where the server would refuse them (`listing_ended`). End refuses a
+  listing while such an order holds its stock, so ending a listing by hand
+  never strands an order this way.
 - **A recorded outside sale's quantities cannot change.** Raising a line
   needs a store listing on sale, and lowering one hands stock back to a
   listing that ended with the sale; both are refused. Its prices, customer

@@ -327,23 +327,33 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
     }
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Report, or with --commit fill, the listing addresses and ids."""
+def main(argv: Sequence[str] | None = None, *, db: Session | None = None) -> int:
+    """Report, or with --commit fill, the listing addresses and ids.
+
+    `db` is the session to work in; run as a module, the application's own
+    `SessionLocal` is opened. A caller that already has a session -- the
+    tests, which must never let this open the live database -- passes it.
+    """
     parser = argparse.ArgumentParser(prog="listing_links", description=__doc__)
     pass_cli.add_commit_arguments(parser, "write the changes")
     args = pass_cli.parse_args(parser, argv)
 
-    with SessionLocal() as db:
-        todo = plan(db)
-        print(f"seller's item ids to read from addresses: {len(todo.listing_ids)}")
-        print(f"listing addresses to fill: {len(todo.listing_urls)}")
-        print(f"purchase web addresses to fill: {len(todo.order_urls)}")
-        print(f"eBay purchases to take their order page: {len(todo.order_pages)}")
-        for order_id, url in todo.kept:
-            print(f"  kept, purchase #{order_id}: {url}")
-        return pass_cli.commit_or_report(
-            db, args, lambda user_id: apply(db, todo, user_id)
-        )
+    if db is None:
+        with SessionLocal() as own:
+            return _run(own, args)
+    return _run(db, args)
+
+
+def _run(db: Session, args: argparse.Namespace) -> int:
+    """The report, and the changes when asked for, in one session."""
+    todo = plan(db)
+    print(f"seller's item ids to read from addresses: {len(todo.listing_ids)}")
+    print(f"listing addresses to fill: {len(todo.listing_urls)}")
+    print(f"purchase web addresses to fill: {len(todo.order_urls)}")
+    print(f"eBay purchases to take their order page: {len(todo.order_pages)}")
+    for order_id, url in todo.kept:
+        print(f"  kept, purchase #{order_id}: {url}")
+    return pass_cli.commit_or_report(db, args, lambda user_id: apply(db, todo, user_id))
 
 
 if __name__ == "__main__":

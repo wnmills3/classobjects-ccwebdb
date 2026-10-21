@@ -19,10 +19,10 @@ import pytest
 from app import image_fetch
 from app.config import settings
 from app.image_fetch import ImageFetchRefused, fetch_image
-from app.models import Image, ItemImage, Listing
+from app.models import Image, InventoryItem, ItemImage, Listing
 from fastapi.testclient import TestClient
 from PIL import Image as PILImage
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from tests.builders import ItemFactory
@@ -456,6 +456,74 @@ def test_fetching_onto_a_deleted_item_fetches_nothing(
     assert res.status_code == 422, res.text
     assert "deleted" in res.json()["detail"]
     assert asked == []
+
+
+def test_no_transaction_is_held_open_while_fetching(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fetch can take a minute; the rows read before it are not held over it."""
+    during: list[bool] = []
+
+    def fetch(_url: str) -> bytes:
+        """Answer with a picture, noting whether a transaction is open."""
+        during.append(db.in_transaction())
+        return _webp("khaki")
+
+    monkeypatch.setattr(image_fetch, "fetch_image", fetch)
+    item = make_item()
+
+    res = _from_url(
+        client,
+        admin_headers,
+        url="https://public.example/a.webp",
+        inventory_item_id=item.id,
+    )
+
+    assert res.status_code == 201, res.text
+    assert during == [False]
+
+
+def test_an_item_deleted_while_fetching_is_not_filed_on(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The item is checked again once the bytes are in, not only before."""
+    item = make_item()
+    item_id = item.id
+
+    def fetch(_url: str) -> bytes:
+        """Answer with a picture, the item deleted by someone else meanwhile."""
+        db.execute(
+            update(InventoryItem)
+            .where(InventoryItem.id == item_id)
+            .values(deleted_at=datetime(2026, 1, 1, tzinfo=UTC))
+        )
+        db.commit()
+        return _webp("coral")
+
+    monkeypatch.setattr(image_fetch, "fetch_image", fetch)
+
+    res = _from_url(
+        client,
+        admin_headers,
+        url="https://public.example/a.webp",
+        inventory_item_id=item_id,
+    )
+
+    assert res.status_code == 422, res.text
+    assert "deleted" in res.json()["detail"]
+    db.expire_all()
+    filed = select(ItemImage.id).where(ItemImage.inventory_item_id == item_id)
+    assert db.scalar(filed) is None
+    root = Path(settings.media_root)
+    assert [p for p in root.rglob("*") if p.is_file()] == []
 
 
 def test_fetching_needs_an_item_and_a_manager(

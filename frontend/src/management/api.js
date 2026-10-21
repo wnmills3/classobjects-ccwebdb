@@ -189,7 +189,14 @@ export const api = {
   // simply absent.
   getOfferTitles: (itemIds) =>
     send(withQuery('/api/offers/titles', { item_ids: itemIds })),
+  // The bare array, for a list that is small by what it asks for -- one
+  // item's offers (`item_id`), an order's lines (`ids`) -- and so falls
+  // within the server's first page.
   listListings: (params = {}) => send(withQuery('/api/listings', params)),
+  // One page of every listing the filters match, as `{rows, total}`: `limit`
+  // and `offset` page it, and `total` is the `X-Total-Count` header.
+  listListingsPage: (params = {}) =>
+    send(withQuery('/api/listings', params), { withTotal: true }),
   updateListing: (id, payload) =>
     send(`/api/listings/${id}`, { method: 'PATCH', body: payload }),
   endListing: (id) => send(`/api/listings/${id}/end`, { method: 'POST' }),
@@ -231,7 +238,16 @@ export const api = {
   // `createOffers` above documents for `refused`. `send` throws an `ApiError`
   // carrying the whole parsed body, so `SettlementGrid.jsx` reads
   // `err.body?.refused` to mark every offending lot, not just the first.
-  listAuctions: (params = {}) => send(withQuery('/api/auctions', params)),
+  //
+  // The list is paged (`limit`, `offset`; the server's own default is 200)
+  // and answers `{auctions, total}`: `total` is the count across every page
+  // (`X-Total-Count`), null when the header is missing.
+  listAuctions: async ({ limit, offset } = {}) => {
+    const { rows, total } = await send(withQuery('/api/auctions', { limit, offset }), {
+      withTotal: true,
+    })
+    return { auctions: rows?.auctions ?? [], total }
+  },
   createAuction: (payload) => send('/api/auctions', { method: 'POST', body: payload }),
   // No `updateAuction` here: nothing in the console edits an auction's own
   // title, dates or notes (`AuctionUpdate` in `schemas.py`), and a call
@@ -384,7 +400,11 @@ export const api = {
     }),
 
   // orders -- every customer's, placed and revised for them, and moved on
-  listOrders: () => send('/api/orders'),
+  // One page of them, newest first, as `{rows, total}`: `status` narrows to
+  // one status code, and `total` is how many match across every page (the
+  // `X-Total-Count` header). Lines carry no `snapshot` in the list.
+  listOrders: ({ status, limit, offset } = {}) =>
+    send(withQuery('/api/orders', { status, limit, offset }), { withTotal: true }),
   // `version` is the version the page read: a status set over a change made
   // since is refused (409) rather than overwriting it.
   setOrderStatus: (id, status, version) =>

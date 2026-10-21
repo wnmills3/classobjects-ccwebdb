@@ -1,9 +1,9 @@
 """Tidy the purchase-source list before sales platforms link to it.
 
 The list can hold one vendor per spelling of the same business -- typos
-(`builionhounds.com`, `usming.gov`), two HiBid hosts, a vendor named `.` --
-and vendors with no kind. Sales platforms link to a vendor (selling design), so the
-list is cleaned first.
+(`exmaple-coins.com` for `example-coins.com`), two hosts of one auction
+site, a vendor named `.` -- and vendors with no kind. Sales platforms link
+to a vendor (selling design), so the list is cleaned first.
 
 Every change is named on the command line -- which vendors are the same
 business is the owner's call, not something to guess -- and nothing is
@@ -11,7 +11,7 @@ written without --commit:
 
     python -m app.vendor_cleanup --merge 15:12 --merge 21:9 --delete 6
         --kind 1:marketplace --kind 19:marketplace
-        --rename 12:bullionhounds.com [--commit]
+        --rename 12:example-coins.com [--commit]
 
 A merge moves the purchase orders and removes the duplicate. Vendor rows hold
 no history of their own; the orders carry it, and they are kept.
@@ -182,8 +182,8 @@ def _rename_vendor(
 def _follow_rename(vendor: Vendor, old_name: str, new_name: str) -> None:
     """Correct a renamed vendor's host and link where they repeated its name.
 
-    A misspelt source misspells its web address too (`ampex.com` for
-    apmex.com), so a name fixed on its own would leave the vendor's `host`
+    A misspelt source misspells its web address too (`exmaple-coins.com` for
+    example-coins.com), so a name fixed on its own would leave the vendor's `host`
     naming a site that does not exist. The address follows the name only as
     one host name for another: the old name must be the host, or the end of
     it after a dot, and both names must be host names. A fragment replaced
@@ -232,8 +232,8 @@ def run(
     """Apply the named merges, deletions, kinds and renames.
 
     Renames run last, so a merge in the same call frees the name it removes:
-    the two Bullion Shark spellings become one row named for the website the
-    owner actually bought from. Rolls back unless `commit`.
+    two spellings of one dealer become one row, named with the spelling of
+    the dealer's own website. Rolls back unless `commit`.
 
     `commit` is keyword-only, as it is on every other pass here. Positional,
     between two sequences, a `renames` list passed one argument early would
@@ -288,8 +288,20 @@ def _rename(text: str) -> tuple[int, str]:
     return int(left), right.strip()
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Report or apply the clean-up."""
+def _run(db: Session, args: argparse.Namespace) -> Report:
+    """The changes the command line names, in one session."""
+    return run(
+        db, args.merge, args.kind, args.delete, commit=args.commit, renames=args.rename
+    )
+
+
+def main(argv: list[str] | None = None, *, db: Session | None = None) -> int:
+    """Report or apply the clean-up.
+
+    `db` is the session to work in; run as a module, the application's own
+    `SessionLocal` is opened. A caller that already has a session -- the
+    tests, which must never let this open the live database -- passes it.
+    """
     parser = argparse.ArgumentParser(prog="vendor_cleanup", description=__doc__)
     parser.add_argument("--merge", type=_pair, action="append", default=[])
     parser.add_argument("--kind", type=_kind, action="append", default=[])
@@ -303,19 +315,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--commit", action="store_true", help="write the changes")
     args = parser.parse_args(argv)
-    with SessionLocal() as db:
-        try:
-            report = run(
-                db,
-                args.merge,
-                args.kind,
-                args.delete,
-                commit=args.commit,
-                renames=args.rename,
-            )
-        except CleanupError as exc:
-            print(f"REFUSED: {exc}")
-            return 1
+    try:
+        if db is None:
+            with SessionLocal() as own:
+                report = _run(own, args)
+        else:
+            report = _run(db, args)
+    except CleanupError as exc:
+        print(f"REFUSED: {exc}")
+        return 1
     for source, target, moved in report.merged:
         print(f"merge  {source} -> {target}  ({moved} orders)")
     for name in report.deleted:

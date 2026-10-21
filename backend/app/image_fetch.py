@@ -41,7 +41,9 @@ __all__ = ["ImageFetchRefused", "fetch_full_size", "fetch_image"]
 _MAX_REDIRECTS = 3
 #: For each connection and each read.
 _TIMEOUT = httpx.Timeout(15.0)
-#: For the whole fetch, redirects included.
+#: For the whole fetch, redirects included. Long enough that a caller must
+#: not hold a database transaction open over it, and
+#: `routers.images.add_image_from_url` ends its own first.
 _MAX_SECONDS = 60.0
 
 Resolver = Callable[..., list[Any]]

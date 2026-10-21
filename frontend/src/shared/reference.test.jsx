@@ -491,6 +491,42 @@ describe('ReferenceProvider', () => {
     )
   }
 
+  it('asks for the active values only by default', async () => {
+    // The shop's provider: the server refuses retired values to anyone but
+    // a manager.
+    api.getReference.mockResolvedValue({ values: [value('a', 'A')] })
+    render(
+      <ReferenceProvider>
+        <Codes />
+      </ReferenceProvider>,
+    )
+    await screen.findByText('a')
+    expect(api.getReference).toHaveBeenCalledWith('series', { includeInactive: false })
+  })
+
+  it('asks for retired values too when told to, on load and on refresh', async () => {
+    // The console's provider.
+    api.getReference.mockResolvedValue({ values: [value('a', 'A')] })
+    const now = vi.spyOn(Date, 'now')
+    try {
+      now.mockReturnValue(1_000_000)
+      render(
+        <ReferenceProvider includeInactive>
+          <Codes />
+        </ReferenceProvider>,
+      )
+      await screen.findByText('a')
+      now.mockReturnValue(1_000_000 + 120_000)
+      fireEvent.focus(window)
+      await waitFor(() => expect(api.getReference).toHaveBeenCalledTimes(2))
+      for (const call of api.getReference.mock.calls) {
+        expect(call).toEqual(['series', { includeInactive: true }])
+      }
+    } finally {
+      now.mockRestore()
+    }
+  })
+
   it('fetches a vocabulary once for every picker that asks for it', async () => {
     // A form mounts five pickers over the same table in one commit. Each one
     // asks before any answer has arrived; only the first may fetch.

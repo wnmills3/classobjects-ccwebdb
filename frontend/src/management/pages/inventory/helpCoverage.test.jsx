@@ -169,6 +169,49 @@ describe('Every field has help', () => {
     expect(uncovered(coin.container)).toEqual([])
   })
 
+  // `status` explains Receiving's finder -- "Any status", "not yet arrived" --
+  // which neither setting an item's status nor narrowing a search by it has.
+  it('explains Status by what each place does with it, not by Receiving', async () => {
+    api.getInventoryItem.mockResolvedValue({
+      id: 12,
+      item_code: 'CC-000012',
+      description: 'Mercury Dime',
+      version: 3,
+      item_kind: 'coin',
+    })
+    // The topics of the fields whose label reads `text`.
+    const topicsOf = (root, text) =>
+      [...root.querySelectorAll('[data-help]')]
+        .filter((field) => field.firstElementChild?.textContent === text)
+        .map((field) => field.dataset.help)
+
+    const editor = renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      { reference: vocabularies },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    expect(topicsOf(editor.container, 'Status')).toEqual(['item_status'])
+    editor.unmount()
+
+    const { container } = renderWithProviders(
+      <FilterPanel
+        config={COIN_VIEW}
+        current={{}}
+        apply={vi.fn()}
+        facets={{ status: [{ value: 'received', label: 'Received', count: 1 }] }}
+        issues={{}}
+        issueDescriptions={{}}
+        total={1}
+        busy={false}
+        clear={vi.fn()}
+      />,
+    )
+    expect(topicsOf(container, 'Status')).toEqual(['status_filter'])
+    for (const topic of ['item_status', 'status_filter']) {
+      expect(FIELD_HELP[topic].text).not.toMatch(/Any status|Not yet arrived/)
+    }
+  })
+
   it("names the bar's field picker by a topic of its own, not the field chosen", () => {
     renderWithProviders(
       <BulkEditBar view="coins" ids={[1, 2]} onApplied={vi.fn()} onClear={vi.fn()} />,

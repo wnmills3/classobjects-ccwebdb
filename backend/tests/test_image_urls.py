@@ -48,7 +48,7 @@ def test_a_scaled_address_becomes_its_full_size_form(given: str, largest: str) -
         # eBay, but not a picture file of the sized kind.
         "https://i.ebayimg.com/images/g/abc/original.jpg",
         "https://i.ebayimg.com/images/g/s-l500.jpg/extra",
-        "https://www.ebay.com/itm/900000000004",
+        "https://www.ebay.com/itm/424242424242",
         # Another host's file that only looks like eBay's or NGC's.
         "https://example.com/images/s-l500.jpg",
         "https://notebayimg.com/g/abc/s-l500.jpg",

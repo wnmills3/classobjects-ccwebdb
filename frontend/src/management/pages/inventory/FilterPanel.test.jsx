@@ -301,8 +301,8 @@ describe('FilterPanel keyboard accelerators', () => {
     const { props } = setup({ config: { ...config, ...COIN_VIEW }, facets: {} })
     const box = screen.getByRole('textbox', { name: NO_LETTER })
     expect(box).not.toHaveAttribute('accesskey')
-    await userEvent.type(box, '900000000003{Enter}')
-    expect(props.apply).toHaveBeenCalledWith({ sellers_item_id: '900000000003' })
+    await userEvent.type(box, '434343434343{Enter}')
+    expect(props.apply).toHaveBeenCalledWith({ sellers_item_id: '434343434343' })
   })
 
   it('offers the order number on both views, with no letter', () => {

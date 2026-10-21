@@ -13,18 +13,23 @@ import { useRequest } from '../../shared/useRequest'
 //: after it -- `31.` -- but not both.
 const PRICE = /^(\d{1,8}(\.\d{0,4})?|\.\d{1,4})$/
 
+//: Commas as they separate thousands: every group after the first is three
+//: digits, and none comes after the point. `31,50` is a European decimal
+//: and `4,0,1` is a typo; read as thousands, either would be recorded as a
+//: price a hundred or more times too high.
+const THOUSANDS = /^\d{1,3}(,\d{3})+(\.\d*)?$/
+
 /**
  * A price as a person types it, in the form the server takes: `$4,012.50`
  * is `4012.50` and `.4553` is `0.4553`. A dollar sign in front, commas
  * between thousands and a bare decimal point are how a price is written and
- * copied from a quote, and are not what makes it a number. '' for text that
- * is not a price.
+ * copied from a quote, and are not what makes it a number. A comma anywhere
+ * else makes the text not a price. '' for text that is not a price.
  */
 function priceOf(text) {
-  const plain = text
-    .trim()
-    .replace(/^\$\s*/, '')
-    .replaceAll(',', '')
+  const written = text.trim().replace(/^\$\s*/, '')
+  if (written.includes(',') && !THOUSANDS.test(written)) return ''
+  const plain = written.replaceAll(',', '')
   if (!PRICE.test(plain)) return ''
   return plain.replace(/^\./, '0.').replace(/\.$/, '')
 }

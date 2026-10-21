@@ -29,23 +29,18 @@ if not config.get_main_option("sqlalchemy.url", None):
     config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Migrations also run inside other processes -- the backup's proof, the
+    # tests -- whose own loggers must keep working afterwards; fileConfig's
+    # default would silence every logger that exists when it runs.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
 
-def run_migrations_offline() -> None:
-    """Emit SQL to stdout without connecting."""
-    context.configure(
-        url=config.get_main_option("sqlalchemy.url"),
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-        compare_type=True,
-        compare_server_default=True,
-    )
-    with context.begin_transaction():
-        context.run_migrations()
+OFFLINE_REFUSAL = (
+    "migrations run online only: the baseline and data migrations read the "
+    "database, so there is no SQL script to emit without one (drop --sql)"
+)
 
 
 def run_migrations_online() -> None:
@@ -68,6 +63,5 @@ def run_migrations_online() -> None:
 
 
 if context.is_offline_mode():
-    run_migrations_offline()
-else:
-    run_migrations_online()
+    raise RuntimeError(OFFLINE_REFUSAL)
+run_migrations_online()

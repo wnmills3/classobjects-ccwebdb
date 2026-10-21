@@ -44,6 +44,7 @@ copied after the rest.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
@@ -79,6 +80,7 @@ __all__ = [
     "MISSING",
     "admin_engine",
     "all_tables",
+    "check_database_name",
     "compare",
     "copy_rows",
     "create_database",
@@ -92,8 +94,8 @@ __all__ = [
     "unmodelled_tables",
 ]
 
-#: Rows copied per round trip. Large enough to be quick, small enough that a
-#: failure does not sit on one enormous uncommitted transaction.
+#: Rows read and written per round trip. Large enough to be quick, small
+#: enough that no table is held in memory whole.
 CHUNK = 1000
 
 #: The sequence item codes are drawn from. No column owns it, so neither an
@@ -109,6 +111,9 @@ HIGHEST_ITEM_CODE = (
 #: of its own, so that the parameter can carry a type that keeps SQL NULL
 #: and JSON's null apart.
 _JSON_PARAMETER = "json_"
+
+#: A database name a copy may be given.
+_DATABASE_NAME = re.compile(r"[A-Za-z0-9_]{1,63}")
 
 
 def generated_columns(table: Table) -> list[Column[Any]]:
@@ -161,15 +166,34 @@ def admin_engine(url_str: str) -> Engine:
     return create_engine(url, isolation_level="AUTOCOMMIT")
 
 
+def check_database_name(name: str) -> str:
+    """`name`, if it is a database name a copy may take; else `ValueError`.
+
+    Letters, digits and underscores, at most 63 (PostgreSQL's identifier
+    limit): a name that would need quoting, or be cut short, is refused
+    rather than turned into a different database's name.
+    """
+    if not _DATABASE_NAME.fullmatch(name):
+        raise ValueError(
+            f"{name!r} is not a usable database name: use letters, digits "
+            "and underscores only, at most 63 of them"
+        )
+    return name
+
+
 def create_database(source_url: str, name: str) -> str:
     """Make an empty database beside the source, and return its URL."""
+    check_database_name(name)
     with admin_engine(source_url).connect() as conn:
         exists = conn.execute(
             text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": name}
         ).scalar()
         if exists:
             raise RuntimeError(f"{name} already exists")
-        conn.execute(text(f'CREATE DATABASE "{name}"'))
+        # An identifier cannot be a bind parameter; the name is checked
+        # above and quoted by the dialect's own preparer.
+        quoted = conn.dialect.identifier_preparer.quote_identifier(name)
+        conn.execute(text(f"CREATE DATABASE {quoted}"))
     return make_url(source_url).set(database=name).render_as_string(hide_password=False)
 
 
@@ -191,19 +215,28 @@ def copy_rows(
     - **JSON's own `null` is not SQL NULL**, and both read back as Python's
       `None`. Each JSON column is read together with whether it is SQL NULL,
       and written so that each stays what it was.
+
+    Every table is read on one connection in one snapshot (REPEATABLE READ),
+    as `app.workbook_backup` exports: a row saved while the copy runs is in
+    the copy everywhere or nowhere, so no copied row links to a row read too
+    early to be there, and no table's rows shift between two of its chunks.
     """
-    with Session(source) as read, Session(target) as write:
-        for table in tables if tables is not None else all_tables(source):
+    chosen = tables if tables is not None else all_tables(source)
+    snapshot = source.connect().execution_options(isolation_level="REPEATABLE READ")
+    with snapshot as read, Session(target) as write:
+        for table in chosen:
             total = _copy_table(read, write, table)
             write.commit()
             _resync_sequences(write, table)
             yield table.name, total
 
 
-def _copy_table(read: Session, write: Session, table: Table) -> int:
+def _copy_table(read: Connection, write: Session, table: Table) -> int:
     """Write one table's rows, a chunk at a time, then its own links; how many rows.
 
-    The caller commits.
+    The rows are streamed from one query rather than paged: in the caller's
+    snapshot they cannot change underneath it, and no page is read twice
+    or skipped. The caller commits.
     """
     columns = stored_columns(table)
     names = [c.name for c in columns]
@@ -221,22 +254,16 @@ def _copy_table(read: Session, write: Session, table: Table) -> int:
     )
     links: list[tuple[list[Any], dict[str, Any]]] = []
     total = 0
-    offset = 0
-    while True:
-        rows = read.execute(
-            select(*columns, *(c.is_(None) for c in jsons))
-            .order_by(*keys)
-            .limit(CHUNK)
-            .offset(offset)
-        ).all()
-        if not rows:
-            break
+    result = read.execute(
+        select(*columns, *(c.is_(None) for c in jsons)).order_by(*keys),
+        execution_options={"yield_per": CHUNK},
+    )
+    for rows in result.partitions():
         records = [_as_written(row, names, jsons) for row in rows]
         for record in records:
             _hold_own_links(record, own, keys, links)
         write.execute(statement, records)
         total += len(rows)
-        offset += CHUNK
     for key_values, held in links:
         matches = [k == v for k, v in zip(keys, key_values, strict=True)]
         write.execute(update(table).where(*matches).values(**held))
@@ -458,6 +485,11 @@ def main(argv: list[str] | None = None) -> int:
         return _list_copies()
     if args.verify:
         return _verify(args.verify)
+    if args.name is not None:
+        try:
+            check_database_name(args.name)
+        except ValueError as err:
+            parser.error(str(err))
 
     print("copying...")
     url, written = run(args.to, name=args.name)

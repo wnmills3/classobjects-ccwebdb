@@ -136,9 +136,9 @@ describe('NewPurchase: creating a vendor inline', () => {
     await user.type(address, '.ebay.com')
     // Only a site so far: the site, without www.
     expect(name).toHaveValue('ebay.com')
-    await user.type(address, '/usr/coinbuyer42')
+    await user.type(address, '/usr/example_seller')
     // A page on it: the page's last part, the account on the marketplace.
-    expect(name).toHaveValue('coinbuyer42')
+    expect(name).toHaveValue('example_seller')
 
     // What follows ? is no part of a name, and the case is the address's.
     await user.clear(address)
@@ -260,9 +260,9 @@ describe('NewPurchase: creating a vendor inline', () => {
     expect(name).toHaveValue('ebay.com')
 
     await user.clear(name)
-    await user.type(address, '/usr/coinbuyer42')
+    await user.type(address, '/usr/example_seller')
 
-    expect(name).toHaveValue('coinbuyer42')
+    expect(name).toHaveValue('example_seller')
   })
 
   it('keeps Add live with no name, and says what is missing on a press', async () => {
@@ -1331,8 +1331,8 @@ describe('NewPurchase: the seller', () => {
     const user = userEvent.setup()
     api.createSeller.mockResolvedValue({
       id: 9,
-      name: 'coinbuyer42',
-      store_url: 'https://www.ebay.com/usr/coinbuyer42',
+      name: 'example_seller',
+      store_url: 'https://www.ebay.com/usr/example_seller',
     })
     api.createPurchaseOrder.mockResolvedValue(FRESH_PURCHASE)
     renderWithProviders(<NewPurchase />)
@@ -1346,14 +1346,14 @@ describe('NewPurchase: the seller', () => {
     expect(store.compareDocumentPosition(name)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(store).toHaveFocus()
 
-    await user.type(store, 'https://www.ebay.com/usr/coinbuyer42')
-    expect(name).toHaveValue('coinbuyer42')
+    await user.type(store, 'https://www.ebay.com/usr/example_seller')
+    expect(name).toHaveValue('example_seller')
 
     await user.click(screen.getByRole('button', { name: 'Add seller' }))
     await waitFor(() =>
       expect(api.createSeller).toHaveBeenCalledWith({
-        name: 'coinbuyer42',
-        store_url: 'https://www.ebay.com/usr/coinbuyer42',
+        name: 'example_seller',
+        store_url: 'https://www.ebay.com/usr/example_seller',
       }),
     )
   })
@@ -1398,17 +1398,17 @@ describe('NewPurchase: the seller', () => {
     expect(name).toHaveValue('ebay.com')
 
     await user.clear(name)
-    await user.type(store, '/usr/coinbuyer42')
+    await user.type(store, '/usr/example_seller')
 
-    expect(name).toHaveValue('coinbuyer42')
+    expect(name).toHaveValue('example_seller')
   })
 
   it('sends a store typed without https:// with it in front', async () => {
     const user = userEvent.setup()
     api.createSeller.mockResolvedValue({
       id: 9,
-      name: 'coinbuyer42',
-      store_url: 'https://www.ebay.com/usr/coinbuyer42',
+      name: 'example_seller',
+      store_url: 'https://www.ebay.com/usr/example_seller',
     })
     renderWithProviders(<NewPurchase />)
     await user.selectOptions(
@@ -1417,14 +1417,14 @@ describe('NewPurchase: the seller', () => {
     )
     await user.type(
       screen.getByRole('textbox', { name: 'Store web address or email' }),
-      'www.ebay.com/usr/coinbuyer42',
+      'www.ebay.com/usr/example_seller',
     )
     await user.click(screen.getByRole('button', { name: 'Add seller' }))
 
     await waitFor(() =>
       expect(api.createSeller).toHaveBeenCalledWith({
-        name: 'coinbuyer42',
-        store_url: 'https://www.ebay.com/usr/coinbuyer42',
+        name: 'example_seller',
+        store_url: 'https://www.ebay.com/usr/example_seller',
       }),
     )
   })

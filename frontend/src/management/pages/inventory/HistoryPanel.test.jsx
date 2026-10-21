@@ -93,6 +93,17 @@ describe('HistoryPanel', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
+  it('says which changes have no entry, without naming the day this log began', async () => {
+    api.getItemHistory.mockResolvedValue([])
+    renderWithProviders(<HistoryPanel itemId={7} version={1} />)
+    const note = await screen.findByText(/has no\s+entry/)
+    expect(note).toHaveTextContent(
+      'A change made before the log existed, or by most clean-up passes, has no entry.',
+    )
+    // The day one installation's log started means nothing in another's.
+    expect(note.textContent).not.toMatch(/\d{4}/)
+  })
+
   it('shows the recent entries first and the rest on request', async () => {
     const many = Array.from({ length: 25 }, (_, n) => ({
       ...EDIT,

@@ -212,9 +212,9 @@ class Series(ReferenceMixin, Base):
     than a series name.
 
     ``label`` is the formal name and ``aliases`` carry what people actually
-    say. That distinction is load-bearing: "Winged Liberty Head Dime" appears
-    nowhere in this collection's own descriptions and "Mercury" appears 104
-    times, so a search that knew only the formal name would find nothing.
+    say. That distinction is load-bearing: descriptions say "Mercury", not
+    "Winged Liberty Head Dime", so a search that knew only the formal name
+    would find nothing.
     """
 
     __tablename__ = "series"

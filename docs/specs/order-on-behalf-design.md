@@ -137,8 +137,8 @@ page is not applied over a change its chooser never saw.
 
 | Endpoint | Access | Behavior |
 |---|---|---|
-| `POST /api/orders` | signed in | Shop checkout: `place_order` for the caller's own customer record, listing prices only. |
-| `GET /api/orders`, `GET /api/orders/{id}` | signed in | A manager sees every order (`mine=true` narrows to their own); a shopper only their own, and another customer's order is a 404. `notes`, `placed_by_email` and line snapshots are manager-only. |
+| `POST /api/orders` | signed in | Shop checkout: `place_order` for the caller's own customer record, listing prices only. At most 50 lines; a line may carry `expected_price`, the price the shopper saw, and a different current price is a 409. A customer already holding five pending shop orders is refused another (409); orders placed on a customer's behalf are not counted against this. |
+| `GET /api/orders`, `GET /api/orders/{id}` | signed in | A manager sees every order (`mine=true` narrows to their own); a shopper only their own, and another customer's order is a 404. `notes`, `placed_by_email` and line snapshots are manager-only, and line snapshots come only with a single order, never in the list. The list takes `status`, `limit` (default 200, at most 1000) and `offset`, newest first, and carries the unpaged total in the `X-Total-Count` header. |
 | `POST /api/customers/{id}/orders` | manager | Place an order for that customer: `items` of `{listing_id, quantity, unit_price?}`, optional `notes`. Unknown customer: 404. |
 | `POST /api/users/{id}/customer` | manager | Find or create the customer record behind an account. |
 | `PUT /api/orders/{id}` | manager | `revise_order`. Body: `version`, `customer_id`, `items` of `{listing_id, quantity, unit_price}`, `notes`. |

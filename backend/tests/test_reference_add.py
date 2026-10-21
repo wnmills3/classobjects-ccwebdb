@@ -22,14 +22,25 @@ SEVEN_CENTS = {
 }
 
 
-def _fields(client: TestClient, table: str) -> dict[str, dict[str, object]]:
+def _read(client: TestClient, headers: dict[str, str], table: str) -> dict:
+    """The vocabulary as a manager's console reads it."""
+    response = client.get(f"/api/reference/{table}", headers=headers)
+    assert response.status_code == 200, response.text
+    return dict(response.json())
+
+
+def _fields(
+    client: TestClient, headers: dict[str, str], table: str
+) -> dict[str, dict[str, object]]:
     """The vocabulary's own columns as its route describes them, by name."""
-    body = client.get(f"/api/reference/{table}").json()
+    body = _read(client, headers, table)
     return {field["name"]: field for field in body["fields"]}
 
 
-def test_a_vocabulary_says_what_its_values_need(client: TestClient) -> None:
-    fields = _fields(client, "denomination")
+def test_a_vocabulary_says_what_its_values_need(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    fields = _fields(client, admin_headers, "denomination")
 
     assert list(fields) == ["currency", "face_value", "kind"]
     assert fields["currency"]["kind"] == "reference"
@@ -40,12 +51,16 @@ def test_a_vocabulary_says_what_its_values_need(client: TestClient) -> None:
     assert all(field["required"] for field in fields.values())
 
 
-def test_a_plain_vocabulary_needs_nothing_more(client: TestClient) -> None:
-    assert client.get("/api/reference/set_form").json()["fields"] == []
+def test_a_plain_vocabulary_needs_nothing_more(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    assert _read(client, admin_headers, "set_form")["fields"] == []
 
 
-def test_optional_and_computed_columns_are_told_apart(client: TestClient) -> None:
-    grade = _fields(client, "grade")
+def test_optional_and_computed_columns_are_told_apart(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    grade = _fields(client, admin_headers, "grade")
     assert "grade_rank" not in grade
     assert grade["numeric_value"] == {
         "name": "numeric_value",
@@ -58,10 +73,10 @@ def test_optional_and_computed_columns_are_told_apart(client: TestClient) -> Non
     }
     assert grade["is_plus"]["kind"] == "boolean"
 
-    series = _fields(client, "series")
+    series = _fields(client, admin_headers, "series")
     assert series["applies_to"]["choices"] == ["coin", "currency"]
     assert series["applies_to"]["required"] is False
-    assert _fields(client, "mint")["mark"]["max_length"] == 4
+    assert _fields(client, admin_headers, "mint")["mark"]["max_length"] == 4
 
 
 def test_a_denomination_is_added_by_what_it_is(
@@ -89,9 +104,7 @@ def test_a_denomination_is_added_by_what_it_is(
     assert row.face_value == Decimal("0.07")
     assert row.kind is DenominationKind.coin
 
-    codes = [
-        v["code"] for v in client.get("/api/reference/denomination").json()["values"]
-    ]
+    codes = [v["code"] for v in _read(client, admin_headers, "denomination")["values"]]
     assert codes.index("usd_coin_0_05") < codes.index("usd_coin_0_07")
     assert codes.index("usd_coin_0_07") < codes.index("usd_coin_0_10")
 
@@ -351,19 +364,21 @@ def test_text_longer_than_its_column_is_refused(
 def test_nothing_is_added_to_a_vocabulary_the_application_acts_on(
     client: TestClient, admin_headers: dict[str, str], table: str
 ) -> None:
-    assert client.get(f"/api/reference/{table}").json()["addable"] is False
+    assert _read(client, admin_headers, table)["addable"] is False
     res = client.post(
         f"/api/reference/{table}",
         json={"code": "invented", "label": "Invented"},
         headers=admin_headers,
     )
     assert res.status_code == 409
-    codes = {v["code"] for v in client.get(f"/api/reference/{table}").json()["values"]}
+    codes = {v["code"] for v in _read(client, admin_headers, table)["values"]}
     assert "invented" not in codes
 
 
-def test_a_descriptive_vocabulary_can_be_added_to(client: TestClient) -> None:
-    assert client.get("/api/reference/denomination").json()["addable"] is True
+def test_a_descriptive_vocabulary_can_be_added_to(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    assert _read(client, admin_headers, "denomination")["addable"] is True
 
 
 # -- changing a value's own columns -------------------------------------------
@@ -438,7 +453,7 @@ def test_changing_a_shipped_values_column_makes_it_this_installations(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     """So the next seed load does not put the shipped column back."""
-    before = client.get("/api/reference/mint").json()["values"]
+    before = _read(client, admin_headers, "mint")["values"]
     denver = next(v for v in before if v["code"] == "D")
     assert denver["source"] == "seeded"
 
@@ -483,7 +498,7 @@ def test_a_change_a_column_cannot_hold_is_a_422_naming_it(
     )
     assert res.status_code == 422, res.text
     assert said in res.json()["detail"]
-    kept = client.get("/api/reference/series").json()["values"]
+    kept = _read(client, admin_headers, "series")["values"]
     assert next(v for v in kept if v["code"] == "horseblanket")["extra"] == {
         "applies_to": "coin",
         "needs_evidence": False,

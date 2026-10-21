@@ -7,7 +7,6 @@ from typing import Annotated
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select
 
 from .. import throttle
 from ..config import settings
@@ -16,12 +15,14 @@ from ..models import User, UserRole
 from ..schemas import RefreshRequest, TokenPair, UserCreate, UserOut
 from ..security import (
     UNKNOWN_ACCOUNT_HASH,
+    account_by_email,
     create_access_token,
     create_refresh_token,
     decode_token,
     hash_password,
     needs_rehash,
     normalize_email,
+    normalize_email_if_valid,
     verify_password,
 )
 from ._tx import commit_unique
@@ -37,6 +38,15 @@ _INVALID_REFRESH_TOKEN = "Invalid or expired refresh token"
 def _caller_address(request: Request) -> str:
     """The address an attempt came from, as the attempt limits count it."""
     return request.client.host if request.client else "unknown"
+
+
+def _incorrect_credentials() -> HTTPException:
+    """The one refusal for a wrong password and for an unknown address."""
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Incorrect email or password",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -56,8 +66,7 @@ def register(payload: UserCreate, request: Request, db: DbSession) -> User:
     throttle.REGISTRATIONS_BY_ADDRESS.refuse_if_spent(address)
     throttle.REGISTRATIONS_BY_ADDRESS.record(address)
     email = normalize_email(payload.email)
-    existing = db.scalar(select(User).where(User.email == email))
-    if existing is not None:
+    if account_by_email(db, email) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with that email already exists",
@@ -90,19 +99,21 @@ def login(
     (`app.throttle`); over either limit the answer is a 429, given before
     the password is checked.
     """
-    # OAuth2PasswordRequestForm calls the field "username"; we use the email,
-    # in the form an account stores it. Text the validator refuses is looked
-    # up as typed: an account made outside registration -- the first
-    # administrator is -- may hold an address registration would not accept,
-    # and must still be able to sign in.
-    try:
-        email = normalize_email(form.username)
-    except ValueError:
-        email = form.username
     address = _caller_address(request)
     throttle.SIGN_IN_FAILURES_BY_ADDRESS.refuse_if_spent(address)
-    throttle.SIGN_IN_FAILURES_BY_ACCOUNT.refuse_if_spent(email)
-    user = db.scalar(select(User).where(User.email == email))
+    # No address is longer than this, so the text names no account; refused
+    # before it is keyed or looked up, and counted against the caller.
+    if len(form.username) > throttle.MAX_KEY_LENGTH:
+        throttle.SIGN_IN_FAILURES_BY_ADDRESS.record(address)
+        raise _incorrect_credentials()
+    # OAuth2PasswordRequestForm calls the field "username"; we use the email.
+    # Text the validator refuses is looked up as typed (see
+    # `normalize_email_if_valid`). The account's count is keyed in lower case,
+    # as the lookup matches, so a guesser cannot spread over spellings.
+    email = normalize_email_if_valid(form.username)
+    account_key = email.lower()
+    throttle.SIGN_IN_FAILURES_BY_ACCOUNT.refuse_if_spent(account_key)
+    user = account_by_email(db, email)
 
     # One verification whether or not the address has an account -- against
     # a hash no account holds when it has none -- so both refusals take the
@@ -114,19 +125,18 @@ def login(
     )
     if user is None or not verified:
         throttle.SIGN_IN_FAILURES_BY_ADDRESS.record(address)
-        throttle.SIGN_IN_FAILURES_BY_ACCOUNT.record(email)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        throttle.SIGN_IN_FAILURES_BY_ACCOUNT.record(account_key)
+        raise _incorrect_credentials()
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled"
         )
 
-    throttle.SIGN_IN_FAILURES_BY_ADDRESS.forget(address)
-    throttle.SIGN_IN_FAILURES_BY_ACCOUNT.forget(email)
+    # The account's failures only: the owner is not locked out by a guesser
+    # who failed against it. The address's count is left to age out of its
+    # window, or a guesser holding any one account could sign into it
+    # between guesses and never meet the limit.
+    throttle.SIGN_IN_FAILURES_BY_ACCOUNT.forget(account_key)
 
     # Transparently upgrade the stored hash if argon2 parameters changed.
     if needs_rehash(user.hashed_password):
@@ -174,6 +184,18 @@ def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
         access_token=create_access_token(user.id, user.token_version),
         refresh_token=create_refresh_token(user.id, user.token_version),
     )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(user: CurrentUser, db: DbSession) -> None:
+    """Sign the account out everywhere.
+
+    A token cannot be withdrawn one at a time without a store of them, so
+    the account's version moves on and every token issued before -- this
+    browser's refresh token and any other's -- is refused from now on.
+    """
+    user.token_version += 1
+    db.commit()
 
 
 @router.get("/me", response_model=UserOut)

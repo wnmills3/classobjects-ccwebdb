@@ -126,7 +126,9 @@ async function open(user, table) {
   await screen.findByText('Morgan Dollar')
   if (table !== 'series') {
     await user.selectOptions(screen.getByLabelText('Vocabulary'), table)
-    await waitFor(() => expect(api.getReference).toHaveBeenCalledWith(table))
+    await waitFor(() =>
+      expect(api.getReference).toHaveBeenCalledWith(table, { includeInactive: true }),
+    )
     await waitFor(() => expect(screen.queryByText('Morgan Dollar')).toBeNull())
   }
 }

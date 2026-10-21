@@ -109,6 +109,21 @@ def test_serial_prefixes_follow_bep(db: Session) -> None:
     assert not {key for key in prefixes if key[0] in ("usd_note_1", "usd_note_2")}
 
 
+def test_a_series_printed_under_two_prefixes_records_neither(db: Session) -> None:
+    """Series 2006 $5: H before the colorized design, I after it."""
+    prefix, variant = db.execute(
+        select(NoteIssue.serial_prefix, NoteIssue.variant)
+        .join(Denomination, Denomination.id == NoteIssue.denomination_id)
+        .where(
+            Denomination.code == "usd_note_5",
+            NoteIssue.series_year == 2006,
+            NoteIssue.series_letter.is_(None),
+        )
+    ).one()
+    assert prefix is None
+    assert variant == "H serial prefix (pre-colorized); I serial prefix (colorized)"
+
+
 def test_every_issue_from_1996_but_the_1_and_2_has_a_prefix(db: Session) -> None:
     missing = sorted(
         (den, year, letter)

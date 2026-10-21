@@ -469,6 +469,87 @@ def test_external_url_is_built_from_the_platform_template(
     assert stored.external_url is None
 
 
+def test_a_listing_number_is_encoded_whole_into_the_template(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    """A `/` or `?` in the number stays in the path segment the template gives it.
+
+    Unencoded, `12/../admin?x=1` would reach another path on the platform and
+    add a query of its own.
+    """
+    item = make_item()
+    venue = _venue(db, "ebay-encoded", template=EBAY_TEMPLATE)
+    response = _offer(
+        client,
+        admin_headers,
+        venue.code,
+        [{"item_id": item.id, "price": "1.00", "external_id": "12/../admin?x=1"}],
+    )
+    assert response.status_code == 201, response.text
+    assert (
+        response.json()["listings"][0]["external_url"]
+        == "https://www.ebay.com/itm/12%2F..%2Fadmin%3Fx%3D1"
+    )
+
+
+@pytest.mark.parametrize(
+    ("template", "stored", "expected"),
+    [
+        # A template that is not a web address builds no link.
+        ("javascript:alert('{external_id}')", None, None),
+        # A stored URL is shown only when it is http or https.
+        (None, "javascript:alert(1)", None),
+        (
+            None,
+            "https://www.example.com/listing/9",
+            "https://www.example.com/listing/9",
+        ),
+    ],
+)
+def test_only_an_http_link_is_answered_as_a_listing_page(
+    template: str | None,
+    stored: str | None,
+    expected: str | None,
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    """The console renders `external_url` as an `href`, where `javascript:` runs.
+
+    The stored URL is written straight to the row: nothing in the
+    application writes that column, which is the case it exists for.
+    """
+    item = make_item()
+    venue = _venue(db, "ebay-scheme")
+    if template is not None:
+        # Past the platform schema's own checks, as a row edited in the
+        # database would be.
+        venue.listing_url_template = template
+        db.commit()
+    listing = _offer(
+        client,
+        admin_headers,
+        venue.code,
+        [{"item_id": item.id, "price": "1.00", "external_id": "77"}],
+    ).json()["listings"][0]
+    if stored is not None:
+        db.execute(
+            update(Listing)
+            .where(Listing.id == listing["id"])
+            .values(external_url=stored)
+        )
+        db.commit()
+
+    rows = client.get(
+        "/api/listings", headers=admin_headers, params={"ids": listing["id"]}
+    ).json()
+    assert [row["external_url"] for row in rows] == [expected]
+
+
 # --------------------------------------------------------------------------
 # Listing what is offered
 # --------------------------------------------------------------------------
@@ -547,6 +628,82 @@ def test_listings_are_filtered_by_item(
     # The list serves the same version the console sends back on a PATCH, and
     # it is a number there too.
     assert rows[0]["version"] == 1
+
+
+def test_the_listing_list_is_paged_with_a_total(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    venue = _venue(db, "ebay-paged")
+    listed = _offer(
+        client,
+        admin_headers,
+        venue.code,
+        [{"item_id": make_item().id, "price": "1.00"} for _ in range(3)],
+    ).json()["listings"]
+    ids = sorted(row["id"] for row in listed)
+
+    first = client.get(
+        "/api/listings", headers=admin_headers, params={"venue": venue.code, "limit": 2}
+    )
+    assert first.status_code == 200, first.text
+    # Still a bare array: the console reads it as one.
+    assert [row["id"] for row in first.json()] == ids[:2]
+    assert first.headers["X-Total-Count"] == "3"
+
+    rest = client.get(
+        "/api/listings",
+        headers=admin_headers,
+        params={"venue": venue.code, "limit": 2, "offset": 2},
+    )
+    assert [row["id"] for row in rest.json()] == ids[2:]
+    assert rest.headers["X-Total-Count"] == "3"
+
+
+def test_listings_are_read_by_id_whatever_their_status(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    """What the order editor prices its lines from, an ended listing included.
+
+    One listing of the three is left out, so a filter that ignored `ids`
+    would answer three rows; one is ended, so the default status filter
+    applied to named ids would answer one.
+    """
+    venue = _venue(db, "ebay-by-id")
+    listed = _offer(
+        client,
+        admin_headers,
+        venue.code,
+        [{"item_id": make_item().id, "price": "1.00"} for _ in range(3)],
+    ).json()["listings"]
+    wanted, ended, _left_out = (row["id"] for row in listed)
+    assert (
+        client.post(f"/api/listings/{ended}/end", headers=admin_headers).status_code
+        == 200
+    )
+
+    response = client.get(
+        "/api/listings", headers=admin_headers, params={"ids": [wanted, ended]}
+    )
+    assert response.status_code == 200, response.text
+    rows = response.json()
+    assert [(row["id"], row["status"]) for row in rows] == [
+        (wanted, "active"),
+        (ended, "ended"),
+    ]
+    assert response.headers["X-Total-Count"] == "2"
+
+    only_active = client.get(
+        "/api/listings",
+        headers=admin_headers,
+        params={"ids": [wanted, ended], "status": "active"},
+    ).json()
+    assert [row["id"] for row in only_active] == [wanted]
 
 
 # --------------------------------------------------------------------------

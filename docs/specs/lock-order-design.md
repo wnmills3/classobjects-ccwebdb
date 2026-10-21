@@ -97,10 +97,15 @@ lot offered between that read and the item lock is held without its lot row.
 **A caller that may call `end_offer` on a listing it did not name must first
 pass that set through `refuse_if_lot_unheld`.** Otherwise `end_offer` would
 take the lot row late, after items and listings -- the inversion one level
-down. Three callers do this, all in `routers.inventory`: `receive_items`,
-`bulk_edit` and `update_item`, each of which ends whatever `offers_holding`
-returns for the items it changes. Every other caller ends only listings it
-named, whose lot rows are always taken first.
+down. Four callers do this. Three are in `routers.inventory`:
+`receive_items`, `bulk_edit` and `update_item`, each of which ends whatever
+`offers_holding` returns for the items it changes. The fourth is
+`routers.offers.create_offers`, which locks a whole batch of items in one
+pass before its first `offer`; each `offer` then takes the lot rows of the
+live offers holding its item, so a lot offered between the batch's unlocked
+read and its item lock would have its lot row taken after the items. Every
+other caller ends only listings it named, whose lot rows are always taken
+first.
 
 It is not enforced inside `lock_for_sale` because every narrower key turns
 an ordinary lost race into a 500: keyed on the derived half it refuses

@@ -18,17 +18,18 @@ rem  it keeps running while every process it spawns afterwards dies with
 rem  0xC0000142.
 rem ---------------------------------------------------------------------------
 
-rem  The cluster lives in OneDrive and either computer may run it, never both
-rem  (docs\runtime-operations-windows.md, One database, two computers). The caller
-rem  has found no PostgreSQL here, so a postmaster.pid means the other
-rem  computer has it running -- or a crash here left it behind. PostgreSQL
-rem  itself would take the file for a crash's, delete it and start, with two
-rem  servers writing the same files; so this stops and lets the owner decide.
+rem  If another computer shares this cluster folder, for example through
+rem  OneDrive, either may run it, never both (docs\runtime-operations-windows.md,
+rem  One database, two computers). The caller has found no PostgreSQL here,
+rem  so a postmaster.pid means another computer has it running -- or a crash
+rem  here left it behind. PostgreSQL itself would take the file for a crash's,
+rem  delete it and start, with two servers writing the same files; so this
+rem  stops and lets the owner decide.
 if exist "%PGDATA%\postmaster.pid" (
     echo ERROR: %PGDATA%\postmaster.pid exists, and PostgreSQL is not running here.
-    echo        The other computer is probably running this database: stop it there
-    echo        and let OneDrive finish syncing. If it is certainly stopped there,
-    echo        delete postmaster.pid and start again.
+    echo        If another computer shares this cluster folder, it is probably
+    echo        running this database: stop it there first. If it is certainly
+    echo        stopped everywhere, delete postmaster.pid and start again.
     exit /b 1
 )
 

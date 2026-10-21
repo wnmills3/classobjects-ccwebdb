@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import pytest
 from app.config import settings
-from app.models import InventoryItem, Listing, OfferClaim, User
+from app.models import InventoryItem, Listing, OfferClaim, User, UserRole
+from app.security import hash_password
 from app.seed import SAMPLE_CATALOG, _build, seed
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -113,6 +114,42 @@ def test_a_database_in_use_is_seeded_only_when_told_to(
     seed(db, into_existing=True)
 
     assert _demo_items(db) == len(SAMPLE_CATALOG)
+
+
+def test_the_first_administrator_is_stored_as_sign_in_looks_it_up(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The address normalised as registration would: domain in lower case."""
+    monkeypatch.setattr(settings, "first_admin_email", "Owner@Example.COM")
+    seed(db)
+
+    stored = db.scalars(select(User.email).where(User.role == UserRole.manager)).all()
+    assert stored == ["Owner@example.com"]
+
+
+def test_a_first_administrator_in_another_case_is_not_made_twice(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An account already holding the address, in any case, is the admin."""
+    db.add(
+        User(
+            email="owner@example.com",
+            full_name="Owner",
+            hashed_password=hash_password("an-existing-password"),
+            role=UserRole.manager,
+        )
+    )
+    db.commit()
+    monkeypatch.setattr(settings, "first_admin_email", "OWNER@example.com")
+
+    seed(db)
+
+    holders = db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(func.lower(User.email) == "owner@example.com")
+    )
+    assert holders == 1
 
 
 def test_every_seeded_listing_has_a_claim(db: Session) -> None:

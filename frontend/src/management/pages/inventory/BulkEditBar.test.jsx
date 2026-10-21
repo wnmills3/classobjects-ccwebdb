@@ -54,6 +54,13 @@ const VENUES = [
   },
 ]
 
+/** The server's refusal of a change to items for sale: `for_sale` names them. */
+const forSaleRefusal = (message) =>
+  Object.assign(new Error(message), {
+    status: 409,
+    body: { detail: message, for_sale: ['CC-000001'] },
+  })
+
 beforeEach(() => {
   vi.resetAllMocks()
   api.getOfferTitles.mockResolvedValue({ titles: {} })
@@ -80,7 +87,9 @@ describe('BulkEditBar', () => {
     const onApplied = vi.fn()
     api.bulkEditInventory
       .mockRejectedValueOnce(
-        new Error('For sale -- CC-000001: listing #3 at 189.00. A change shows ...'),
+        forSaleRefusal(
+          'For sale -- CC-000001: listing #3 at 189.00. A change shows ...',
+        ),
       )
       .mockResolvedValueOnce({ updated: 2 })
     // The coin view: Year is a coin's field (a note's year is its series year).
@@ -112,7 +121,7 @@ describe('BulkEditBar', () => {
     // own to explain, or the operator sees it stacked twice.
     const user = userEvent.setup()
     api.bulkEditInventory.mockRejectedValueOnce(
-      new Error('For sale -- CC-000001: listing #3 at 189.00. A change shows ...'),
+      forSaleRefusal('For sale -- CC-000001: listing #3 at 189.00. A change shows ...'),
     )
     render(<BulkEditBar ids={[1, 2]} onApplied={vi.fn()} onClear={vi.fn()} />)
     await user.type(screen.getByPlaceholderText('New value'), '1964')
@@ -124,6 +133,38 @@ describe('BulkEditBar', () => {
     expect(notice).not.toHaveTextContent(
       'A change shows to buyers at once; each sale keeps the item as it was sold.',
     )
+  })
+
+  // The refusal is known by the `for_sale` its body carries: the wording of
+  // a message is for people, and may change.
+  it.each([
+    [
+      'offers the box for a refusal naming items for sale, whatever its words',
+      forSaleRefusal('CC-000001 is offered: listing #3 at 189.00.'),
+      true,
+    ],
+    [
+      'offers no box for another 409 whose words begin the same way',
+      Object.assign(new Error('For sale prices are being recalculated; try again.'), {
+        status: 409,
+        body: { detail: 'For sale prices are being recalculated; try again.' },
+      }),
+      false,
+    ],
+  ])('%s', async (_what, refusal, offered) => {
+    const user = userEvent.setup()
+    api.bulkEditInventory.mockRejectedValueOnce(refusal)
+    render(
+      <BulkEditBar view="coins" ids={[1, 2]} onApplied={vi.fn()} onClear={vi.fn()} />,
+    )
+    await user.type(screen.getByPlaceholderText('New value'), '1964')
+    await user.click(screen.getByRole('button', { name: 'Apply to 2' }))
+
+    expect(await screen.findByText(refusal.message)).toBeVisible()
+    const box = screen.queryByRole('checkbox', {
+      name: 'Change the items for sale too',
+    })
+    expect(box !== null).toBe(offered)
   })
 
   // Paper has no metal, and the API has no metal on the currency view.
@@ -448,7 +489,9 @@ describe('BulkEditBar', () => {
   it('asks again about items for sale once the selection is another one', async () => {
     const user = userEvent.setup()
     api.bulkEditInventory
-      .mockRejectedValueOnce(new Error('For sale -- CC-000001: listing #3 at 189.00.'))
+      .mockRejectedValueOnce(
+        forSaleRefusal('For sale -- CC-000001: listing #3 at 189.00.'),
+      )
       .mockResolvedValueOnce({ updated: 3 })
     const bar = (ids) => (
       <BulkEditBar view="coins" ids={ids} onApplied={vi.fn()} onClear={vi.fn()} />

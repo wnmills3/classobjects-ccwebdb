@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import struct
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -121,8 +122,19 @@ def _open(raw: bytes) -> Image.Image:
             "not a readable image: it is not a picture in a format that is taken "
             f"({', '.join(_FORMATS)})"
         ) from exc
-    # A picture in one of those formats that cannot be read through.
-    except OSError as exc:
+    except ImageRejected:
+        raise
+    # A picture in one of those formats that cannot be read through. A
+    # damaged file reaches the decoders' own parsing, which raise more than
+    # OSError: these are a bad upload, not a fault of the server.
+    except (
+        OSError,
+        ValueError,
+        SyntaxError,
+        EOFError,
+        struct.error,
+        ArithmeticError,
+    ) as exc:
         raise ImageRejected(f"not a readable image: {exc}") from exc
     return image
 

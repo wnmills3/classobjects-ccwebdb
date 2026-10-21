@@ -190,6 +190,21 @@ async def upload_image(
     return to_image_out(image)
 
 
+def _filing_checks(db: Session, payload: ImageFromUrl) -> InventoryItem:
+    """The item a fetched photograph is for, once it may be filed there.
+
+    Fileable, acknowledged if it is for sale, and with a role that is one.
+    """
+    item = fileable_item(
+        db,
+        payload.inventory_item_id,
+        f"Unknown inventory_item_id: {payload.inventory_item_id}",
+    )
+    sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
+    code_to_id(db, ImageRole, payload.image_role, "image_role")
+    return item
+
+
 @router.post("/from-url", status_code=status.HTTP_201_CREATED)
 def add_image_from_url(
     payload: ImageFromUrl, db: DbSession, _admin: AdminUser
@@ -203,20 +218,21 @@ def add_image_from_url(
     `CC-000412_02.jpg`, and filed there after the item's other photographs.
     A refused fetch stores nothing, and neither does a role that is not one:
     it is looked up before anything is fetched.
+
+    The fetch can take up to a minute, so no transaction is held open over
+    it: the item is checked, the transaction ended, and the item read and
+    checked again once the bytes are in -- deleted, split or put on sale
+    meanwhile, it is refused then as it would have been before.
     """
-    item = fileable_item(
-        db,
-        payload.inventory_item_id,
-        f"Unknown inventory_item_id: {payload.inventory_item_id}",
-    )
-    sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
-    code_to_id(db, ImageRole, payload.image_role, "image_role")
+    _filing_checks(db, payload)
+    db.rollback()
     try:
         raw, fetched_from = image_fetch.fetch_full_size(payload.url)
     except image_fetch.ImageFetchRefused as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
+    item = _filing_checks(db, payload)
     # The address kept is the one the bytes came from, and its full-size
     # form can be longer than the address pasted.
     if len(fetched_from) > _SOURCE_URL_LENGTH:

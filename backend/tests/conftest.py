@@ -74,13 +74,17 @@ def _test_database_url() -> URL:
     authenticate. Render with ``hide_password=False`` wherever a string is
     genuinely needed.
 
+    `TEST_DATABASE_URL` from the process environment comes first, then the
+    one `.env` names -- the test cluster the scripts start -- and only with
+    neither, the application's server.
+
     The `engine` fixture drops whatever database this names, so a
     `TEST_DATABASE_URL` is refused unless its database's name ends in
     `_test` and is not the application's own: a URL copied from `.env` must
     stop the run here, not at `DROP DATABASE`.
     """
     configured = make_url(settings.database_url)
-    override = os.environ.get("TEST_DATABASE_URL")
+    override = os.environ.get("TEST_DATABASE_URL") or settings.test_database_url
     if not override:
         return configured.set(database=f"{configured.database}_test")
     url = make_url(override)
@@ -123,6 +127,25 @@ def _cheap_password_hashing() -> Iterator[None]:
     security._hasher = PasswordHasher(time_cost=1, memory_cost=8, parallelism=1)
     yield
     security._hasher = original
+
+
+#: The sales tax every item in the suite is costed at unless a test says
+#: otherwise: not zero, so a total that dropped the tax is caught, and not
+#: whatever this checkout's `.env` happens to set.
+SUITE_SALES_TAX_RATE = Decimal("0.0635")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _a_known_sales_tax() -> Iterator[None]:
+    """Cost every item at `SUITE_SALES_TAX_RATE`, shipping taxed, for the session.
+
+    The application's default is no tax, and `.env` may name any rate; a test
+    whose expected totals include tax must not depend on either.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(settings, "sales_tax_rate", SUITE_SALES_TAX_RATE)
+        patch.setattr(settings, "sales_tax_includes_shipping", True)
+        yield
 
 
 def drop_database(conn: Connection, name: str) -> None:
@@ -1239,7 +1262,7 @@ def lot_of_three(db: Session, make_item: ItemFactory) -> SalesLot:
     (`item_cost + shipping_cost + sales_tax`) and cannot be assigned.
     `tax_rate=0` makes the two equal, which is what lets a share assertion be
     exact rather than approximate -- every other item in the suite carries
-    the configured 0.0635.
+    `SUITE_SALES_TAX_RATE`.
     """
     costs = (Decimal("500.00"), Decimal("300.00"), Decimal("200.00"))
     items = [

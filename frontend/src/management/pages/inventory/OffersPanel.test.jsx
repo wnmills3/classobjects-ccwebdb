@@ -170,6 +170,19 @@ describe('OffersPanel', () => {
     expect(within(ended).queryByRole('button')).toBeNull()
   })
 
+  it('links only a web address, never a stored address of another scheme', async () => {
+    api.listListings.mockResolvedValue([
+      { ...EBAY, external_url: 'javascript:alert(1)' },
+      { ...ENDED, external_id: '555', external_url: 'https://example.com/lot/555' },
+    ])
+    renderPanel()
+    const ebay = await screen.findByRole('row', { name: /^eBay/ })
+    expect(within(ebay).queryByRole('link')).toBeNull()
+    expect(
+      within(rowFor('Whatnot')).getByRole('link', { name: '555' }),
+    ).toHaveAttribute('href', 'https://example.com/lot/555')
+  })
+
   // Ending is permanent and nothing resurrects the offer, so the click that
   // does it says which listing, on which platform, and what follows.
   it('asks before ending, naming the listing and the platform', async () => {

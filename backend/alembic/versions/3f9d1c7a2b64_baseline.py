@@ -24,10 +24,21 @@ depends_on: str | Sequence[str] | None = None
 
 BASELINE = Path(__file__).resolve().parents[1] / "baseline.sql"
 
+#: The schema needs PostgreSQL 17: `NULLS NOT DISTINCT` (15) in the baseline,
+#: and `ALTER COLUMN ... SET EXPRESSION` (17) in a later revision. Refused
+#: here, before anything is created, rather than halfway up the chain.
+MINIMUM_SERVER_VERSION = 170000
+
 
 def upgrade() -> None:
     """Create the whole schema from the frozen SQL."""
-    op.get_bind().exec_driver_sql(BASELINE.read_text(encoding="utf-8"))
+    bind = op.get_bind()
+    version = int(bind.exec_driver_sql("SHOW server_version_num").scalar_one())
+    if version < MINIMUM_SERVER_VERSION:
+        raise RuntimeError(
+            f"PostgreSQL 17 or later is required; this server is {version}"
+        )
+    bind.exec_driver_sql(BASELINE.read_text(encoding="utf-8"))
 
 
 def downgrade() -> None:

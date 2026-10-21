@@ -86,8 +86,8 @@ export default function HistoryPanel({ itemId, version, saves = 0 }) {
       )}
       {events !== null && (
         <p className="muted">
-          Field edits are logged since 23 Sep 2026; a change made before then, or by
-          most clean-up passes, has no entry.
+          A change made before the log existed, or by most clean-up passes, has no
+          entry.
         </p>
       )}
     </div>

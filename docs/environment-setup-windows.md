@@ -3,9 +3,10 @@
 How to build the `ccwebdb` development environment on a clean Windows machine,
 from nothing to a running shop and management console: the tools, the local
 PostgreSQL cluster, the configuration, and filling the database. It is for a
-developer setting up a machine, or rebuilding one. Everything is installed
-**per-user or per-environment**; nothing needs administrator rights, and
-nothing lands machine-wide where another project could disturb it.
+developer setting up a machine, or rebuilding one. Everything but Git is
+installed **per-user or per-environment**; nothing else needs administrator
+rights, and nothing else lands machine-wide where another project could
+disturb it.
 
 All commands are **cmd**, not PowerShell. For day-to-day starting and stopping
 once set up, see [runtime-operations-windows.md](runtime-operations-windows.md).
@@ -17,6 +18,7 @@ Versions in use; newer patch releases should be fine:
 
 | Component  | Version   | Provided by                     |
 | ---------- | --------- | ------------------------------- |
+| Git        | 2.x       | winget                          |
 | Miniforge3 | 26.5.3    | winget                          |
 | Python     | 3.13.15   | conda env `ccwebdb`             |
 | uv         | 0.12.9    | winget                          |
@@ -24,7 +26,33 @@ Versions in use; newer patch releases should be fine:
 | PostgreSQL | 18.6      | conda env `ccwebdb`             |
 | GitHub CLI | 2.100.0   | conda env `ccwebdb`             |
 
+The application needs **PostgreSQL 17 or later**; step 4 installs the 18
+line.
+
 ---
+
+## 0. Git
+
+Git fetches the repository (step 5). Check first whether it is installed;
+this prints its version if it is:
+
+```console
+git --version
+```
+
+If cmd says `git` is not recognized, install it:
+
+```console
+winget install --id Git.Git -e --source winget
+```
+
+Git for Windows installs for every account on the machine, so Windows may
+ask for administrator permission. On a machine where it is already
+installed, winget answers "Found an existing package already installed.
+Trying to upgrade the installed package..." and, with nothing newer, "No
+available upgrade found" and an error code (-1978335189, 0x8A15002B).
+Nothing was changed; it is not a failure. **Open a new terminal** after
+installing, so `git` is on its `PATH`.
 
 ## 1. Miniforge3
 
@@ -182,7 +210,7 @@ is the record of what conda owns in `ccwebdb`; Python packages are recorded in
 `pyproject.toml` and `uv.lock` and are never installed with conda.
 
 ```console
-conda install -n ccwebdb -c conda-forge nodejs=24.19.0 postgresql gh=2.100.0
+conda install -n ccwebdb -c conda-forge nodejs=24.19.0 postgresql=18 gh=2.100.0
 ```
 
 On an environment already in use, preview with `--dry-run` first: a conda
@@ -190,12 +218,15 @@ solve can change packages the running servers have loaded, and the plan
 should show only what you asked for.
 
 Pin `nodejs` to the 24.x LTS line; conda-forge's newest `nodejs` builds have
-been pre-releases. `gh` lands in `envs\ccwebdb\Library\bin`, so it is on
+been pre-releases. Pin `postgresql` to its major version: a cluster made by
+one major version is not opened by the next without an upgrade, so the
+version must not change under it. `gh` lands in `envs\ccwebdb\Library\bin`, so it is on
 `PATH` only with the environment active. Sign in once with `gh auth login`.
 
 Verify, with the environment active:
 
 ```console
+conda activate ccwebdb
 node --version
 psql --version
 gh --version
@@ -203,14 +234,21 @@ gh --version
 
 They print `v24.19.0`, `psql (PostgreSQL) 18.6` and `gh version 2.100.0`.
 
-## 5. Create the local database cluster
+## 5. Fetch the code and create the local database cluster
 
-PostgreSQL runs directly from the conda environment -- no Docker. From here on,
-each block of commands starts by changing to the repository, at
-`%USERPROFILE%\dev\classobjects-ccwebdb`, so it can be pasted on its own; change
-that line if you cloned it elsewhere.
+Clone the repository into `%USERPROFILE%\dev\classobjects-ccwebdb` (the
+example's address is shown; use yours if it differs). From here on, each
+block of commands starts by changing to it, so it can be pasted on its own;
+change that line if you cloned it elsewhere.
 
-First check whether the cluster exists:
+```console
+if not exist "%USERPROFILE%\dev" mkdir "%USERPROFILE%\dev"
+cd /d %USERPROFILE%\dev
+if exist classobjects-ccwebdb (echo already cloned) else (git clone https://github.com/wnmills3/classobjects-ccwebdb.git)
+```
+
+PostgreSQL runs directly from the conda environment -- no Docker. First
+check whether the cluster exists:
 
 ```console
 if exist "%USERPROFILE%\dev\classobjects-ccwebdb\.pgdata\PG_VERSION" (echo The database cluster exists: skip creating it) else (echo No database cluster yet: create it below)
@@ -221,6 +259,7 @@ so this never overwrites one):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+conda activate ccwebdb
 echo devpassword>"%TEMP%\initpw.txt"
 initdb -D .pgdata -U postgres --pwfile="%TEMP%\initpw.txt" --auth-host=scram-sha-256 --encoding=UTF8
 del "%TEMP%\initpw.txt"
@@ -238,6 +277,7 @@ installed. `start` gives the server a minimized window of its own, titled
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+conda activate ccwebdb
 start "ccweb-postgres" /min pg_ctl -D .pgdata -l logs\postgres-by-hand.log start
 ```
 
@@ -245,6 +285,7 @@ Wait until this says `accepting connections`; run it again if it says
 `no response` within the first few seconds:
 
 ```console
+conda activate ccwebdb
 pg_isready -h localhost -p 5432
 ```
 
@@ -252,6 +293,7 @@ Then create the application role and database:
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+conda activate ccwebdb
 set "PGPASSWORD=devpassword"
 psql -h localhost -U postgres -d postgres -c "CREATE ROLE ccwebdb WITH LOGIN PASSWORD 'devpassword' CREATEDB;"
 psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ccwebdb OWNER ccwebdb ENCODING 'UTF8';"
@@ -311,10 +353,10 @@ notepad .env
 | Setting | What to put there |
 | --- | --- |
 | `JWT_SECRET` | **Required.** The 64 characters from 2, pasted after the `=`. It signs every sign-in, so it is this machine's alone: the API refuses to start without one, with one under 32 characters, or with an example value published in this repository. |
-| `FIRST_ADMIN_PASSWORD` | A password of your own, 12 characters or more, for the administrator `app.seed` makes on a **trial installation** (step 8). Restoring this collection does not run `app.seed`, so it may stay empty there. |
+| `FIRST_ADMIN_PASSWORD` | A password of your own, 12 characters or more, for the administrator `app.seed` makes on a **trial installation** (step 8). `app.create_admin`, which makes a new installation's first manager, takes it too when set, and otherwise asks. Restoring this collection runs neither, so it may stay empty there. |
 | `FIRST_ADMIN_EMAIL` | The trial administrator's sign-in; `admin@example.com` will do. |
 | `DATABASE_URL` | Leave it: it names the `ccwebdb` database and the `devpassword` of step 5. Change it only if step 5 used another password. |
-| `SALES_TAX_RATE`, `SALES_TAX_INCLUDES_SHIPPING` | Your sales tax on purchases, as a fraction (`0.0635` is 6.35%), and whether shipping is taxed (`true` or `false`). Each new item takes them when it is entered. |
+| `SALES_TAX_RATE`, `SALES_TAX_INCLUDES_SHIPPING` | Your sales tax on purchases, as a fraction (`0.0635` is 6.35%), and whether shipping is taxed (`true` or `false`). Unset, the rate is `0`: no tax. Each new item takes them when it is entered. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS` | Leave them. |
 | Everything commented out (`# CCWEB_API_PORT=8000` and the rest) | Leave it: each line shows its setting's default, which is what a machine that leaves it out gets. Uncomment one only to change it -- another port, the cluster in another folder (`CCWEB_DB_CLUSTER_DIR`), the backup folder (`CCWEB_BACKUP_DIR`). Every script reads them. |
 
@@ -343,6 +385,7 @@ which must change before anything outside this machine can reach the system.
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+conda activate ccwebdb
 uv sync
 cd frontend
 npm install
@@ -354,6 +397,7 @@ Two cases, and they are **not interchangeable**. Both need the PostgreSQL
 server of step 5; first check that it answers:
 
 ```console
+conda activate ccwebdb
 pg_isready -h localhost -p 5432
 ```
 
@@ -367,10 +411,10 @@ the server was started from a window that has since closed: see
 
 The collection moves as the backup workbook and its photographs: the folder
 the backup writes to, `CCWEB_BACKUP_DIR`. Carry that folder to the new
-machine, or keep it in a folder both machines sync. The example
-installation does the second: its backups go to
-`%USERPROFILE%\OneDrive\coins_backup`, which OneDrive keeps on both of its
-computers.
+machine, or keep it in a folder both machines sync. Unset, it is
+`%USERPROFILE%\ccwebdb-backup`. The example installation does the second:
+its `CCWEB_BACKUP_DIR` is `%USERPROFILE%\OneDrive\coins_backup`, which
+OneDrive keeps on both of its computers.
 
 **On the machine that holds the collection**, take a backup. It writes the
 workbook `ccwebdb_` and the date and time `.xlsx`, copies the photographs
@@ -384,15 +428,16 @@ cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 It ends `backup proved, in` and the folder. Anything else is a failed
 backup; `logs\backup.log` says why.
 
-**On the new machine**, with steps 1 to 7 done and the PostgreSQL server
+**On the new machine**, with steps 0 to 7 done and the PostgreSQL server
 from step 5 answering, and with the same version of the
 code as the machine the backup came from (a workbook loads only into a
 database at its own migration revision), open one cmd window for all of
 the steps below and name the folder the backup is in. This is the
-example's; put yours if it is elsewhere:
+default; put yours if it is elsewhere (the example installation's is
+`%USERPROFILE%\OneDrive\coins_backup`):
 
 ```console
-set "BACKUP=%USERPROFILE%\OneDrive\coins_backup"
+set "BACKUP=%USERPROFILE%\ccwebdb-backup"
 ```
 
 1. **Make sure the whole folder has arrived** -- the workbook and all of
@@ -408,6 +453,7 @@ set "BACKUP=%USERPROFILE%\OneDrive\coins_backup"
 
    ```console
    cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+   conda activate ccwebdb
    set "PGPASSWORD=devpassword"
    psql -h localhost -U ccwebdb -d postgres -c "CREATE DATABASE ccwebdb_restored OWNER ccwebdb ENCODING 'UTF8';"
    set "DATABASE_URL=postgresql+psycopg://ccwebdb:devpassword@localhost:5432/ccwebdb_restored"
@@ -432,6 +478,7 @@ set "BACKUP=%USERPROFILE%\OneDrive\coins_backup"
    database with anything in it:
 
    ```console
+   conda activate ccwebdb
    set "PGPASSWORD=devpassword"
    for /f %N in ('psql -h localhost -U ccwebdb -d ccwebdb -tAc "select count(*) from information_schema.tables where table_schema = 'public'"') do @if "%N"=="0" (psql -h localhost -U ccwebdb -d postgres -c "DROP DATABASE ccwebdb;" && psql -h localhost -U ccwebdb -d postgres -c "ALTER DATABASE ccwebdb_restored RENAME TO ccwebdb;") else (echo ccwebdb already holds tables: nothing was dropped)
    ```
@@ -462,6 +509,7 @@ set "BACKUP=%USERPROFILE%\OneDrive\coins_backup"
 
    ```console
    cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+   conda activate ccwebdb
    pg_ctl -D .pgdata -m fast stop
    ```
 
@@ -517,6 +565,7 @@ local network*) has the firewall rule it needs.
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
+conda activate ccwebdb
 uv run pytest
 cd frontend
 npm test

@@ -1,7 +1,7 @@
 """`app.seller_titles`: the seller's words to the title, the record to the description.
 
 `main` is always given the test's own `db`: left to itself it opens the
-application's `SessionLocal`, which on this machine is the live database.
+application's `SessionLocal`, which is the application database.
 """
 
 from __future__ import annotations

@@ -19,7 +19,7 @@ from ..deps import AdminUser, DbSession
 from ..models import Customer, User, UserRole
 from ..order_writes import customer_for_user
 from ..schemas import AccountCreate, CustomerOut, PasswordSet, UserOut, UserUpdate
-from ..security import hash_password, normalize_email
+from ..security import account_by_email, hash_password, normalize_email
 from ._resolve import get_or_404
 from ._tx import commit_unique
 
@@ -87,7 +87,7 @@ def create_user(body: AccountCreate, db: DbSession, _: AdminUser) -> User:
     directly.
     """
     email = normalize_email(body.email)
-    if db.scalar(select(User.id).where(User.email == email)) is not None:
+    if account_by_email(db, email) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN)
 
     user = User(
@@ -116,6 +116,11 @@ def update_user(user_id: int, update: UserUpdate, db: DbSession, _: AdminUser) -
     if update.role is not None:
         user.role = update.role
     if update.is_active is not None:
+        # Deactivation ends every session for good: a token issued before it
+        # stays dead when the account is reactivated, so the person signs in
+        # again rather than a stolen token coming back to life.
+        if user.is_active and not update.is_active:
+            user.token_version += 1
         user.is_active = update.is_active
 
     db.commit()

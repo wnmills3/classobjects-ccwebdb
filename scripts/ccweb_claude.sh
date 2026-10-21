@@ -45,7 +45,7 @@ if [ -z "$SKIPDB" ]; then
         DBSTATE="already running"
     elif [ -n "$CHECKONLY" ]; then
         if [ -f "$PGDATA/postmaster.pid" ]; then
-            DBSTATE="not running here - postmaster.pid: the other computer may be running it"
+            DBSTATE="not running here - postmaster.pid: another computer may be running it"
         else
             DBSTATE="not running - --check starts nothing"
         fi

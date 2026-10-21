@@ -11,7 +11,8 @@ unattended:
 3. **Check the photographs**: every file the image rows name is in the
    copy and is the bytes its row describes.
 4. Only when all of that held: **remove the older workbooks**, keeping the
-   newest `--keep` of them, and -- when the new one is the only one kept --
+   newest `--keep` of them, and -- when the new one is the only one kept,
+   and no photograph's row was added or removed since the export began --
    **prune** the photograph files no image names any more.
 
 When any step fails nothing is removed: the new workbook is left beside the
@@ -54,13 +55,14 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, func, select, text
 from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.orm import Session
 
 from . import media_backup, workbook_backup
 from .clock import local_now
 from .config import REPO_ROOT, settings
+from .models import Image, ImageDerivative
 from .storage import get_storage
 
 __all__ = ["BackupRun", "main", "prove_workbook", "run"]
@@ -188,6 +190,9 @@ def run(
     media = folder / "media"
     done = BackupRun(workbook=folder / f"ccwebdb_{stamp}.xlsx")
 
+    # Taken before the export starts, so a change made during it is caught too.
+    with Session(live) as db:
+        exported_images = _image_rows(db)
     counts = workbook_backup.export_workbook(live, done.workbook)
     done.rows = sum(counts.values())
     with Session(live) as db:
@@ -207,6 +212,14 @@ def run(
             done.not_pruned = (
                 f"the older workbooks kept (--keep {keep}) still name them"
             )
+        elif _image_rows(db) != exported_images:
+            # The prune judges files by the rows live holds now; the new
+            # workbook holds the rows as exported, and may name a photograph
+            # since removed, whose file the prune would then delete.
+            done.not_pruned = (
+                "the photographs' rows changed after the export began; "
+                "the next run prunes"
+            )
         else:
             pruned = media_backup.prune_media(db, media, delete=True)
             done.pruned, done.not_pruned = pruned.deleted, pruned.refused
@@ -225,6 +238,21 @@ def run(
         path.unlink()
         done.removed.append(path)
     return done
+
+
+def _image_rows(db: Session) -> tuple[tuple[int, int | None], ...]:
+    """The row count and highest id of each table whose rows name a photograph.
+
+    Compared before the export and before the prune: a row added or removed
+    in between changes one or the other.
+    """
+    return tuple(
+        (int(count), highest)
+        for count, highest in (
+            db.execute(select(func.count(), func.max(model.id))).one()
+            for model in (Image, ImageDerivative)
+        )
+    )
 
 
 def _report(done: BackupRun) -> None:

@@ -5,7 +5,7 @@ as a whole: what is missing or wrong in the record, what the collection is
 made of, what has been bought and not yet arrived, what is on offer and what
 has sold, and what it all cost. They are for the owner and managers only,
 on the management console's **Reports** page (`/management/reports`), and
-the same 30 reports run from the command line and export to a workbook or
+the same reports run from the command line and export to a workbook or
 print on paper.
 
 Reports read; they never write. Fixing what a report finds is done where it
@@ -232,35 +232,61 @@ spacing are not part of a serial.
 
 ### Command line
 
-Every report's id, group and title:
+Every report's id, group and title -- Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.reports list
 ```
 
-One report as a plain-text table:
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+python -m app.reports list
+```
+
+One report as a plain-text table -- Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.reports run REPORT_ID
 ```
 
-With a parameter set; repeatable:
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+python -m app.reports run REPORT_ID
+```
+
+With a parameter set; repeatable -- Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.reports run REPORT_ID --param NAME=VALUE
 ```
 
-Written as a workbook too:
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+python -m app.reports run REPORT_ID --param NAME=VALUE
+```
+
+Written as a workbook too -- Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.reports run REPORT_ID --workbook FILE.xlsx
 ```
 
-Run from `backend` (`cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend`).
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+python -m app.reports run REPORT_ID --workbook FILE.xlsx
+```
 
 The same registry, for a report wanted from a script or before the console is
 open. `list` prints every report's id, group and title; `run` prints it as a

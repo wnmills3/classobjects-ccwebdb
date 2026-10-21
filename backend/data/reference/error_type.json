@@ -6,7 +6,9 @@
     "is relevant to the item in hand.",
     "An error type is NEVER inferred from free text. Description fields are",
     "seller prose: scanning a real collection for error terms matched auction",
-    "boilerplate, while errors described in other words were missed entirely."
+    "boilerplate, while errors described in other words were missed entirely.",
+    "Source: the hobby's common names for mint and printing errors, as the",
+    "grading services label them. Terms only; no catalog's numbering."
   ],
   "error_type": [
     {"code": "doubled_die", "label": "Doubled Die", "applies_to": "coin", "sort_order": 10},

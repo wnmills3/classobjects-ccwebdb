@@ -25,6 +25,9 @@ Versions in use; newer patch releases should be fine:
 | PostgreSQL | 18.6      | conda env `ccwebdb`             |
 | GitHub CLI | 2.100.0   | conda env `ccwebdb`             |
 
+The application needs **PostgreSQL 17 or later**; step 4 installs the 18
+line.
+
 **Under WSL**, keep the repository in the Linux home folder (`~/dev/...`),
 never under `/mnt/c`: files there are reached through a slow translation
 layer, and PostgreSQL refuses a data folder whose permissions Windows
@@ -157,12 +160,13 @@ is the record of what conda owns in `ccwebdb`; Python packages are recorded in
 `pyproject.toml` and `uv.lock` and are never installed with conda.
 
 ```console
-conda install -n ccwebdb -c conda-forge nodejs=24.19.0 postgresql gh=2.100.0
+conda install -n ccwebdb -c conda-forge nodejs=24.19.0 postgresql=18 gh=2.100.0
 ```
 
 On an environment already in use, preview with `--dry-run` first. Pin
 `nodejs` to the 24.x LTS line; conda-forge's newest `nodejs` builds have
-been pre-releases. They land in `~/miniforge3/envs/ccwebdb/bin`, so they are
+been pre-releases. Pin `postgresql` to its major version: a cluster made by
+one major version is not opened by the next without an upgrade. They land in `~/miniforge3/envs/ccwebdb/bin`, so they are
 on `PATH` only with the environment active. Sign in to GitHub once with
 `gh auth login`.
 
@@ -289,12 +293,12 @@ nano .env
 | Setting | What to put there |
 | --- | --- |
 | `JWT_SECRET` | **Required.** The 64 characters from 2, pasted after the `=`. It signs every sign-in, so it is this machine's alone: the API refuses to start without one, with one under 32 characters, or with an example value published in this repository. |
-| `FIRST_ADMIN_PASSWORD` | A password of your own, 12 characters or more, for the administrator `app.seed` makes on a **trial installation** (step 8). Restoring a collection does not run `app.seed`, so it may stay empty there. |
+| `FIRST_ADMIN_PASSWORD` | A password of your own, 12 characters or more, for the administrator `app.seed` makes on a **trial installation** (step 8). `app.create_admin`, which makes a new installation's first manager, takes it too when set, and otherwise asks. Restoring a collection runs neither, so it may stay empty there. |
 | `FIRST_ADMIN_EMAIL` | The trial administrator's sign-in; `admin@example.com` will do. |
 | `DATABASE_URL` | Leave it: it names the `ccwebdb` database and the `devpassword` of step 5. Change it only if step 5 used another password or port. |
-| `SALES_TAX_RATE`, `SALES_TAX_INCLUDES_SHIPPING` | Your sales tax on purchases, as a fraction (`0.0635` is 6.35%), and whether shipping is taxed (`true` or `false`). |
+| `SALES_TAX_RATE`, `SALES_TAX_INCLUDES_SHIPPING` | Your sales tax on purchases, as a fraction (`0.0635` is 6.35%), and whether shipping is taxed (`true` or `false`). Unset, the rate is `0`: no tax. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS` | Leave them. |
-| Everything commented out (`# CCWEB_API_PORT=8000` and the rest) | Leave it: each line shows its setting's default. Uncomment one only to change it. On Linux the backup folder's default is `~/ccwebdb-backup`. |
+| Everything commented out (`# CCWEB_API_PORT=8000` and the rest) | Leave it: each line shows its setting's default. Uncomment one only to change it. The backup folder's default is `~/ccwebdb-backup`. |
 
 In nano, save with Ctrl+O and Enter, leave with Ctrl+X. Keep the names
 exactly as the template spells them: a misspelt name stops the API from
@@ -343,17 +347,18 @@ The collection moves as the backup workbook and its photographs: the folder
 the backup writes to (`CCWEB_BACKUP_DIR`), made on the machine that holds
 the collection by its backup script (`ccweb_backup.cmd` on Windows,
 `ccweb_backup.sh` here). Copy that whole folder to this machine first --
-with `rsync`, `scp`, or a drive. The example installation keeps its backups
-in a OneDrive folder on Windows; under WSL that folder can be read directly,
-at `/mnt/c/Users/` and the Windows user name `/OneDrive/coins_backup`.
+with `rsync`, `scp`, or a drive. Under WSL, a Windows machine's backup
+folder can be read directly under `/mnt/c/Users/` and the Windows user
+name: the example installation's, for instance, under that user's
+`OneDrive/coins_backup`.
 
 The same version of the code is needed as on the machine the backup came
 from (a workbook loads only into a database at its own migration revision).
-In one terminal, name the folder the backup is in -- this is the example's,
-read from Windows under WSL; put yours:
+In one terminal, name the folder the backup is in -- this is the default;
+put yours if you copied it elsewhere:
 
 ```console
-BACKUP=/mnt/c/Users/wnmil/OneDrive/coins_backup
+BACKUP=~/ccwebdb-backup
 ```
 
 1. **Make sure the whole folder is there** -- the workbook and all of

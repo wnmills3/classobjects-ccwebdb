@@ -332,6 +332,72 @@ describe('Lists: sellers, vendors and storage locations', () => {
     )
   })
 
+  // The server takes only an http(s) address: a link corrected here is sent
+  // as one, exactly as a link added is.
+  it("corrects a vendor's link to a web address", async () => {
+    const user = userEvent.setup()
+    api.updateVendor.mockResolvedValue({})
+    open('vendors')
+    const row = (await screen.findByText('ebay.com')).closest('tr')
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    await user.type(within(row).getByRole('textbox', { name: 'Link' }), ' ebay.com ')
+    await user.click(within(row).getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateVendor).toHaveBeenCalledWith(5, { url: 'https://ebay.com' }),
+    )
+  })
+
+  it("corrects a seller's store link to a web address, and clears one as null", async () => {
+    const user = userEvent.setup()
+    api.updateSeller.mockResolvedValue({})
+    api.listSellers.mockResolvedValue([
+      { id: 1, name: 'busy_seller', store_url: null, order_count: 3 },
+      {
+        id: 2,
+        name: 'linked_seller',
+        store_url: 'https://shop.example.com',
+        order_count: 1,
+      },
+    ])
+    open('sellers')
+    const row = (await screen.findByText('busy_seller')).closest('tr')
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    await user.type(
+      within(row).getByRole('textbox', { name: 'Store link' }),
+      'www.example.com/shop',
+    )
+    await user.click(within(row).getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateSeller).toHaveBeenCalledWith(1, {
+        store_url: 'https://www.example.com/shop',
+      }),
+    )
+
+    const linked = (await screen.findByText('linked_seller')).closest('tr')
+    await user.click(await within(linked).findByRole('button', { name: 'Edit' }))
+    await user.clear(within(linked).getByRole('textbox', { name: 'Store link' }))
+    await user.click(within(linked).getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateSeller).toHaveBeenLastCalledWith(2, { store_url: null }),
+    )
+  })
+
+  it('leaves a link with its scheme as it was typed', async () => {
+    const user = userEvent.setup()
+    api.updateVendor.mockResolvedValue({})
+    open('vendors')
+    const row = (await screen.findByText('ebay.com')).closest('tr')
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    await user.type(
+      within(row).getByRole('textbox', { name: 'Link' }),
+      'http://www.ebay.com',
+    )
+    await user.click(within(row).getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateVendor).toHaveBeenCalledWith(5, { url: 'http://www.ebay.com' }),
+    )
+  })
+
   it('shows a vendor with no kind as having none, and saves the kind chosen for it', async () => {
     const user = userEvent.setup()
     api.updateVendor.mockResolvedValue({})
@@ -471,6 +537,26 @@ describe('Lists: adding', () => {
     await user.click(within(form).getByRole('button', { name: 'Add' }))
     await waitFor(() =>
       expect(api.createSeller).toHaveBeenCalledWith({ name: 'coin_shop' }),
+    )
+  })
+
+  it('adds a seller with its store link as a web address', async () => {
+    const user = userEvent.setup()
+    api.createSeller.mockResolvedValue({})
+    open('sellers')
+    const form = await openAdd(user, 'seller')
+
+    await user.type(within(form).getByRole('textbox', { name: 'Name' }), 'coin_shop')
+    await user.type(
+      within(form).getByRole('textbox', { name: 'Store link' }),
+      'shop.example.com',
+    )
+    await user.click(within(form).getByRole('button', { name: 'Add' }))
+    await waitFor(() =>
+      expect(api.createSeller).toHaveBeenCalledWith({
+        name: 'coin_shop',
+        store_url: 'https://shop.example.com',
+      }),
     )
   })
 

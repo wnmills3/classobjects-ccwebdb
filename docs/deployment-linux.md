@@ -14,7 +14,7 @@ owner's: the domain `classobjects.com` with a DigiCert certificate. Put
 your own domain, certificate files and folders where those appear.
 
 **On the server, do not use `ccweb_startup.sh` or `ccweb_shutdown.sh` once
-step 6 is done.** The shutdown script stops whatever holds the API's port
+step 6 is done.** The shutdown script stops the API holding the API's port
 -- there, the live API -- and stops PostgreSQL. The server's own controls are
 `systemctl` (*Keeping it running*).
 
@@ -36,11 +36,14 @@ Make the key and request, or carry them in, exactly as in
 [deployment-windows.md](deployment-windows.md), step 1 -- `openssl` is the
 same program -- but keep the files in `/etc/caddy/certs`, readable by root
 and by Caddy's own account, `caddy`, alone. That account exists once Caddy
-is installed (step 7), so make the folder then. The example's commands, from
-step 7 on, with the certificate authority's two files and the key in the
-current folder:
+is installed (step 7), so make the folder then. Make the key and request,
+and keep the authority's files, in your home folder, outside the
+repository, so no key can be committed by accident. The example's
+commands, from step 7 on, with the certificate authority's two files and
+the key in the home folder:
 
 ```console
+cd ~
 sudo mkdir -p /etc/caddy/certs
 cat classobjects.com.pem GeoTrustTLSRSACAG1.pem | sudo tee /etc/caddy/certs/fullchain.pem > /dev/null
 sudo cp classobjects.com.key /etc/caddy/certs/
@@ -54,6 +57,18 @@ list the folder once it is `750`.)
 
 `sudo grep -c BEGIN /etc/caddy/certs/fullchain.pem` should say `2`. Keep every
 certificate and key file out of the repository.
+
+### No certificate to buy
+
+A bought certificate is optional, as on Windows
+([deployment-windows.md](deployment-windows.md), *No certificate to buy*).
+Leave `CCWEB_TLS_CERT` and `CCWEB_TLS_KEY` both empty in `.env`, and the
+Caddyfile rendered in step 7 has no `tls` line: Caddy obtains a free
+certificate for the domain and its `www.` name when it starts, and renews
+it itself. None of this step is then needed. The DNS records must point at
+the server, and ports 80 and 443 reach it (step 8), before Caddy can get
+one; leave `VITE_DIGICERT_SEAL_ID` unset, since such a certificate has no
+seal.
 
 ## 2. Install the system
 
@@ -73,9 +88,47 @@ sudo systemctl enable --now ccwebdb-postgres
 `systemctl status ccwebdb-postgres` says `active (running)`, and
 `pg_isready -h localhost -p 5432` says `accepting connections`. The unit
 runs `pg_ctl` from the conda environment by its full path: re-creating the
-environment needs the unit rendered and installed again.
+environment needs the unit rendered and installed again. It is hardened as
+step 6 describes, writing only to the cluster folder, the log folder
+(`CCWEB_LOG_DIR`, which must exist) and `/tmp`, where it makes its local
+socket.
 
-## 3. Move the collection across
+## 3. The collection
+
+Two paths, as in [deployment-windows.md](deployment-windows.md), step 3: a
+new installation, or an existing collection restored. Never run `app.seed`
+on the server.
+
+### A new installation
+
+The schema, the reference vocabularies and the first manager; no demo
+data. `.env` must exist with its own `JWT_SECRET` first
+(environment-setup-linux.md step 6), because every command here reads it:
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+conda activate ccwebdb
+uv run alembic upgrade head
+uv run python -m app.seeding load
+```
+
+Then the manager's sign-in address, asked for on its own:
+
+```console
+read -r -p "Manager's email address: " ADMIN_EMAIL
+```
+
+and the account. It asks for a password twice (12 characters or more),
+showing nothing as it is typed, so it is given alone:
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend && uv run python -m app.create_admin --email "$ADMIN_EMAIL"
+```
+
+It refuses a weak or published password, and refuses to run at all once a
+manager exists.
+
+### Restore an existing collection
 
 As in [deployment-windows.md](deployment-windows.md), step 3: a `pg_dump`
 and the photographs from the development machine, restored into an empty
@@ -97,7 +150,7 @@ for the paths -- the example's:
 
 | Setting | On the server |
 |---|---|
-| `CCWEB_TLS_CERT`, `CCWEB_TLS_KEY` | `/etc/caddy/certs/fullchain.pem`, `/etc/caddy/certs/classobjects.com.key` |
+| `CCWEB_TLS_CERT`, `CCWEB_TLS_KEY` | `/etc/caddy/certs/fullchain.pem`, `/etc/caddy/certs/classobjects.com.key`; both empty when Caddy is to obtain the certificate (*No certificate to buy*) |
 | `CCWEB_SITE_ROOT` | `/srv/ccwebdb/dist`: a copy Caddy can read (step 5) |
 | `MEDIA_ROOT` | the photographs' folder, as a full path |
 | `CCWEB_BACKUP_DIR` | a folder that leaves the machine -- a mounted network share, or one a sync client carries off |
@@ -144,7 +197,34 @@ Copy it again after every build.
 ## 6. Run the API at start-up
 
 Render and install the API's unit. It runs as the repository's owner, reads
-`.env` itself, and listens on `CCWEB_API_HOST` behind Caddy:
+`.env` itself, and listens on `CCWEB_API_HOST` behind Caddy.
+
+The unit is hardened: to the API the whole file system is read-only except
+three folders -- the photographs' (`MEDIA_ROOT`), the log folder
+(`CCWEB_LOG_DIR`) and the repository's `.runtime` -- and it has a private
+`/tmp`, cannot gain a privilege or a capability, cannot change kernel
+settings or load modules, and can open only network and local sockets.
+The PostgreSQL unit takes the part of this that `pg_ctl` allows. Neither
+hides the home folder (`ProtectHome`): the repository and the conda
+environment are there, and both servers read them. The three folders must
+exist before the unit starts, or systemd refuses to start it; this makes
+any that are missing:
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+conda activate ccwebdb
+mkdir -p "$(python -c 'from app.config import settings; print(settings.media_root)')"
+mkdir -p "$(python -c 'from app.runtime_settings import RuntimeSettings; print(RuntimeSettings().ccweb_log_dir)')"
+mkdir -p ../.runtime
+```
+
+The units run as the account that owns the repository, which keeps an
+installation simple. A dedicated service account -- one that cannot sign
+in, owning only the repository, the cluster and those folders -- confines
+a compromised API further; to use one, make it with `sudo adduser
+--system --group` and its name, install the repository and the conda
+environment under it, and run every step here as that account, so the
+rendered units name it.
 
 ```console
 cd ~/dev/classobjects-ccwebdb/backend
@@ -187,7 +267,9 @@ sudo caddy validate --config /etc/caddy/Caddyfile.new
 ```
 
 `validate` says `Valid configuration` (it runs as root because it reads the
-key, which only root and Caddy may). The file goes to `Caddyfile.new`
+key, which only root and Caddy may). The rendered file sets the site's
+security headers and content policy, as
+[deployment-windows.md](deployment-windows.md) step 7 explains. The file goes to `Caddyfile.new`
 first, so that a refused setting -- an empty `CCWEB_SITE_DOMAIN`, say,
 which it names -- never empties the one a running Caddy reads. Only when it
 is valid, put it in place and load it:
@@ -217,12 +299,13 @@ Do not open the API's port or PostgreSQL's.
 ## 9. Check it
 
 As in [deployment-windows.md](deployment-windows.md), step 9, with
-`-o /dev/null` for `-o nul`:
+`-o /dev/null` for `-o nul`, and your domain, `CCWEB_SITE_DOMAIN`, in place
+of `YOUR_DOMAIN`:
 
 ```console
-curl -sI https://classobjects.com/
-curl -s -o /dev/null -w "%{http_code}\n" "https://classobjects.com/api/catalog?limit=1"
-curl -sI http://classobjects.com/
+curl -sI https://YOUR_DOMAIN/
+curl -s -o /dev/null -w "%{http_code}\n" "https://YOUR_DOMAIN/api/catalog?limit=1"
+curl -sI http://YOUR_DOMAIN/
 ```
 
 ## Keeping it running
@@ -239,8 +322,9 @@ sudo systemctl start ccwebdb-postgres ccwebdb-api caddy
 `-u ccwebdb-postgres`, `-u caddy`) shows its log. All three start with the
 machine.
 
-- **The certificate:** renew it as the Windows guide says, replace the files
-  in `/etc/caddy/certs` as in step 1, and `sudo systemctl reload caddy`.
+- **The certificate:** one Caddy obtained itself it also renews. A bought
+  one: renew it as the Windows guide says, replace the files in
+  `/etc/caddy/certs` as in step 1, and `sudo systemctl reload caddy`.
 - **An update:** `git pull`, `uv sync`, a schema release as in
   [system-administration.md](system-administration.md) (*Applying a schema
   release*) when the update brings a migration, `npm ci` and `npm run build`

@@ -138,6 +138,32 @@ def _price(value: object) -> Decimal | None:
         return None
 
 
+def _order_date(value: object, where: str) -> date:
+    """An order's date: a date cell as it is, text as eBay writes it (Jan 2, 2024).
+
+    A workbook saved again by a spreadsheet holds real date cells, which
+    openpyxl reads as `datetime`; the extension's own export holds text.
+    Anything else is refused naming the file and row, not skipped.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return datetime.strptime(str(value).strip(), "%b %d, %Y").date()
+    except ValueError:
+        raise ValueError(f"{where}: unreadable OrderDate {value!r}") from None
+
+
+def _item_id(value: object) -> str:
+    """An eBay item id as text: a number cell loses no digits and gains no `.0`."""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int | float):
+        return str(int(value))
+    return str(value).strip()
+
+
 def read_history(paths: Iterable[Path]) -> list[Line]:
     """Every line of the purchase-history workbooks, first sheet of each."""
     lines: list[Line] = []
@@ -150,16 +176,17 @@ def read_history(paths: Iterable[Path]) -> list[Line]:
             if missing:
                 raise ValueError(f"{path.name}: no column {', '.join(missing)}")
             at = {name: header.index(name) for name in _COLUMNS}
-            for values in rows:
+            # The header is the sheet's row 1, so the first line is row 2.
+            for number, values in enumerate(rows, start=2):
                 if not values or not values[at["OrderNumber"]]:
                     continue
                 lines.append(
                     Line(
                         order_number=str(values[at["OrderNumber"]]).strip(),
-                        ordered_on=datetime.strptime(
-                            str(values[at["OrderDate"]]).strip(), "%b %d, %Y"
-                        ).date(),
-                        item_id=str(values[at["ItemID"]]).strip(),
+                        ordered_on=_order_date(
+                            values[at["OrderDate"]], f"{path.name}: row {number}"
+                        ),
+                        item_id=_item_id(values[at["ItemID"]]),
                         seller=str(values[at["Seller"]] or ""),
                         name=str(values[at["ItemName"]] or ""),
                         price=_price(values[at["ItemPrice"]]),

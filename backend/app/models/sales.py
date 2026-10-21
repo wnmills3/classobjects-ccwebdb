@@ -356,6 +356,13 @@ class Listing(TimestampMixin, Base):
             "sales_lot_id IS NULL OR quantity_available <= 1",
             name="ck_listing_lot_quantity_one",
         ),
+        # Only a paused listing names what paused it: `offering_writes` sets
+        # the pointer as it pauses a listing and clears it as it resumes or
+        # ends one, so a pointer on any other status is a write gone wrong.
+        CheckConstraint(
+            "status = 'paused'::listing_status OR paused_by_listing_id IS NULL",
+            name="ck_listing_paused_by_only_when_paused",
+        ),
         # The public catalog reads only active listings, so the index that
         # serves it excludes everything else.
         Index(
@@ -584,7 +591,7 @@ class Customer(TimestampMixin, Base):
         # display one account's name inconsistently ("CoinFan88" one order,
         # "coinfan88" the next), and two rows would split one buyer's history
         # in two. Written exactly as PostgreSQL stores it -- see the note on
-        # ix_inventory_item_fts in core.py -- or the drift test reports this
+        # ITEM_CODE_DEFAULT in core.py -- or the drift test reports this
         # index as changed on every run.
         Index(
             "uq_customer_venue_username",
@@ -856,6 +863,10 @@ class SalesOrderItemShare(Base):
         # database for the same reason the fee's does: a rule that lives only
         # in application code is one new caller away from being untrue.
         CheckConstraint("amount >= 0", name="ck_sales_order_item_share_non_negative"),
+        # Its share of the fees, under the same floor as the fees themselves.
+        CheckConstraint(
+            "fee_amount >= 0", name="ck_sales_order_item_share_fee_non_negative"
+        ),
     )
 
 

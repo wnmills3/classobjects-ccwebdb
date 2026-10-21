@@ -16,6 +16,7 @@ from app.models import (
     Denomination,
     FriedbergNumber,
     InventoryItem,
+    ItemFieldChange,
     ItemKind,
     NoteType,
     ProvenanceSource,
@@ -300,6 +301,71 @@ def test_confirming_stamps_verifier_and_timestamp(
     assert item.currency_detail is not None
     assert item.currency_detail.friedberg_id == friedberg.id
     assert item.currency_detail.friedberg_status == "confirmed"
+
+
+def _friedberg_history(db: Session, item_id: int) -> list[tuple[Any, ...]]:
+    """The item's logged Friedberg changes: field, old and new, oldest first."""
+    rows = db.execute(
+        select(
+            ItemFieldChange.field_name,
+            ItemFieldChange.old_value,
+            ItemFieldChange.new_value,
+        )
+        .where(
+            ItemFieldChange.inventory_item_id == item_id,
+            ItemFieldChange.field_name.in_(["friedberg", "friedberg_status"]),
+        )
+        .order_by(ItemFieldChange.id)
+    ).all()
+    return [tuple(row) for row in rows]
+
+
+def test_attaching_and_clearing_a_number_are_in_the_items_history(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Who gave the note its number, and who took it off, as an edit is logged.
+
+    The number is on `currency_detail`, another table, so each change also
+    moves the item's version: an editor opened before it is refused.
+    """
+    item = _currency_item(db)
+    friedberg = _add_friedberg(db, fr_number="9908")
+    url = f"/api/inventory/{item.id}/friedberg"
+    versions = [item.version]
+
+    def version_now() -> int:
+        """The item's version as stored."""
+        db.expire_all()
+        return db.get_one(InventoryItem, item.id).version
+
+    attached = client.post(
+        url,
+        json={"friedberg_id": friedberg.id, "status": "proposed"},
+        headers=admin_headers,
+    )
+    assert attached.status_code == 200, attached.text
+    versions.append(version_now())
+    # The same number again changes nothing, so logs nothing.
+    again = client.post(
+        url,
+        json={"friedberg_id": friedberg.id, "status": "proposed"},
+        headers=admin_headers,
+    )
+    assert again.status_code == 200, again.text
+    versions.append(version_now())
+    cleared = client.delete(url, headers=admin_headers)
+    assert cleared.status_code == 204, cleared.text
+    versions.append(version_now())
+
+    assert versions[1] > versions[0]
+    assert versions[2] == versions[1]
+    assert versions[3] > versions[2]
+    assert _friedberg_history(db, item.id) == [
+        ("friedberg", None, "9908"),
+        ("friedberg_status", "unknown", "proposed"),
+        ("friedberg", "9908", None),
+        ("friedberg_status", "proposed", "unknown"),
+    ]
 
 
 # ---------------------------------------------------------------------------

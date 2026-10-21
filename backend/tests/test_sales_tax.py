@@ -26,14 +26,16 @@ def configure(monkeypatch: pytest.MonkeyPatch, rate: str, *, shipping: bool) -> 
     monkeypatch.setattr(settings, "sales_tax_includes_shipping", shipping)
 
 
-def test_the_shipped_default_is_6_35_percent_including_shipping() -> None:
-    """The defaults are 6.35%, shipping included.
+def test_the_shipped_default_is_no_tax_with_shipping_included() -> None:
+    """The defaults are a rate of 0, with shipping included in the taxed amount.
 
-    Whatnot's own order report confirms both: 375.74 x 6.35% = 23.86, exactly
-    what it charged, shipping included.
+    No rate is right for every installation, so none is assumed: the owner
+    sets their own `SALES_TAX_RATE` (and `SALES_TAX_INCLUDES_SHIPPING`) in
+    `.env`. Shipping stays included by default, because a rate once set
+    usually applies to the shipped total.
     """
     fields = Settings.model_fields
-    assert fields["sales_tax_rate"].default == Decimal("0.0635")
+    assert fields["sales_tax_rate"].default == Decimal("0")
     assert fields["sales_tax_includes_shipping"].default is True
 
 

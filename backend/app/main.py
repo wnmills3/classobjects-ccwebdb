@@ -48,6 +48,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # A paged list carries its total in this header; a browser hides any
+    # response header not named here from a cross-origin caller.
+    expose_headers=["X-Total-Count"],
 )
 
 app.include_router(auth.router, prefix=settings.api_prefix)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
 from app.config import settings
 from app.models import (
     CoinDetail,
@@ -439,6 +440,65 @@ def test_a_coin_denomination_on_a_currency_item_is_refused(
     )
     assert res.status_code == 422
     assert "denomination" in res.text
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "named"),
+    [
+        ("metal", "silver", "metal belongs to coins"),
+        ("series", "morgan_dollar", "morgan_dollar belongs to coins"),
+        ("grade_designation", "DCAM", "DCAM belongs to coins"),
+    ],
+)
+def test_a_coin_s_classifier_on_a_currency_item_is_refused(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    field: str,
+    value: str,
+    named: str,
+) -> None:
+    """Entering a note refuses what an edit of one refuses, and writes nothing."""
+    order = _purchase_order(db)
+    before = db.scalar(select(func.count()).select_from(InventoryItem))
+
+    res = client.post(
+        "/api/inventory",
+        json=_currency_payload(order.id, **{field: value}),
+        headers=admin_headers,
+    )
+
+    assert res.status_code == 422, res.text
+    assert named in res.json()["detail"]
+    assert db.scalar(select(func.count()).select_from(InventoryItem)) == before
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "named"),
+    [
+        ("series", "funnyback", "funnyback belongs to banknotes"),
+        ("grade_designation", "EPQ", "EPQ belongs to banknotes"),
+    ],
+)
+def test_a_note_s_classifier_on_a_coin_is_refused(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    field: str,
+    value: str,
+    named: str,
+) -> None:
+    """The reverse: a banknote's design or paper quality on a coin."""
+    order = _purchase_order(db)
+
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(order.id, **{field: value}),
+        headers=admin_headers,
+    )
+
+    assert res.status_code == 422, res.text
+    assert named in res.json()["detail"]
 
 
 def test_an_unknown_purchase_order_is_a_422(

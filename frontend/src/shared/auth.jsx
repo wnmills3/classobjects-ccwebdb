@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { ApiError, api, clearTokens, loadTokens, onSignedOut, saveTokens } from './api'
+import {
+  ApiError,
+  api,
+  clearTokens,
+  loadTokens,
+  onSignedOut,
+  saveTokens,
+  signOut,
+} from './api'
 import { AuthContext } from './auth-context'
 
 /**
@@ -9,8 +17,9 @@ import { AuthContext } from './auth-context'
  * `loading` is true until a stored token has been exchanged for its profile
  * or found absent, so a guard can wait rather than turn a signed-in visitor
  * away on the first render. `login` stores the tokens and reads the
- * profile; `register` creates the account and signs it in; `logout` drops
- * both. `isAdmin` is the `manager` role.
+ * profile; `register` creates the account and signs it in; `logout` asks
+ * the server to retire the account's tokens and then drops both, telling
+ * every `onSignedOut` listener. `isAdmin` is the `manager` role.
  */
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -65,8 +74,17 @@ export function AuthProvider({ children }) {
     [login],
   )
 
-  const logout = useCallback(() => {
-    clearTokens()
+  // The server is asked first, while the tokens are still here to send, to
+  // retire every token of the account -- a copy taken from this browser
+  // stops working too. Its answer does not decide anything: offline, or
+  // already refused (401), the visitor is signed out here all the same.
+  const logout = useCallback(async () => {
+    try {
+      await api.logout()
+    } catch {
+      /* best effort: signing out here does not wait on the server */
+    }
+    signOut()
     setUser(null)
   }, [])
 

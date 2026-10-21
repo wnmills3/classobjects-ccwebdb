@@ -336,20 +336,40 @@ def test_free_text_searches_title_and_item_code(
     assert {r["id"] for r in by_code["rows"]} == {wanted.id}
 
 
+def test_a_backslash_in_the_search_is_matched_as_itself(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A backslash is not ILIKE's escape here: trailing or embedded, it is literal.
+
+    Left as the escape, a term ending in one would match nothing, and one
+    holding it before a letter would match the title without it.
+    """
+    wanted = coin(db, source_title="Box 7\\B", sellers_item_id="AB\\12")
+    coin(db, source_title="Box 7B", sellers_item_id="AB12")
+
+    for q in ("7\\", "7\\B"):
+        rows = search(client, "coins", admin_headers, q=q).json()["rows"]
+        assert [r["id"] for r in rows] == [wanted.id], q
+
+    # A partial-match filter takes the same pattern.
+    by_filter = search(client, "coins", admin_headers, sellers_item_id="B\\1")
+    assert [r["id"] for r in by_filter.json()["rows"]] == [wanted.id]
+
+
 def test_free_text_finds_items_by_their_purchase_order_number(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     ebay = build_purchase_order(
-        db, vendor_name="ebay.com", order_number="90-00007-00007"
+        db, vendor_name="ebay.com", order_number="31-24680-13579"
     )
     other = build_purchase_order(db, vendor_name="hibid.com", order_number="H-2")
     wanted_note = note(db, purchase_order_id=ebay.id)
     wanted_coin = coin(db, purchase_order_id=ebay.id)
     note(db, purchase_order_id=other.id)
 
-    notes = search(client, "currency", admin_headers, q="90-00007-00007").json()
-    coins = search(client, "coins", admin_headers, q="90-00007-00007").json()
-    partial = search(client, "currency", admin_headers, q="15110-518").json()
+    notes = search(client, "currency", admin_headers, q="31-24680-13579").json()
+    coins = search(client, "coins", admin_headers, q="31-24680-13579").json()
+    partial = search(client, "currency", admin_headers, q="24680-135").json()
 
     assert {r["id"] for r in notes["rows"]} == {wanted_note.id}
     assert {r["id"] for r in coins["rows"]} == {wanted_coin.id}
@@ -361,16 +381,16 @@ def test_a_pasted_search_ignores_the_whitespace_around_it(
 ) -> None:
     """Text copied from an order page or a spreadsheet brings a space or a tab.
 
-    Matched as typed, `%90-00007-00007 %` finds nothing, and neither does an
+    Matched as typed, `%31-24680-13579 %` finds nothing, and neither does an
     item code copied out of a table cell.
     """
     order = build_purchase_order(
-        db, vendor_name="ebay.com", order_number="90-00007-00007"
+        db, vendor_name="ebay.com", order_number="31-24680-13579"
     )
     wanted = note(db, purchase_order_id=order.id)
     note(db)
 
-    for pasted in (" 90-00007-00007", "90-00007-00007 ", "\t90-00007-00007\n"):
+    for pasted in (" 31-24680-13579", "31-24680-13579 ", "\t31-24680-13579\n"):
         found = search(client, "currency", admin_headers, q=pasted).json()
         assert {r["id"] for r in found["rows"]} == {wanted.id}, repr(pasted)
 
@@ -383,13 +403,13 @@ def test_an_order_number_is_found_without_its_dashes(
 ) -> None:
     """Read aloud or typed from a receipt, the separators are the first to go."""
     order = build_purchase_order(
-        db, vendor_name="ebay.com", order_number="90-00007-00007"
+        db, vendor_name="ebay.com", order_number="31-24680-13579"
     )
-    other = build_purchase_order(db, vendor_name="hibid.com", order_number="11-15110-5")
+    other = build_purchase_order(db, vendor_name="hibid.com", order_number="31-24680-1")
     wanted = note(db, purchase_order_id=order.id)
     note(db, purchase_order_id=other.id)
 
-    for typed in ("900000000001", "11 15110 51877", "15110 51877"):
+    for typed in ("312468013579", "31 24680 13579", "24680 13579"):
         found = search(client, "currency", admin_headers, q=typed).json()
         assert {r["id"] for r in found["rows"]} == {wanted.id}, typed
 
@@ -605,6 +625,21 @@ def test_an_unknown_filter_is_refused_rather_than_ignored(
 
     assert response.status_code == 422
     assert "mint_mark_typo" in response.json()["detail"]
+
+
+def test_an_unknown_filter_s_refusal_lists_every_parameter_taken(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The list names the parameters read beside the filter table too.
+
+    Without them a caller who mistyped `grade_min` is shown a list that
+    does not hold the name they meant.
+    """
+    detail = search(client, "coins", admin_headers, mint_mark_typo="D").json()["detail"]
+
+    for name in ("deleted", "lot", "issue", "missing", "item_codes", "grade_min"):
+        assert f"'{name}'" in detail, name
+    assert "'denomination'" in detail
 
 
 def test_a_filter_from_the_other_view_is_refused(
@@ -867,6 +902,25 @@ def test_facets_count_what_is_actually_present(
 
     assert grades["64"] == 2
     assert grades["65"] == 1
+
+
+def test_a_facet_offers_every_value_present_however_many(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """No cut-off: the least common value present is offered like the rest.
+
+    Sixty-one series years, one note each, and one year held twice so the
+    order is decided: a cut at sixty would drop one of the singletons.
+    """
+    years = list(range(1900, 1961))
+    for year in [*years, 1900]:
+        note(db, year_start=year)
+
+    body = search(client, "currency", admin_headers, facets=True).json()
+    offered = {f["value"]: f["count"] for f in body["facets"]["series_year"]}
+
+    assert sorted(offered) == years
+    assert offered[1900] == 2
 
 
 def test_facets_reflect_the_current_filters(

@@ -87,7 +87,7 @@ class StorageLocation(TimestampMixin, Base):
         # location is one row too (Postgres treats two NULLs as distinct),
         # and concurrent first consignments to one house
         # (`auctions._consigned_location`) cannot each insert it. Written as
-        # PostgreSQL stores the expressions (see ix_inventory_item_fts).
+        # PostgreSQL stores the expressions (see ITEM_CODE_DEFAULT in core.py).
         Index(
             "uq_storage_location_identity",
             "storage_location_kind_id",
@@ -184,7 +184,9 @@ class ItemFieldChange(Base):
     """One field of one item changed under a person's name: who, when, from what.
 
     Written by `PATCH /inventory/{id}`, the bulk edit, the errors endpoint,
-    a vocabulary merge and the passes run under a named person (`--by`), in
+    a vocabulary merge, attaching or clearing a Friedberg number, a delete
+    (`deleted_at`), a detach from a lot (`parent_item_id`), a split (`split_at`,
+    on the lot) and the passes run under a named person (`--by`), in
     the same transaction as the change, one row per field whose value moved
     (`app.field_changes.record`). It is what lets the item editor say *who*
     changed a field it is warning about, and it is an edit history besides.

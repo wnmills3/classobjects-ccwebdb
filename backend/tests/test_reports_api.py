@@ -328,6 +328,29 @@ def test_every_text_cell_of_a_report_workbook_is_text() -> None:
     assert {cell.number_format for cell in money} == {"#,##0.00"}
 
 
+def test_a_control_character_in_stored_text_is_spelled_out_not_refused() -> None:
+    r"""A vertical tab, which openpyxl refuses, is written as ``\x0b`` spelled out."""
+    title = "a\x0bb"
+    result = ReportResult(
+        columns=[Column("what", "What", "text")],
+        rows=[{"what": title}],
+        totals=None,
+        drills=[None],
+        notes=[],
+    )
+
+    book = write_workbook(
+        PR_OUTSTANDING, OutstandingParams(), result, datetime.now().astimezone()
+    )
+    saved = BytesIO()
+    book.save(saved)
+
+    sheet = load_workbook(BytesIO(saved.getvalue())).worksheets[0]
+    values = [cell.value for row in sheet.iter_rows() for cell in row]
+    assert "a\\x0bb" in values
+    assert title not in values
+
+
 def test_the_workbook_formats_percent_and_count_cells(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

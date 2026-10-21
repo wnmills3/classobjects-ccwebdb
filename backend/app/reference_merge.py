@@ -10,7 +10,10 @@ kept, and deletes it:
   changed to the kept value, and each item's version moves, so a form
   opened before the merge cannot put the old value back. An item that
   already has the kept value in a link table keeps that link; the old one is
-  dropped. Each field moved -- a classifier, the attributes, the errors --
+  dropped, and an error's details that differ are added to the kept error's.
+  An attribute the item once had removed is not "already had": the old
+  link, in force, replaces the removed one, so the item keeps the
+  attribute it holds. Each field moved -- a classifier, the attributes, the errors --
   goes into the item's history under the person who merged
   (`app.field_changes`), and a photograph's role is changed by
   `app.image_links`, the one writer of `item_image`.
@@ -35,8 +38,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import Column, FromClause, delete, func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import Column, FromClause, Select, delete, func, select, update
+from sqlalchemy.orm import Session, aliased
 
 from . import aliases, field_changes, image_links, sale_state, serial_patterns
 from .models import (
@@ -44,6 +47,7 @@ from .models import (
     InventoryItem,
     ItemAttribute,
     ItemAttributeLink,
+    ItemError,
     ReferenceMerge,
     ReferenceMixin,
 )
@@ -98,7 +102,8 @@ class MergePlan:
     moved: dict[str, int] = field(default_factory=dict)
     #: Distinct items those rows describe.
     items: int = 0
-    #: Rows dropped because the item already had the kept value.
+    #: Rows dropped because the item already had the kept value -- for an
+    #: attribute, a link in force; a removed one is replaced, not counted.
     dropped: int = 0
     #: Names the kept value gains.
     aliases: list[str] = field(default_factory=list)
@@ -152,6 +157,20 @@ def _target(db: Session, model: type[ReferenceMixin], into: str) -> ReferenceMix
         raise NoSuchTarget(str(exc)) from exc
 
 
+def _holding_target(
+    column: Column, item_column: Column, target: ReferenceMixin
+) -> Select:
+    """The items that already hold the kept value: for an attribute, in force.
+
+    A removed attribute link is not the item holding it, so the merged
+    value's link is not dropped for it; `_move_records` replaces it.
+    """
+    held = select(item_column).where(column == target.id)
+    if column.table.name == "item_attribute_link":
+        held = held.where(column.table.c.removed_at.is_(None))
+    return held
+
+
 def _held_twice(
     db: Session,
     column: Column,
@@ -163,7 +182,7 @@ def _held_twice(
 
     Same predicate as `merge`, which deletes them.
     """
-    has_target = select(item_column).where(column == target.id)
+    has_target = _holding_target(column, item_column, target)
     return (
         db.scalar(
             select(func.count())
@@ -388,6 +407,31 @@ def _release_serial_links(
     )
 
 
+def _keep_error_details(
+    db: Session, source: ReferenceMixin, target: ReferenceMixin
+) -> None:
+    """Add the merged error's details to the kept one's, on an item holding both.
+
+    The merged row is dropped, and its details are a person's note that
+    nothing else holds; the same words already there are not repeated.
+    """
+    merged = aliased(ItemError)
+    rows = db.execute(
+        select(ItemError.id, ItemError.details, merged.details)
+        .join(merged, merged.inventory_item_id == ItemError.inventory_item_id)
+        .where(ItemError.error_type_id == target.id, merged.error_type_id == source.id)
+    ).all()
+    for kept_id, kept, extra in rows:
+        kept_text = (kept or "").strip()
+        extra_text = (extra or "").strip()
+        if not extra_text or extra_text == kept_text:
+            continue
+        details = f"{kept_text}; {extra_text}" if kept_text else extra_text
+        db.execute(
+            update(ItemError).where(ItemError.id == kept_id).values(details=details)
+        )
+
+
 def _move_records(
     db: Session,
     model: type[ReferenceMixin],
@@ -407,9 +451,22 @@ def _move_records(
             # `plan` -- called at the top of `merge` -- has already counted
             # these into `result.dropped`, so only the deletion happens
             # here. Counting again would double it.
-            has_target = select(item_column).where(column == target.id)
+            if owner == "item_error":
+                _keep_error_details(db, source, target)
+            has_target = _holding_target(column, item_column, target)
             duplicate = (column == source.id) & item_column.in_(has_target)
             db.execute(delete(column.table).where(duplicate))
+            if owner == "item_attribute_link":
+                # What is left of the merged value's links is on items whose
+                # kept-value link, if any, was removed: one row per item and
+                # attribute, so the removed one goes and the other takes its
+                # place.
+                still_held = select(item_column).where(column == source.id)
+                db.execute(
+                    delete(column.table).where(
+                        (column == target.id) & item_column.in_(still_held)
+                    )
+                )
         db.execute(
             update(column.table).where(column == source.id).values({column: target.id})
         )

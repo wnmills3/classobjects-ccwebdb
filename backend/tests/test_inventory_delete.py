@@ -8,8 +8,16 @@ already bought.
 from __future__ import annotations
 
 from app import lot_writes, offering_writes
-from app.models import InventoryItem, Listing, SalesLot, SalesLotStatus
+from app.models import (
+    InventoryItem,
+    ItemFieldChange,
+    Listing,
+    SalesLot,
+    SalesLotStatus,
+    User,
+)
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests.builders import TUBE, build_bare_item, build_split_lot, do_split
@@ -300,6 +308,72 @@ def test_detaching_an_item_with_no_parent_is_harmless(
     response = client.delete(f"/api/inventory/{item.id}/parent", headers=admin_headers)
     assert response.status_code == 200
     assert response.json()["parent_item_id"] is None
+
+
+def _logged(db: Session, item_id: int, field: str) -> list[ItemFieldChange]:
+    """The change-log rows written for one field of one item."""
+    db.expire_all()
+    return list(
+        db.scalars(
+            select(ItemFieldChange).where(
+                ItemFieldChange.inventory_item_id == item_id,
+                ItemFieldChange.field_name == field,
+            )
+        ).all()
+    )
+
+
+def test_a_delete_is_logged_with_who_made_it(
+    client: TestClient, admin_headers: dict[str, str], db: Session, admin_user: User
+) -> None:
+    """The item's History says who deleted it, and when."""
+    item = build_bare_item(db)
+
+    client.delete(f"/api/inventory/{item.id}", headers=admin_headers)
+
+    [row] = _logged(db, item.id, "deleted_at")
+    assert row.old_value is None
+    assert row.new_value is not None
+    assert row.changed_by_id == admin_user.id
+    assert row.changed_at == db.get_one(InventoryItem, item.id).deleted_at
+
+
+def test_deleting_twice_logs_once(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The second delete finds the item gone and changes nothing."""
+    item = build_bare_item(db)
+
+    client.delete(f"/api/inventory/{item.id}", headers=admin_headers)
+    client.delete(f"/api/inventory/{item.id}", headers=admin_headers)
+
+    assert len(_logged(db, item.id, "deleted_at")) == 1
+
+
+def test_a_detach_is_logged_naming_the_lot(
+    client: TestClient, admin_headers: dict[str, str], db: Session, admin_user: User
+) -> None:
+    """The piece's History says who detached it, and from which lot."""
+    parent = build_split_lot(db)
+    pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
+
+    client.delete(f"/api/inventory/{pieces[0]['id']}/parent", headers=admin_headers)
+
+    [row] = _logged(db, pieces[0]["id"], "parent_item_id")
+    assert row.old_value == parent.item_code
+    assert row.new_value is None
+    assert row.changed_by_id == admin_user.id
+
+
+def test_detaching_an_item_with_no_parent_logs_nothing(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Nothing moved, so the History has nothing to show."""
+    item = build_bare_item(db)
+
+    client.delete(f"/api/inventory/{item.id}/parent", headers=admin_headers)
+
+    assert _logged(db, item.id, "parent_item_id") == []
 
 
 def test_a_lot_can_be_deleted_once_its_last_piece_is_detached(

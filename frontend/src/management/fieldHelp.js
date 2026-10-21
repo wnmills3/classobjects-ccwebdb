@@ -406,6 +406,22 @@ export const FIELD_HELP = {
       'shows everything, which is how to see a whole order including what ' +
       'already came.',
   },
+  item_status: {
+    title: 'Status',
+    text:
+      'How the item came in: ordered (bought, not yet arrived), received, ' +
+      'canceled, returned (sent back to the seller), missing (paid for, never ' +
+      'arrived) or unknown. Receiving moves an item forward; this is where a ' +
+      'status recorded in error is put back, and the change is kept in the ' +
+      "item's history. Whether it is held, listed or sold is a separate question.",
+  },
+  status_filter: {
+    title: 'Status',
+    text:
+      'Shows only the items with this status: ordered (bought, not yet arrived), ' +
+      'received, canceled, returned, missing (paid for, never arrived) or ' +
+      'unknown. Any shows every status.',
+  },
   year: {
     title: 'Year',
     text: 'The date struck on the coin.',

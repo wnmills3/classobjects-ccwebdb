@@ -1114,12 +1114,20 @@ def _print(report: Report, *, commit: bool) -> None:
         print("\n(dry run -- nothing written; pass --commit)")
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Report or apply the defaults."""
+def main(argv: list[str] | None = None, *, db: Session | None = None) -> int:
+    """Report or apply the defaults.
+
+    `db` is the session to work in; run as a module, the application's own
+    `SessionLocal` is opened. A caller that already has a session -- the
+    tests, which must never let this open the live database -- passes it.
+    """
     parser = argparse.ArgumentParser(prog="classifier_defaults", description=__doc__)
     parser.add_argument("--commit", action="store_true", help="write the defaults")
     args = parser.parse_args(argv)
-    with SessionLocal() as db:
+    if db is None:
+        with SessionLocal() as own:
+            report = run(own, commit=args.commit)
+    else:
         report = run(db, commit=args.commit)
     _print(report, commit=args.commit)
     return 0

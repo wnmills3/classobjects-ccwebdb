@@ -324,4 +324,67 @@ describe('SettlementGrid', () => {
     await user.selectOptions(screen.getByLabelText('Result for lot 1'), 'unsold')
     expect(total('Fees')).toBe('0.00')
   })
+
+  it('names fees left under an old buyer, and settles nothing until they are dealt with', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <SettlementGrid
+        auction={closedAuction()}
+        isAuctionHouse={false}
+        onSettled={vi.fn()}
+      />,
+      { reference: reference() },
+    )
+    const stranded = /Fees are typed for a buyer no longer on a sold lot/
+
+    await user.selectOptions(screen.getByLabelText('Result for lot 1'), 'sold')
+    await user.type(screen.getByLabelText('Hammer price for lot 1'), '150.00')
+    await user.type(screen.getByLabelText('Buyer for lot 1'), 'amy')
+    await user.selectOptions(screen.getByLabelText('Result for lot 2'), 'unsold')
+    await user.type(screen.getByLabelText('Commission fee for amy'), '24.00')
+    // Fees under a buyer in the grid are not stranded.
+    expect(screen.queryByText(stranded)).toBeNull()
+
+    await user.type(screen.getByLabelText('Buyer for lot 1'), 'b')
+
+    // Named, with the old buyer and the amount, so it is not silently lost.
+    expect(screen.getByText(stranded)).toHaveTextContent('amy (Commission 24.00)')
+
+    // Settle stays pressable, and a press says why and opens nothing.
+    const settleButton = screen.getByRole('button', { name: /^settle/i })
+    expect(settleButton).toBeEnabled()
+    await user.click(settleButton)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(
+      screen.getByText(/Move or discard the fees typed for a buyer no longer/),
+    ).toHaveClass('error')
+    expect(api.settleAuction).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Discard these fees' }))
+    expect(screen.queryByText(stranded)).toBeNull()
+    await user.click(settleButton)
+    expect(screen.getByRole('dialog', { name: /settle/i })).toBeVisible()
+  })
+
+  it('stops naming the fees once the buyer is named as they were typed', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <SettlementGrid
+        auction={closedAuction()}
+        isAuctionHouse={false}
+        onSettled={vi.fn()}
+      />,
+      { reference: reference() },
+    )
+    await user.selectOptions(screen.getByLabelText('Result for lot 1'), 'sold')
+    await user.type(screen.getByLabelText('Buyer for lot 1'), 'amy')
+    await user.type(screen.getByLabelText('Commission fee for amy'), '24.00')
+    await user.selectOptions(screen.getByLabelText('Result for lot 1'), 'unsold')
+    expect(screen.getByText(/amy \(Commission 24\.00\)/)).toBeVisible()
+
+    // Sold after all: the fees are the buyer's again, and are sent.
+    await user.selectOptions(screen.getByLabelText('Result for lot 1'), 'sold')
+    expect(screen.queryByText(/amy \(Commission 24\.00\)/)).toBeNull()
+    expect(screen.getByLabelText('Commission fee for amy')).toHaveValue('24.00')
+  })
 })

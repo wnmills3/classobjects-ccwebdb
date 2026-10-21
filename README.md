@@ -2,12 +2,20 @@
 
 Numismatic and Currency Web Platform for Inventory and Sales.
 
-This is the inventory and sales system for a coin and banknote business. It
-answers three questions the business depends on: what exactly each item is,
-what was paid for it, and whether it is still available to sell. This README
-is the developer's entry point: the stack, the code layout, the API and
-where to find everything else. Why the system exists, and what it
+An inventory and sales system for a coin and paper-money collector or small
+dealer: record what was bought and what it cost, describe each item in the
+hobby's standard terms, photograph it, and sell it -- in your own web shop
+and on outside platforms such as eBay, Whatnot and auction houses -- without
+ever selling an item twice. It answers three questions a business depends
+on: what exactly each item is, what was paid for it, and whether it is still
+available to sell.
+
+New here? Start with [docs/overview.md](docs/overview.md) (what it is and
+how it is built), then [docs/architecture.md](docs/architecture.md). This
+README is the developer's entry point: the stack, the code layout, the API
+and where to find everything else. Why the system exists, and what it
 deliberately does not do, is in [docs/project-purpose.md](docs/project-purpose.md).
+Licensed under the [Apache License 2.0](LICENSE).
 
 A FastAPI backend and two React applications share one PostgreSQL database:
 
@@ -27,7 +35,7 @@ database is backed up and restored as a workbook by `app.workbook_backup`
 | Layer    | Choice                                                      |
 | -------- | ----------------------------------------------------------- |
 | Backend  | FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2, Pillow        |
-| Database | PostgreSQL 18, run from the conda environment (no Docker)    |
+| Database | PostgreSQL 17 or later (18 in the conda environment; no Docker) |
 | Auth     | JWT access + refresh tokens, argon2 password hashing         |
 | Frontend | React 19 + React Router 7, Vite 8, Vitest, plain JavaScript  |
 | Tooling  | Miniforge/conda for binaries, uv for Python dependencies     |
@@ -36,7 +44,9 @@ database is backed up and restored as a workbook by `app.workbook_backup`
 
 The system is developed and hosted on Windows 11 and on Ubuntu LTS; every
 script in `scripts/` comes as a `.cmd` for Windows and a `.sh` for Linux
-that do the same. First time on a machine, follow
+that do the same. You need Git; everything else -- Python 3.13, uv, Node,
+PostgreSQL -- is installed into one conda environment by the setup
+documents, which also fetch the code. First time on a machine, follow
 **[docs/environment-setup-windows.md](docs/environment-setup-windows.md)**
 or **[docs/environment-setup-linux.md](docs/environment-setup-linux.md)**.
 After that, one command starts the database, the API and both
@@ -61,10 +71,18 @@ every script, and their *Quick reference* lists the addresses of the shop,
 the console and the API. Every port, host and folder is a setting in
 `.env`; `.env.example` lists them all with their defaults.
 
+To run a public shop on a server, follow
+[docs/deployment-windows.md](docs/deployment-windows.md) or
+[docs/deployment-linux.md](docs/deployment-linux.md): a new installation
+starts from an empty database and makes its first manager with
+`python -m app.create_admin`.
+
 ## Documentation
 
 | Document | What it covers |
 |---|---|
+| [docs/overview.md](docs/overview.md) | What the software is, the problem it solves, how it is built |
+| [docs/architecture.md](docs/architecture.md) | Components, backend layers, data model, request flows |
 | [docs/project-purpose.md](docs/project-purpose.md) | Why the system exists; the rules every design follows |
 | [docs/workflow-new-collection.md](docs/workflow-new-collection.md) | An item's path from purchase to sale, in the console |
 | [docs/system-administration.md](docs/system-administration.md) | Every console screen, setting, pass, backup and release step |
@@ -75,13 +93,16 @@ the console and the API. Every port, host and folder is a setting in
 | [docs/code-quality.md](docs/code-quality.md) | The quality gates and their exceptions |
 | [docs/reference-data.md](docs/reference-data.md) | What reference data may be shipped with the product |
 | [docs/specs/](docs/specs/) | One design document per feature |
+| [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) | How to contribute; how to report a vulnerability |
 
 ## Layout
 
 ```
 backend/
   app/
-    main.py, config.py, database.py, deps.py, security.py, schemas.py,
+    main.py, config.py, runtime_settings.py (every port, host and folder,
+    shared with the scripts), database.py, deps.py, security.py,
+    throttle.py (sign-in limits), clock.py (local dates), schemas.py,
     errors.py
     models/              the schema by subject area: base (shared
                          conventions), core, reference, identification,
@@ -89,14 +110,18 @@ backend/
                          views, scaffold (the users table)
     routers/             the HTTP API (see below); _resolve.py turns what a
                          client sent into rows or the error naming what is
-                         missing, _tx.py is the shared commit-or-roll-back
+                         missing, _tx.py is the shared commit-or-roll-back,
+                         _paging.py the limit/offset and X-Total-Count of a
+                         paged list
     single writers       each table with a history has exactly one module
                          that writes it: lifecycle_writes (status, location),
-                         offering_writes (listings, offer claims, the lock
-                         order), order_writes (shop orders), sales_writes
-                         (recorded sales and fees), lot_writes (sales lots),
+                         offering_writes (listing status, offer claims, the
+                         lock order), order_writes (every sales order: shop,
+                         on behalf, platform sales, settlements), sales_writes
+                         (recorded sales' fees), lot_writes (sales lots),
                          auctions (auction transitions), image_links
-                         (item_image), field_changes (item_field_change)
+                         (item_image), field_changes (item_field_change),
+                         field_sources (which fields a rule filled)
     selling helpers      sale_state (is an item for sale), auction_holding
                          (which listings are auction lots), sale_snapshot,
                          offer_titles, buyers, sales_venues
@@ -132,7 +157,9 @@ backend/
                          (python -m app.reports list|run), workbook export
                          (docs/specs/reporting-design.md)
     seeding.py           load and export reference data (backend/data/reference/)
-    seed.py              first administrator plus five demo items (never on live)
+    create_admin.py      the first manager of a new installation, no demo data
+    seed.py              first administrator plus five demo items (refused on
+                         a database that holds a collection)
     backup.py            database-to-database copy with --verify
     workbook_backup.py   the whole database to and from one Excel workbook
     backup_run.py        one whole backup: export, prove by restoring, then tidy
@@ -150,9 +177,12 @@ frontend/
                          request and debounce hooks
   src/test/              vitest setup and test helpers
   scripts/               check-bundle-isolation.mjs
-scripts/                 ccweb_*.cmd: startup, shutdown, status, check, psql,
-                         pgadmin, backup, claude, sonar_*; env, logdir and
+scripts/                 ccweb_*.cmd and their ccweb_*.sh twins: startup,
+                         shutdown, status, check, testdb, psql, pgadmin,
+                         backup, claude, sonar_*; env, settings, logdir and
                          pgstart are helpers the others call
+deploy/                  Caddyfile and systemd templates, rendered from
+                         settings by python -m app.runtime_settings --render
 docs/                    project, operations and design documents; designs
                          for individual features are in docs/specs/
 ```
@@ -165,16 +195,17 @@ by `deps.require_admin`). By area:
 
 | Area | Prefix | Access |
 |---|---|---|
-| Accounts | `/auth` (register, login, refresh, me), `/users`, `/customers` (including orders placed on a customer's behalf) | sign-in public; administration manager |
-| Shop catalog | `/catalog` | public, read only |
-| Customer orders | `/orders` | customers their own; managers all |
+| Accounts | `/auth` (register, login, refresh, logout -- which retires every token of the account -- and me), `/users`, `/customers` (including orders placed on a customer's behalf) | sign-in public; administration manager |
+| Shop | `/shop` (is the shop open), `/catalog` | `/shop` public; `/catalog` public while `SHOP_OPEN`, signed-in only otherwise; read only |
+| Customer orders | `/orders` (at most 50 lines, and a few pending orders, per customer; paged for managers) | customers their own; managers all |
 | Inventory | `/inventory` (search, create, bulk, edit, receive, split, detach a piece, errors, history, sales, suggested description, preview, serial pairs, delete) | manager |
 | Purchases | `/vendors`, `/sellers`, `/purchase-orders`, `/storage-locations` | manager |
-| Vocabularies | `/reference` (read public; add, rename, alias, merge manager), `/defaults` (suggested classifiers while entering an item) | mixed |
+| Vocabularies | `/reference` (the shop's vocabularies readable by anyone; every other read, retired values, and add, rename, alias, merge manager), `/defaults` (suggested classifiers while entering an item) | mixed |
 | Photographs | `/images` (upload, from a web address, file against an item, list, delete, renditions), `/image-links` (role, primary, move, detach) | renditions public, by content hash; the rest manager |
 | Selling | `/sales-venues`, `/metal-prices` (spot prices), `/offers`, `/listings` (edit, end, record a sale), `/sales-lots`, `/auctions` | manager |
 | Friedberg numbers | `/friedberg`, `/inventory/{id}/friedberg` | manager; the owner's own numbers only |
 | Reports | `/reports` (catalog, run, `/workbook`) | manager |
+| Health | `GET /health`, outside `/api` | public; touches nothing |
 
 Rules that hold across the API:
 
@@ -193,19 +224,30 @@ Rules that hold across the API:
 - **Every item has a permanent `item_code`** (`CC-000123`), issued once from
   a sequence and never reused.
 - **Photographs are stripped of metadata at ingest** (they carry GPS), and
-  only generated `thumb` and `web` renditions are ever served. Storage
-  location and inventory photographs never reach a customer;
-  `routers/catalog.py` builds each public response field by field.
+  only generated `thumb` and `web` renditions are ever served, addressed by
+  the hash of their content; an original never leaves the server. The shop
+  shows a listed item's primary photograph; storage location, cost and
+  history never reach a customer -- `routers/catalog.py` builds each public
+  response field by field.
+- **Long lists are paged.** Orders, listings and auctions take `limit` and
+  `offset` and carry the unpaged total in the `X-Total-Count` header.
 - **Money is `NUMERIC` and `Decimal`**, never a float; lot splits reconcile to
   the penny.
 
 ## Looking at the data
 
-In a browser, with pgAdmin:
+In a browser, with pgAdmin. Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_pgadmin.cmd
+```
+
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb
+./scripts/ccweb_pgadmin.sh
 ```
 
 It opens pgAdmin on http://127.0.0.1:5050 with the `ccwebdb` connection
@@ -219,25 +261,46 @@ uv tool install --python 3.13 pgadmin4
 
 At the command line, with psql (every argument passes straight to psql):
 
-Interactive psql:
+Interactive psql. Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_psql.cmd
 ```
 
-One statement:
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb
+./scripts/ccweb_psql.sh
+```
+
+One statement. Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_psql.cmd -c "select * from metal;"
 ```
 
-A file:
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb
+./scripts/ccweb_psql.sh -c "select * from metal;"
+```
+
+A file, Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_psql.cmd -f query.sql
+```
+
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb
+./scripts/ccweb_psql.sh -f query.sql
 ```
 
 The views `coin_inventory`, `currency_inventory`, `item_valuation` and
@@ -257,18 +320,33 @@ where coalesce(source_title, '') || ' ' || coalesce(description, '') ilike '%mor
 
 ## Code quality and tests
 
-Every gate: ruff (format, lint), mutation-scaffolding guard, mypy, pytest, eslint, prettier, vitest, bundle isolation:
+Every gate: ruff (format, lint), mutation-scaffolding guard, mypy, pytest,
+eslint, prettier, vitest, bundle isolation. Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_check.cmd
 ```
 
-Auto-fix first, then check:
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb
+./scripts/ccweb_check.sh
+```
+
+Auto-fix first, then check. Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb
 .\scripts\ccweb_check.cmd fix
+```
+
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb
+./scripts/ccweb_check.sh fix
 ```
 
 Every gate is at zero, so any finding is new.

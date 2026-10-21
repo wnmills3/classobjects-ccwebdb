@@ -1,4 +1,5 @@
 import LoginForm from '../../shared/LoginForm'
+import { SHOP_NAME } from '../../shared/site'
 
 /**
  * The console's sign-in page: the shared form, which goes on to the
@@ -13,7 +14,7 @@ export default function Login() {
     <div className="app">
       <header className="topbar">
         <span className="brand">
-          ClassObjects{/* */}
+          {SHOP_NAME}
           <span className="brand-sub">Console</span>
         </span>
       </header>

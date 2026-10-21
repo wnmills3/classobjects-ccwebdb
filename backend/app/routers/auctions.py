@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -68,6 +68,7 @@ from ..schemas import (
     SettleIn,
     SettleOut,
 )
+from ._paging import DEFAULT_LIMIT, Limit, Offset, page
 from ._resolve import (
     enum_member,
     found_or_404,
@@ -199,10 +200,18 @@ def _out(auction: Auction) -> AuctionOut:
 def list_auctions(
     db: DbSession,
     _admin: AdminUser,
+    response: Response,
     venue: Annotated[str | None, Query(description="A sales_venue code")] = None,
     wanted_status: Annotated[str | None, Query(alias="status")] = None,
+    limit: Limit = DEFAULT_LIMIT,
+    offset: Offset = 0,
 ) -> AuctionListOut:
-    """Every auction, newest first. Filterable by platform and by status."""
+    """Every auction, newest first. Filterable by platform and by status.
+
+    One page at a time (`limit`, `offset`), with how many match in the
+    `X-Total-Count` header: each auction is loaded with every lot and each
+    lot's listing, so an unbounded list grows with the whole history.
+    """
     stmt = select(Auction)
     if venue is not None:
         stmt = stmt.where(Auction.sales_venue_id == venue_by_code(db, venue).id)
@@ -210,7 +219,8 @@ def list_auctions(
         stmt = stmt.where(
             Auction.status == enum_member(AuctionStatus, wanted_status, "status")
         )
-    rows = db.scalars(_eager(stmt).order_by(Auction.id.desc())).all()
+    paged = page(db, stmt, response, limit=limit, offset=offset)
+    rows = db.scalars(_eager(paged).order_by(Auction.id.desc())).all()
     return AuctionListOut(auctions=[_out(row) for row in rows])
 
 

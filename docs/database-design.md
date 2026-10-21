@@ -63,9 +63,11 @@ whether they were `seeded`, `derived` by a rule, or entered `manual`ly (the
 `provenance_source` enum). Per-field provenance on items is
 `item_field_source` (§7).
 
-**Storage location, cost basis and inventory photographs are never
-customer-visible.** This is an authorization boundary, enforced and tested
-(§10).
+**Storage location and cost basis are never customer-visible, and neither
+is an original photograph.** A listed item's primary photograph reaches the
+shop as its renditions, which are public to whoever holds the image's hash;
+the shop names no other photograph of the item. This is an authorization boundary, enforced and
+tested (§8, §10).
 
 **One writer per invariant.** Where a column and a history or guard table
 must change together, exactly one module writes them (§11).
@@ -113,7 +115,7 @@ One row per acquired item or lot.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | int pk | internal surrogate key |
-| `item_code` | varchar(32), unique | **permanent identifier of the physical object**, `CC-000123`; server default from `item_code_seq` |
+| `item_code` | varchar(32), unique | **permanent identifier of the physical object**, `CC-000123`; server default `item_code_format(nextval('item_code_seq'))`: at least six digits, more past `CC-999999` |
 | `version` | int | optimistic concurrency (§11) |
 | `purchase_order_id` | fk null | null when the acquisition is not recorded |
 | `item_kind_id` | fk | coin, currency, bullion, set, medal, token, other, unknown |
@@ -147,7 +149,7 @@ One row per acquired item or lot.
 | `tax_rate` | numeric(6,4) | stamped on insert (§6) |
 | `tax_includes_shipping` | boolean | stamped on insert (§6) |
 | `sales_tax`, `total_cost` | numeric(12,2), **generated** | §6 |
-| `numismatic_value` | numeric(12,2) null | hand-entered collector value |
+| `numismatic_value` | numeric(12,2) null | hand-entered collector value; never negative |
 | `valuation_basis_id` | fk | melt, numismatic, manual |
 | `composition_id`, `metal_id` | fk null | metal content (§6) |
 | `fineness` | numeric(6,4) null | 0.9000, 0.9990 |
@@ -159,8 +161,13 @@ One row per acquired item or lot.
 **`item_code` never changes and is never reused.** It survives listing, sale,
 return and relisting, so one object has one history. It comes from a sequence,
 not from `id`, so a gap left by a deletion is never filled by a new item
-wearing a dead item's code. The default expression is written exactly as
-PostgreSQL stores it so the migration drift test stays quiet.
+wearing a dead item's code. The default calls `nextval` once and hands the
+value to the SQL function `item_code_format()`, which pads it to six digits
+and keeps any beyond: `lpad` alone would cut the millionth code to six and
+issue one already held. The migration creates the function on a real
+database; `create_all` creates it from the same text in `models/core.py`.
+The default expression is written exactly as PostgreSQL stores it so the
+migration drift test stays quiet.
 
 **Split lots.** A lot bought as one thing and sold as many is split: each piece
 becomes a child with `parent_item_id` pointing at the lot, and the lot gets
@@ -191,6 +198,7 @@ banknote is refused while the note row holds a value.
 |---|---|
 | `mint_id` | fk `mint` |
 | `variety` | varchar(128), free text |
+| `serial_number` | varchar(64) null, indexed; stamped on a bar, round or Goldback -- bullion only (§5) |
 | `pcgs_type_id` | fk `pcgs_type` (§5) |
 | `pcgs_status` | `unknown` \| `proposed` \| `confirmed` \| `conflicting` (check constraint), default `unknown` |
 
@@ -573,8 +581,13 @@ constraint, since which fields matter will change. The passes are listed in
 items*.
 
 `item_field_change` is written by `PATCH /api/inventory/{id}`, the bulk
-edit, and the four passes run under a named person (`app.ebay_orders`,
-`app.listing_links`, `app.bullion_weights`, `app.seller_titles`), all through
+edit, the four passes run under a named person (`app.ebay_orders`,
+`app.listing_links`, `app.bullion_weights`, `app.seller_titles`), and a
+vocabulary merge (`app.reference_merge`), which logs each item whose
+classifier, attributes or errors it moved onto the surviving value. Three
+item actions log themselves the same way: a delete records `deleted_at`, a
+detach records `parent_item_id` (the lot named by its item code), and a
+split records `split_at` on the lot. All of them go through
 `app.field_changes`, in the same transaction as the change, only for a field
 whose value actually moved.
 Values are stored as the item editor sees them (codes for classifiers,
@@ -817,14 +830,18 @@ what each inventory and the public catalog contain.
 
 **`public_catalog` describes the authorization boundary; code enforces it.**
 The view must never expose storage location, `local_catalog_number`, cost
-basis, purchase details, the owner's `rating`, lineage or inventory
-photographs, and `test_public_catalog_never_exposes_private_columns` asserts
-its columns against `PUBLIC_CATALOG_FORBIDDEN_COLUMNS` (which lists no image
-column, because the view selects none). What actually keeps those fields from
-a buyer is `routers/catalog.py:to_catalog_item`, which builds the public shape
-field by field, with `CatalogItemOut` and
-`test_catalogue_never_exposes_cost_basis_or_location`. Anything later built on
-the view inherits the view's rules, which is why it is kept honest.
+basis, purchase details, the owner's `rating` or lineage, and
+`test_public_catalog_never_exposes_private_columns` asserts its columns
+against `PUBLIC_CATALOG_FORBIDDEN_COLUMNS`. The view selects no image column.
+What actually keeps those fields from a buyer is
+`routers/catalog.py:to_catalog_item`, which builds the public shape field by
+field, with `CatalogItemOut` and
+`test_catalogue_never_exposes_cost_basis_or_location`. The one photograph it
+adds is the item's primary one, as the URLs of its renditions
+(`image_derivative`, thumb and web). Every image's renditions are served
+publicly, to whoever holds its hash, and an original is never served; the
+shop names no other photograph of the item. Anything later built on the view inherits the view's rules,
+which is why it is kept honest.
 
 ---
 
@@ -869,11 +886,14 @@ columns (`changed_by_id`, `noted_by_id`, `verified_by_id`, …): `SET NULL`, so
 removing a member of staff never erases the record of what they did.
 
 **Check constraints worth knowing.** Non-negative `item_cost`,
-`shipping_cost`, prices, fees, share amounts and shipment costs;
-`piece_count > 0`; year ranges ordered; fineness a fraction; fine weight
-within gross; the `pcgs_status`, `friedberg_status`, `size_class` and
-`printing_facility` vocabularies; `ck_listing_item_xor_lot` and
-`ck_listing_lot_quantity_one`; address validity ordered.
+`shipping_cost`, `numismatic_value`, prices, fees, share amounts and share
+fees (`ck_sales_order_item_share_fee_non_negative`), an auction lot's
+`reserve` and `hammer_price`, and shipment costs; `piece_count > 0`; year
+ranges ordered; fineness a fraction; fine weight within gross; the
+`pcgs_status`, `friedberg_status`, `size_class` and `printing_facility`
+vocabularies; `ck_listing_item_xor_lot` and `ck_listing_lot_quantity_one`;
+`ck_listing_paused_by_only_when_paused` (only a paused listing names the
+offer that paused it); address validity ordered.
 
 **Partial and special unique indexes.**
 
@@ -891,11 +911,13 @@ within gross; the `pcgs_status`, `friedberg_status`, `size_class` and
 | `uq_note_issue`, `uq_series_year_range` | `NULLS NOT DISTINCT` identities for seeded facts |
 
 **Indexes.** Every foreign key that is filtered on. On `inventory_item`:
-`ix_inventory_item_kind_status`; GIN full text `ix_inventory_item_fts` over
-`source_title || ' ' || description` with an explicit `english` regconfig;
-GIN on `attributes`; and partial facet indexes on kind, grade, metal, country,
-status, disposition and bullion form `WHERE split_at IS NULL`, which let the
-planner answer a facet `GROUP BY` with an index-only scan. Time-ordered
+`ix_inventory_item_kind_status`, and partial facet indexes on kind, grade,
+metal, country, status, disposition and bullion form `WHERE split_at IS
+NULL`: a smaller index over live rows. They do not give the default facet
+query an index-only scan, since it also filters `deleted_at IS NULL`, which
+is not in the predicate. There is no full-text or `attributes` index: the
+search matches text with `ILIKE`, and nothing queries `attributes` with a
+JSONB operator. Time-ordered
 history indexes on `item_status_history`, `location_history`,
 `listing_status_history`, `item_field_change` and `valuation_snapshot`;
 `ix_metal_price_latest`. Expression indexes and defaults are written exactly
@@ -904,7 +926,10 @@ changed on every run.
 
 **Extension.** The baseline enables `fuzzystrmatch`, for `levenshtein()` in
 the data-quality check that finds a serial one character off another in the
-same order (`app.issues`).
+same order (`app.issues`). It ships with PostgreSQL's contrib modules, and
+the role that runs the migrations must be allowed to create it: it is a
+trusted extension, so any role with `CREATE` on the database may, as may a
+superuser.
 
 **Optimistic concurrency.** `inventory_item`, `listing`, `sales_venue`,
 `sales_lot`, `sales_order` and `auction` carry `version`, used as
@@ -940,19 +965,31 @@ with the lock removed.
 | `app.field_sources` | `item_field_source` |
 | `app.field_changes` | `item_field_change` |
 
-**Migrations.** The first Alembic revision is a baseline:
+**Migrations.** They need **PostgreSQL 17 or later**: the schema uses
+`NULLS NOT DISTINCT` unique constraints and indexes, and a revision changes
+generated columns with `ALTER COLUMN ... SET EXPRESSION`, which arrived in 17.
+The baseline checks the server's version before creating anything and stops
+with that message on an older one. They also need the `fuzzystrmatch`
+extension (above). They run **online only**: the baseline and the data
+migrations read the database as they go, so `alembic upgrade --sql` is
+refused rather than emitting a script.
+
+The first Alembic revision is a baseline:
 `backend/alembic/baseline.sql`, generated by `pg_dump` from the schema itself,
 holding the tables, views, types, `grade_display()` and the rows a fresh
 install needs. Every later schema change is a revision on top of it in
 `backend/alembic/versions/`. `tests/test_migrations.py` builds a database by
 running the migrations alone and asserts that autogenerate finds no
-difference from the models, that the baseline's fee kinds load, that the
-selling check constraints and the `uq_sales_lot_item_open` predicate are
-carried with their exact expressions (autogenerate compares neither), and that
-its views and `grade_display()` equal the definitions in `app.models.views`
-and `app.grades`, from which the `create_all` test database is built. A
-migration that changes a view runs `DROP_VIEWS` and then `CREATE_VIEWS`. The
-baseline cannot be downgraded; to go back, restore a backup.
+difference from the models, that the baseline's fee kinds load, that every
+check constraint, generated column expression and partial index predicate
+equals the `create_all` test database's (autogenerate compares none of
+them), that the selling check constraints and the `uq_sales_lot_item_open`
+predicate carry the exact text written in the test, and that its views,
+`grade_display()` and `item_code_format()` equal the definitions in
+`app.models.views`, `app.grades` and `app.models.core`, from which the
+`create_all` test database is built. A migration that changes a view runs
+`DROP_VIEWS` and then `CREATE_VIEWS`. The baseline cannot be downgraded; to
+go back, restore a backup.
 
 ---
 
@@ -961,33 +998,70 @@ baseline cannot be downgraded; to go back, restore a backup.
 Most reference rows are facts true everywhere — Sheldon grades, US mints, the
 twelve Federal Reserve districts, the composition of a pre-1965 dime — so they
 live in versioned JSON under `backend/data/reference/` and load into any
-installation. From `backend`, with the `ccwebdb` environment active:
+installation. From `backend`, with the `ccwebdb` environment active. Each
+command is the same on both systems; only the folder differs.
 
 Load every seed file; idempotent:
+
+Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.seeding load
 ```
 
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+python -m app.seeding load
+```
+
 Only the tables named (several may follow `--only`):
+
+Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.seeding load --only TABLE
 ```
 
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+python -m app.seeding load --only TABLE
+```
+
 From another folder:
+
+Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
 python -m app.seeding load --data-dir FOLDER
 ```
 
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
+python -m app.seeding load --data-dir FOLDER
+```
+
 Write seed files; add `--source seeded derived` and `--include-inactive` to widen it:
+
+Windows (cmd):
 
 ```console
 cd /d %USERPROFILE%\dev\classobjects-ccwebdb\backend
+python -m app.seeding export --out FOLDER
+```
+
+Linux (bash):
+
+```console
+cd ~/dev/classobjects-ccwebdb/backend
 python -m app.seeding export --out FOLDER
 ```
 

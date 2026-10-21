@@ -407,6 +407,35 @@ def test_a_customer_cannot_read_a_lot(
     assert client.get("/api/sales-lots", headers=customer_headers).status_code == 403
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("POST", "/api/sales-lots", {"title": "Three Morgans"}),
+        ("GET", "/api/sales-lots/1", None),
+        ("PATCH", "/api/sales-lots/1", {"title": "Renamed", "version": 1}),
+        ("DELETE", "/api/sales-lots/1", None),
+    ],
+)
+def test_every_lot_endpoint_is_admin_only(
+    method: str,
+    path: str,
+    body: dict[str, object] | None,
+    client: TestClient,
+    customer_headers: dict[str, str],
+) -> None:
+    """401 signed out, 403 for a customer, on every route, not just the list.
+
+    The guard runs before the handler, so no lot needs to exist: a 404 here
+    would mean the request reached the row lookup. Each body is schema-valid,
+    so a 422 cannot stand in for the gate.
+    """
+    assert client.request(method, path, json=body).status_code == 401
+    assert (
+        client.request(method, path, json=body, headers=customer_headers).status_code
+        == 403
+    )
+
+
 def test_money_fields_are_strings(
     client: TestClient,
     admin_headers: dict[str, str],

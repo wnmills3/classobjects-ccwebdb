@@ -251,7 +251,10 @@ down: it is inspected on demand, not part of the runtime.
 6. **Records PIDs** in `.runtime\ccweb.pids`.
 
 **It is safe to re-run.** Anything already listening is left alone and
-reported as `already running`.
+reported as `already running` -- on the API's port, only a listener that
+answers `/health` with `{"status":"ok"}`. Any other program holding that
+port is reported as taking it, and startup exits 1 without starting the
+frontend, which would send `/api` to it.
 
 ## What shutdown does
 
@@ -265,6 +268,10 @@ reported as `already running`.
    PID to whatever starts next.
 2. **Sweeps the API and frontend ports** for survivors -- the safety net
    when the PID file is missing or stale, or a service was started by hand.
+   A survivor is stopped only when it is the program startup runs there
+   (`python.exe` or `uvicorn.exe` on the API's port, `node.exe` on the
+   frontend's); any other is named (`which is not uvicorn - left alone`)
+   and left running, and the port is reported still held.
 3. Stops PostgreSQL with `pg_ctl -m fast` (skipped with `/keepdb`).
 4. **Verifies**, and exits 1 if anything still holds a port or the database
    still accepts connections when it should not.
@@ -332,7 +339,7 @@ connection dies.
   names: unset `PG*` variables default to its host, port, database, user
   and password. Set `PGDATABASE` (or any other) first to point it elsewhere.
 - **`ccweb_backup.cmd`** takes one whole backup into `CCWEB_BACKUP_DIR`
-  (unset: `OneDrive\coins_backup` in your home), proves it, and only then
+  (unset: `%USERPROFILE%\ccwebdb-backup`), proves it, and only then
   removes what is obsolete; it appends what it did to `backup.log` in the
   logs folder and exits 1 when the backup could not be proved.
   `/schedule [HH:MM]` creates the daily scheduled task `ccwebdb backup`, at

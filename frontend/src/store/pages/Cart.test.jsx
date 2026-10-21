@@ -3,9 +3,12 @@ import { screen } from '@testing-library/react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../shared/api', () => ({ api: { createOrder: vi.fn() } }))
+vi.mock('../../shared/api', async (importOriginal) => ({
+  ApiError: (await importOriginal()).ApiError,
+  api: { createOrder: vi.fn() },
+}))
 
-import { api } from '../../shared/api'
+import { ApiError, api } from '../../shared/api'
 import Cart from './Cart'
 import { customerAuth, emptyCart, renderWithProviders } from '../../test/helpers'
 
@@ -96,14 +99,29 @@ describe('Cart quantity', () => {
 })
 
 describe('Cart checkout', () => {
-  it('orders each line by its listing and quantity', async () => {
+  it('orders each line by its listing, quantity and the price it showed', async () => {
     const user = userEvent.setup()
     api.createOrder.mockResolvedValue({ id: 42, total_amount: '20.00' })
     renderCart({ auth: customerAuth() })
 
     await user.click(screen.getByRole('button', { name: 'Place order' }))
 
-    expect(api.createOrder).toHaveBeenCalledWith([{ listing_id: 7, quantity: 2 }])
+    expect(api.createOrder).toHaveBeenCalledWith([
+      { listing_id: 7, quantity: 2, expected_price: '10.00' },
+    ])
+  })
+
+  it('keeps the cart and says so when a price changed before checkout', async () => {
+    const user = userEvent.setup()
+    const refusal = 'The price of listing 7 changed from 10.00 to 12.00'
+    api.createOrder.mockRejectedValue(new ApiError(409, refusal))
+    const cart = renderCart({ auth: customerAuth() })
+
+    await user.click(screen.getByRole('button', { name: 'Place order' }))
+
+    expect(await screen.findByText(refusal)).toBeInTheDocument()
+    expect(cart.clear).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Place order' })).toBeEnabled()
   })
 
   it('empties the cart and names the order once it is placed', async () => {

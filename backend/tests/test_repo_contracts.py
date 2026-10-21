@@ -7,6 +7,7 @@ shell -- where nothing else would notice them drifting apart.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
@@ -17,7 +18,13 @@ from subprocess import CompletedProcess
 
 import pytest
 from app.config import Settings
-from app.runtime_settings import REPO_ROOT, RuntimeSettings, assignments, render
+from app.runtime_settings import (
+    REPO_ROOT,
+    RuntimeSettings,
+    render,
+    render_values,
+    tls_directive,
+)
 
 SCRIPTS = REPO_ROOT / "scripts"
 
@@ -60,7 +67,7 @@ _CONTAINER_PORTS = re.compile(
 
 #: More of the scripts, each with what it alone used to write out.
 _SETTLED_TOO = {
-    "ccweb_backup": ("OneDrive", "20:00"),
+    "ccweb_backup": ("coins_backup", "20:00"),
     "ccweb_pgadmin": ("5050",),
     "ccweb_sonar_start": (),
     "ccweb_sonar_scan": (),
@@ -284,12 +291,12 @@ _LEFT_OVER = re.compile(r"@[A-Z][A-Z0-9_]*@|\{\$[A-Z][A-Z0-9_]*\}")
 def test_every_template_renders_completely(template: Path) -> None:
     """Every placeholder a template names is a setting: none survive render."""
     values = {
-        **assignments(RuntimeSettings()),
-        # A development machine has no site; render refuses those empty.
+        **render_values(RuntimeSettings(), "someone"),
+        # A development machine has no site; render refuses an empty domain.
         "CCWEB_SITE_DOMAIN": "example.com",
-        "CCWEB_TLS_CERT": "/certs/fullchain.pem",
-        "CCWEB_TLS_KEY": "/certs/example.com.key",
-        "CCWEB_USER": "someone",
+        "CCWEB_TLS_DIRECTIVE": tls_directive(
+            "/certs/fullchain.pem", "/certs/example.com.key"
+        ),
     }
     rendered = render(template.read_text(encoding="utf-8"), values)
     assert _LEFT_OVER.findall(rendered) == []
@@ -303,24 +310,119 @@ def _documented_caddyfile() -> str:
     return blocks[0]
 
 
-def test_the_rendered_caddyfile_is_the_documented_one() -> None:
-    """The template, filled with the example's values, is the file it shows."""
-    template = (REPO_ROOT / "deploy" / "Caddyfile").read_text(encoding="utf-8")
-    values = {
+def _site_values(cert: str, key: str) -> dict[str, str]:
+    """The Caddyfile's values for the documented example, with this certificate."""
+    return {
         "CCWEB_SITE_DOMAIN": "classobjects.com",
-        "CCWEB_TLS_CERT": "C:\\caddy\\certs\\fullchain.pem",
-        "CCWEB_TLS_KEY": "C:\\caddy\\certs\\classobjects.com.key",
-        "CCWEB_SITE_ROOT": (
-            "C:\\Users\\wnmil\\dev\\classobjects-ccwebdb\\frontend\\dist"
-        ),
+        "CCWEB_TLS_DIRECTIVE": tls_directive(cert, key),
+        "CCWEB_SITE_ROOT": "C:\\Users\\YOU\\dev\\classobjects-ccwebdb\\frontend\\dist",
         "CCWEB_API_HOST": "127.0.0.1",
         "CCWEB_API_PORT": "8000",
     }
-    rendered = render(template, values)
-    body = "\n".join(
-        line for line in rendered.splitlines() if not line.startswith("#")
+
+
+def _rendered_caddyfile(values: dict[str, str]) -> str:
+    """The Caddyfile template filled with `values`, its comment lines left out."""
+    template = (REPO_ROOT / "deploy" / "Caddyfile").read_text(encoding="utf-8")
+    return "\n".join(
+        line
+        for line in render(template, values).splitlines()
+        if not line.startswith("#")
     ).strip()
-    assert body == _documented_caddyfile().strip()
+
+
+def test_the_rendered_caddyfile_is_the_documented_one() -> None:
+    """The template, filled with the example's values, is the file it shows."""
+    values = _site_values(
+        "C:\\caddy\\certs\\fullchain.pem", "C:\\caddy\\certs\\classobjects.com.key"
+    )
+    assert _rendered_caddyfile(values) == _documented_caddyfile().strip()
+
+
+def test_without_certificate_files_the_caddyfile_names_none() -> None:
+    """No tls line, so Caddy obtains a certificate for the domain itself."""
+    rendered = _rendered_caddyfile(_site_values("", ""))
+    assert "classobjects.com {" in rendered
+    assert not re.search(r"^\s*tls\b", rendered, re.MULTILINE)
+
+
+#: The headers every answer from the public site carries, on both names.
+_SITE_HEADERS = (
+    'Strict-Transport-Security "max-age=31536000"',
+    "X-Content-Type-Options nosniff",
+    "X-Frame-Options DENY",
+    "Referrer-Policy strict-origin-when-cross-origin",
+    "Content-Security-Policy \"default-src 'self';",
+    "frame-ancestors 'none'",
+    "-Server",
+)
+
+
+def test_both_site_blocks_send_the_security_headers() -> None:
+    """The domain and its www. name each set the headers, not one of them."""
+    rendered = _rendered_caddyfile(_site_values("", ""))
+    sites = re.findall(r"^(\S+) \{\n(.*?)^\}", rendered, re.MULTILINE | re.DOTALL)
+    assert [name for name, _ in sites] == [
+        "classobjects.com",
+        "www.classobjects.com",
+    ]
+    for name, body in sites:
+        assert [h for h in _SITE_HEADERS if h not in body] == [], name
+
+
+def test_the_console_rule_matches_only_the_console() -> None:
+    """`/management*` would also catch `/managementx`; the matcher names paths."""
+    template = (REPO_ROOT / "deploy" / "Caddyfile").read_text(encoding="utf-8")
+    assert "@console path /management /management/*" in template
+    assert "handle @console {" in template
+    assert not re.search(r"handle /management\*", template)
+
+
+#: Each systemd unit's hardening, as `Name=value` lines it must carry.
+_UNIT_HARDENING = {
+    "ccwebdb-api.service": (
+        "NoNewPrivileges=true",
+        "PrivateTmp=true",
+        "ProtectSystem=strict",
+        "ReadWritePaths=@MEDIA_ROOT@ @CCWEB_LOG_DIR@ @CCWEB_RUNTIME_DIR@",
+        "ProtectKernelTunables=true",
+        "ProtectKernelModules=true",
+        "ProtectControlGroups=true",
+        "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
+        "LockPersonality=true",
+        "RestrictRealtime=true",
+        "CapabilityBoundingSet=",
+    ),
+    "ccwebdb-postgres.service": (
+        "NoNewPrivileges=true",
+        "ProtectSystem=strict",
+        "ReadWritePaths=@CCWEB_DB_CLUSTER_DIR@ @CCWEB_LOG_DIR@ /tmp",
+        "ProtectKernelTunables=true",
+        "ProtectKernelModules=true",
+    ),
+}
+
+
+@pytest.mark.parametrize("unit", sorted(_UNIT_HARDENING))
+def test_the_server_units_are_hardened(unit: str) -> None:
+    """A compromised server can write only its own folders and gain nothing."""
+    lines = (
+        (REPO_ROOT / "deploy" / "linux" / unit).read_text(encoding="utf-8").splitlines()
+    )
+    assert [line for line in _UNIT_HARDENING[unit] if line not in lines] == []
+
+
+def test_the_backup_waits_for_the_database_a_bounded_time() -> None:
+    """A run caught up at boot waits for PostgreSQL, then fails rather than hang."""
+    unit = (REPO_ROOT / "deploy" / "linux" / "ccwebdb-backup.service").read_text(
+        encoding="utf-8"
+    )
+    pre = [line for line in unit.splitlines() if line.startswith("ExecStartPre=")]
+    assert len(pre) == 1
+    assert "@CCWEB_ENV_DIR@/bin/pg_isready" in pre[0]
+    assert "-h @CCWEB_DB_HOST@ -p @CCWEB_DB_PORT@" in pre[0]
+    assert "-lt 60" in pre[0]
+    assert "exit 1" in pre[0]
 
 
 def test_shell_scripts_are_lf_and_executable() -> None:
@@ -376,6 +478,120 @@ def _run_cmd_probe(tmp_path: Path, body: str, **extra: str) -> CompletedProcess[
         env={**environment, **extra},
         check=False,
     )
+
+
+@windows_only
+@pytest.mark.parametrize(
+    ("folder", "pinned"),
+    [
+        ("C:\\Users\\someone\\OneDrive\\backups", True),
+        ("c:\\users\\SOMEONE\\onedrive", True),
+        ("C:\\Users\\someone\\OneDriveOther\\backups", False),
+        ("C:\\Users\\someone\\ccwebdb-backup", False),
+        ("D:\\copy\\C:\\Users\\someone\\OneDrive\\backups", False),
+    ],
+)
+def test_the_backup_pins_only_a_folder_inside_onedrive(
+    tmp_path: Path, folder: str, pinned: bool
+) -> None:
+    """`attrib +P` belongs to OneDrive's folders; any other is left alone."""
+    script = (SCRIPTS / "ccweb_backup.cmd").read_text(encoding="utf-8")
+    routine = script[script.index("\n:in_onedrive") : script.index("\n:unschedule")]
+    shown = _run_cmd_probe(
+        tmp_path,
+        "setlocal EnableExtensions\n"
+        'set "PIN="\n'
+        'for %%O in ("%OneDrive%" "%OneDriveConsumer%" "%OneDriveCommercial%")'
+        ' do call :in_onedrive "%%~O"\n'
+        "echo PIN=[%PIN%]\n"
+        "exit /b 0\n"
+        f"{routine}",
+        CCWEB_BACKUP_DIR=folder,
+        OneDrive="C:\\Users\\someone\\OneDrive",
+        OneDriveConsumer="C:\\Users\\someone\\OneDrive",
+        OneDriveCommercial="",
+    )
+    assert shown.returncode == 0, shown.stdout + shown.stderr
+    assert ("PIN=[1]" if pinned else "PIN=[]") in shown.stdout.splitlines()
+
+
+def _listener() -> tuple[subprocess.Popen[str], int]:
+    """A python.exe listening on a free loopback port, and that port."""
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import socket, time\n"
+            "s = socket.socket()\n"
+            "s.bind(('127.0.0.1', 0))\n"
+            "s.listen()\n"
+            "print(s.getsockname()[1], flush=True)\n"
+            "time.sleep(120)\n",
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdout is not None
+    return process, int(process.stdout.readline())
+
+
+@windows_only
+@pytest.mark.parametrize(
+    ("program", "images", "stopped"),
+    [("vite", "node.exe", False), ("uvicorn", "python.exe uvicorn.exe", True)],
+)
+def test_shutdown_stops_only_the_program_startup_runs_on_a_port(
+    tmp_path: Path, program: str, images: str, stopped: bool
+) -> None:
+    """Another program holding the port is named and left running."""
+    script = (SCRIPTS / "ccweb_shutdown.cmd").read_text(encoding="utf-8")
+    routines = script[script.index("\n:killport") :]
+    process, port = _listener()
+    try:
+        shown = _run_cmd_probe(
+            tmp_path,
+            "setlocal EnableExtensions EnableDelayedExpansion\n"
+            f"call :killport {port} {program} {images}\n"
+            "exit /b 0\n"
+            f"{routines}",
+        )
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=5)
+        assert (process.poll() is not None) == stopped, shown.stdout
+        if not stopped:
+            assert f"which is not {program} - left alone" in shown.stdout
+    finally:
+        process.kill()
+
+
+def test_shutdown_sh_stops_only_the_program_startup_runs_on_a_port() -> None:
+    """The bash twin checks the listener's command line before it stops it."""
+    script = (SCRIPTS / "ccweb_shutdown.sh").read_text(encoding="utf-8")
+    assert 'killport "$CCWEB_API_PORT" uvicorn' in script
+    assert 'killport "$CCWEB_FRONTEND_PORT" vite' in script
+    assert 'ps -o args= -p "$survivor"' in script
+    assert "which is not $2 - left alone" in script
+
+
+@pytest.mark.parametrize("suffix", [".cmd", ".sh"])
+def test_startup_takes_a_listener_for_the_api_only_if_health_says_so(
+    suffix: str,
+) -> None:
+    """A foreign program on the API's port is reported, not mistaken for it."""
+    script = (SCRIPTS / f"ccweb_startup{suffix}").read_text(encoding="utf-8")
+    health = script.index("/health")
+    assert script.index("status.:.ok") > health
+    assert "is taken by another program" in script
+    assert script.index("is taken by another program") < script.index(
+        "already running on"
+    )
+
+
+def test_the_backup_scheduler_finds_onedrive_by_its_variables() -> None:
+    """The pin is decided from Windows' own OneDrive folders, never a guess."""
+    script = (SCRIPTS / "ccweb_backup.cmd").read_text(encoding="utf-8")
+    assert '"%OneDrive%" "%OneDriveConsumer%" "%OneDriveCommercial%"' in script
+    assert "call :in_onedrive" in script
 
 
 @windows_only

@@ -44,15 +44,24 @@ export function clearTokens() {
 const signedOutListeners = new Set()
 
 /**
- * Call `listener` whenever a request made with the session is finally
- * refused and the tokens are dropped; returns the function that stops it.
+ * Call `listener` whenever the session ends and the tokens are dropped --
+ * signed out on purpose, or a request made with the session finally
+ * refused; returns the function that stops it.
  *
  * Dropping the tokens is not enough on its own: whatever holds "who is
- * signed in" would go on naming the account beside requests that all fail.
+ * signed in" would go on naming the account beside requests that all fail,
+ * and whatever was kept for the account (the shop's cart) would be left for
+ * the next person at the same browser.
  */
 export function onSignedOut(listener) {
   signedOutListeners.add(listener)
   return () => signedOutListeners.delete(listener)
+}
+
+/** End the session on this side: drop the tokens and tell every listener. */
+export function signOut() {
+  clearTokens()
+  for (const listener of signedOutListeners) listener()
 }
 
 export class ApiError extends Error {
@@ -207,10 +216,7 @@ function refuse(res, parsed, carriedSession) {
   // Only a request that carried the session says anything about it. A
   // refused sign-in is a 401 too, and must leave a session already held
   // alone.
-  if (res.status === 401 && carriedSession) {
-    clearTokens()
-    for (const listener of signedOutListeners) listener()
-  }
+  if (res.status === 401 && carriedSession) signOut()
   if (parsed === undefined) {
     throw new ApiError(res.status, res.statusText || `Request failed (${res.status})`)
   }
@@ -225,10 +231,14 @@ function refuse(res, parsed, carriedSession) {
  * answers `{ blob, filename }`. The session is a bearer token, not a cookie,
  * so a plain `<a href>` to such a file would arrive signed out; it is fetched
  * here, with the token, and refused the same way as any other request.
+ *
+ * `withTotal` asks for a paged list's rows with the full count the server
+ * puts in `X-Total-Count`, and answers `{ rows, total }` -- `total` null
+ * when the header is missing.
  */
 export async function send(
   path,
-  { method = 'GET', body, form, auth = true, binary = false } = {},
+  { method = 'GET', body, form, auth = true, binary = false, withTotal = false } = {},
 ) {
   const { payload, headers } = encodeBody(body, form)
 
@@ -276,7 +286,19 @@ export async function send(
   if (parsed === undefined) {
     throw new ApiError(res.status, 'The server sent a response that is not JSON')
   }
+  if (withTotal) return { rows: parsed, total: totalCount(res) }
   return parsed
+}
+
+/**
+ * The row count a paged list reports in `X-Total-Count`, or null when the
+ * header is absent or not a number.
+ */
+function totalCount(res) {
+  const header = res.headers?.get('X-Total-Count')
+  if (header === null || header === undefined || header.trim() === '') return null
+  const total = Number(header)
+  return Number.isFinite(total) ? total : null
 }
 
 /**
@@ -301,6 +323,8 @@ export const api = {
   register: (payload) =>
     send('/api/auth/register', { method: 'POST', body: payload, auth: false }),
   me: () => send('/api/auth/me'),
+  // Retires every token of the account on the server, not just this tab's.
+  logout: () => send('/api/auth/logout', { method: 'POST' }),
 
   // catalog
   //
@@ -318,10 +342,17 @@ export const api = {
   getCatalogItem: (id) => send(`/api/catalog/${id}`),
 
   // reference vocabularies, for dropdowns
-  // Retired values included: a record may still use one, and its picker has
-  // to show it. `useReference` leaves them out for everything else.
-  getReference: (table) =>
-    send(`/api/reference/${table}?include_inactive=true`, { auth: false }),
+  // Signed in when it can be: only a few vocabularies are served to anyone,
+  // the rest to staff. `includeInactive` adds retired values and their
+  // aliases, which the server gives a manager only (403 otherwise) -- the
+  // console asks for them, because a record may still use one and its picker
+  // has to show it; the shop never does.
+  getReference: (table, { includeInactive = false } = {}) =>
+    send(
+      withQuery(`/api/reference/${table}`, {
+        include_inactive: includeInactive ? 'true' : undefined,
+      }),
+    ),
   // Shared because `shared/reference.jsx`'s ReferenceSelect calls it. Only
   // console pages render that component today, but the component lives here,
   // and shared code may not import from management/.
@@ -329,6 +360,8 @@ export const api = {
     send(`/api/reference/${table}`, { method: 'POST', body: payload }),
 
   // orders
+  // Each line is `{listing_id, quantity, expected_price}`: the price the
+  // shopper saw, which the server refuses (409) if the listing's has moved.
   createOrder: (items) => send('/api/orders', { method: 'POST', body: { items } }),
   // Mine even for an administrator: in the shop they are a customer. Every
   // order, and changing status, are console tools in management/api.js.

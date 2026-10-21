@@ -9,7 +9,7 @@ vi.mock('../api', () => ({
     listOrderChanges: vi.fn(),
     listCustomers: vi.fn(),
     listUsers: vi.fn(),
-    getCatalogItem: vi.fn(),
+    listListings: vi.fn(),
     listCatalog: vi.fn(),
     createOrderFor: vi.fn(),
     reviseOrder: vi.fn(),
@@ -72,10 +72,19 @@ const ORDERS = [
   },
 ]
 
+/** One page as `api.listOrders` answers it: the rows, and how many in all. */
+const pageOf = (rows, total = rows.length) => ({ rows, total })
+
+/** The server's answer to a status change: the order, moved on a version. */
+function answerStatus(id, status, version) {
+  const order = ORDERS.find((o) => o.id === id)
+  return Promise.resolve({ ...order, status, version: version + 1 })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
-  api.listOrders.mockResolvedValue(ORDERS)
-  api.setOrderStatus.mockResolvedValue({})
+  api.listOrders.mockResolvedValue(pageOf(ORDERS))
+  api.setOrderStatus.mockImplementation(answerStatus)
   api.listCustomers.mockResolvedValue([])
   api.listUsers.mockResolvedValue([])
 })
@@ -121,14 +130,22 @@ describe('owner Orders', () => {
     ])
   })
 
-  it('changes a status, from the version it was read at, and reloads the list', async () => {
+  it('changes a status, from the version it was read at, and puts the answer in its row', async () => {
     // The version is what lets the server refuse a status chosen from a page
     // read before someone else moved the order on.
     const user = await renderPage()
     await user.selectOptions(within(rowFor(12)).getByRole('combobox'), 'shipped')
 
     expect(api.setOrderStatus).toHaveBeenCalledWith(12, 'shipped', 1)
-    await waitFor(() => expect(api.listOrders).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(within(rowFor(12)).getByRole('combobox')).toHaveValue('shipped'),
+    )
+    // The one order is replaced; the list is not read again.
+    expect(api.listOrders).toHaveBeenCalledTimes(1)
+
+    // The next change is sent from the version the answer carried.
+    await user.selectOptions(within(rowFor(12)).getByRole('combobox'), 'delivered')
+    expect(api.setOrderStatus).toHaveBeenLastCalledWith(12, 'delivered', 2)
   })
 
   it('asks before cancelling, and sends nothing when declined', async () => {
@@ -160,7 +177,7 @@ describe('owner Orders', () => {
 
   /** The page over these orders, loaded, with a user to drive it. */
   async function renderOrders(orders) {
-    api.listOrders.mockResolvedValue(orders)
+    api.listOrders.mockResolvedValue(pageOf(orders))
     const user = userEvent.setup()
     renderWithProviders(<Orders />, {
       auth: adminAuth(),
@@ -265,25 +282,104 @@ describe('owner Orders', () => {
     expect(screen.queryByText(/no stock to return/)).toBeNull()
   })
 
-  it('shows a refusal without losing the list', async () => {
+  it('shows a refusal without losing the list, and reads the page again', async () => {
     api.setOrderStatus.mockRejectedValue(new Error('Order #12 cannot move to that'))
     const user = await renderPage()
     await user.selectOptions(within(rowFor(12)).getByRole('combobox'), 'packed')
 
     expect(await screen.findByText('Order #12 cannot move to that')).toBeInTheDocument()
     expect(screen.getByText('Grace Hopper')).toBeInTheDocument()
+    // Refused, perhaps because someone else moved it on: where it stands now.
+    await waitFor(() => expect(api.listOrders).toHaveBeenCalledTimes(2))
   })
 
-  it('narrows the list to one status', async () => {
+  it('narrows the list to one status on the server', async () => {
+    api.listOrders.mockImplementation(({ status }) =>
+      Promise.resolve(pageOf(ORDERS.filter((o) => !status || o.status === status))),
+    )
     const user = await renderPage()
+    expect(api.listOrders).toHaveBeenCalledWith({ status: '', limit: 100, offset: 0 })
+
     await user.selectOptions(screen.getByLabelText(/show/i), 'cancelled')
 
-    expect(screen.queryByText('Ada Lovelace')).toBeNull()
+    await waitFor(() => expect(screen.queryByText('Ada Lovelace')).toBeNull())
+    expect(api.listOrders).toHaveBeenLastCalledWith({
+      status: 'cancelled',
+      limit: 100,
+      offset: 0,
+    })
     expect(screen.getByText('Grace Hopper')).toBeInTheDocument()
   })
 
+  describe('a page at a time', () => {
+    //: 250 orders, newest first: ids 250 down to 1.
+    const ALL = Array.from({ length: 250 }, (_, i) => ({
+      ...ORDERS[1],
+      id: 250 - i,
+      customer_name: `Customer ${250 - i}`,
+      items: [],
+    }))
+
+    beforeEach(() => {
+      api.listOrders.mockImplementation(({ status, limit, offset }) => {
+        const matching = status ? ALL.filter((o) => o.status === status) : ALL
+        return Promise.resolve(
+          pageOf(matching.slice(offset, offset + limit), matching.length),
+        )
+      })
+    })
+
+    async function renderAll() {
+      const user = userEvent.setup()
+      renderWithProviders(<Orders />, { auth: adminAuth(), route: '/orders' })
+      await screen.findByText('Customer 250')
+      return user
+    }
+
+    it('says how many of how many are shown, and pages through them', async () => {
+      const user = await renderAll()
+      expect(screen.getByText('1-100 of 250')).toBeInTheDocument()
+      // Nothing newer than the first page: no button for it.
+      expect(screen.queryByRole('button', { name: 'Newer' })).toBeNull()
+
+      await user.click(screen.getByRole('button', { name: 'Older' }))
+      expect(await screen.findByText('101-200 of 250')).toBeInTheDocument()
+      expect(api.listOrders).toHaveBeenLastCalledWith({
+        status: '',
+        limit: 100,
+        offset: 100,
+      })
+      expect(screen.getByText('Customer 150')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Older' }))
+      expect(await screen.findByText('201-250 of 250')).toBeInTheDocument()
+      // The last page: nothing older.
+      expect(screen.queryByRole('button', { name: 'Older' })).toBeNull()
+
+      await user.click(screen.getByRole('button', { name: 'Newer' }))
+      expect(await screen.findByText('101-200 of 250')).toBeInTheDocument()
+    })
+
+    it('starts a new status filter from its first page', async () => {
+      const user = await renderAll()
+      await user.click(screen.getByRole('button', { name: 'Older' }))
+      await screen.findByText('101-200 of 250')
+
+      await user.selectOptions(screen.getByLabelText(/show/i), 'paid')
+
+      await waitFor(() =>
+        expect(api.listOrders).toHaveBeenLastCalledWith({
+          status: 'paid',
+          limit: 100,
+          offset: 0,
+        }),
+      )
+      expect(await screen.findByText(/no orders/i)).toBeInTheDocument()
+    })
+  })
+
   it('says so when there are no orders', async () => {
-    api.listOrders.mockResolvedValue([])
+    api.listOrders.mockResolvedValue(pageOf([]))
     renderWithProviders(<Orders />, { auth: adminAuth(), route: '/orders' })
     expect(await screen.findByText(/no orders/i)).toBeInTheDocument()
   })

@@ -515,7 +515,7 @@ export default function Vocabularies() {
   useEffect(() => {
     let current = true
     api
-      .getReference(table)
+      .getReference(table, { includeInactive: true })
       .then((body) => {
         if (current)
           setLoaded({

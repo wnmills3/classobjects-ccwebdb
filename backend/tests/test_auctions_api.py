@@ -257,6 +257,32 @@ def test_auction_list_filtered_by_venue_and_status(
     assert [row["id"] for row in by_status.json()["auctions"]] == [scheduled_auction.id]
 
 
+def test_the_auction_list_is_paged_newest_first_with_a_total(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    heritage_venue: SalesVenue,
+) -> None:
+    """Each auction is loaded with every lot, so the list comes a page at a time."""
+    rows = [
+        Auction(sales_venue_id=heritage_venue.id, title=f"Sale {n}") for n in range(3)
+    ]
+    db.add_all(rows)
+    db.commit()
+    newest_first = sorted((row.id for row in rows), reverse=True)
+
+    first = client.get("/api/auctions", headers=admin_headers, params={"limit": 2})
+    assert first.status_code == 200, first.text
+    assert [row["id"] for row in first.json()["auctions"]] == newest_first[:2]
+    assert first.headers["X-Total-Count"] == "3"
+
+    rest = client.get(
+        "/api/auctions", headers=admin_headers, params={"limit": 2, "offset": 2}
+    )
+    assert [row["id"] for row in rest.json()["auctions"]] == newest_first[2:]
+    assert rest.headers["X-Total-Count"] == "3"
+
+
 def test_updating_an_auction_and_a_stale_version(
     client: TestClient,
     db: Session,

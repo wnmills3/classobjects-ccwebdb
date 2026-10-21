@@ -64,10 +64,10 @@ def test_each_seller_link_becomes_a_seller(before_url: str) -> None:
             text("select id from vendor where name = 'ebay.com'")
         ).scalar()
         links = {
-            "P-1": "https://www.ebay.com/usr/examplecoins",
-            "P-2": "https://www.ebay.com/usr/examplecoins",
+            "P-1": "https://www.ebay.com/usr/example_seller",
+            "P-2": "https://www.ebay.com/usr/example_seller",
             "P-3": "https://www.ebay.com/usr/coinhound",
-            "P-4": "https://www.ebay.com/str/examplestore",
+            "P-4": "https://www.ebay.com/str/examplecoins",
             "P-5": None,
             # A store and a profile of one name: two links, so two sellers,
             # and the second to be made is told apart by a number.
@@ -91,8 +91,8 @@ def test_each_seller_link_becomes_a_seller(before_url: str) -> None:
         assert sorted(tuple(s) for s in sellers) == [
             ("coinhound", "https://www.ebay.com/str/coinhound"),
             ("coinhound (2)", "https://www.ebay.com/usr/coinhound"),
-            ("examplestore", "https://www.ebay.com/str/examplestore"),
-            ("examplecoins", "https://www.ebay.com/usr/examplecoins"),
+            ("example_seller", "https://www.ebay.com/usr/example_seller"),
+            ("examplecoins", "https://www.ebay.com/str/examplecoins"),
         ]
         rows = (
             conn.execute(
@@ -106,10 +106,10 @@ def test_each_seller_link_becomes_a_seller(before_url: str) -> None:
         )
         named: dict[str, str | None] = dict(rows)
         assert named == {
-            "P-1": "examplecoins",
-            "P-2": "examplecoins",
+            "P-1": "example_seller",
+            "P-2": "example_seller",
             "P-3": "coinhound (2)",
-            "P-4": "examplestore",
+            "P-4": "examplecoins",
             "P-5": None,
             "P-6": "coinhound",
         }

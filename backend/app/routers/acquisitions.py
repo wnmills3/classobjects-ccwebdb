@@ -11,11 +11,12 @@ item sits in, are neither a customer's business.
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import and_, case, delete, func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import InstrumentedAttribute, Session, selectinload
 
 from .. import listing_links
 from ..deps import AdminUser, DbSession
@@ -130,11 +131,41 @@ def _vendor_out(db: Session, vendor: Vendor) -> VendorOut:
     )
 
 
+def _counts_by(db: Session, column: InstrumentedAttribute[Any]) -> dict[int, int]:
+    """How many rows of `column`'s table name each key, in one grouped query.
+
+    A list counts this way rather than row by row, so its queries do not
+    grow with its length.
+    """
+    return dict(
+        db.execute(
+            select(column, func.count()).where(column.is_not(None)).group_by(column)
+        )
+        .tuples()
+        .all()
+    )
+
+
 @vendors_router.get("")
 def list_vendors(db: DbSession, _admin: AdminUser) -> list[VendorOut]:
     """Every vendor, ordered by name, for picking on the entry panels."""
-    vendors = db.scalars(select(Vendor).order_by(Vendor.name)).all()
-    return [_vendor_out(db, vendor) for vendor in vendors]
+    orders = _counts_by(db, PurchaseOrder.vendor_id)
+    venues = _counts_by(db, SalesVenue.vendor_id)
+    rows = db.execute(
+        select(Vendor, VendorKind.code)
+        .outerjoin(VendorKind, VendorKind.id == Vendor.vendor_kind_id)
+        .order_by(Vendor.name)
+    ).tuples()
+    return [
+        VendorOut(
+            id=vendor.id,
+            name=vendor.name,
+            url=vendor.url,
+            vendor_kind=kind,
+            order_count=orders.get(vendor.id, 0) + venues.get(vendor.id, 0),
+        )
+        for vendor, kind in rows
+    ]
 
 
 @vendors_router.post("", status_code=status.HTTP_201_CREATED)
@@ -766,5 +797,11 @@ def list_storage_locations(
     locations = db.scalars(
         select(StorageLocation).options(selectinload(StorageLocation.kind))
     ).all()
-
-    return [_location_out(db, location) for location in locations]
+    held = _counts_by(db, InventoryItem.storage_location_id)
+    moves = _counts_by(db, LocationHistory.storage_location_id)
+    return [
+        _location_out(
+            db, location, held.get(location.id, 0) + moves.get(location.id, 0)
+        )
+        for location in locations
+    ]

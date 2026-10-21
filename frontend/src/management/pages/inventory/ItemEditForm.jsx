@@ -40,6 +40,7 @@ import SaleHistory from './SaleHistory'
 import SplitDialog from './SplitDialog'
 import { SaveButton } from '../../SaveButton'
 import WeightFields from '../../WeightFields'
+import { isWebAddress } from '../../web-address'
 
 /**
  * One item, every field, with what the lot claimed beside each.
@@ -158,6 +159,10 @@ const CLASSIFIERS = [
   // stays a true account of where it has been, including the correction.
   ['Status', 'status', 'item_status', 's'],
 ]
+
+//: A field's help topic where it differs from its name: `status` is
+//: Receiving's finder, which searches by status rather than setting it.
+const HELP_FOR = { status: 'item_status' }
 
 //: Where a derived value came from, as the "suggested" mark's tooltip says it.
 const DERIVED_FROM = {
@@ -318,7 +323,7 @@ function sellersItemId(item) {
     // The listing it was bought from, on eBay (app.ebay_orders).
     return (
       <a
-        href={`https://www.ebay.com/itm/${item.sellers_item_id}`}
+        href={`https://www.ebay.com/itm/${encodeURIComponent(item.sellers_item_id)}`}
         target="_blank"
         rel="noopener noreferrer"
         data-help="sellers_item_id"
@@ -551,7 +556,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         .getInventoryItem(itemId)
         .then((fresh) => {
           if (cancelled || versionRef.current == null) return
-          if (fresh.version === versionRef.current) return
+          // Equal is nothing new; lower is a read that left before a save's
+          // read-back and came back after it, and would restore the older item.
+          if (fresh.version <= versionRef.current) return
           setItem(fresh)
           // A preview answered the item as it was: shown on, it would hide
           // the very change being taken in.
@@ -589,6 +596,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     api
       .getInventoryItem(itemId)
       .then((body) => {
+        // As in the check above: an answer older than the item already held
+        // is not taken.
+        if (versionRef.current != null && body.version < versionRef.current) return
         setItem(body)
         // As in the check above: a preview of the item as it was is stale.
         setPreview(null)
@@ -1169,7 +1179,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     CLASSIFIERS.filter(
       ([, key]) => wanted(key) && fieldFitsKind(key, value('item_kind')),
     ).map(([label, key, table, letter]) => (
-      <label key={key} className="field" data-help={key}>
+      <label key={key} className="field" data-help={HELP_FOR[key] ?? key}>
         <AccessLabel text={label} accessKey={letter} />
         <ReferenceSelect
           table={table}
@@ -1334,7 +1344,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
             </a>
           )}
           {item.sellers_item_id && sellersItemId(item)}
-          {/^https?:\/\//i.test(item.listing_url ?? '') && (
+          {isWebAddress(item.listing_url) && (
             // Only a web address is offered as a link.
             <a
               href={item.listing_url}

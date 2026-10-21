@@ -349,3 +349,27 @@ describe('Inventory narrowed by a missing field', () => {
     expect(screen.queryByRole('button', { name: /Missing:/ })).toBeNull()
   })
 })
+
+describe('Inventory search that fails', () => {
+  it('clears the last rows, stops searching and says why', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<InventoryCurrency />, {
+      auth: adminAuth(),
+      route: '/inventory/currency?missing=photo',
+    })
+    // The first query's rows are up.
+    expect(await screen.findByRole('button', { name: 'CC-000007' })).toBeInTheDocument()
+    api.searchInventory.mockRejectedValue(new Error('The search could not be run'))
+
+    await user.click(
+      screen.getByRole('button', { name: 'Remove filter Missing: photograph' }),
+    )
+
+    expect(await screen.findByText('The search could not be run')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'CC-000007' })).toBeNull()
+    expect(screen.queryByText('Searching...')).toBeNull()
+    expect(screen.getByText('0 matching')).toBeInTheDocument()
+    // The failure is said once, not also as an empty result.
+    expect(screen.queryByText('Nothing matches those filters.')).toBeNull()
+  })
+})

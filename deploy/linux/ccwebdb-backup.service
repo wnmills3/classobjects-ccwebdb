@@ -4,9 +4,15 @@
 # A template: `./scripts/ccweb_backup.sh --schedule` fills it from the
 # settings and installs it, with ccwebdb-backup.timer, as a systemd user
 # unit of the account that owns the repository.
+#
+# A run due while the machine was off happens as soon as it is up again,
+# possibly before PostgreSQL accepts connections, so it first waits for
+# the database: up to 60 tries, 2 seconds apart, then fails. ($$ is
+# systemd's way of writing a $ the shell is to see.)
 [Unit]
 Description=ccwebdb routine backup (export, prove, prune)
 
 [Service]
 Type=oneshot
+ExecStartPre=/bin/sh -c 'i=0; while [ $$i -lt 60 ]; do @CCWEB_ENV_DIR@/bin/pg_isready -q -h @CCWEB_DB_HOST@ -p @CCWEB_DB_PORT@ && exit 0; i=$$((i + 1)); sleep 2; done; echo "PostgreSQL is not accepting connections on @CCWEB_DB_HOST@:@CCWEB_DB_PORT@" >&2; exit 1'
 ExecStart=@CCWEB_REPO@/scripts/ccweb_backup.sh

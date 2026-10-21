@@ -3,11 +3,12 @@
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
+from sqlalchemy.engine import URL, make_url
 
 from .runtime_settings import REPO_ROOT, RuntimeFields
 
@@ -27,6 +28,25 @@ PUBLISHED_SECRETS = frozenset(
 _MAKE_A_SECRET = (
     'Put a new one in .env: python -c "import secrets; print(secrets.token_hex(32))"'
 )
+
+#: Database passwords this repository publishes, for the development cluster.
+PUBLISHED_DATABASE_PASSWORDS = frozenset({"devpassword"})
+
+#: Hosts that are this machine.
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _is_local(url: URL) -> bool:
+    """Whether a database URL names this machine: a loopback host or a socket.
+
+    No host at all is the local socket, and so is a host that is a folder --
+    in the URL's authority or as libpq's `host` query parameter.
+    """
+    query_host = url.query.get("host")
+    if isinstance(query_host, tuple):
+        query_host = query_host[0] if query_host else None
+    host = url.host or query_host or ""
+    return not host or host in _LOCAL_HOSTS or host.startswith("/")
 
 
 def _dev_server_origins(data: dict[str, Any]) -> list[str]:
@@ -86,6 +106,12 @@ class Settings(RuntimeFields):
     # page). Empty: the shop shows no seal.
     vite_digicert_seal_id: str = ""
 
+    # The shop's name and its owner's, read by the frontend build like the
+    # seal. Empty: the frontend's own defaults -- "Coin Shop", and no owner
+    # named.
+    vite_shop_name: str = ""
+    vite_shop_owner: str = ""
+
     # Whether the public shop is open (SHOP_OPEN). Closed, the catalog
     # answers signed-in callers only, registration is refused, and the
     # shop's pages show a coming-soon page to anyone signed out. The
@@ -98,10 +124,8 @@ class Settings(RuntimeFields):
     first_admin_password: str = Field(default="", repr=False)
 
     # --- image storage ------------------------------------------------------
-    # Bytes never live in the database: a collection's photographs run to
-    # gigabytes. This is the local backend's root; an S3-compatible backend
-    # swaps in behind the same interface without touching callers.
-    media_root: Path = REPO_ROOT / "media"
+    # The folder the bytes live in, MEDIA_ROOT, is a `RuntimeFields` field:
+    # the service templates name it too.
 
     # Longest edge, in pixels, of each generated rendition. Originals are never
     # served -- public requests are answered only from these.
@@ -126,7 +150,8 @@ class Settings(RuntimeFields):
     # afterwards and rewrites none recorded before. A fraction, not a
     # percentage -- 0.0635 is 6.35% -- bounded so that 6.35 typed for 6.35% is
     # refused at startup instead of multiplying every new cost by 7.35.
-    sales_tax_rate: Decimal = Field(default=Decimal("0.0635"), ge=0, le=1)
+    # Unset: no tax, until the owner names their own jurisdiction's rate.
+    sales_tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=1)
     sales_tax_includes_shipping: bool = True
 
     @field_validator("jwt_secret")
@@ -160,6 +185,23 @@ class Settings(RuntimeFields):
     def _from_the_repository(cls, value: Path) -> Path:
         """A relative folder is the repository's, as the scripts' folders are."""
         return value if value.is_absolute() else REPO_ROOT / value
+
+    @model_validator(mode="after")
+    def _refuse_the_published_database_password(self) -> Self:
+        """Refuse the development password on a database another machine serves.
+
+        The password is in this repository, so on a server reachable from
+        elsewhere it is no password at all. On this machine's own cluster it
+        guards nothing a local user could not reach anyway.
+        """
+        url = make_url(self.database_url)
+        if url.password in PUBLISHED_DATABASE_PASSWORDS and not _is_local(url):
+            raise ValueError(
+                "DATABASE_URL uses the published development password on a "
+                "database that is not on this machine. Set a real password for "
+                "the database's role, and put it in DATABASE_URL in .env."
+            )
+        return self
 
 
 @lru_cache

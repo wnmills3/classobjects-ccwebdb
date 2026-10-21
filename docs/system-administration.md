@@ -77,10 +77,18 @@ boolean expresses it.
 **Sign-in** (`POST /api/auth/login`) allows ten failed attempts from one
 address and twenty naming one account in any 15 minutes (`app.throttle`).
 Past either, the answer is a 429 with `Retry-After`, before the password is
-looked at, so a right guess is refused too; a successful sign-in clears that
-address's and account's failures. The counts are held in the API's memory
-and a restart clears them. An unknown address takes as long to refuse as a
-wrong password.
+looked at, so a right guess is refused too. A successful sign-in clears
+the account's failures; the address's age out on their own, so one right
+password cannot wipe out the failures an address ran up against other
+accounts. The counts are held in the API's memory and a restart clears
+them. An unknown address takes as long to refuse as a wrong password.
+Email addresses are matched without regard to case, at sign-in and when an
+account is created, so `Someone@Example.com` and `someone@example.com` are
+one account.
+
+**Sign-out** (`POST /api/auth/logout`) signs the account out everywhere:
+it invalidates every token issued to it, on every device, as a password
+change does.
 
 Every manager-only endpoint carries `require_admin` (`backend/app/deps.py`).
 That dependency, not the console's separate bundle, is the access control; the
@@ -99,15 +107,21 @@ bundle split removes an information leak, it does not enforce anything.
   email already in use is refused with 409. There is no mail configuration,
   so pass the password on out of band.
 - **Promotion**: a manager changes an account's role under **People**.
-- **The first manager** of a new database is created by
+- **The first manager** of a new installation is created by
+  `python -m app.create_admin --email` followed by the address, after
+  `python -m app.seeding load` has loaded the reference vocabularies. It
+  asks for the password twice, or takes `FIRST_ADMIN_PASSWORD` when that is
+  set, and refuses one under 12 characters or one published in this
+  repository. It refuses to run when a manager already exists, unless
+  `--another` is given. It creates no demo data.
+- **A trial installation's** administrator is created by
   `python -m app.seed`, from `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD`,
-  after `python -m app.seeding load` has loaded the reference vocabularies it
-  names. It writes at once. It also creates five demo items, each offered
-  in the web store, so it is never run against a database holding a real
-  collection: it refuses one that already holds a purchase or an item other
-  than its own demo items, writing nothing, unless `--into-existing` is
-  given. Change the password immediately -- the default is published in
-  this repository.
+  with the same password rules. It also creates five demo items, each
+  offered in the web store, so it is never run against a database holding a
+  real collection: it refuses one that already holds a purchase or an item
+  other than its own demo items, writing nothing, unless `--into-existing`
+  is given. There is no default password: neither command makes an account
+  without one of your own.
 
 ### What a manager may change
 
@@ -157,9 +171,12 @@ upper-cased (`jwt_secret` -> `JWT_SECRET`). **A name in `.env` that is no
 setting is refused** (`extra="forbid"`): the API does not start, and the
 error names it, so a misspelt `JWT_SECRET` cannot leave the key unset
 unnoticed. The refusal never prints the value. Settings are read when the
-API starts; change them, then
-restart the API (`.\scripts\ccweb_shutdown.cmd /keepdb`, then
-`.\scripts\ccweb_startup.cmd`).
+API starts; change them, then restart the API. On a development machine:
+`.\scripts\ccweb_shutdown.cmd /keepdb`, then `.\scripts\ccweb_startup.cmd`
+(Linux: `./scripts/ccweb_shutdown.sh --keepdb`, then
+`./scripts/ccweb_startup.sh`). On a server: `schtasks /end /tn "ccwebdb
+api"`, then `schtasks /run /tn "ccwebdb api"`, from an administrator cmd
+(Linux: `sudo systemctl restart ccwebdb-api`).
 
 The log settings `CCWEB_LOG_DIR`, `CCWEB_LOG_KEEP` and `CCWEB_LOG_MAX_BYTES`
 are read by the runtime scripts, not by `config.py`; see
@@ -170,8 +187,8 @@ are read by the runtime scripts, not by `config.py`; see
 | Setting | Default | Why |
 |---|---|---|
 | `JWT_SECRET` | none: required | signs every token; anyone who knows it can mint an admin session. Nothing starts without one, nor with one under 32 characters or one this repository has published (`config.PUBLISHED_SECRETS`). Make one with `python -c "import secrets; print(secrets.token_hex(32))"` |
-| `FIRST_ADMIN_PASSWORD` | none | used only by `python -m app.seed` (`FIRST_ADMIN_EMAIL`, default `admin@example.com`, names the account), which refuses one under 12 characters or one published in this repository (`seed.PUBLISHED_PASSWORDS`). It does not check an account that already exists: change the password of any account still on a development one under **People** |
-| `DATABASE_URL` | local `ccwebdb` with `devpassword` | contains the database password |
+| `FIRST_ADMIN_PASSWORD` | none | used by `python -m app.seed` (`FIRST_ADMIN_EMAIL`, default `admin@example.com`, names the account) and, when set, by `python -m app.create_admin` in place of its prompt; both refuse one under 12 characters or one published in this repository (`seed.PUBLISHED_PASSWORDS`). It does not check an account that already exists: change the password of any account still on a development one under **People** |
+| `DATABASE_URL` | local `ccwebdb` with `devpassword` | contains the database password. The API refuses to start with the published development password `devpassword` unless the database is on this machine (`localhost`, `127.0.0.1` or `::1`) |
 | `SHOP_OPEN` | `true` | `false` until opening day. Closed, a visitor who is not signed in sees only a coming-soon page and sign-in, at every shop address; the API refuses them the catalog (`/api/catalog`, 403 *The shop is not open yet*) and refuses registration, so a listing made ahead of opening cannot be read by someone who skips the page. Signed-in accounts and the console are unaffected. To open the shop, set it to `true` and restart the API; the pages ask `/api/shop` and need no rebuild |
 
 ### Worth reviewing
@@ -405,8 +422,9 @@ denomination and year, or from its **Series** where the design has figures
 of its own -- a Silver Eagle, a commemorative dollar, a Morgan of 2021 --
 and from the series alone when the coin has no year and its design was
 struck in one composition (a Morgan dollar, a Franklin half; not a Roosevelt
-dime, which was silver and then clad). A Gold Eagle, Gold Buffalo or
-Platinum Eagle also needs its denomination, which says the size. Only an
+dime, which was silver and then clad). A Gold Eagle, a Platinum Eagle or a
+2008 Gold Buffalo (the only year the Buffalo was struck in fractional sizes)
+also needs its denomination, which says the size. Only an
 item whose kind is Coin is read this way from a coin's design: a round that
 bears the Walking Liberty design is not a half dollar. A bar, a
 round or a medal has none, so its weight is entered: gross weight and
@@ -469,9 +487,9 @@ share one search panel (`GET /api/inventory/{view}/search`, `view` being
 **The search box has no field syntax.** What you type is one term, matched
 anywhere in an item's title, description, rating, item code or its purchase's
 order number, ignoring case -- so an eBay order number pasted into the box
-(`90-00007-00007`, or part of it) finds what was bought on that order. A
+(`31-24680-13579`, or part of it) finds what was bought on that order. A
 term of six or more letters and digits, at least one a digit, also matches
-order numbers with their separators removed, so `900000000001` works too.
+order numbers with their separators removed, so `312468013579` works too.
 It also matches the **name or alias of what the item is**: design series,
 strike type, grade designation, attributes and, on coins, mint; on currency,
 note class and serial features. So `mercury` finds Winged Liberty Head dimes
@@ -1654,10 +1672,11 @@ in play, or the argument is unknown). An edit
 made between the export and the comparison shows as a difference and fails
 that run; the next one sets it right.
 
-The folder is `CCWEB_BACKUP_DIR` in `.env` -- unset, `OneDrive\coins_backup`
-in your home on Windows and `ccwebdb-backup` in your home on Linux. Choose
-one whose files leave the machine: the example installation uses a
-OneDrive folder. Every run is appended to `backup.log` in the logs
+The folder is `CCWEB_BACKUP_DIR` in `.env` -- unset, `ccwebdb-backup` in
+your home folder (`%USERPROFILE%\ccwebdb-backup`, `~/ccwebdb-backup`).
+Choose one whose files leave the machine -- a synced folder or a network
+share -- or copy it off yourself: the example installation uses a OneDrive
+folder. Every run is appended to `backup.log` in the logs
 folder under a line with its date and time: read it after a failure, and now
 and then to see that the daily runs say `proved`; a run that cannot put the
 conda environment in play, and so cannot read the log folder's setting,
@@ -1668,9 +1687,9 @@ named `ccwebdb backup` that runs as you whether or not you are signed in,
 with no password stored -- so it reaches only this machine, which is all the
 backup needs. It reads `.env` itself, so the folder set there is the one a
 signed-out run uses. A OneDrive client is not running while you are signed
-out, so `/schedule` pins the folder to stay on the device (`attrib +P`) and
-the run's files sync at the next sign-in; on a folder outside OneDrive the
-pin does nothing. A run the machine was off or asleep for is not made up
+out, so when the folder is inside OneDrive, `/schedule` pins it to stay on
+the device (`attrib +P`) and the run's files sync at the next sign-in; a
+folder outside OneDrive is left as it is. A run the machine was off or asleep for is not made up
 later.
 
 On Linux, `--schedule` installs `ccwebdb-backup.service` and
@@ -2046,6 +2065,7 @@ every release is schema first, reference data second.
    set "PGBIN=%CONDA_PREFIX%\Library\bin"
    set "PGHOST=localhost"
    set "PGUSER=ccwebdb"
+   if not exist "%USERPROFILE%\dev\ccwebdb-backups" mkdir "%USERPROFILE%\dev\ccwebdb-backups"
    set "DUMP=%USERPROFILE%\dev\ccwebdb-backups\ccwebdb_pre_release_YYYYMMDD.dump"
    "%PGBIN%\pg_dump.exe" -Fc -d ccwebdb -f "%DUMP%"
    "%PGBIN%\createdb.exe" ccwebdb_rehearsal
@@ -2058,6 +2078,7 @@ every release is schema first, reference data second.
    ```console
    cd ~/dev/classobjects-ccwebdb/backend
    export PGBIN="$CONDA_PREFIX/bin" PGHOST=localhost PGUSER=ccwebdb
+   mkdir -p ~/dev/ccwebdb-backups
    DUMP=~/dev/ccwebdb-backups/ccwebdb_pre_release_YYYYMMDD.dump
    "$PGBIN/pg_dump" -Fc -d ccwebdb -f "$DUMP"
    "$PGBIN/createdb" ccwebdb_rehearsal
@@ -2097,12 +2118,35 @@ every release is schema first, reference data second.
    afterwards (`"%PGBIN%\dropdb.exe" ccwebdb_rehearsal`); it is a full copy
    of the collection.
 
-3. **Stop the servers, keeping PostgreSQL**, so nothing writes while the
-   schema changes. From the repo root:
+3. **Stop the API, keeping PostgreSQL**, so nothing writes while the
+   schema changes.
+
+   On a development machine (Windows), from the repo root:
 
    ```console
    cd /d %USERPROFILE%\dev\classobjects-ccwebdb
    .\scripts\ccweb_shutdown.cmd /keepdb
+   ```
+
+   On a development machine (Linux):
+
+   ```console
+   cd ~/dev/classobjects-ccwebdb
+   ./scripts/ccweb_shutdown.sh --keepdb
+   ```
+
+   On a server, never the `ccweb_` scripts: stop the API's own service.
+   Windows, from an administrator cmd
+   ([deployment-windows.md](deployment-windows.md), step 6):
+
+   ```console
+   schtasks /end /tn "ccwebdb api"
+   ```
+
+   Linux ([deployment-linux.md](deployment-linux.md), step 6):
+
+   ```console
+   sudo systemctl stop ccwebdb-api
    ```
 
 4. **Upgrade and seed live**, from `backend\`, with `DATABASE_URL` pointing
@@ -2120,8 +2164,10 @@ every release is schema first, reference data second.
 5. **Check:** `python -m alembic current` names the new head; the item count
    and cost basis match step 2's; every table the migration added is empty.
 
-6. **Restart** once the release's branch is merged into `main` and checked
-   out, from the repo root, in a shell nothing else depends on:
+6. **Restart** once the release's code is checked out.
+
+   On a development machine (Windows), from the repo root, in a shell
+   nothing else depends on:
 
    ```console
    cd /d %USERPROFILE%\dev\classobjects-ccwebdb
@@ -2129,12 +2175,36 @@ every release is schema first, reference data second.
    .\scripts\ccweb_startup.cmd
    ```
 
-   Run `ccweb_startup.cmd` bare -- never piped or redirected, or the call
-   hangs (*Runtime operations*). The backend runs uvicorn without
-   `--reload`, so until it restarts it serves the code that was running
-   before, whatever the database's schema. Then confirm with
-   `.\scripts\ccweb_status.cmd` (exit 0), open the shop catalog
-   (`GET /api/catalog`) and the console, and reload any open page.
+   On a development machine (Linux):
+
+   ```console
+   cd ~/dev/classobjects-ccwebdb
+   ./scripts/ccweb_shutdown.sh
+   ./scripts/ccweb_startup.sh
+   ```
+
+   Run the startup script bare -- never piped or redirected, or the call
+   hangs (*Runtime operations*). Then confirm with the status script
+   (`.\scripts\ccweb_status.cmd` or `./scripts/ccweb_status.sh`, exit 0).
+
+   On a server, build the frontend again as the deployment document's
+   *An update* says, then start the API's service. Windows, from an
+   administrator cmd:
+
+   ```console
+   schtasks /run /tn "ccwebdb api"
+   ```
+
+   Linux:
+
+   ```console
+   sudo systemctl restart ccwebdb-api
+   ```
+
+   Either way, the API runs uvicorn without `--reload`, so until it
+   restarts it serves the code that was running before, whatever the
+   database's schema. Open the shop catalog (`GET /api/catalog`) and the
+   console, and reload any open page.
 
 ## Things that are deliberately not configurable
 

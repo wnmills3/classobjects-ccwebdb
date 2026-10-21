@@ -231,22 +231,53 @@ def test_deactivating_an_account_ends_the_sessions_it_already_has(
     assert off.status_code == 200, off.text
 
     # The access token it holds is refused...
-    assert client.get("/api/auth/me", headers=old_access).status_code == 403
-    assert client.get("/api/orders", headers=old_access).status_code == 403
+    assert client.get("/api/auth/me", headers=old_access).status_code == 401
+    assert client.get("/api/orders", headers=old_access).status_code == 401
     # ...and its refresh token cannot buy another.
     again = client.post(
         "/api/auth/refresh", json={"refresh_token": before["refresh_token"]}
     )
     assert again.status_code == 401
 
-    # Reactivated, the same tokens work again: nothing was revoked for good.
+    # Reactivated, the old tokens stay dead: a token taken while the account
+    # was suspect does not come back with it. The owner signs in afresh.
     on = client.patch(
         f"/api/users/{customer_user.id}",
         headers=admin_headers,
         json={"is_active": True},
     )
     assert on.status_code == 200, on.text
-    assert client.get("/api/auth/me", headers=old_access).status_code == 200
+    assert client.get("/api/auth/me", headers=old_access).status_code == 401
+    again = client.post(
+        "/api/auth/refresh", json={"refresh_token": before["refresh_token"]}
+    )
+    assert again.status_code == 401
+    after = _login(client, customer_user.email, "customerpassword")
+    assert after is not None
+    fresh = {"Authorization": f"Bearer {after['access_token']}"}
+    assert client.get("/api/auth/me", headers=fresh).status_code == 200
+
+
+def test_only_admins_may_change_an_account(
+    client: TestClient,
+    customer_headers: dict[str, str],
+    customer_user: User,
+    db: Session,
+) -> None:
+    """Signed out is a 401 and a customer a 403, and the role is untouched.
+
+    The customer tries to make themselves a manager -- the change worth
+    attempting -- so a guard that let either through would show in the row.
+    """
+    path = f"/api/users/{customer_user.id}"
+    promote = {"role": "manager"}
+    assert client.patch(path, json=promote).status_code == 401
+    assert client.patch(path, headers=customer_headers, json=promote).status_code == 403
+
+    db.expire_all()
+    stored = db.get(User, customer_user.id)
+    assert stored is not None
+    assert stored.role is UserRole.customer
 
 
 @pytest.fixture

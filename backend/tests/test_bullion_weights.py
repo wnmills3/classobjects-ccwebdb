@@ -89,10 +89,20 @@ def test_a_fineness_is_read_out_of_the_words(text: str, fineness: str) -> None:
         # The decimals of a larger number, not a fineness.
         "Lot 12.925 silver round",
         "Silver Round",
+        # A weight written with three decimals, not a fineness.
+        "0.500 oz Silver Round",
+        ".750 oz gold bar",
+        "0.500oz silver",
     ],
 )
 def test_words_with_no_single_fineness_give_none(text: str) -> None:
     assert fineness_in(text) is None
+
+
+def test_a_weight_with_three_decimals_leaves_the_fineness_beside_it() -> None:
+    text = "0.500 oz .999 Silver Round"
+    assert fineness_in(text) == Decimal("0.9990")
+    assert weight_in(text) == Decimal("0.500000")
 
 
 def _bullion(

@@ -60,7 +60,12 @@ export function useInventorySearch(view) {
         setError('')
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message)
+        if (cancelled) return
+        // An answer to this query, though an empty one: the rows of the last
+        // query do not stay up as if they matched this one, and nothing is
+        // left loading.
+        setResult({ query, body: null })
+        setError(err.message)
       })
 
     return () => {

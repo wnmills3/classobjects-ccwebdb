@@ -61,8 +61,8 @@ function QuantityInput({ coin, quantity, onChange }) {
  *
  * Placing an order needs a sign-in, so a visitor is sent to sign in and
  * brought back here. An order the server accepts empties the cart and is
- * thanked for by number; a refusal -- the stock went meanwhile -- is shown
- * and the cart is kept.
+ * thanked for by number; a refusal -- the stock went or the price changed
+ * meanwhile -- is shown and the cart is kept.
  */
 export default function Cart() {
   const { lines, setQuantity, remove, clear, total } = useCart()
@@ -79,13 +79,20 @@ export default function Cart() {
     setBusy(true)
     setError('')
     try {
+      // Each line carries the price it was added at, so a listing repriced
+      // since is refused rather than charged at a price never shown.
       const order = await api.createOrder(
-        lines.map((l) => ({ listing_id: l.coin.id, quantity: l.quantity })),
+        lines.map((l) => ({
+          listing_id: l.coin.id,
+          quantity: l.quantity,
+          expected_price: l.coin.price,
+        })),
       )
       clear()
       setPlaced(order)
     } catch (err) {
-      // A 409 here means stock ran out between browsing and checkout.
+      // A 409 here means the stock ran out or the price changed between
+      // browsing and checkout; the server's message says which.
       setError(err.message)
     } finally {
       setBusy(false)

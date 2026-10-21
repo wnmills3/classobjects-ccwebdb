@@ -9,7 +9,9 @@ rem          scripts\ccweb_shutdown.cmd --keepdb   the same; use this from git b
 rem
 rem  Stops the servers by recorded PID, then sweeps the API and frontend
 rem  ports (CCWEB_API_PORT, CCWEB_FRONTEND_PORT) for survivors, then stops
-rem  PostgreSQL with pg_ctl.
+rem  PostgreSQL with pg_ctl. The sweep stops a port's listener only when it
+rem  is the program startup runs there (uvicorn, vite); any other is named,
+rem  left alone, and makes the exit code 1.
 rem
 rem  PostgreSQL is never killed: a forced stop leaves the cluster needing crash
 rem  recovery. pg_ctl -m fast rolls back open transactions and checkpoints.
@@ -82,8 +84,8 @@ if exist "%PIDFILE%" (
 rem --- 2. sweep the ports ---------------------------------------------------
 if defined SETOK (
     echo [2/3] sweeping ports %CCWEB_API_PORT% and %CCWEB_FRONTEND_PORT%...
-    call :killport %CCWEB_API_PORT%
-    call :killport %CCWEB_FRONTEND_PORT%
+    call :killport %CCWEB_API_PORT% uvicorn python.exe uvicorn.exe
+    call :killport %CCWEB_FRONTEND_PORT% vite node.exe
 ) else (
     echo [2/3] port sweep   SKIPPED - without the settings the ports are not known
 )
@@ -180,14 +182,27 @@ goto :eof
 
 rem ---------------------------------------------------------------------------
 :killport
+rem  %1 = port, %2 = the program startup runs there (uvicorn, vite), %3 %4 =
+rem  the images it runs as. A listener that is not one of those is some other
+rem  program that happens to have the port: it is named and left alone, and
+rem  the verify step reports the port still held. cmd has no way to read a
+rem  process's command line now that wmic is gone, so the image is the test.
 call :portpid %~1 SURVIVOR
-if defined SURVIVOR (
+if not defined SURVIVOR (
+    echo       port %~1 free
+    goto :eof
+)
+set "OURS="
+for %%N in (%~3 %~4) do (
+    tasklist /FI "PID eq !SURVIVOR!" /FI "IMAGENAME eq %%N" 2>nul | "%SystemRoot%\System32\find.exe" "!SURVIVOR!" >nul && set "OURS=1"
+)
+if defined OURS (
     echo       port %~1 held by pid !SURVIVOR! - stopping
     taskkill /PID !SURVIVOR! /T /F >nul 2>&1
     rem ping, not timeout: timeout does not pause when stdin is redirected.
     ping -n 2 127.0.0.1 >nul
 ) else (
-    echo       port %~1 free
+    echo       WARNING: port %~1 held by pid !SURVIVOR!, which is not %~2 - left alone
 )
 set "SURVIVOR="
 goto :eof

@@ -45,7 +45,7 @@ _PREFIX_STRIKE = {
     "SP": SPECIMEN,
 }
 
-_COMPOUND = re.compile(r"^(MS|PR|PF|SP|AU|XF|EF|VF|VG|AG|FR|PO|F|G|P)-?(\d{1,2})(\+*)$")
+_COMPOUND = re.compile(r"^(MS|PR|PF|SP|AU|XF|EF|VF|VG|AG|FR|PO|F|G|P)-?(\d{1,2})(\+?)$")
 _NOTE = re.compile(r"^N\d{1,2}\+?$")
 
 #: Adjectival coin grades: strike type and number (spec, section 3).

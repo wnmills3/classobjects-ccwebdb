@@ -3,14 +3,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./api', async (importOriginal) => ({
   ApiError: (await importOriginal()).ApiError,
-  api: { login: vi.fn(), me: vi.fn(), register: vi.fn() },
+  api: { login: vi.fn(), me: vi.fn(), register: vi.fn(), logout: vi.fn() },
   loadTokens: vi.fn(),
   saveTokens: vi.fn(),
   clearTokens: vi.fn(),
+  signOut: vi.fn(),
   onSignedOut: vi.fn(() => () => {}),
 }))
 
-import { ApiError, api, clearTokens, loadTokens, onSignedOut, saveTokens } from './api'
+import {
+  ApiError,
+  api,
+  clearTokens,
+  loadTokens,
+  onSignedOut,
+  saveTokens,
+  signOut,
+} from './api'
 import { AuthProvider } from './auth'
 import { useAuth } from './auth-context'
 import { adminAuth, customerAuth } from '../test/helpers'
@@ -128,14 +137,38 @@ describe('AuthProvider', () => {
     expect(stop).toHaveBeenCalledTimes(1)
   })
 
-  it('clears the stored tokens on logout', async () => {
+  it('retires the tokens on the server, then signs out here', async () => {
     loadTokens.mockReturnValue({ access_token: 'a' })
     api.me.mockResolvedValue(ADMIN)
+    // Signing out here before the server is asked would send the request
+    // with no token to retire.
+    api.logout.mockImplementation(async () => {
+      expect(signOut).not.toHaveBeenCalled()
+      return null
+    })
     const auth = await mount()
     expect(auth.current.user).toEqual(ADMIN)
 
-    act(() => auth.current.logout())
-    expect(clearTokens).toHaveBeenCalled()
+    await act(() => auth.current.logout())
+
+    expect(api.logout).toHaveBeenCalledTimes(1)
+    expect(signOut).toHaveBeenCalledTimes(1)
+    expect(auth.current.user).toBeNull()
+  })
+
+  it.each([
+    ['no network at all', new TypeError('Failed to fetch')],
+    ['a session already refused', new ApiError(401, 'Could not validate credentials')],
+    ['a server that is down', new ApiError(503, 'Service Unavailable')],
+  ])('signs out here through %s', async (_case, failure) => {
+    loadTokens.mockReturnValue({ access_token: 'a' })
+    api.me.mockResolvedValue(BUYER)
+    api.logout.mockRejectedValue(failure)
+    const auth = await mount()
+
+    await act(() => auth.current.logout())
+
+    expect(signOut).toHaveBeenCalledTimes(1)
     expect(auth.current.user).toBeNull()
   })
 })

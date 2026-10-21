@@ -1517,10 +1517,10 @@ def end_offer(
     listing = locked.listings[listing.id]
 
     # Still paused, not merely pointing here. `_end` clears the pointer of
-    # every listing it ends, but the column does not forbid an `ended` row
-    # that carries one, and resuming on the pointer alone would put a
-    # listing an administrator deliberately withdrew back into the public
-    # shop, re-claiming the item with it.
+    # every listing it ends, and `ck_listing_paused_by_only_when_paused`
+    # refuses any other row that would carry one; the status test says the
+    # same rule here, because resuming a listing an administrator withdrew
+    # would put it back into the public shop, re-claiming the item with it.
     #
     # This re-locks rows the pass above already holds and so reorders
     # nothing -- **while each paused listing still has a `HELD_BY` claim**,

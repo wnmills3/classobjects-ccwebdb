@@ -18,6 +18,7 @@ vi.mock('../shared/api', () => ({
 import StoreApp from './StoreApp'
 import { api } from '../shared/api'
 import { AuthContext } from '../shared/auth-context'
+import { SHOP_NAME } from '../shared/site'
 import {
   adminAuth,
   anonymousAuth,
@@ -61,7 +62,9 @@ async function settleEffects() {
 describe('shop shell', () => {
   it('renders the brand and the public navigation', async () => {
     await renderShop(<StoreApp />)
-    expect(screen.getByRole('link', { name: /^ClassObjects/ })).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: new RegExp(`^${SHOP_NAME}`) }),
+    ).toBeInTheDocument()
     expect(screen.queryByText(/ccwebdb/i)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /catalog/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /^cart$/i })).toBeInTheDocument()
@@ -82,11 +85,9 @@ describe('shop shell', () => {
     expect(screen.getByRole('link', { name: /cart \(3\)/i })).toBeInTheDocument()
   })
 
-  it('names the business in the footer, not a development build', async () => {
+  it('says nothing of a development build in the footer', async () => {
     await renderShop(<StoreApp />)
     const footer = screen.getByRole('contentinfo')
-    const year = new Date().getFullYear()
-    expect(footer).toHaveTextContent(`© ${year} ClassObjects LLC`)
     expect(footer).not.toHaveTextContent(/sample data|development build/i)
   })
 
@@ -197,5 +198,45 @@ describe('shop before opening day', () => {
     expect(
       screen.queryByRole('heading', { name: 'Coming soon' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("the shop's name and owner", () => {
+  /**
+   * Render the shop as built with `env` as its settings. The name is read
+   * when the module loads, so the shop and everything it shares a context
+   * with are loaded afresh under the stubbed settings.
+   */
+  async function renderBuiltWith(env, { open = true } = {}) {
+    for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value)
+    onTestFinished(() => vi.unstubAllEnvs())
+    vi.resetModules()
+    const { default: App } = await import('./StoreApp')
+    const helpers = await import('../test/helpers')
+    // The fresh shop asks a fresh mock, not the one imported above.
+    const fresh = await import('../shared/api')
+    fresh.api.getShop.mockResolvedValue({ open })
+    helpers.renderWithProviders(<App />)
+    return screen.findByRole('contentinfo')
+  }
+
+  it('comes from the settings', async () => {
+    const footer = await renderBuiltWith({
+      VITE_SHOP_NAME: 'Example Mint',
+      VITE_SHOP_OWNER: 'Example Mint LLC',
+    })
+    expect(screen.getByRole('link', { name: /^Example Mint/ })).toBeInTheDocument()
+    expect(footer).toHaveTextContent(`© ${new Date().getFullYear()} Example Mint LLC`)
+  })
+
+  it('is a neutral name, with no copyright holder, when nothing is set', async () => {
+    const footer = await renderBuiltWith({ VITE_SHOP_NAME: '', VITE_SHOP_OWNER: '' })
+    expect(screen.getByRole('link', { name: /^Coin Shop/ })).toBeInTheDocument()
+    expect(footer).toHaveTextContent(/^Coin Shop$/)
+  })
+
+  it('names the shop on the coming-soon page', async () => {
+    await renderBuiltWith({ VITE_SHOP_NAME: 'Example Mint' }, { open: false })
+    expect(screen.getByText(/^Example Mint is getting ready/)).toBeInTheDocument()
   })
 })

@@ -6,8 +6,9 @@
 #    ./scripts/ccweb_psql.sh -c "select 1"   any psql arguments
 #
 #  The bash twin of ccweb_psql.cmd. Host, port, database, user and password
-#  default to DATABASE_URL's, from .env; PGHOST, PGPORT, PGDATABASE, PGUSER
-#  and PGPASSWORD already set in the environment win.
+#  default to .env's DATABASE_URL, read through ccweb_settings; PGHOST,
+#  PGPORT, PGDATABASE, PGUSER and PGPASSWORD already set in the environment
+#  win.
 # ---------------------------------------------------------------------------
 set -u
 here="$(dirname "${BASH_SOURCE[0]}")"

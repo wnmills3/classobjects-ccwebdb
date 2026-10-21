@@ -5,9 +5,11 @@
 may differ between installations; codes are the stable contract. The routers
 resolve them, and an unknown code is a 422 rather than a silently null column.
 
-**Money and weight are `Decimal`.** They are declared with explicit precision
-so a client sending a float gets a validation error rather than a rounding
-surprise several layers down.
+**Money and weight are `Decimal`.** They are declared with the precision of
+the columns that store them, so a value with more digits or decimal places
+than its column holds is a 422 rather than a rounding surprise several layers
+down. A JSON number is accepted and read as a decimal; a string such as
+``"12.50"`` says exactly what was meant, and is what responses send back.
 """
 
 from __future__ import annotations
@@ -98,6 +100,28 @@ def _web_address_or_none(value: str | None) -> str | None:
 ListingUrl = Annotated[
     str | None, Field(max_length=1000), AfterValidator(_web_address_or_none)
 ]
+
+
+def _web_link_or_withheld(value: str | None) -> str | None:
+    """A stored address as a response offers it: http(s), otherwise None."""
+    return value if value is not None and _HTTP_URL.match(value) else None
+
+
+def _store_link_or_withheld(value: str | None) -> str | None:
+    """A stored address as a response offers it: http(s) or `mailto:`, else None."""
+    if value is not None and _MAILTO_ADDRESS.match(value):
+        return value
+    return _web_link_or_withheld(value)
+
+
+#: A stored web address a response sends for the console to render as a
+#: link. Entry refuses anything else, but a row written another way -- an
+#: import, an older version, the database directly -- is not re-checked
+#: there, and an `href` of `javascript:` runs. So what is not http(s) is
+#: withheld rather than sent.
+WebLinkOut = Annotated[str | None, AfterValidator(_web_link_or_withheld)]
+#: The same, for a seller's address, which may also be `mailto:` (`StoreUrl`).
+StoreLinkOut = Annotated[str | None, AfterValidator(_store_link_or_withheld)]
 #: A face plate in its stored form (`app.plates.face_plate`): `E82`, `153`,
 #: or `FW E82` for a Fort Worth note.
 FacePlate = Annotated[
@@ -217,7 +241,7 @@ class ImageOut(BaseModel):
     height: int | None = None
     captured_at: datetime | None = None
     #: The web address it was fetched from, when it was.
-    source_url: str | None = None
+    source_url: WebLinkOut = None
     thumbnail_url: str
     image_url: str
 
@@ -241,7 +265,7 @@ class ImageLinkOut(BaseModel):
     sort_order: int = 0
     captured_at: datetime | None = None
     #: The web address the photograph was fetched from, when it was.
-    source_url: str | None = None
+    source_url: WebLinkOut = None
     #: These two names are `routers.images.image_urls`'s own keys, so the
     #: helper can be splatted straight in. It returns `image_url`, not
     #: `web_url` -- matching `ImageOut`, which does the same.
@@ -539,10 +563,15 @@ class AddressIn(BaseModel):
 
 
 class OrderLineIn(BaseModel):
-    """One line of an order: which listing, and how many."""
+    """One line of an order: which listing, how many, and the price seen.
+
+    `expected_price` is the listing's price as the buyer's cart showed it.
+    When sent, checkout refuses the line, 409, if the price has changed since.
+    """
 
     listing_id: int
     quantity: int = Field(ge=1)
+    expected_price: Money | None = None
 
 
 def _refuse_duplicate_listings(listing_ids: list[int]) -> None:
@@ -556,9 +585,12 @@ def _refuse_duplicate_listings(listing_ids: list[int]) -> None:
 
 
 class OrderCreate(BaseModel):
-    """An order as placed. At least one line, and no listing twice."""
+    """An order as placed. At least one line, at most 50, and no listing twice.
 
-    items: list[OrderLineIn] = Field(min_length=1)
+    Capped because checkout locks every listing named, in one transaction.
+    """
+
+    items: list[OrderLineIn] = Field(min_length=1, max_length=50)
 
     @field_validator("items")
     @classmethod
@@ -1229,6 +1261,19 @@ class BulkEditRequest(BaseModel):
     changes: InventoryItemUpdate
 
 
+class ForSaleRefusedOut(BaseModel):
+    """A bulk edit's 409: items in the selection are for sale.
+
+    `detail` is the message a person reads (`app.sale_state.refusal`);
+    `for_sale` names the items as codes, so the console tells this refusal
+    from any other 409, and names the items, without reading the wording.
+    Sending the edit again with `acknowledge_for_sale` makes it.
+    """
+
+    detail: str
+    for_sale: list[str]
+
+
 #: Fields on `ItemCreate` valid only when `item_kind` is not `currency`: the
 #: coin's detail, and the years -- a note's year is its series year.
 _COIN_ONLY_FIELDS: tuple[str, ...] = ("mint", "variety", "year_start", "year_end")
@@ -1852,10 +1897,14 @@ _URL_PLACEHOLDER = "{external_id}"
 
 
 def _template_has_placeholder(value: str | None) -> str | None:
-    """A listing URL template must say where the listing number goes."""
+    """A listing URL template says where the listing number goes, on the web.
+
+    It becomes a listing's link wherever the listing has none of its own, so
+    it is held to the `http://` or `https://` every other link is.
+    """
     if value is not None and _URL_PLACEHOLDER not in value:
         raise ValueError(f"must contain {_URL_PLACEHOLDER}")
-    return value
+    return _require_http_url(value)
 
 
 class SalesVenueOut(BaseModel):
@@ -2064,7 +2113,7 @@ class ListingOut(BaseModel):
     title: str
     description: str
     external_id: str | None = None
-    external_url: str | None = None
+    external_url: WebLinkOut = None
     listed_at: datetime
     ended_at: datetime | None = None
     paused_by_listing_id: int | None = None
@@ -2608,7 +2657,7 @@ class PurchaseOrderDetailOut(BaseModel):
     #: The vendor's page for the order or listing, when it is a web address.
     #: Free text, so anything else -- "Gift" -- is withheld rather than
     #: offered as a link.
-    source_url: str | None = None
+    source_url: WebLinkOut = None
     #: The stored text itself, link or not, for the form that edits it.
     source_text: str | None = None
     #: Who sold it: the seller's id and name, and their store or profile
@@ -2616,12 +2665,12 @@ class PurchaseOrderDetailOut(BaseModel):
     #: seller is named.
     seller_id: int | None = None
     seller: str | None = None
-    seller_url: str | None = None
+    seller_url: StoreLinkOut = None
     notes: str | None = None
     #: The lot's page a new item on this purchase takes as its listing:
     #: its web address when that is one lot's page, else None
     #: (`listing_links.lot_page`).
-    lot_page: str | None = None
+    lot_page: WebLinkOut = None
     lines: list[PurchaseOrderLineOut]
 
 

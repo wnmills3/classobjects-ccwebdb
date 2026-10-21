@@ -11,7 +11,7 @@ import { FIELD_HELP } from '../../fieldHelp'
 import { renderWithProviders } from '../../../test/helpers'
 import SplitDialog from './SplitDialog'
 
-// The nine proof sets of order 90-00012-00012, bought as one listing.
+// The nine proof sets of order 49-49494-94949, bought as one listing.
 const LOT = {
   id: 41,
   item_code: 'CC-000041',

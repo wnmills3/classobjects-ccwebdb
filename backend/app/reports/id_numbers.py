@@ -27,7 +27,7 @@ from ..models import (
     ItemImage,
     Metal,
 )
-from .base import Column, Report, ReportResult
+from .base import Column, Report, ReportResult, among
 from .live_params import NOTHING_MATCHES, LiveParams, live_where
 from .registry import register
 from .tables import ITEM as _I
@@ -62,7 +62,7 @@ def _certificates(
     found = db.execute(
         select(_CERT.c.inventory_item_id, GradingService.label, _CERT.c.cert_number)
         .outerjoin(GradingService, GradingService.id == _CERT.c.grading_service_id)
-        .where(_CERT.c.inventory_item_id.in_(item_ids))
+        .where(among(_CERT.c.inventory_item_id, item_ids))
         .order_by(_CERT.c.inventory_item_id, _CERT.c.id)
     ).tuples()
     for item_id, service, number in found:

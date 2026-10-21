@@ -604,6 +604,40 @@ def test_an_app_backup_copy_issues_item_codes_past_every_one_it_holds(
     assert _new_item_code(target_url) == NEXT_CODE
 
 
+def test_an_app_backup_copy_reads_every_table_in_one_snapshot(
+    codes: tuple[Engine, str],
+) -> None:
+    """A row saved after the copy began is in no table of the copy.
+
+    The copy is paused between its two tables -- it yields after each -- and
+    a row is committed to the second table meanwhile. Read in one snapshot,
+    the second table is copied as it stood when the first was read.
+    """
+    source, target_url = codes
+    extra = "CREATE TABLE later (id serial PRIMARY KEY, note text)"
+    target = create_engine(target_url)
+    try:
+        for engine in (source, target):
+            with engine.begin() as conn:
+                conn.execute(text(extra))
+        with source.begin() as conn:
+            conn.execute(text("INSERT INTO later (note) VALUES ('before')"))
+        reflected = wb.reflect(source).tables
+        tables = [reflected["inventory_item"], reflected["later"]]
+
+        copying = backup.copy_rows(source, target, tables)
+        assert next(copying) == ("inventory_item", 4)
+        with source.begin() as conn:
+            conn.execute(text("INSERT INTO later (note) VALUES ('during')"))
+        assert list(copying) == [("later", 1)]
+
+        with target.connect() as conn:
+            notes = conn.execute(text("SELECT note FROM later")).scalars().all()
+        assert notes == ["before"]
+    finally:
+        target.dispose()
+
+
 def test_compare_notices_an_item_code_sequence_left_behind(
     codes: tuple[Engine, str], tmp_path: Path
 ) -> None:

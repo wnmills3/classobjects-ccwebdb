@@ -52,33 +52,36 @@ export default function OrderEditor({ order, onSaved, onClose }) {
         )
       })
       .catch((err) => !cancelled && setError(err.message))
-    // Listing price and stock for lines already on the order.
-    for (const item of order?.items ?? []) {
+    // Listing price and stock for lines already on the order, in one request
+    // for every line. Any status: a line's listing may have ended since.
+    const ids = (order?.items ?? []).map((item) => item.listing_id)
+    if (ids.length > 0) {
       api
-        .getCatalogItem(item.listing_id)
-        .then((listing) => {
+        .listListings({ ids, status: 'all' })
+        .then((listings) => {
           if (cancelled) return
+          const byId = new Map(listings.map((listing) => [listing.id, listing]))
           setLines((current) =>
-            current.map((line) =>
-              line.listing_id === item.listing_id
-                ? {
-                    ...line,
-                    listing_price: listing.price,
-                    available: listing.quantity_available,
-                  }
-                : line,
-            ),
+            current.map((line) => {
+              // A line added since was priced from the search that found it.
+              if (!ids.includes(line.listing_id)) return line
+              const listing = byId.get(line.listing_id)
+              // Not answered for: the line stays, and its availability says
+              // why it is not known.
+              if (!listing) return { ...line, unavailable: 'listing not found' }
+              return {
+                ...line,
+                listing_price: listing.price,
+                available: listing.quantity_available,
+              }
+            }),
           )
         })
         .catch((err) => {
           if (cancelled) return
-          // A listing that is not the web store's -- the line of a sale
-          // recorded from another platform -- is not in the catalog and
-          // cannot be read. The line stays; its availability says why it is
-          // not known.
           setLines((current) =>
             current.map((line) =>
-              line.listing_id === item.listing_id
+              ids.includes(line.listing_id)
                 ? { ...line, unavailable: err.message }
                 : line,
             ),

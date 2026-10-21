@@ -5,8 +5,12 @@ useless for a human filling in a form -- nobody knows that a Morgan dollar's
 denomination is `usd_coin_1_00`. This endpoint is what turns those free-text
 boxes into pickers.
 
-Public, because the catalog's own filters need it and a vocabulary is not
-data: knowing that `MS64` exists reveals nothing about what anyone owns.
+**Who reads what.** The vocabularies the shop reads (`PUBLIC_TABLES`) are
+public: the catalog has to name an item's kind to a signed-out browser.
+Every other one is a manager's -- the kinds of storage location and vendor,
+the platforms and carriers, are how the business is run, not what it sells
+-- and so are retired values and retired aliases (`include_inactive`), which
+only a form editing an old record needs.
 
 Each table's extra columns come through in `extra` rather than being flattened,
 so a client can show a denomination's face value or an error type's
@@ -16,6 +20,7 @@ aliases come with it, so a picker can find "Walker" and say what it is.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -24,7 +29,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import object_session
 
 from .. import aliases, reference_merge, sale_state
-from ..deps import AdminUser, DbSession
+from ..deps import AdminUser, DbSession, OptionalUser, is_admin
 from ..inventory_search import plain
 from ..models import (
     REFERENCE_MODELS,
@@ -55,6 +60,15 @@ from ._resolve import found_or_404, unprocessable
 from ._tx import commit_unique
 
 router = APIRouter(prefix="/reference", tags=["reference"])
+
+_log = logging.getLogger(__name__)
+
+#: The vocabularies the shop reads, and so the only ones a signed-out caller
+#: or a customer may: `frontend/src/store` asks for `item_kind` alone. A
+#: table added here is published to anyone who asks.
+PUBLIC_TABLES = frozenset({"item_kind"})
+
+_MANAGERS_ONLY = "Manager privileges required"
 
 #: Columns every reference table shares. Anything else a table carries is
 #: specific to it and goes into `extra`.
@@ -161,17 +175,35 @@ def _value_with_aliases(
 
 
 @router.get("")
-def list_tables() -> list[str]:
-    """The vocabularies available, in dependency order."""
-    return list(TABLES)
+def list_tables(caller: OptionalUser) -> list[str]:
+    """The vocabularies this caller may read, in dependency order.
+
+    A manager's are all of them; anyone else's are the shop's.
+    """
+    if is_admin(caller):
+        return list(TABLES)
+    return [table for table in TABLES if table in PUBLIC_TABLES]
 
 
-@router.get("/{table}")
+@router.get(
+    "/{table}",
+    responses={
+        403: {
+            "description": "Not a manager, asking for a vocabulary the shop does "
+            "not read, or for retired values."
+        }
+    },
+)
 def get_table(
     table: str,
     db: DbSession,
+    caller: OptionalUser,
     include_inactive: Annotated[
-        bool, Query(description="Include retired values, for editing old records")
+        bool,
+        Query(
+            description="Include retired values and aliases, for editing old "
+            "records. Managers only."
+        ),
     ] = False,
     year: Annotated[
         int | None,
@@ -185,8 +217,22 @@ def get_table(
     Retired values are hidden by default but available on request: an old
     record may still reference a classifier that should no longer be offered
     for new ones, and the form still has to render it.
+
+    A caller who is not a manager reads only `PUBLIC_TABLES`, and only their
+    values in use: anything else is a 403, not a quietly shorter list.
     """
     model = _model_or_404(table)
+    if not is_admin(caller):
+        if table not in PUBLIC_TABLES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"{_MANAGERS_ONLY} to read {table}",
+            )
+        if include_inactive:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"{_MANAGERS_ONLY} to see retired values",
+            )
     stmt = select(model)
     if not include_inactive:
         stmt = stmt.where(model.is_active.is_(True))
@@ -274,8 +320,10 @@ def _flush_or_refuse(
     """Flush a vocabulary write; a constraint's refusal is a 409 or a 422.
 
     A broken uniqueness rule is a 409 naming the columns that must differ;
-    any other constraint is a 422 carrying the database's own words. `what`
-    names what was refused -- "the value" being added, "the change" to one.
+    any other constraint is a 422 saying a constraint refused it. The
+    database's own words name tables, columns and values of the schema, so
+    they go to the log, not the caller. `what` names what was refused --
+    "the value" being added, "the change" to one.
     """
     try:
         db.flush()
@@ -287,9 +335,11 @@ def _flush_or_refuse(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"{table} already has a value with the same {', '.join(same)}.",
             ) from exc
+        _log.warning("%s rejected %s: %s", table, what, exc.orig)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"{table} rejected {what}: {exc.orig}",
+            detail=f"{what.capitalize()} was rejected by a database constraint "
+            f"of {table}.",
         ) from exc
 
 

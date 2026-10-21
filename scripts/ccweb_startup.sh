@@ -13,8 +13,10 @@
 #  own (setsid), so it outlives this shell, and its process group is written
 #  to .runtime/ccweb.pids for ccweb_shutdown.sh to stop as a whole. Logs go
 #  to CCWEB_LOG_DIR through the log writer. Safe to re-run: anything already
-#  listening is left alone. Vite's dev server is for a home network, never
-#  the internet.
+#  listening is left alone. A listener on the API's port counts as the API
+#  only if /health answers {"status":"ok"}; otherwise the port is reported
+#  as taken and the exit code is 1. Vite's dev server is for a home network,
+#  never the internet.
 # ---------------------------------------------------------------------------
 set -u
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -107,7 +109,15 @@ fi
 # --- 2. FastAPI backend -----------------------------------------------------
 BPID="$(portpid "$BPORT")"
 BGROUP=""
+# A listener on the API's port is this backend only if it answers /health
+# as the API does; anything else is another program that has the port, and
+# the frontend would proxy /api to it.
 if [ -n "$BPID" ]; then
+    if ! curl -s --max-time 2 "http://$BHOST:$BPORT/health" 2>/dev/null | grep -q 'status.:.ok'; then
+        echo "[2/3] backend      FAILED - port $BPORT is taken by another program (pid $BPID), not this API"
+        echo "      free the port, or set CCWEB_API_PORT in .env to another one"
+        exit 1
+    fi
     echo "[2/3] backend      already running on $BPORT (pid $BPID)"
 else
     echo "[2/3] backend      starting on $BPORT..."
@@ -191,8 +201,10 @@ if [ -n "$LAN" ]; then
     done
     if command -v ufw >/dev/null 2>&1; then
         echo
-        echo "  firewall    if ufw is active, other machines are blocked until you run:"
-        echo "  sudo ufw allow from 192.168.0.0/16 to any port $FPORT proto tcp"
+        echo "  firewall    if ufw is active, other machines are blocked until you run,"
+        echo "              with this network's address range (192.168.1.0/24, say)"
+        echo "              in place of YOUR_SUBNET:"
+        echo "  sudo ufw allow from YOUR_SUBNET to any port $FPORT proto tcp"
     fi
 fi
 echo "============================================"

@@ -68,9 +68,7 @@ _SH_QUOTE = "'\\''"
 
 
 def _default_backup_dir() -> Path:
-    """The routine backup's folder: OneDrive on Windows, the home elsewhere."""
-    if sys.platform == "win32":
-        return Path.home() / "OneDrive" / "coins_backup"
+    """The routine backup's folder: `ccwebdb-backup` in the home, on every system."""
     return Path.home() / "ccwebdb-backup"
 
 
@@ -122,6 +120,13 @@ class RuntimeFields(BaseSettings):
     # The built frontend Caddy serves; a copy where the web server's account
     # can read it, when the repository is somewhere it cannot.
     ccweb_site_root: Path = Path("frontend/dist")
+
+    # --- image storage ------------------------------------------------------
+    # Bytes never live in the database: a collection's photographs run to
+    # gigabytes. This is the local backend's root; an S3-compatible backend
+    # swaps in behind the same interface without touching callers. Here, not
+    # in the API's own settings, because the service templates name it.
+    media_root: Path = Path("media")
 
     @field_validator("*", mode="before")
     @classmethod
@@ -295,6 +300,60 @@ class EmptyPlaceholder(ValueError):
         self.name = name
 
 
+class HalfATlsPair(ValueError):
+    """A certificate without its key, or a key without its certificate."""
+
+    def __init__(self) -> None:
+        """Name both settings: either may be the one missing."""
+        super().__init__(
+            "CCWEB_TLS_CERT and CCWEB_TLS_KEY are set together or not at all: "
+            "one of them is empty"
+        )
+
+
+#: The folder the scripts keep the running processes' ids in.
+RUNTIME_DIR = REPO_ROOT / ".runtime"
+
+#: Placeholders whose value is already in Caddy's syntax -- a whole directive,
+#: or nothing when there is none to give -- so it is written as it stands.
+_CADDY_VERBATIM = frozenset({"CCWEB_TLS_DIRECTIVE"})
+
+
+def _caddy_token(value: str) -> str:
+    """One Caddy argument: forward slashes, on Windows too; quoted if it has a space."""
+    value = value.replace("\\", "/")
+    if any(char.isspace() for char in value):
+        return '"' + value.replace('"', '\\"') + '"'
+    return value
+
+
+def tls_directive(cert: str, key: str) -> str:
+    """Caddy's `tls` line for a certificate of the owner's own, or "" for none.
+
+    None means Caddy obtains one itself; a certificate needs its key.
+    """
+    if cert and key:
+        return f"tls {_caddy_token(cert)} {_caddy_token(key)}"
+    if cert or key:
+        raise HalfATlsPair
+    return ""
+
+
+def render_values(
+    s: RuntimeFields, user: str, *, include_password: bool = False
+) -> dict[str, str]:
+    """Every value a template may name: the scripts' own, and those only templates use.
+
+    `user` is the account a service runs as.
+    """
+    values = assignments(s, include_password=include_password)
+    values["CCWEB_USER"] = user
+    values["MEDIA_ROOT"] = str(s.media_root)
+    values["CCWEB_RUNTIME_DIR"] = str(RUNTIME_DIR)
+    values["CCWEB_TLS_DIRECTIVE"] = tls_directive(s.ccweb_tls_cert, s.ccweb_tls_key)
+    return values
+
+
 def render(template: str, values: dict[str, str]) -> str:
     """`template` with every placeholder replaced by its value."""
 
@@ -303,14 +362,11 @@ def render(template: str, values: dict[str, str]) -> str:
         if name not in values:
             raise UnknownPlaceholder(name)
         if match.group(2):
-            # Caddy's own syntax: it wants forward slashes, on Windows too,
-            # and a value with a space quoted, to stay one argument.
-            value = values[name].replace("\\", "/")
-            if not value:
+            if name in _CADDY_VERBATIM:
+                return values[name]
+            if not values[name]:
                 raise EmptyPlaceholder(name)
-            if any(char.isspace() for char in value):
-                return '"' + value.replace('"', '\\"') + '"'
-            return value
+            return _caddy_token(values[name])
         return values[name]
 
     return _PLACEHOLDER.sub(fill, template)
@@ -338,18 +394,22 @@ def main(argv: list[str] | None = None) -> int:
     # What reads the output: cmd its console's code page, the rest UTF-8.
     encoding = "utf-8"
     try:
-        values = assignments(RuntimeSettings(), include_password=args.include_password)
+        read = RuntimeSettings()
         if args.render:
-            values["CCWEB_USER"] = getpass.getuser()
+            values = render_values(
+                read, getpass.getuser(), include_password=args.include_password
+            )
             template = Path(args.render).read_text(encoding="utf-8")
             text = render(template, values)
-        elif args.format == "cmd":
-            encoding = _cmd_encoding()
-            text = format_cmd(values, encoding)
-        elif args.format == "sh":
-            text = format_sh(values)
         else:
-            text = json.dumps(values, indent=2) + "\n"
+            values = assignments(read, include_password=args.include_password)
+            if args.format == "cmd":
+                encoding = _cmd_encoding()
+                text = format_cmd(values, encoding)
+            elif args.format == "sh":
+                text = format_sh(values)
+            else:
+                text = json.dumps(values, indent=2) + "\n"
     except ValidationError as refused:
         for error in refused.errors():
             where = ".".join(str(part) for part in error["loc"]).upper()
@@ -358,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
         return 2
-    except (UnsafeValue, UnknownPlaceholder, EmptyPlaceholder) as refused:
+    except (UnsafeValue, UnknownPlaceholder, EmptyPlaceholder, HalfATlsPair) as refused:
         print(f"runtime_settings: {refused}", file=sys.stderr)
         return 2
     if isinstance(sys.stdout, io.TextIOWrapper):

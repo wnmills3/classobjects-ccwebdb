@@ -6,9 +6,12 @@ reaches GitHub.
 
 `ccweb_startup`, `ccweb_shutdown`, `ccweb_claude`, `ccweb_backup` and
 `ccweb_testdb` in `scripts/` -- the `.cmd` on Windows, the `.sh` on Linux --
-write here. When something fails, they print the log file to read first. A
-server installed as a systemd service on Linux logs to the journal instead
-(`journalctl -u ccwebdb-api`; see `docs/deployment-linux.md`).
+write here. When something fails, they print the log file to read first.
+On a Windows server, the API's scheduled task writes `backend.log` here too,
+through the same log writer, so it rotates as below
+(`docs/deployment-windows.md`, step 6). A server installed as a systemd
+service on Linux logs to the journal instead (`journalctl -u ccwebdb-api`;
+see `docs/deployment-linux.md`).
 
 ## Layout
 

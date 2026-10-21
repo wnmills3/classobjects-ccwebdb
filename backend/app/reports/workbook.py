@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.cell.cell import Cell
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE, Cell
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
@@ -118,14 +118,24 @@ def _display(value: object) -> str:
 
 
 def _cell(sheet: Worksheet, row: int, col: int, value: _CellValue) -> Cell:
-    """The cell at `row`, `col` holding `value`, a string held as text.
+    r"""The cell at `row`, `col` holding `value`, a string held as text.
 
     Every cell this module writes is written here. The text in a report is
     what was stored -- a name a customer chose, a seller's title -- and a
     string that begins with `=` would otherwise be a formula for whoever
-    opens the workbook (`app.cell_text`).
+    opens the workbook (`app.cell_text`). A control character a stored
+    string may carry, which openpyxl refuses outright and the format cannot
+    hold, is written as its ``\xNN`` spelling, so one odd title cannot fail
+    the whole export.
     """
+    if isinstance(value, str):
+        value = _spell_illegal(value)
     return keep_text(sheet.cell(row=row, column=col, value=value))
+
+
+def _spell_illegal(text: str) -> str:
+    r"""`text`, each control character an `.xlsx` cell cannot hold as ``\xNN``."""
+    return ILLEGAL_CHARACTERS_RE.sub(lambda m: f"\\x{ord(m.group()):02x}", text)
 
 
 def _write_cell(
