@@ -1,6 +1,6 @@
 """The settings object must never display its secrets.
 
-Anything that prints the object -- pytest naming it in an error, a traceback,
+Anything that prints a `Settings` -- pytest naming it in an error, a traceback,
 a log line, a debugger -- calls its repr, which would otherwise list every
 field and value, `JWT_SECRET` included.
 """
@@ -10,28 +10,55 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from app.config import PUBLISHED_SECRETS, settings
+from app.config import PUBLISHED_SECRETS, Settings
 from pydantic import ValidationError
 
 #: Fields whose values are credentials. `database_url` is one because it
 #: carries the database password.
 SECRET_FIELDS = ("database_url", "jwt_secret", "first_admin_password")
 
+#: A value of its own for each secret, so the tests do not depend on what the
+#: checkout's .env holds: an empty one there is "found" in any text, and a
+#: real one could be printed by a failure.
+KNOWN_SECRETS = {
+    "database_url": "postgresql+psycopg://u:dbpass-q7Kx2@db.invalid:5432/d",
+    "jwt_secret": "jwt-q7Kx2" * 4,
+    "first_admin_password": "adminpass-q7Kx2",
+}
+assert set(KNOWN_SECRETS) == set(SECRET_FIELDS)
+
+
+def _settings_holding_known_secrets() -> Settings:
+    """Settings carrying `KNOWN_SECRETS`, the environment and .env ignored."""
+    return Settings(
+        _env_file=None,
+        database_url=KNOWN_SECRETS["database_url"],
+        jwt_secret=KNOWN_SECRETS["jwt_secret"],
+        first_admin_password=KNOWN_SECRETS["first_admin_password"],
+    )
+
 
 def test_printing_the_settings_shows_no_secret() -> None:
     """Compare names, not values, so a failure cannot print the secret either.
 
-    `assert value not in shown` would have pytest print both sides on failure
-    -- leaking the very value this test exists to protect.
+    `assert value not in shown` would have pytest print both sides on failure.
     """
-    shown = repr(settings) + str(settings)
-    leaked = [name for name in SECRET_FIELDS if getattr(settings, name) in shown]
+    held = _settings_holding_known_secrets()
+    shown = repr(held) + str(held)
+    leaked = [name for name, value in KNOWN_SECRETS.items() if value in shown]
     assert leaked == [], f"printing the settings shows: {leaked}"
+
+
+def test_every_secret_field_is_declared_hidden() -> None:
+    """The declaration, not a value: holds whatever this checkout's .env says."""
+    shown = [name for name in SECRET_FIELDS if Settings.model_fields[name].repr]
+    assert shown == []
 
 
 def test_the_secrets_are_still_readable_by_the_code_that_needs_them() -> None:
     """Hiding them from display must not hide them from use."""
-    assert all(getattr(settings, name) for name in SECRET_FIELDS)
+    held = _settings_holding_known_secrets()
+    assert {name: getattr(held, name) for name in SECRET_FIELDS} == KNOWN_SECRETS
 
 
 def test_the_photograph_library_defaults_beside_the_repository() -> None:
