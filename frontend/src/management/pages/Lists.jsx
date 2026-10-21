@@ -328,6 +328,11 @@ function CatalogTable({ config }) {
     return write(() => config.update(row.id, body))
   }
 
+  function cancelEdit() {
+    setEditing(null)
+    setDraft({})
+  }
+
   function save(row) {
     const body = {}
     for (const column of config.columns) {
@@ -454,10 +459,11 @@ function CatalogTable({ config }) {
                           onChange={(value) =>
                             setDraft({ ...draft, [column.field.key]: value })
                           }
-                          // Edit opens the row ready to type in, and Enter in
-                          // any of its boxes is its Save button.
+                          // Edit opens the row ready to type in; Enter in any
+                          // of its boxes is its Save button, Escape its Cancel.
                           autoFocus={column === firstEditable}
                           onEnter={() => save(row)}
+                          onEscape={cancelEdit}
                         />
                       ) : (
                         column.value(row)
@@ -471,14 +477,7 @@ function CatalogTable({ config }) {
                         <button type="button" onClick={() => save(row)}>
                           Save
                         </button>
-                        <button
-                          type="button"
-                          className="link"
-                          onClick={() => {
-                            setEditing(null)
-                            setDraft({})
-                          }}
-                        >
+                        <button type="button" className="link" onClick={cancelEdit}>
                           Cancel
                         </button>
                       </>
@@ -543,17 +542,21 @@ function CatalogTable({ config }) {
  * offered as itself, first: a picker with no option for its value shows its
  * first option, which nobody chose and which a save would not send.
  *
- * `onEnter`, when given, is called for Enter pressed in it: a table row has
- * no form to submit, so the row being edited saves this way.
+ * `onEnter` and `onEscape`, when given, are called for those keys pressed
+ * in it: a table row has no form to submit, so the row being edited saves
+ * and cancels this way.
  */
-function Field({ field, value, onChange, autoFocus = false, onEnter }) {
-  const onKeyDown = onEnter
-    ? (e) => {
-        if (e.key !== 'Enter') return
-        e.preventDefault()
-        onEnter()
-      }
-    : undefined
+function Field({ field, value, onChange, autoFocus = false, onEnter, onEscape }) {
+  const keys = { Enter: onEnter, Escape: onEscape }
+  const onKeyDown =
+    onEnter || onEscape
+      ? (e) => {
+          const handler = keys[e.key]
+          if (!handler) return
+          e.preventDefault()
+          handler()
+        }
+      : undefined
   if (field.options) {
     const offered = field.options.some((option) => option.code === value)
     return (

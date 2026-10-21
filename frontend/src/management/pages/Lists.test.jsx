@@ -172,6 +172,22 @@ describe('Lists: Friedberg numbers', () => {
     )
   })
 
+  it('cancels on Escape: nothing sent, the row shown as it was', async () => {
+    const user = userEvent.setup()
+    open()
+    const row = (await screen.findByText('9928-')).closest('tr')
+
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    await user.keyboard('L{Escape}')
+
+    expect(within(row).queryByRole('textbox', { name: 'Number' })).toBeNull()
+    expect(within(row).getByText('9928-')).toBeInTheDocument()
+    expect(api.updateFriedbergNumber).not.toHaveBeenCalled()
+    // Edit again starts from the saved value, not the abandoned one.
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    expect(within(row).getByRole('textbox', { name: 'Number' })).toHaveValue('9928-')
+  })
+
   it('saves on Enter from any box of the row being edited', async () => {
     const user = userEvent.setup()
     api.updateFriedbergNumber.mockResolvedValue(fr({ description: 'A test note' }))
