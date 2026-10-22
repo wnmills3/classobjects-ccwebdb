@@ -128,7 +128,20 @@ function InventoryView({ config }) {
       {!busy && !error && total === 0 && (
         <p className="muted">Nothing matches those filters.</p>
       )}
-      <OtherViewSerial view={config.view} serial={current.serial_number} />
+      <OtherViewSerial
+        view={config.view}
+        serial={current.serial_number}
+        // Finished, found nothing, and asked for nothing but the serial
+        // (sorting and paging aside): only then is the other view the answer.
+        emptyOnSerialAlone={
+          !busy &&
+          !error &&
+          total === 0 &&
+          Object.keys(current).every((key) =>
+            ['serial_number', 'sort', 'desc', 'offset'].includes(key),
+          )
+        }
+      />
 
       {rows.length > 0 && (
         <InventoryTable
