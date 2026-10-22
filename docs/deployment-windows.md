@@ -162,11 +162,11 @@ Then register the cluster as a service once, from an administrator cmd with
 pg_ctl register -N ccwebdb-postgres -D "%USERPROFILE%\dev\classobjects-ccwebdb\.pgdata" -S auto
 ```
 
-(The example installation registers it with `-S demand` instead and starts
-it by hand, because its cluster folder is shared with the development
-computer through OneDrive and only one of them may run it:
-[runtime-operations-windows.md](runtime-operations-windows.md), *One
-database, two computers*.) Then start it:
+Keep the cluster on the server's own disk, never in a folder that OneDrive
+or another service syncs: a cluster that starts with the machine must be
+one that no other computer can start
+([runtime-operations-windows.md](runtime-operations-windows.md), *One
+database, two computers*). Then start it:
 
 ```console
 sc start ccwebdb-postgres
@@ -626,8 +626,8 @@ certificate names), and the domain's `/management` signs in.
 ## Keeping it running
 
 The server's three parts are controlled on their own, never with the
-`ccweb_` start-up and shut-down scripts. All three start with the machine
-(the example's PostgreSQL excepted: see step 2). From an administrator
+`ccweb_` start-up and shut-down scripts. All three start with the machine.
+From an administrator
 cmd, stop the site, API first:
 
 ```console

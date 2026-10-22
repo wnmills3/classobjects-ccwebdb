@@ -557,45 +557,15 @@ stops it and `status` reports it. For `pytest` on its own, set
 
 ---
 
-## One database, two computers (the example installation)
+## One database, two computers
 
-The example installation runs one database on two computers -- its server
-and its development computer -- one at a time, never both. Nothing else in
-this document needs it; it is described here because the scripts guard
-against its one danger.
-
-The collection's cluster lives in OneDrive, at
-`%USERPROFILE%\OneDrive\coins_db\pgdata`, so the server and the development
-machine work on the same database -- one at a time, never both. On each
-computer `.pgdata` is a junction to that folder, so the scripts and the
-server's `ccwebdb-postgres` service find it where they always did; the
-server's earlier cluster is set aside beside it as `.pgdata.pre-onedrive`.
-The folder is pinned to stay on the
-device (`attrib +P`), so OneDrive never swaps a file of a running cluster
-for a placeholder. To set a computer up, with PostgreSQL stopped there and
-PostgreSQL 18 in the `ccwebdb` environment on both:
-
-```console
-cd /d %USERPROFILE%\dev\classobjects-ccwebdb
-ren .pgdata .pgdata.local
-mklink /J .pgdata %USERPROFILE%\OneDrive\coins_db\pgdata
-attrib +P -U /S /D %USERPROFILE%\OneDrive\coins_db\*
-```
-
-and copy `DATABASE_URL` from the server's `.env`: both computers sign in to
-the one database with the same password.
-
-To move work from one computer to the other:
-
-1. Stop PostgreSQL where it runs: on the server, the API and then the
-   service (`schtasks /end /tn "ccwebdb api"`, `sc stop ccwebdb-postgres`);
-   here, `.\scripts\ccweb_shutdown.cmd`.
-2. Wait until OneDrive shows `coins_db` as up to date on **both** computers.
-   A running cluster writes all the time; only a stopped one syncs to a
-   whole, consistent copy.
-3. Start it on the other: `.\scripts\ccweb_startup.cmd` here, or on the
-   server `sc start ccwebdb-postgres` and then `schtasks /run /tn "ccwebdb
-   api"`.
+A cluster folder can be shared between two computers -- through OneDrive,
+say, with `.pgdata` on each a junction to the shared folder -- so that
+either can run the one database, at a time. The scripts guard against the
+danger this brings, but a server open to the public should not work this
+way, and the example installation does not: its cluster is on the server's
+own disk, the service starts with the machine, and the development computer
+reaches the collection through the site.
 
 **Two servers on the one cluster would ruin it**, and PostgreSQL cannot see
 the other computer: finding a `postmaster.pid` with no server of its own
@@ -603,18 +573,25 @@ behind it, it takes the file for a crash's leftover, deletes it and starts.
 So `ccweb_pgstart.cmd` refuses to start while `.pgdata\postmaster.pid`
 exists -- the file a running server keeps, synced from the other computer.
 When the other computer has certainly stopped and the file is still there
-(a crash leaves it too), delete it and start again. For the same reason the
-server's service starts only by hand (`sc config ccwebdb-postgres start=
-demand`): a reboot of the server never starts it under the other computer.
+(a crash leaves it too), delete it and start again. The `ccwebdb-postgres`
+service does not go through that script: registered to start with the
+machine, it would start under the other computer after any reboot. A
+shared cluster's service has to start by hand (`sc config
+ccwebdb-postgres start= demand`), so the server is down after every reboot
+until someone starts it.
 
-The daily backup runs on the server ([system-administration.md](system-administration.md),
-*Backing up and restoring*), into `OneDrive\coins_backup` (its
-`CCWEB_BACKUP_DIR`); `ccweb_backup.cmd` works from either computer, against
-whichever is running the database.
+The sync service brings troubles of its own. It locks files as it uploads
+them, so dropping a database can leave its folder behind in `base`
+(PostgreSQL warns `could not remove directory`); it copies files while the
+server writes them, so the other computer can hold a half-written cluster
+until the server stops and the folder syncs again; and OneDrive runs only
+while someone is signed in, so a server started at boot writes to a folder
+that syncs nothing until then. To move the work from one computer to the
+other, stop PostgreSQL where it runs, wait until the sync service shows the
+folder up to date on both computers, and only then start it on the other.
 
-The computer not running the database has no PostgreSQL, and so nothing to
-run the tests on: each has a test cluster of its own, outside OneDrive (*A
-cluster for the tests*, above).
+The tests never use the shared cluster: each computer has a test cluster of
+its own, outside the shared folder (*A cluster for the tests*, above).
 
 ---
 
