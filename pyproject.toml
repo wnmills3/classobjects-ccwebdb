@@ -16,10 +16,10 @@ dependencies = [
     # Runtime, not dev: reports, app.workbook_backup and app.ebay_orders
     # all write or read .xlsx.
     "openpyxl>=3.1.5",
-    "pillow>=12.3.0",
+    "pillow>=13.0.0",
     "psycopg[binary]>=3.3.5",
     "pydantic-settings>=2.15.0",
-    "pyjwt>=2.13.0",
+    "pyjwt>=2.15.0",
     "python-multipart>=0.0.32",
     "sqlalchemy>=2.0.52",
     "tzdata>=2026.3",
