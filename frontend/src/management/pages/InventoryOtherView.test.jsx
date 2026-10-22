@@ -13,18 +13,29 @@ import { api } from '../api'
 import { adminAuth, renderWithProviders } from '../../test/helpers'
 import { InventoryCoins, InventoryCurrency } from './Inventory'
 
-// Each view searches its own serials: a bar's on Coins, a note's on
-// Currency. `matches` is how many items each view's search finds.
-function searchFinds(matches) {
-  api.searchInventory.mockImplementation((view) =>
-    Promise.resolve({
+// `matches` is how many items each view's search finds. A view named in
+// `refuses` answers the other view's count as the API answers a filter it
+// does not know -- with an error -- while its own page search still works:
+// only the count asks for one row.
+function searchFinds(matches, { refuses = [] } = {}) {
+  api.searchInventory.mockImplementation((view, params) => {
+    if (refuses.includes(view) && params.limit === 1) {
+      return Promise.reject(new Error('Unknown filter'))
+    }
+    return Promise.resolve({
       rows: [],
       total: matches[view] ?? 0,
       facets: {},
       issues: {},
       sortable: [],
-    }),
-  )
+    })
+  })
+}
+
+function countsAsked(view) {
+  return api.searchInventory.mock.calls
+    .filter(([v, params]) => v === view && params.limit === 1)
+    .map(([, params]) => params)
 }
 
 function render(page, route) {
@@ -60,7 +71,7 @@ function renderBothPages(route) {
   )
 }
 
-describe('a serial found only on the other view', () => {
+describe('a search that finds nothing here but something on the other view', () => {
   it('opens Currency with the serial when no coin has it, and says why', async () => {
     searchFinds({ coins: 0, currency: 3 })
     renderBothPages('/inventory/coins?serial_number=4241')
@@ -74,6 +85,35 @@ describe('a serial found only on the other view', () => {
     expect(api.searchInventory).toHaveBeenCalledWith(
       'currency',
       expect.objectContaining({ serial_number: '4241', facets: true }),
+    )
+  })
+
+  it('opens Coins for a grade no note has, carrying the grade', async () => {
+    searchFinds({ coins: 50, currency: 0 })
+    renderBothPages('/inventory/currency?grade=70&sort=year&desc=true')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Coins' })).toBeTruthy()
+    const notice = await screen.findByText(/No items in Currency match these filters/)
+    expect(notice.textContent).toContain('the 50 in Coins')
+    // Counted and opened with the filters, not the sort: a column sorted on
+    // one view need not exist on the other.
+    expect(countsAsked('coins')).toEqual([{ grade: '70', limit: 1 }])
+    expect(api.searchInventory).toHaveBeenCalledWith('coins', {
+      grade: '70',
+      facets: true,
+      limit: expect.any(Number),
+    })
+  })
+
+  it('carries every filter, a serial and a grade alike', async () => {
+    searchFinds({ coins: 0, currency: 3 })
+    renderBothPages('/inventory/coins?serial_number=4241&grade=64')
+
+    await screen.findByRole('heading', { level: 1, name: 'Currency' })
+    await screen.findByText(/No items in Coins match these filters/)
+    expect(api.searchInventory).toHaveBeenCalledWith(
+      'currency',
+      expect.objectContaining({ serial_number: '4241', grade: '64', facets: true }),
     )
   })
 
@@ -103,31 +143,36 @@ describe('a serial found only on the other view', () => {
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull()
   })
 
-  it('stays on Coins when another filter is set too, and only points', async () => {
-    searchFinds({ coins: 0, currency: 3 })
-    renderBothPages('/inventory/coins?serial_number=4241&grade=64')
+  it('stays when the other view does not know one of the filters', async () => {
+    searchFinds({ coins: 0, currency: 3 }, { refuses: ['currency'] })
+    renderBothPages('/inventory/coins?mint_mark=S')
 
-    await screen.findByText(/3 items in Currency have a serial matching/)
+    await waitFor(() => expect(countsAsked('currency')).toHaveLength(1))
+    await screen.findByText('Nothing matches those filters.')
     expect(screen.getByRole('heading', { level: 1, name: 'Coins' })).toBeTruthy()
-    expect(screen.queryByText(/No items in Coins/)).toBeNull()
   })
 
-  it('stays on Coins when neither view has the serial', async () => {
+  it('stays when neither view has a match', async () => {
     searchFinds({ coins: 0, currency: 0 })
     renderBothPages('/inventory/coins?serial_number=4241')
 
     await screen.findByText('Nothing matches those filters.')
     await waitFor(() =>
-      expect(api.searchInventory).toHaveBeenCalledWith('currency', {
-        serial_number: '4241',
-        limit: 1,
-      }),
+      expect(countsAsked('currency')).toEqual([{ serial_number: '4241', limit: 1 }]),
     )
     expect(screen.getByRole('heading', { level: 1, name: 'Coins' })).toBeTruthy()
   })
+
+  it('asks the other view nothing when nothing is searched for', async () => {
+    searchFinds({ coins: 0, currency: 5 })
+    render(<InventoryCoins />, '/inventory/coins?sort=year')
+
+    await screen.findByText('Nothing matches those filters.')
+    expect(countsAsked('currency')).toEqual([])
+  })
 })
 
-describe('a serial typed on the view that does not hold it', () => {
+describe('a serial that matches here and on the other view', () => {
   it('points from Coins to the notes in Currency that carry it too', async () => {
     searchFinds({ coins: 1, currency: 2 })
     render(<InventoryCoins />, '/inventory/coins?serial_number=4241')
@@ -136,10 +181,7 @@ describe('a serial typed on the view that does not hold it', () => {
     expect(hint.textContent).toContain('4241')
     const link = screen.getByRole('link', { name: 'Show them' })
     expect(link.getAttribute('href')).toBe('/inventory/currency?serial_number=4241')
-    expect(api.searchInventory).toHaveBeenCalledWith('currency', {
-      serial_number: '4241',
-      limit: 1,
-    })
+    expect(countsAsked('currency')).toEqual([{ serial_number: '4241', limit: 1 }])
   })
 
   it('points from Currency to a bar in Coins, in the singular', async () => {
@@ -153,27 +195,24 @@ describe('a serial typed on the view that does not hold it', () => {
   })
 
   it('says nothing when the other view has none', async () => {
-    searchFinds({ coins: 0, currency: 0 })
+    searchFinds({ coins: 1, currency: 0 })
     render(<InventoryCoins />, '/inventory/coins?serial_number=4241')
 
-    await waitFor(() =>
-      expect(api.searchInventory).toHaveBeenCalledWith('currency', {
-        serial_number: '4241',
-        limit: 1,
-      }),
-    )
-    await screen.findByText('Nothing matches those filters.')
+    await waitFor(() => expect(countsAsked('currency')).toHaveLength(1))
     expect(
       screen.queryByText(/have a serial matching|has a serial matching/),
     ).toBeNull()
   })
 
-  it('asks the other view nothing when no serial is typed', async () => {
+  it('asks the other view nothing for other filters with matches here', async () => {
+    // A year or a grade matches on both views; pointing at the other one
+    // after every such search would be noise, and a second query each time.
     searchFinds({ coins: 5, currency: 5 })
     render(<InventoryCoins />, '/inventory/coins?grade=64')
 
     await waitFor(() => expect(api.searchInventory).toHaveBeenCalled())
-    expect(api.searchInventory.mock.calls.map(([view]) => view)).toEqual(['coins'])
+    await screen.findByRole('button', { name: 'Review these 0' })
+    expect(countsAsked('currency')).toEqual([])
   })
 })
 

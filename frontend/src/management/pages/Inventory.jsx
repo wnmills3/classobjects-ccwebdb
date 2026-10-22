@@ -5,7 +5,7 @@ import BulkEditBar from './inventory/BulkEditBar'
 import FilterPanel from './inventory/FilterPanel'
 import InventoryTable from './inventory/InventoryTable'
 import ItemEditDialog from './inventory/ItemEditDialog'
-import OtherViewSerial from './inventory/OtherViewSerial'
+import OtherViewMatches from './inventory/OtherViewMatches'
 import ReviewPane from './inventory/ReviewPane'
 import { COIN_VIEW, CURRENCY_VIEW, PAGE_SIZE } from './inventory/specs'
 import { useInventorySearch } from './inventory/useInventorySearch'
@@ -24,6 +24,15 @@ import { useLinkedItem } from './inventory/useLinkedItem'
  * fraction of the fifty-odd grades that exist, and offering all of them
  * buries the ones actually present.
  */
+/** The search's filters: the address without its sorting and paging. */
+function filtersOf(current) {
+  return Object.fromEntries(
+    Object.entries(current).filter(
+      ([key]) => !['sort', 'desc', 'offset'].includes(key),
+    ),
+  )
+}
+
 function InventoryView({ config }) {
   const {
     current,
@@ -128,19 +137,10 @@ function InventoryView({ config }) {
       {!busy && !error && total === 0 && (
         <p className="muted">Nothing matches those filters.</p>
       )}
-      <OtherViewSerial
+      <OtherViewMatches
         view={config.view}
-        serial={current.serial_number}
-        // Finished, found nothing, and asked for nothing but the serial
-        // (sorting and paging aside): only then is the other view the answer.
-        emptyOnSerialAlone={
-          !busy &&
-          !error &&
-          total === 0 &&
-          Object.keys(current).every((key) =>
-            ['serial_number', 'sort', 'desc', 'offset'].includes(key),
-          )
-        }
+        filters={filtersOf(current)}
+        hereEmpty={!busy && !error && total === 0}
       />
 
       {rows.length > 0 && (
