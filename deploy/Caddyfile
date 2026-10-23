@@ -2,8 +2,8 @@
 # shop everywhere else, over HTTPS.
 #
 # A template for both systems. Fill it from the settings (CCWEB_SITE_DOMAIN,
-# CCWEB_TLS_CERT, CCWEB_TLS_KEY, CCWEB_SITE_ROOT, CCWEB_API_HOST and
-# CCWEB_API_PORT in .env) with
+# CCWEB_TLS_CERT, CCWEB_TLS_KEY, CCWEB_SITE_ROOT, CCWEB_API_HOST,
+# CCWEB_API_PORT and CCWEB_CADDY_IMPORT in .env) with
 #
 #     python -m app.runtime_settings --render ../deploy/Caddyfile
 #
@@ -74,3 +74,9 @@ www.{$CCWEB_SITE_DOMAIN} {
 
 	redir https://{$CCWEB_SITE_DOMAIN}{uri} permanent
 }
+
+# Other sites the server runs beside the shop live in Caddyfiles outside
+# the repository; CCWEB_CADDY_IMPORT names them (a file,
+# or a pattern such as C:/caddy/sites/*.caddy) and this line imports them.
+# Empty, it is nothing.
+{$CCWEB_CADDY_IMPORT_DIRECTIVE}

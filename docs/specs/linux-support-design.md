@@ -57,6 +57,7 @@ of its own.
 | `CCWEB_ARCHIVE_DIR` | `ccwebdb-backups` beside the repository |
 | `CCWEB_PGADMIN_PORT`, `CCWEB_SONAR_PORT` | `5050`, `9000` |
 | `CCWEB_SITE_DOMAIN`, `CCWEB_TLS_CERT`, `CCWEB_TLS_KEY`, `CCWEB_SITE_ROOT` | empty, empty, empty, `frontend/dist` |
+| `CCWEB_CADDY_IMPORT` | empty |
 | `MEDIA_ROOT` | `media` |
 | `TIME_ZONE` | empty: the host's zone |
 
@@ -96,8 +97,8 @@ of its own.
 Configuration that a server needs is a tracked template:
 
 - `deploy/Caddyfile`, for both systems, with Caddy's own `{$NAME}`
-  placeholders: the domain, the site root, the API address and
-  `CCWEB_TLS_DIRECTIVE`.
+  placeholders: the domain, the site root, the API address,
+  `CCWEB_TLS_DIRECTIVE` and `CCWEB_CADDY_IMPORT_DIRECTIVE`.
 - `deploy/linux/ccwebdb-postgres.service`, `ccwebdb-api.service`,
   `ccwebdb-backup.service` and `ccwebdb-backup.timer`, with `@NAME@`
   placeholders for the repository, the environment, the account, the
@@ -110,9 +111,11 @@ values are the scripts' own plus a few only templates use: `CCWEB_USER`
 (the account running it), `MEDIA_ROOT`, `CCWEB_RUNTIME_DIR` and
 `CCWEB_TLS_DIRECTIVE` -- `tls CERT KEY` when both certificate files are set,
 nothing when neither is (Caddy then obtains a certificate itself), refused
-when only one is. Caddy placeholders get forward slashes, which Caddy wants
+when only one is -- and `CCWEB_CADDY_IMPORT_DIRECTIVE`, `import PATTERN`
+for the server's own other sites when `CCWEB_CADDY_IMPORT` is set, nothing
+when it is not. Caddy placeholders get forward slashes, which Caddy wants
 on Windows too, and quotes around a value with a space; an empty one other
-than the TLS directive is refused, naming the setting. Caddy therefore reads
+than the two directives is refused, naming the setting. Caddy therefore reads
 no environment of its own on either system, and no unit names `.env`: the
 API reads it itself.
 

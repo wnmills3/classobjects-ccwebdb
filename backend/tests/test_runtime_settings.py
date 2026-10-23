@@ -79,6 +79,7 @@ def test_with_no_env_file_the_values_are_todays_literals(
         "CCWEB_TLS_CERT": "",
         "CCWEB_TLS_KEY": "",
         "CCWEB_SITE_ROOT": str(REPO_ROOT / "frontend" / "dist"),
+        "CCWEB_CADDY_IMPORT": "",
     }
 
 
@@ -334,7 +335,23 @@ def test_render_values_add_what_only_the_templates_use(
         "MEDIA_ROOT": str(REPO_ROOT / "media"),
         "CCWEB_RUNTIME_DIR": str(REPO_ROOT / ".runtime"),
         "CCWEB_TLS_DIRECTIVE": "",
+        "CCWEB_CADDY_IMPORT_DIRECTIVE": "",
     }
+
+
+def test_an_import_pattern_makes_one_import_line(bare: pytest.MonkeyPatch) -> None:
+    """The server's own sites: slashes forward, the pattern left for Caddy."""
+    bare.setenv("CCWEB_CADDY_IMPORT", "C:\\caddy\\sites\\*.caddy")
+    directive = render_values(defaults(), "someone")["CCWEB_CADDY_IMPORT_DIRECTIVE"]
+    assert directive == "import C:/caddy/sites/*.caddy"
+
+
+def test_the_import_directive_is_written_as_it_stands() -> None:
+    """Already Caddy's syntax, and nothing at all when there is none."""
+    template = "site {\n}\n{$CCWEB_CADDY_IMPORT_DIRECTIVE}"
+    assert render(template, {"CCWEB_CADDY_IMPORT_DIRECTIVE": ""}) == "site {\n}\n"
+    values = {"CCWEB_CADDY_IMPORT_DIRECTIVE": "import /etc/caddy/sites/*"}
+    assert render(template, values).endswith("\nimport /etc/caddy/sites/*")
 
 
 def test_the_media_root_comes_from_the_environment(

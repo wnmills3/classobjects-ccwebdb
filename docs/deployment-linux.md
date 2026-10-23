@@ -152,6 +152,7 @@ for the paths -- the example's:
 |---|---|
 | `CCWEB_TLS_CERT`, `CCWEB_TLS_KEY` | `/etc/caddy/certs/fullchain.pem`, `/etc/caddy/certs/classobjects.com.key`; both empty when Caddy is to obtain the certificate (*No certificate to buy*) |
 | `CCWEB_SITE_ROOT` | `/srv/ccwebdb/dist`: a copy Caddy can read (step 5) |
+| `CCWEB_CADDY_IMPORT` | unset, unless the server runs sites of its own beside the shop; then their Caddyfiles, such as `/etc/caddy/sites/*.caddy` |
 | `MEDIA_ROOT` | the photographs' folder, as a full path |
 | `CCWEB_BACKUP_DIR` | a folder that leaves the machine -- a mounted network share, or one a sync client carries off |
 | `TIME_ZONE` | the business's zone (`America/New_York`) when the server's clock runs on UTC, as most servers' do |

@@ -269,6 +269,7 @@ with its default; [system-administration.md](system-administration.md),
 | `CCWEB_SITE_DOMAIN` | the domain, without `https://` or `www.` (the example: `classobjects.com`) |
 | `CCWEB_TLS_CERT`, `CCWEB_TLS_KEY` | the full paths of `fullchain.pem` and the key from step 1 (the example: `C:\caddy\certs\fullchain.pem`, `C:\caddy\certs\classobjects.com.key`); both empty when Caddy is to obtain the certificate (*No certificate to buy*) |
 | `CCWEB_SITE_ROOT` | unset: the repository's `frontend\dist`, which Caddy, running as `SYSTEM`, can read |
+| `CCWEB_CADDY_IMPORT` | unset, unless the server runs sites of its own beside the shop (step 7, *Other sites on the server*); the example: `C:\caddy\sites\*.caddy` |
 | `VITE_DIGICERT_SEAL_ID` | DigiCert's seal for the certificate, the eight characters after `DigiCertClickID_` in DigiCert's seal code; unset, the shop shows no seal. Read when the frontend is built (step 5) |
 | `VITE_SHOP_NAME`, `VITE_SHOP_OWNER` | the shop's name, shown in its header, page titles and coming-soon page (unset: `Coin Shop`), and the legal name the footer's copyright line names (unset: none). Read when the frontend is built (step 5) |
 | `CCWEB_BACKUP_DIR`, `CCWEB_BACKUP_TIME` | where and when the daily backup runs (*Keeping it running*); unset, `ccwebdb-backup` in the home folder at 20:00. The example: its OneDrive folder, 20:00 |
@@ -532,6 +533,16 @@ Only when it does, put it in place:
 ```console
 move /y C:\caddy\Caddyfile.new C:\caddy\Caddyfile
 ```
+
+### Other sites on the server
+
+A site the server runs beside the shop is not in the template, which
+describes the shop alone. Its Caddyfile lives in
+`C:\caddy\sites`, outside the repository, and `CCWEB_CADDY_IMPORT` names
+it, or a pattern for all of them (`C:\caddy\sites\*.caddy`). The rendered
+file then ends with an `import` of it; unset, it ends with the `www.`
+block. Render, validate and move the file into place as above after adding
+or changing one.
 
 ### Caddy as a service
 

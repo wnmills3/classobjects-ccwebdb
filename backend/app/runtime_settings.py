@@ -120,6 +120,10 @@ class RuntimeFields(BaseSettings):
     # The built frontend Caddy serves; a copy where the web server's account
     # can read it, when the repository is somewhere it cannot.
     ccweb_site_root: Path = Path("frontend/dist")
+    # Caddyfiles of other sites the server runs beside the shop, kept outside
+    # the repository: a file or a pattern such as
+    # C:/caddy/sites/*.caddy. Empty imports nothing.
+    ccweb_caddy_import: str = ""
 
     # --- image storage ------------------------------------------------------
     # Bytes never live in the database: a collection's photographs run to
@@ -231,6 +235,7 @@ def assignments(s: RuntimeFields, *, include_password: bool = False) -> dict[str
         "CCWEB_TLS_CERT": s.ccweb_tls_cert,
         "CCWEB_TLS_KEY": s.ccweb_tls_key,
         "CCWEB_SITE_ROOT": str(s.ccweb_site_root),
+        "CCWEB_CADDY_IMPORT": s.ccweb_caddy_import,
     }
     # ccweb_testdb asks the host and creates the role the test URL names.
     test_url = make_url(values["CCWEB_TEST_DB_URL"])
@@ -316,7 +321,7 @@ RUNTIME_DIR = REPO_ROOT / ".runtime"
 
 #: Placeholders whose value is already in Caddy's syntax -- a whole directive,
 #: or nothing when there is none to give -- so it is written as it stands.
-_CADDY_VERBATIM = frozenset({"CCWEB_TLS_DIRECTIVE"})
+_CADDY_VERBATIM = frozenset({"CCWEB_TLS_DIRECTIVE", "CCWEB_CADDY_IMPORT_DIRECTIVE"})
 
 
 def _caddy_token(value: str) -> str:
@@ -339,6 +344,11 @@ def tls_directive(cert: str, key: str) -> str:
     return ""
 
 
+def import_directive(pattern: str) -> str:
+    """Caddy's `import` line for the server's own extra sites, or "" for none."""
+    return f"import {_caddy_token(pattern)}" if pattern else ""
+
+
 def render_values(
     s: RuntimeFields, user: str, *, include_password: bool = False
 ) -> dict[str, str]:
@@ -351,6 +361,7 @@ def render_values(
     values["MEDIA_ROOT"] = str(s.media_root)
     values["CCWEB_RUNTIME_DIR"] = str(RUNTIME_DIR)
     values["CCWEB_TLS_DIRECTIVE"] = tls_directive(s.ccweb_tls_cert, s.ccweb_tls_key)
+    values["CCWEB_CADDY_IMPORT_DIRECTIVE"] = import_directive(s.ccweb_caddy_import)
     return values
 
 
