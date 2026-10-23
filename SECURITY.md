@@ -4,8 +4,9 @@
 
 Please report security problems privately, not in a public issue: use
 GitHub's **Report a vulnerability** button on this repository's
-**Security** tab (private vulnerability reporting). Include what you found,
-how to reproduce it, and the version (commit) you tested.
+**Security** tab (private vulnerability reporting), or mail
+support@classobjects.com. Include what you found, how to reproduce it, and
+the version (commit) you tested.
 
 You can expect an acknowledgement within a week and a fix or an
 explanation within 90 days. Once a fix is released the report may be

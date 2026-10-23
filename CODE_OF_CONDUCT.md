@@ -10,7 +10,7 @@ messages.
 
 ## Reporting
 
-Report unacceptable behaviour privately to the maintainer through the
-contact on the maintainer's GitHub profile. Reports are handled in
+Report unacceptable behaviour privately to the maintainer at
+support@classobjects.com. Reports are handled in
 confidence. The maintainer may remove, edit or reject contributions and
 comments that break this code, and may ban anyone who does so repeatedly.
